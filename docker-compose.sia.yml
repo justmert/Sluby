@@ -1,0 +1,136 @@
+# Local Sia indexer stack for SiaStream.
+#
+# Runs:
+#   - indexd   (Sia Foundation's indexer; admin UI :9980, app API :9982)
+#   - postgres (dedicated DB for indexd; NOT the app database)
+#
+# Why a separate compose file?
+#   Keeps the Sia infrastructure decoupled from the SiaStream app's own
+#   postgres/redis stack. Bring this up/down independently.
+#
+# First-time setup (run these commands in order in your terminal):
+#
+#   1. Ensure INDEXD_POSTGRES_PASSWORD is set in .env (any strong string).
+#
+#   2. Start ONLY the postgres service for indexd:
+#        docker compose -f docker-compose.sia.yml up -d indexd-postgres
+#
+#   3. Run the interactive config wizard:
+#        docker compose -f docker-compose.sia.yml run --rm -it \
+#            --entrypoint /usr/bin/indexd indexd config
+#
+#      Prompts and the answers for this setup:
+#        * Data directory: keep default (/data)
+#        * Admin API password: pick one (write it down — you'll use it in the UI)
+#        * advertiseURL: http://localhost:9982
+#        * Network: zen  (free testnet; `mainnet` requires real Siacoin)
+#        * Advanced DB settings:
+#            host: indexd-postgres
+#            port: 5432
+#            user: indexd
+#            password: (the value of INDEXD_POSTGRES_PASSWORD in .env)
+#            database: indexd
+#            SSL mode: disable
+#        * Recovery phrase: say "no" when asked if you have one → wizard
+#          generates a fresh 12-word phrase. Save it. This is the indexd
+#          wallet's seed, separate from app recovery phrases.
+#
+#   4. Start the indexer daemon:
+#        docker compose -f docker-compose.sia.yml up -d indexd
+#
+#   5. Tail logs and wait for chain sync:
+#        docker compose -f docker-compose.sia.yml logs -f indexd
+#
+#   6. Open the admin UI in a browser: http://localhost:9980
+#      Log in with the admin password from step 3.
+#
+# After indexd is synced:
+#   - `npm run sia:onboard` (from backend/) now points at http://localhost:9982
+#     and will work end-to-end for the app registration flow.
+#
+# Funding for actual uploads:
+#   - Zen testnet requires Siacoin to form storage contracts with hosts.
+#   - Options: run SiaFoundation/cpuminer against the indexd wallet, or
+#     find a public Zen testnet faucet. Until contracts are formed, uploads
+#     will fail; the /auth/connect + register flow still works without coins.
+
+services:
+  indexd-postgres:
+    image: postgres:16-alpine
+    container_name: sia-indexd-postgres
+    restart: unless-stopped
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: indexd
+      POSTGRES_PASSWORD: ${INDEXD_POSTGRES_PASSWORD}
+      POSTGRES_DB: indexd
+    volumes:
+      - indexd-pgdata:/var/lib/postgresql/data
+    ports:
+      # Expose on a host port that doesn't conflict with other projects.
+      # Container-to-container traffic uses the service name + 5432 regardless.
+      - "127.0.0.1:5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indexd -d indexd"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  indexd:
+    image: ghcr.io/siafoundation/indexd:master
+    container_name: sia-indexd
+    restart: unless-stopped
+    depends_on:
+      indexd-postgres:
+        condition: service_healthy
+    ports:
+      # Admin UI + admin API (password-protected). Exposed only on localhost.
+      - "127.0.0.1:9980:9980/tcp"
+      # Syncer (p2p, public). Needed to sync the Sia chain.
+      - "9981:9981/tcp"
+      # Application API (what our backend's SDK connects to).
+      - "127.0.0.1:9982:9982/tcp"
+    volumes:
+      - indexd-data:/data
+
+  # walletd runs alongside indexd just so we have something that exposes the
+  # walletd API cpuminer expects (block templates + block broadcast). Blocks
+  # that cpuminer mines pay out to indexd's wallet address and propagate to
+  # indexd over the Zen testnet p2p network.
+  walletd:
+    image: ghcr.io/siafoundation/walletd:latest
+    container_name: sia-walletd
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:19980:9980/tcp"
+      - "19981:9981/tcp"
+    environment:
+      WALLETD_API_PASSWORD: ${WALLETD_API_PASSWORD:-1234}
+    command: ["-network=zen"]
+    volumes:
+      - walletd-data:/data
+
+  # Single-threaded CPU miner for Zen testnet. Connects to walletd's API,
+  # mines blocks paying out to MINER_ADDRESS (= indexd's wallet address).
+  cpuminer:
+    image: ghcr.io/siafoundation/cpuminer:master
+    container_name: sia-cpuminer
+    restart: unless-stopped
+    depends_on:
+      - walletd
+    environment:
+      WALLETD_API_PASSWORD: ${WALLETD_API_PASSWORD:-1234}
+    # MINER_ADDRESS must be set in .env to indexd's wallet address
+    # (fetch via: curl -u :ADMIN_PASSWORD http://127.0.0.1:9980/api/wallet).
+    command:
+      [
+        "--address=${MINER_ADDRESS}",
+        "--api=http://walletd:9980/api",
+        "--password=${WALLETD_API_PASSWORD:-1234}",
+        "--threads=8",
+      ]
+
+volumes:
+  indexd-pgdata:
+  indexd-data:
+  walletd-data:

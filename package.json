@@ -1,0 +1,35 @@
+{
+  "name": "sia-stream",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "packages/sdk",
+    "packages/react",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=backend",
+    "build": "npm run build --workspaces",
+    "build:backend": "npm run build --workspace=backend",
+    "build:sdk": "npm run build --workspace=@siastream/sdk",
+    "build:react": "npm run build --workspace=@siastream/react",
+    "dev:frontend": "npm run dev --workspace=siastream-frontend",
+    "build:frontend": "npm run build --workspace=siastream-frontend",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit --workspaces"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.1",
+    "typescript-eslint": "^8.56.0"
+  },
+  "dependencies": {}
+}

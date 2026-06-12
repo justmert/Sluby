@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "allowlist_members_allowlist_address_idx" ON "allowlist_members" USING btree ("allowlist_id","address");

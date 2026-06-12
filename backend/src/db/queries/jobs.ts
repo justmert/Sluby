@@ -1,0 +1,225 @@
+import { eq, and, desc, sql, type SQL } from 'drizzle-orm';
+import { db } from '../../config/database.js';
+import {
+  processingJobs,
+  type ProcessingJob,
+  type NewProcessingJob,
+} from '../schema.js';
+
+/**
+ * Append a log entry to a processing job's logs array.
+ */
+export async function appendProcessingLog(
+  jobId: string,
+  stage: string,
+  message: string,
+): Promise<void> {
+  await db.execute(sql`
+    UPDATE processing_jobs
+    SET logs = COALESCE(logs, '[]'::jsonb) || ${JSON.stringify([{ timestamp: new Date().toISOString(), stage, message }])}::jsonb
+    WHERE id = ${jobId}
+  `);
+}
+
+/**
+ * Create a new processing job record.
+ */
+export async function createProcessingJob(
+  data: NewProcessingJob,
+): Promise<ProcessingJob> {
+  const [job] = await db.insert(processingJobs).values(data).returning();
+  return job;
+}
+
+/**
+ * Find a processing job by its primary key.
+ */
+export async function getProcessingJobById(
+  id: string,
+): Promise<ProcessingJob | undefined> {
+  return db.query.processingJobs.findFirst({
+    where: eq(processingJobs.id, id),
+  });
+}
+
+/**
+ * Find a processing job by its associated video asset ID.
+ * Returns the most recent job for that asset.
+ */
+export async function getProcessingJobByVideoAssetId(
+  videoAssetId: string,
+): Promise<ProcessingJob | undefined> {
+  return db.query.processingJobs.findFirst({
+    where: eq(processingJobs.videoAssetId, videoAssetId),
+    orderBy: [desc(processingJobs.createdAt)],
+  });
+}
+
+/**
+ * Find a processing job by its associated upload session ID.
+ */
+export async function getProcessingJobByUploadSessionId(
+  uploadSessionId: string,
+): Promise<ProcessingJob | undefined> {
+  return db.query.processingJobs.findFirst({
+    where: eq(processingJobs.uploadSessionId, uploadSessionId),
+    orderBy: [desc(processingJobs.createdAt)],
+  });
+}
+
+/**
+ * List processing jobs with optional filters.
+ */
+export async function listProcessingJobs(opts?: {
+  status?: ProcessingJob['status'];
+  videoAssetId?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ProcessingJob[]> {
+  const { status, videoAssetId, limit = 50, offset = 0 } = opts ?? {};
+
+  const conditions: SQL[] = [];
+  if (status) conditions.push(eq(processingJobs.status, status));
+  if (videoAssetId)
+    conditions.push(eq(processingJobs.videoAssetId, videoAssetId));
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  return db.query.processingJobs.findMany({
+    where,
+    limit,
+    offset,
+    orderBy: [desc(processingJobs.createdAt)],
+  });
+}
+
+/**
+ * Update the status and progress of a processing job.
+ */
+export async function updateProcessingJobStatus(
+  id: string,
+  data: {
+    status: ProcessingJob['status'];
+    progressPercent?: number;
+    errorMessage?: string | null;
+  },
+): Promise<ProcessingJob | undefined> {
+  const now = new Date();
+  const updateData: Record<string, unknown> = {
+    status: data.status,
+    updatedAt: now,
+  };
+
+  if (data.progressPercent !== undefined) {
+    updateData.progressPercent = data.progressPercent;
+  }
+  if (data.errorMessage !== undefined) {
+    updateData.errorMessage = data.errorMessage;
+  }
+  if (data.status === 'processing') {
+    updateData.startedAt = now;
+  }
+  if (data.status === 'completed') {
+    updateData.completedAt = now;
+    updateData.progressPercent = 100;
+  }
+
+  const [updated] = await db
+    .update(processingJobs)
+    .set(updateData)
+    .where(eq(processingJobs.id, id))
+    .returning();
+  return updated;
+}
+
+/**
+ * Update the progress percentage of a processing job.
+ */
+export async function updateProcessingJobProgress(
+  id: string,
+  progressPercent: number,
+): Promise<ProcessingJob | undefined> {
+  const [updated] = await db
+    .update(processingJobs)
+    .set({
+      progressPercent,
+      updatedAt: new Date(),
+    })
+    .where(eq(processingJobs.id, id))
+    .returning();
+  return updated;
+}
+
+/**
+ * Increment the retry count and set the status to retrying.
+ */
+export async function markProcessingJobRetrying(
+  id: string,
+  errorMessage: string,
+): Promise<ProcessingJob | undefined> {
+  const [updated] = await db
+    .update(processingJobs)
+    .set({
+      status: 'retrying',
+      errorMessage,
+      retryCount: sql`${processingJobs.retryCount} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(processingJobs.id, id))
+    .returning();
+  return updated;
+}
+
+/**
+ * Mark a processing job as permanently failed.
+ */
+export async function failProcessingJob(
+  id: string,
+  errorMessage: string,
+): Promise<ProcessingJob | undefined> {
+  const [updated] = await db
+    .update(processingJobs)
+    .set({
+      status: 'failed',
+      errorMessage,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(processingJobs.id, id))
+    .returning();
+  return updated;
+}
+
+/**
+ * Delete a processing job by ID.
+ */
+export async function deleteProcessingJob(
+  id: string,
+): Promise<ProcessingJob | undefined> {
+  const [deleted] = await db
+    .delete(processingJobs)
+    .where(eq(processingJobs.id, id))
+    .returning();
+  return deleted;
+}
+
+/**
+ * Count processing jobs grouped by status.
+ */
+export async function countProcessingJobsByStatus(): Promise<
+  Record<string, number>
+> {
+  const rows = await db
+    .select({
+      status: processingJobs.status,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(processingJobs)
+    .groupBy(processingJobs.status);
+
+  const result: Record<string, number> = {};
+  for (const row of rows) {
+    result[row.status] = row.count;
+  }
+  return result;
+}

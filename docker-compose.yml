@@ -1,0 +1,76 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "4500:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://sia:sia@postgres:5432/siastream
+      - REDIS_URL=redis://redis:6379
+      - SIA_INDEXER_URL=${SIA_INDEXER_URL:-http://localhost:9980}
+      - SIA_APP_ID=${SIA_APP_ID}
+      - SIA_APP_KEY=${SIA_APP_KEY}
+      - PORT=3000
+      - HOST=0.0.0.0
+      - UPLOAD_DIR=/app/uploads
+      - TRANSCODE_OUTPUT_DIR=/app/transcode-output
+      - CACHE_DIR=/app/cache
+    volumes:
+      - uploads:/app/uploads
+      - transcode-output:/app/transcode-output
+      - cache:/app/cache
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - nginx-cache:/var/cache/nginx/sia
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sia
+      POSTGRES_PASSWORD: sia
+      POSTGRES_DB: siastream
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sia -d siastream"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  uploads:
+  transcode-output:
+  cache:
+  nginx-cache:
+  pgdata:
+  redis-data:

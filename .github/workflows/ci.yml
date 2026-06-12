@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-format:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+  typecheck-and-test:
+    name: "${{ matrix.package }} - Typecheck & Test"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: backend
+            workspace: backend
+            path: backend
+          - package: sdk
+            workspace: "@siastream/sdk"
+            path: packages/sdk
+          - package: react
+            workspace: "@siastream/react"
+            path: packages/react
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install package dependencies
+        run: npm ci --workspace=${{ matrix.workspace }}
+
+      - name: Typecheck
+        run: npx tsc --noEmit --project ${{ matrix.path }}/tsconfig.json
+
+      - name: Test
+        run: npm test --workspace=${{ matrix.workspace }} --if-present
+

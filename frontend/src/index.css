@@ -1,0 +1,227 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Base surfaces ── */
+  --color-base: #0a0a0f;
+  --color-surface-1: rgba(255, 255, 255, 0.03);
+  --color-surface-2: rgba(255, 255, 255, 0.05);
+  --color-surface-3: rgba(255, 255, 255, 0.07);
+
+  /* ── Borders ── */
+  --color-border-default: rgba(255, 255, 255, 0.08);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+  --color-border-focus: rgba(20, 184, 166, 0.4);
+
+  /* ── Text ── */
+  --color-text-primary: #f0f0f0;
+  --color-text-secondary: #a0a0a0;
+  --color-text-muted: #5a5a5a;
+  --color-text-placeholder: #6a6a6a;
+
+  /* ── Primary: Teal ── */
+  --color-accent-primary: #14b8a6;
+  --color-accent-primary-hover: #0d9488;
+  --color-accent-primary-muted: rgba(20, 184, 166, 0.1);
+
+  /* ── Accent: Orange ── */
+  --color-accent-orange: #f97316;
+  --color-accent-orange-muted: rgba(249, 115, 22, 0.1);
+
+  /* ── Semantic ── */
+  --color-accent-emerald: #10b981;
+  --color-accent-amber: #f59e0b;
+  --color-accent-red: #ef4444;
+  --color-accent-violet: #8b5cf6;
+  --color-accent-sui: #4DA2FF;
+
+  /* ── Glow effects ── */
+  --color-glow-teal: rgba(20, 184, 166, 0.12);
+  --color-glow-orange: rgba(249, 115, 22, 0.10);
+  --color-glow-emerald: rgba(16, 185, 129, 0.12);
+  --color-glow-red: rgba(239, 68, 68, 0.12);
+  --color-glow-violet: rgba(139, 92, 246, 0.12);
+
+  /* ── Typography ── */
+  --font-heading: "Sora", system-ui, sans-serif;
+  --font-sans: "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* ── Animations ── */
+  --animate-fade-in: fade-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-up: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-down: slide-down 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-scale-in: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-glow: glow-pulse 2s ease-in-out infinite;
+  --animate-shimmer: shimmer 2s ease-in-out infinite;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes slide-down {
+    from { opacity: 0; transform: translateY(-12px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes glow-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  @keyframes progress-shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  @keyframes skeleton-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.7; }
+  }
+
+  @keyframes spin-slow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Base styles — Obsidian Cinema
+   ══════════════════════════════════════════════════════════════════════════ */
+
+body {
+  background-color: #0a0a0f;
+  color: #f0f0f0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ambient background — dot grid + gradient orbs */
+#root {
+  position: relative;
+  min-height: 100vh;
+}
+
+#root::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 15% 15%, rgba(20, 184, 166, 0.04) 0%, transparent 50%),
+    radial-gradient(circle at 85% 80%, rgba(249, 115, 22, 0.03) 0%, transparent 50%),
+    radial-gradient(circle 1px at center, rgba(255, 255, 255, 0.03) 0%, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 24px 24px;
+}
+
+/* Noise texture overlay */
+#root::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.015;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+}
+
+/* Selection */
+::selection {
+  background-color: rgba(20, 184, 166, 0.3);
+  color: #f0f0f0;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Global focus-visible — teal */
+*:focus-visible {
+  outline: 2px solid rgba(20, 184, 166, 0.5);
+  outline-offset: 2px;
+}
+
+.focus-ring {
+  outline: none;
+}
+
+.focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px #0a0a0f, 0 0 0 4px rgba(20, 184, 166, 0.5);
+}
+
+/* ── Heading font utility ── */
+.font-heading {
+  font-family: "Sora", system-ui, sans-serif;
+}
+
+/* ── Card glow effect on hover ── */
+.card-glow {
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.card-glow:hover {
+  box-shadow: 0 0 40px rgba(20, 184, 166, 0.05), 0 0 80px rgba(20, 184, 166, 0.02);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* ── Gradient text utility ── */
+.text-gradient-teal {
+  background: linear-gradient(135deg, #14b8a6, #06b6d4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-warm {
+  background: linear-gradient(135deg, #f97316, #f59e0b);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Respect user motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

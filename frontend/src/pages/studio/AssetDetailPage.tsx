@@ -1,0 +1,910 @@
+import { useState } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import {
+  Play,
+  Film,
+  Copy,
+  Check,
+  CheckCircle2,
+  Loader2,
+  Pencil,
+  X,
+  Trash2,
+  ExternalLink,
+  AlertCircle,
+  Clock,
+  HardDrive,
+  Layers,
+  Database,
+  RefreshCw,
+  Shield,
+  ArrowLeft,
+  Image,
+  Cpu,
+  Timer,
+} from 'lucide-react';
+import { PageContainer } from '@/components/layout/PageContainer';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { useAsset, useUpdateAsset, useDeleteAsset } from '@/hooks/useAssets';
+import { usePlayback } from '@/hooks/usePlayback';
+import { useProcessingJob, type ProcessingLog } from '@/hooks/useProcessingJob';
+import { formatDuration, formatBytes, formatRelativeTime } from '@/lib/formatters';
+import { truncateAddress } from '@/lib/address-helpers';
+import { siaObjectUrl } from '@/lib/sia';
+import { BASE_URL } from '@/lib/api-client';
+import { cn } from '@/lib/cn';
+// BlockchainStorageSection removed (on-chain specific component)
+
+// ---------------------------------------------------------------------------
+// CopyButton (inline)
+// ---------------------------------------------------------------------------
+
+function CopyButton({ text, className }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      className={cn(
+        'p-1 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors',
+        className,
+      )}
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline shared badges
+// ---------------------------------------------------------------------------
+
+function StatusBadge({ status, large }: { status: string; large?: boolean }) {
+  const config: Record<string, { label: string; variant: 'success' | 'warning' | 'destructive' | 'secondary' | 'default' }> = {
+    created: { label: 'Created', variant: 'secondary' },
+    uploading: { label: 'Uploading', variant: 'warning' },
+    processing: { label: 'Processing', variant: 'warning' },
+    ready: { label: 'Ready', variant: 'success' },
+    failed: { label: 'Failed', variant: 'destructive' },
+  };
+  const c = config[status] ?? { label: status, variant: 'secondary' as const };
+  return (
+    <Badge variant={c.variant} className={large ? 'text-sm px-3 py-1' : ''}>
+      {c.label}
+    </Badge>
+  );
+}
+
+function AccessTierBadge({ tier, large }: { tier: string; large?: boolean }) {
+  const config: Record<string, { label: string; variant: 'default' | 'secondary' | 'warning' | 'success' }> = {
+    public: { label: 'Public', variant: 'success' },
+    private: { label: 'Private', variant: 'default' },
+    pay_per_view: { label: 'Pay-per-View', variant: 'warning' },
+    subscription: { label: 'Subscription', variant: 'default' },
+  };
+  const c = config[tier] ?? { label: tier, variant: 'secondary' as const };
+  return (
+    <Badge variant={c.variant} className={large ? 'text-sm px-3 py-1' : ''}>
+      {c.label}
+    </Badge>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline Editable Field
+// ---------------------------------------------------------------------------
+
+function InlineEditable({
+  value,
+  onSave,
+  isSaving,
+  as = 'input',
+  className,
+}: {
+  value: string;
+  onSave: (v: string) => void;
+  isSaving?: boolean;
+  as?: 'input' | 'textarea';
+  className?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  const handleSave = () => {
+    if (draft.trim() && draft !== value) {
+      onSave(draft.trim());
+    }
+    setEditing(false);
+  };
+
+  const handleCancel = () => {
+    setDraft(value);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-start gap-2">
+        {as === 'textarea' ? (
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') handleCancel();
+            }}
+            className="min-h-[60px]"
+            autoFocus
+          />
+        ) : (
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSave();
+              if (e.key === 'Escape') handleCancel();
+            }}
+            autoFocus
+          />
+        )}
+        <Button size="sm" onClick={handleSave} disabled={isSaving}>
+          {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Save'}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={handleCancel}>
+          <X className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={() => setEditing(true)}
+      className={cn(
+        'group cursor-pointer rounded-lg px-2 py-1 -mx-2 -my-1 hover:bg-white/[0.05] transition-colors',
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <span className="flex-1">{value || <span className="text-zinc-600 italic">Click to edit</span>}</span>
+        <Pencil className="w-3 h-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Processing Pipeline
+// ---------------------------------------------------------------------------
+
+const PIPELINE_STEPS = ['Created', 'Uploading', 'Processing', 'Ready'];
+
+function PipelineStepper({ status }: { status: string }) {
+  const statusToIndex: Record<string, number> = {
+    created: 0,
+    uploading: 1,
+    processing: 2,
+    ready: 3,
+    failed: -1,
+  };
+  const currentIndex = statusToIndex[status] ?? 0;
+
+  return (
+    <div className="flex items-center" role="progressbar">
+      {PIPELINE_STEPS.map((step, i) => {
+        const isComplete = i < currentIndex;
+        const isCurrent = i === currentIndex;
+
+        return (
+          <div key={step} className="flex items-center flex-1 last:flex-none">
+            <div className="flex items-center gap-2">
+              <div
+                className={cn(
+                  'flex items-center justify-center w-7 h-7 rounded-full text-[10px] font-semibold',
+                  isComplete && 'bg-emerald-500/20 text-emerald-400',
+                  isCurrent && status !== 'failed' && 'bg-teal-500/20 text-teal-400',
+                  isCurrent && status === 'failed' && 'bg-red-500/20 text-red-400',
+                  !isComplete && !isCurrent && 'bg-white/[0.04] text-zinc-500',
+                )}
+              >
+                {isComplete ? (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                ) : isCurrent && status !== 'failed' && status !== 'ready' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  i + 1
+                )}
+              </div>
+              <span
+                className={cn(
+                  'text-xs font-medium whitespace-nowrap',
+                  isComplete && 'text-emerald-400',
+                  isCurrent && 'text-teal-400',
+                  !isComplete && !isCurrent && 'text-zinc-500',
+                )}
+              >
+                {step}
+              </span>
+            </div>
+            {i < PIPELINE_STEPS.length - 1 && (
+              <div className="flex-1 mx-2 h-px relative">
+                <div className="absolute inset-0 bg-white/[0.08]" />
+                <div
+                  className={cn(
+                    'absolute inset-y-0 left-0 transition-all duration-500',
+                    i < currentIndex ? 'bg-emerald-500/40 w-full' : 'w-0',
+                  )}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rendition cards
+// ---------------------------------------------------------------------------
+
+const RENDITIONS = [
+  { label: '1080p', resolution: '1920x1080', videoBitrate: '6 Mbps', audioBitrate: '192 Kbps', codec: 'H.264 Main', audio: 'AAC Stereo' },
+  { label: '720p', resolution: '1280x720', videoBitrate: '3.5 Mbps', audioBitrate: '128 Kbps', codec: 'H.264 Main', audio: 'AAC Stereo' },
+  { label: '540p', resolution: '960x540', videoBitrate: '1.8 Mbps', audioBitrate: '128 Kbps', codec: 'H.264 Main', audio: 'AAC Stereo' },
+  { label: '360p', resolution: '640x360', videoBitrate: '800 Kbps', audioBitrate: '96 Kbps', codec: 'H.264 Main', audio: 'AAC Stereo' },
+];
+
+// ---------------------------------------------------------------------------
+// Technical Details (hardcoded FFmpeg pipeline constants)
+// ---------------------------------------------------------------------------
+
+const TECHNICAL_DETAILS = [
+  { label: 'Codec', value: 'H.264 (Main Profile)' },
+  { label: 'Audio', value: 'AAC Stereo, 48 kHz' },
+  { label: 'Container', value: 'fMP4 (Fragmented MP4)' },
+  { label: 'Segment Duration', value: '6 seconds' },
+  { label: 'Keyframe Interval', value: '2 seconds' },
+  { label: 'Renditions', value: '4 (1080p / 720p / 540p / 360p)' },
+];
+
+// ---------------------------------------------------------------------------
+// Processing Time helpers
+// ---------------------------------------------------------------------------
+
+function formatProcessingTime(startedAt: string, completedAt: string): string {
+  const start = new Date(startedAt).getTime();
+  const end = new Date(completedAt).getTime();
+  const diffMs = end - start;
+  if (diffMs < 0) return '--';
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Thumbnail Gallery
+// ---------------------------------------------------------------------------
+
+function ThumbnailGallery({ objectIds }: { objectIds: string[] }) {
+  const thumbnails = objectIds.slice(0, 6);
+  if (thumbnails.length === 0) return null;
+
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5">
+      <h3 className="text-sm font-semibold text-zinc-200 font-heading flex items-center gap-2 mb-3">
+        <Image className="w-4 h-4 text-zinc-400" />
+        Thumbnails
+      </h3>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {thumbnails.map((objectId) => (
+          <div
+            key={objectId}
+            className="relative flex-none w-36 aspect-video rounded-lg overflow-hidden border border-white/[0.08] bg-white/[0.03] group"
+          >
+            <img
+              src={siaObjectUrl(objectId)}
+              alt="Video thumbnail"
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Processing Logs Timeline
+// ---------------------------------------------------------------------------
+
+const STAGE_CONFIG: Record<string, { icon: typeof Cpu; color: string; bg: string; label: string }> = {
+  transcode: { icon: Cpu, color: 'text-zinc-400', bg: 'bg-zinc-400/20', label: 'Transcode' },
+  blockchain: { icon: Database, color: 'text-teal-400', bg: 'bg-teal-400/20', label: 'Blockchain' },
+  upload: { icon: HardDrive, color: 'text-violet-400', bg: 'bg-violet-400/20', label: 'Upload' },
+  finalize: { icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-400/20', label: 'Finalize' },
+};
+
+function formatLogTimestamp(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
+/** Parse a log message and return rich JSX with clickable links where applicable. */
+function RichLogMessage({ message }: { message: string }) {
+  // Check for object ID pattern: "object <id>"
+  const objectMatch = message.match(/object\s+([A-Za-z0-9_/-]{10,})/);
+  if (objectMatch) {
+    const objectId = objectMatch[1];
+    const idx = objectMatch.index!;
+    const beforeText = message.slice(0, idx);
+    const afterText = message.slice(idx + objectMatch[0].length);
+    return (
+      <span>
+        {beforeText}object{' '}
+        <span className="text-violet-400 font-mono">
+          {truncateAddress(objectId, 8, 6)}
+        </span>
+        {afterText}
+      </span>
+    );
+  }
+
+  // Format segment counts and byte sizes for readability
+  const formattedMessage = message
+    .replace(/(\d{4,})(\s*bytes)/gi, (_match, num, suffix) => {
+      const n = parseInt(num, 10);
+      if (n >= 1_073_741_824) return `${(n / 1_073_741_824).toFixed(2)} GB${suffix ? '' : ''}`;
+      if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(2)} MB`;
+      if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+      return `${num}${suffix}`;
+    })
+    .replace(/(\d+)\s+segments?/gi, (match) => match);
+
+  return <span>{formattedMessage}</span>;
+}
+
+function ProcessingLogsTimeline({ logs }: { logs: ProcessingLog[] }) {
+  if (!logs || logs.length === 0) return null;
+
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 backdrop-blur-sm">
+      <h3 className="text-sm font-semibold text-zinc-200 font-heading flex items-center gap-2 mb-4">
+        <Layers className="w-4 h-4 text-zinc-400" />
+        Blockchain Operations
+      </h3>
+      <div className="relative ml-3">
+        {/* Vertical timeline line */}
+        <div className="absolute left-0 top-2 bottom-2 w-px bg-white/[0.08]" />
+
+        <div className="space-y-3">
+          {logs.map((log, index) => {
+            const config = STAGE_CONFIG[log.stage] ?? STAGE_CONFIG.transcode;
+            const Icon = config.icon;
+
+            return (
+              <div key={index} className="relative pl-6 group">
+                {/* Timeline dot */}
+                <div
+                  className={cn(
+                    'absolute left-0 top-1.5 w-2 h-2 rounded-full -translate-x-[3.5px] ring-2 ring-zinc-950',
+                    config.bg,
+                  )}
+                />
+
+                <div className="flex items-start gap-3">
+                  {/* Timestamp */}
+                  <span className="text-[10px] font-mono text-zinc-600 whitespace-nowrap pt-0.5 min-w-[60px]">
+                    {formatLogTimestamp(log.timestamp)}
+                  </span>
+
+                  {/* Stage badge */}
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md whitespace-nowrap',
+                      config.bg,
+                      config.color,
+                    )}
+                  >
+                    <Icon className="w-3 h-3" />
+                    {config.label}
+                  </span>
+
+                  {/* Message */}
+                  <span className="text-xs text-zinc-400 leading-relaxed pt-0.5">
+                    <RichLogMessage message={log.message} />
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Embed Code Generator
+// ---------------------------------------------------------------------------
+
+function EmbedCodeGenerator({ assetId, playbackUrl }: { assetId: string; playbackUrl?: string }) {
+  const hlsUrl = playbackUrl ?? `${BASE_URL}/api/v1/playback/${assetId}/hls`;
+
+  const htmlCode = `<iframe
+  src="${BASE_URL}/watch/${assetId}"
+  width="640"
+  height="360"
+  frameborder="0"
+  allowfullscreen
+></iframe>`;
+
+  const reactCode = `<SiaStreamPlayer
+  src="${hlsUrl}"
+  assetId="${assetId}"
+  autoPlay={false}
+  controls
+/>`;
+
+  const sdkCode = `import { SiaStreamClient } from '@siastream/sdk';
+
+const client = new SiaStreamClient({
+  apiKey: 'YOUR_API_KEY',
+  baseUrl: '${BASE_URL}',
+});
+
+const playback = await client.getPlayback('${assetId}');
+console.log('HLS URL:', playback.playbackUrl);`;
+
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5">
+      <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-4">Embed Code</h3>
+      <Tabs defaultValue="html">
+        <TabsList className="bg-white/[0.04] rounded-lg p-0.5">
+          <TabsTrigger value="html" className="rounded-md text-xs data-[state=active]:bg-white/[0.07]">HTML</TabsTrigger>
+          <TabsTrigger value="react" className="rounded-md text-xs data-[state=active]:bg-white/[0.07]">React</TabsTrigger>
+          <TabsTrigger value="sdk" className="rounded-md text-xs data-[state=active]:bg-white/[0.07]">SDK</TabsTrigger>
+        </TabsList>
+        <TabsContent value="html">
+          <div className="relative">
+            <pre className="bg-[#0a0a0f] border border-white/[0.08] rounded-xl p-4 text-xs font-mono text-zinc-300 overflow-x-auto">
+              {htmlCode}
+            </pre>
+            <div className="absolute top-2 right-2">
+              <CopyButton text={htmlCode} />
+            </div>
+          </div>
+        </TabsContent>
+        <TabsContent value="react">
+          <div className="relative">
+            <pre className="bg-[#0a0a0f] border border-white/[0.08] rounded-xl p-4 text-xs font-mono text-zinc-300 overflow-x-auto">
+              {reactCode}
+            </pre>
+            <div className="absolute top-2 right-2">
+              <CopyButton text={reactCode} />
+            </div>
+          </div>
+        </TabsContent>
+        <TabsContent value="sdk">
+          <div className="relative">
+            <pre className="bg-[#0a0a0f] border border-white/[0.08] rounded-xl p-4 text-xs font-mono text-zinc-300 overflow-x-auto">
+              {sdkCode}
+            </pre>
+            <div className="absolute top-2 right-2">
+              <CopyButton text={sdkCode} />
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Metadata Card
+// ---------------------------------------------------------------------------
+
+function MetadataRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-2.5 border-b border-white/[0.08] last:border-b-0">
+      <span className="text-xs text-zinc-400">{label}</span>
+      <span className="text-xs text-zinc-200">{value}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton Loading
+// ---------------------------------------------------------------------------
+
+function DetailSkeleton() {
+  return (
+    <PageContainer>
+      <div className="space-y-6">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-8 w-2/3" />
+        <div className="flex gap-4">
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 w-20" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Skeleton className="h-40 rounded-2xl" />
+          <Skeleton className="h-40 rounded-2xl" />
+        </div>
+        <Skeleton className="h-24 rounded-2xl" />
+      </div>
+    </PageContainer>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Page Component
+// ---------------------------------------------------------------------------
+
+export default function AssetDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const { data: asset, isLoading, isError, refetch } = useAsset(id);
+  const playback = usePlayback(asset?.status === 'ready' ? id : undefined);
+  // Fetch processing job both while processing AND when ready (to show timing data)
+  const processingJob = useProcessingJob(
+    id,
+    asset?.status === 'processing' || asset?.status === 'uploading' || asset?.status === 'ready',
+  );
+  const updateAsset = useUpdateAsset();
+  const deleteAsset = useDeleteAsset();
+
+  if (isLoading) return <DetailSkeleton />;
+
+  if (isError || !asset) {
+    return (
+      <PageContainer>
+        <div className="bg-white/[0.03] border border-red-500/20 rounded-2xl p-8 text-center">
+          <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-3" />
+          <p className="text-sm text-red-400 mb-3">Failed to load asset</p>
+          <div className="flex items-center gap-2 justify-center">
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
+              <RefreshCw className="w-3.5 h-3.5" />
+              Retry
+            </Button>
+            <Button variant="ghost" size="sm" asChild className="bg-white/[0.04] hover:bg-white/[0.07] text-zinc-300">
+              <Link to="/studio/assets">Back to Library</Link>
+            </Button>
+          </div>
+        </div>
+      </PageContainer>
+    );
+  }
+
+  const handleSaveTitle = (title: string) => {
+    updateAsset.mutate({ id: asset.id, data: { title } });
+  };
+
+  const handleSaveDescription = (description: string) => {
+    updateAsset.mutate({ id: asset.id, data: { description } });
+  };
+
+  const handleDelete = () => {
+    deleteAsset.mutate(asset.id, {
+      onSuccess: () => navigate('/studio/assets'),
+    });
+  };
+
+  // Compute processing time from the job data
+  const jobData = processingJob.data;
+  const hasProcessingTiming = !!(jobData?.started_at && jobData?.completed_at);
+
+  return (
+    <PageContainer>
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="space-y-6">
+        {/* ── HEADER ── */}
+        <div>
+          <Button variant="ghost" size="sm" asChild className="gap-1.5 -ml-2 text-zinc-400 hover:text-zinc-200 mb-3">
+            <Link to="/studio/assets">
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Back to Library
+            </Link>
+          </Button>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <InlineEditable
+                value={asset.title}
+                onSave={handleSaveTitle}
+                isSaving={updateAsset.isPending}
+                className="text-2xl font-bold text-[#f0f0f0] font-heading"
+              />
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <StatusBadge status={asset.status} />
+              <AccessTierBadge tier={asset.access_tier} />
+              {asset.status === 'ready' && (
+                <Button variant="outline" size="sm" asChild className="gap-1.5 bg-white/[0.04] hover:bg-white/[0.07]">
+                  <Link to={`/studio/player?asset=${asset.id}`}>
+                    <Play className="w-3.5 h-3.5" />
+                    Play
+                  </Link>
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── INFO STRIP ── */}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-zinc-400">
+          {asset.resolution && (
+            <span className="flex items-center gap-1.5">
+              <Film className="w-3.5 h-3.5 text-zinc-500" />
+              {asset.resolution}
+            </span>
+          )}
+          {asset.duration_ms > 0 && (
+            <span className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-zinc-500" />
+              {formatDuration(asset.duration_ms)}
+            </span>
+          )}
+          <span className="flex items-center gap-1.5">
+            <HardDrive className="w-3.5 h-3.5 text-zinc-500" />
+            {formatBytes(asset.total_storage_bytes ?? 0)}
+          </span>
+          {asset.segment_count > 0 && (
+            <span className="flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-zinc-500" />
+              {asset.segment_count} segments
+            </span>
+          )}
+          <span className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-zinc-500" />
+            {formatRelativeTime(asset.created_at)}
+          </span>
+          {asset.updated_at && asset.updated_at !== asset.created_at && (
+            <span className="flex items-center gap-1.5">
+              <RefreshCw className="w-3.5 h-3.5 text-zinc-500" />
+              Updated {formatRelativeTime(asset.updated_at)}
+            </span>
+          )}
+        </div>
+
+        {/* ── PROCESSING TIMELINE (when completed) ── */}
+        {asset.status === 'ready' && hasProcessingTiming && (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <span className="flex items-center gap-1.5 text-emerald-400">
+              <Timer className="w-3.5 h-3.5" />
+              Processing Time: {formatProcessingTime(jobData!.started_at!, jobData!.completed_at!)}
+            </span>
+            <span className="text-zinc-500 text-xs">
+              Started {formatTimestamp(jobData!.started_at!)}
+            </span>
+            <span className="text-zinc-500 text-xs">
+              Completed {formatTimestamp(jobData!.completed_at!)}
+            </span>
+          </div>
+        )}
+
+        {/* ── DESCRIPTION ── */}
+        <div>
+          <InlineEditable
+            value={asset.description || ''}
+            onSave={handleSaveDescription}
+            isSaving={updateAsset.isPending}
+            as="textarea"
+            className="text-sm text-zinc-400"
+          />
+        </div>
+
+        {/* ── THUMBNAIL GALLERY ── */}
+        {asset.thumbnail_object_ids && asset.thumbnail_object_ids.length > 0 && (
+          <ThumbnailGallery objectIds={asset.thumbnail_object_ids} />
+        )}
+
+        {/* ── STORAGE INFO ── */}
+
+        {/* ── TECHNICAL DETAILS ── */}
+        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 backdrop-blur-sm">
+          <h3 className="text-sm font-semibold text-zinc-200 font-heading flex items-center gap-2 mb-4">
+            <Cpu className="w-4 h-4 text-zinc-400" />
+            Technical Details
+          </h3>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+            {TECHNICAL_DETAILS.map((item) => (
+              <div key={item.label} className="flex items-center justify-between py-1.5 border-b border-white/[0.06] last:border-b-0">
+                <span className="text-xs text-zinc-400">{item.label}</span>
+                <span className="text-xs font-medium text-zinc-200">{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── PROCESSING PIPELINE ── Only when not ready */}
+        {asset.status !== 'ready' && (
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5">
+            <h3 className="text-sm font-semibold text-zinc-200 font-heading mb-4">Processing Pipeline</h3>
+            <PipelineStepper status={asset.status} />
+            {processingJob.data && (asset.status === 'processing' || asset.status === 'uploading') && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs text-zinc-400">
+                    {processingJob.data.progress_percent <= 80 ? 'Transcoding...' : processingJob.data.progress_percent < 100 ? 'Uploading to Sia...' : 'Finalizing...'}
+                  </span>
+                  <span className="text-xs font-mono text-zinc-400 tabular-nums">{processingJob.data.progress_percent}%</span>
+                </div>
+                <Progress value={processingJob.data.progress_percent} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── ACCESS CONTROL ── Only for non-public */}
+        {asset.access_tier !== 'public' && (
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Shield className="w-4 h-4 text-violet-400" />
+              <div>
+                <p className="text-sm font-medium text-zinc-200">Access Control</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  {asset.access_tier === 'private' ? 'Allowlisted addresses only' : asset.access_tier === 'pay_per_view' ? 'Viewing ticket required' : 'Subscription pass required'}
+                </p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" asChild className="bg-white/[0.04] hover:bg-white/[0.07]">
+              <Link to="/studio/access-control">Manage</Link>
+            </Button>
+          </div>
+        )}
+
+        {/* ── EMBED CODE ── Only when ready */}
+        {asset.status === 'ready' && (
+          <EmbedCodeGenerator assetId={asset.id} playbackUrl={playback.data?.playback_url} />
+        )}
+
+        {/* ── RENDITIONS ── */}
+        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
+            <h3 className="text-sm font-semibold text-zinc-200 font-heading flex items-center gap-2">
+              <Film className="w-4 h-4 text-zinc-400" />
+              Renditions
+            </h3>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-[10px] px-2 py-0.5 bg-teal-500/10 text-teal-400 border-teal-500/20" title="HTTP Live Streaming">HLS</Badge>
+              <Badge variant="secondary" className="text-[10px] px-2 py-0.5 bg-violet-500/10 text-violet-400 border-violet-500/20" title="Fragmented MPEG-4">fMP4</Badge>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-white/[0.08] bg-white/[0.03]">
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">Quality</th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">Resolution</th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">Bitrate</th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">Codec</th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">Audio</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.06]">
+                {RENDITIONS.map((r) => (
+                  <tr key={r.label} className="hover:bg-white/[0.03] transition-colors">
+                    <td className="px-5 py-2.5">
+                      <span className="text-sm font-semibold text-zinc-200">{r.label}</span>
+                    </td>
+                    <td className="px-5 py-2.5">
+                      <span className="font-mono text-zinc-300">{r.resolution}</span>
+                    </td>
+                    <td className="px-5 py-2.5">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-zinc-300">{r.videoBitrate} video</span>
+                        <span className="text-zinc-500 text-[10px]">{r.audioBitrate} audio</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-2.5">
+                      <span className="text-zinc-400">{r.codec}</span>
+                    </td>
+                    <td className="px-5 py-2.5">
+                      <span className="text-zinc-400">{r.audio}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer details */}
+          <div className="flex items-center gap-4 px-5 py-3 border-t border-white/[0.08] bg-white/[0.01]">
+            <span className="text-[10px] text-zinc-500">Keyframe interval: <span className="text-zinc-400">2s</span></span>
+            <span className="text-[10px] text-zinc-500">Segment duration: <span className="text-zinc-400">6s</span></span>
+          </div>
+        </div>
+
+        {/* ── DANGER ZONE ── */}
+        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-red-400 font-heading">Danger Zone</h3>
+            <p className="text-xs text-zinc-500 mt-0.5">Permanently delete this video and all associated data</p>
+          </div>
+          <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)} className="gap-1.5">
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete
+          </Button>
+        </div>
+      </motion.div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Asset</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &ldquo;{asset.title}&rdquo;? This will permanently
+              remove the video, all renditions, and blockchain records. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setDeleteOpen(false)} className="bg-white/[0.04] hover:bg-white/[0.07] text-zinc-300">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDelete}
+              disabled={deleteAsset.isPending}
+              className="gap-1.5"
+            >
+              {deleteAsset.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="w-3.5 h-3.5" />
+              )}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </PageContainer>
+  );
+}

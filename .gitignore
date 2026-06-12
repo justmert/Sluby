@@ -1,0 +1,43 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.log
+uploads/
+transcode-output/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+pgdata/
+redis-data/
+
+# Move build output
+contracts/video_manager/build/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Test media
+*.mp4
+
+# Unused apps
+demo-app/
+reference-app/
+
+# Internal docs
+plan.md
+rfp.md
+proposal.md
+
+# Turborepo / cache
+.turbo/
