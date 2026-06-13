@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { uploadAndPin } from './sia-client.js';
 import {
@@ -23,149 +23,173 @@ export interface UploadSegmentsOptions {
 }
 
 /**
- * Upload all HLS output (segments, init segments, manifests) to Sia.
+ * Upload HLS output to Sia. Architecture is byte-range native — FFmpeg
+ * is run with `-hls_flags single_file`, so each variant has ONE big
+ * data.m4s containing init + all segments concatenated, plus a playlist
+ * with EXT-X-BYTERANGE references into that file.
  *
- * Process:
- * 1. For each variant directory, upload init.mp4 and all seg_NNNN.m4s files
- * 2. Rewrite variant playlists with Sia object IDs
- * 3. Upload rewritten variant playlists
- * 4. Rewrite master playlist with variant playlist object IDs
- * 5. Upload rewritten master playlist
- * 6. Return master manifest object ID
+ * Per video this produces:
+ *   - 1 data.m4s per variant      → upload + pin   (4 uploads)
+ *   - 1 playlist.m3u8 per variant → rewrite + upload + pin (4 uploads)
+ *   - 1 master.m3u8                → rewrite + upload + pin (1 upload)
+ * Total: ~9 Sia uploads regardless of video length, vs. ~128 with the
+ * per-segment approach. The HTTP gateway translates `Range:` requests on
+ * the data files into Sia byte-range downloads.
+ *
+ * Concurrency: variants upload in parallel up to `concurrency`. Each
+ * upload internally fans out to ~12 hosts (3+9 erasure coding) so total
+ * host streams = concurrency × 12. For Zen testnet's ~13 hosts the
+ * default of 3 keeps the host pool comfortable. Override via
+ * SIA_UPLOAD_CONCURRENCY for larger host pools (mainnet).
  */
 export async function uploadSegments(
   outputDir: string,
   options: UploadSegmentsOptions,
 ): Promise<UploadSegmentsResult> {
-  const { concurrency = 3 } = options;
+  const envConcurrency = process.env.SIA_UPLOAD_CONCURRENCY
+    ? parseInt(process.env.SIA_UPLOAD_CONCURRENCY, 10)
+    : undefined;
+  const { concurrency = envConcurrency ?? 3 } = options;
 
-  // Read master playlist
   const masterPath = path.join(outputDir, 'master.m3u8');
   const masterContent = await readFile(masterPath, 'utf-8');
   const variantPaths = parseMasterPlaylist(masterContent);
 
-  // Count total files to upload for progress tracking
-  let totalFiles = 0;
+  // Total Sia operations for progress tracking:
+  // (data file + playlist) per variant + master playlist
+  const totalFiles = variantPaths.length * 2 + 1;
   let uploadedFiles = 0;
   let totalBytes = 0;
   let totalSegments = 0;
-
   const allObjectIds: string[] = [];
 
-  // Pre-count files
-  for (const variantPath of variantPaths) {
-    const variantDir = path.join(outputDir, path.dirname(variantPath));
-    const files = await readdir(variantDir);
-    totalFiles += files.filter(f => f.endsWith('.m4s') || f.endsWith('.mp4')).length;
-  }
-  // Add variant playlists + master playlist
-  totalFiles += variantPaths.length + 1;
-
-  const variantObjectMap = new Map<string, string>();
-
-  // Process each variant
-  for (const variantPath of variantPaths) {
+  /** Upload one variant: data.m4s, then rewrite+upload its playlist. */
+  async function uploadVariant(variantPath: string): Promise<{
+    variantPath: string;
+    playlistObjectId: string;
+    segmentsInVariant: number;
+    bytesInVariant: number;
+    objectIds: string[];
+  }> {
     const variantDir = path.join(outputDir, path.dirname(variantPath));
     const playlistPath = path.join(outputDir, variantPath);
     const playlistContent = await readFile(playlistPath, 'utf-8');
     const parsed = parseVariantPlaylist(playlistContent);
 
-    logger.info({ variantPath, segments: parsed.segments.length }, 'Uploading variant segments');
+    if (!parsed.dataFilename) {
+      throw new Error(
+        `variant ${variantPath} has no data file reference (single_file mode expected)`,
+      );
+    }
 
-    // Upload init segment
-    let initObjectId = '';
-    if (parsed.initSegment) {
-      const initPath = path.join(variantDir, parsed.initSegment);
-      const initData = await readFile(initPath);
-      const result = await uploadAndPin(new Uint8Array(initData));
-      initObjectId = result.objectId;
-      allObjectIds.push(result.objectId);
-      totalBytes += initData.length;
-      uploadedFiles++;
+    const dataPath = path.join(variantDir, parsed.dataFilename);
+    const dataBytes = await readFile(dataPath);
+
+    logger.info(
+      { variantPath, dataSize: dataBytes.length, segments: parsed.segmentCount },
+      'Uploading variant data file to Sia',
+    );
+
+    // 1. Upload the single data file (with retry on transient host errors).
+    let dataObjectId = '';
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const result = await uploadAndPin(new Uint8Array(dataBytes));
+        dataObjectId = result.objectId;
+        break;
+      } catch (err) {
+        lastErr = err;
+        const delay = 2000 * Math.pow(2, attempt);
+        logger.warn(
+          { variantPath, attempt: attempt + 1, delay, err },
+          'Variant data upload failed, retrying',
+        );
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+    if (!dataObjectId) {
+      throw new Error(
+        `variant ${variantPath} data upload failed after retries: ${
+          lastErr instanceof Error ? lastErr.message : String(lastErr)
+        }`,
+      );
+    }
+
+    // 2. Rewrite playlist to point its data file references at the gateway.
+    const mapping: SegmentBlobMapping = {
+      dataObjectId,
+      dataFilename: parsed.dataFilename,
+    };
+    const rewritten = rewriteVariantPlaylist(playlistContent, mapping, '');
+    const playlistBytes = new TextEncoder().encode(rewritten);
+
+    // 3. Upload the rewritten playlist.
+    const playlistResult = await uploadAndPin(playlistBytes);
+
+    logger.info(
+      {
+        variantPath,
+        dataObjectId,
+        playlistObjectId: playlistResult.objectId,
+        segments: parsed.segmentCount,
+      },
+      'Variant uploaded',
+    );
+
+    return {
+      variantPath,
+      playlistObjectId: playlistResult.objectId,
+      segmentsInVariant: parsed.segmentCount,
+      bytesInVariant: dataBytes.length + playlistBytes.length,
+      objectIds: [dataObjectId, playlistResult.objectId],
+    };
+  }
+
+  // Upload variants in parallel batches.
+  const variantObjectMap = new Map<string, string>();
+  for (let i = 0; i < variantPaths.length; i += concurrency) {
+    const batch = variantPaths.slice(i, i + concurrency);
+    const results = await Promise.allSettled(batch.map(uploadVariant));
+
+    for (const r of results) {
+      if (r.status !== 'fulfilled') {
+        logger.error({ error: r.reason }, 'Variant upload permanently failed');
+        throw r.reason;
+      }
+      variantObjectMap.set(r.value.variantPath, r.value.playlistObjectId);
+      allObjectIds.push(...r.value.objectIds);
+      totalSegments += r.value.segmentsInVariant;
+      totalBytes += r.value.bytesInVariant;
+      // each successful uploadVariant = 2 Sia operations (data + playlist)
+      uploadedFiles += 2;
       options.onProgress?.(uploadedFiles, totalFiles);
     }
 
-    // Upload segments in batches with concurrency control
-    const segmentObjectMap = new Map<string, string>();
-
-    for (let i = 0; i < parsed.segments.length; i += concurrency) {
-      const batch = parsed.segments.slice(i, i + concurrency);
-
-      const results = await Promise.allSettled(
-        batch.map(async (segFilename) => {
-          const segPath = path.join(variantDir, segFilename);
-          const segData = await readFile(segPath);
-          totalBytes += segData.length;
-
-          let retries = 0;
-          const maxRetries = 5;
-
-          while (retries < maxRetries) {
-            try {
-              const result = await uploadAndPin(new Uint8Array(segData));
-              return { filename: segFilename, objectId: result.objectId };
-            } catch (err) {
-              retries++;
-              if (retries >= maxRetries) throw err;
-              const delay = 2000 * Math.pow(2, retries);
-              logger.warn({ segFilename, retries, delay, err }, 'Segment upload failed, retrying');
-              await new Promise(r => setTimeout(r, delay));
-            }
-          }
-          throw new Error('Unreachable');
-        }),
-      );
-
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          segmentObjectMap.set(result.value.filename, result.value.objectId);
-          allObjectIds.push(result.value.objectId);
-          totalSegments++;
-          uploadedFiles++;
-          options.onProgress?.(uploadedFiles, totalFiles);
-        } else {
-          logger.error({ error: result.reason }, 'Segment upload permanently failed');
-          throw result.reason;
-        }
-      }
-
-      // Brief pause between batches to avoid rate limiting from Sia
-      if (i + concurrency < parsed.segments.length) {
-        await new Promise(r => setTimeout(r, 1000));
-      }
+    if (i + concurrency < variantPaths.length) {
+      await new Promise((r) => setTimeout(r, 100));
     }
-
-    // Rewrite and upload variant playlist
-    const mapping: SegmentBlobMapping = { segments: segmentObjectMap, initObjectId };
-    const rewrittenPlaylist = rewriteVariantPlaylist(playlistContent, mapping, '');
-    const playlistData = new TextEncoder().encode(rewrittenPlaylist);
-    const playlistResult = await uploadAndPin(playlistData);
-    variantObjectMap.set(variantPath, playlistResult.objectId);
-    allObjectIds.push(playlistResult.objectId);
-    totalBytes += playlistData.length;
-    uploadedFiles++;
-    options.onProgress?.(uploadedFiles, totalFiles);
-
-    logger.info({
-      variantPath,
-      segments: segmentObjectMap.size,
-      playlistObjectId: playlistResult.objectId,
-    }, 'Variant uploaded');
   }
 
-  // Rewrite and upload master playlist
+  // Rewrite + upload master playlist last — it references the variant
+  // playlist object IDs we just collected.
   const rewrittenMaster = rewriteMasterPlaylist(masterContent, variantObjectMap, '');
-  const masterData = new TextEncoder().encode(rewrittenMaster);
-  const masterResult = await uploadAndPin(masterData);
+  const masterBytes = new TextEncoder().encode(rewrittenMaster);
+  const masterResult = await uploadAndPin(masterBytes);
   allObjectIds.push(masterResult.objectId);
-  uploadedFiles++;
+  totalBytes += masterBytes.length;
+  uploadedFiles += 1;
   options.onProgress?.(uploadedFiles, totalFiles);
 
-  logger.info({
-    masterObjectId: masterResult.objectId,
-    totalSegments,
-    totalBytes,
-  }, 'Master manifest uploaded to Sia');
+  logger.info(
+    {
+      masterObjectId: masterResult.objectId,
+      totalSegments,
+      totalBytes,
+      siaUploads: allObjectIds.length,
+    },
+    'Master manifest uploaded to Sia',
+  );
 
   return {
     masterManifestObjectId: masterResult.objectId,

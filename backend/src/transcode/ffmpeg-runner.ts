@@ -145,9 +145,19 @@ export async function transcode(
     '-hls_time', '6',
     '-hls_playlist_type', 'vod',
     '-hls_segment_type', 'fmp4',
-    '-hls_flags', 'independent_segments',
+    // single_file: produce ONE big .m4s per variant containing init + all
+    // segments concatenated. The playlist references segments via
+    // EXT-X-BYTERANGE. This pairs perfectly with Sia's native byte-range
+    // download support — the gateway can serve any segment by translating
+    // an HTTP Range request into sdk.downloadObject(id, {offset,length}).
+    // Reduces ~128 Sia uploads per video to ~9 (4 data + 4 playlists +
+    // 1 master) and keeps caching efficient (one warm download serves
+    // every segment range).
+    '-hls_flags', 'independent_segments+single_file',
     '-master_pl_name', 'master.m3u8',
-    '-hls_segment_filename', path.join(outputDir, '%v/seg_%04d.m4s'),
+    // With single_file, the segment filename becomes the single output
+    // file per variant rather than a numbered template.
+    '-hls_segment_filename', path.join(outputDir, '%v/data.m4s'),
     '-var_stream_map', varStreamMap,
     path.join(outputDir, '%v/playlist.m3u8'),
   );
@@ -184,13 +194,19 @@ export async function transcode(
         return;
       }
 
-      // Count segments across all variants
+      // Count segments by parsing playlists. With single_file mode each
+      // variant has a single data.m4s, but the playlist still references
+      // N segments via EXT-X-BYTERANGE. We sum #EXTINF occurrences.
       const variantDirs = variants.map((v) => path.join(outputDir, v.name));
       let totalSegments = 0;
       for (const dir of variantDirs) {
         try {
           const files = await readdir(dir);
-          totalSegments += files.filter((f) => f.endsWith('.m4s') || f.endsWith('.mp4')).length;
+          const playlist = files.find((f) => f.endsWith('.m3u8'));
+          if (!playlist) continue;
+          const { readFile } = await import('node:fs/promises');
+          const content = await readFile(path.join(dir, playlist), 'utf8');
+          totalSegments += (content.match(/^#EXTINF:/gm) ?? []).length;
         } catch {
           // directory may not exist if variant was skipped
         }
