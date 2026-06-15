@@ -14,7 +14,7 @@ import pino from 'pino';
 
 // ── Module imports ──
 import { transcode } from '../transcode/ffmpeg-runner.js';
-import { extractAndUploadThumbnails } from '../transcode/thumbnail-extractor.js';
+import { extractThumbnails } from '../transcode/thumbnail-extractor.js';
 import { uploadSegments } from '../storage/segment-uploader.js';
 import { updateVideoAsset, getVideoAssetById } from '../db/queries/assets.js';
 import {
@@ -110,8 +110,10 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
       await appendProcessingLog(processingJob.id, 'transcode', `Transcode complete: ${result.segmentCount} segments`);
     }
 
-    // Extract and upload thumbnails to Sia
-    const thumbnailObjectIds = await extractAndUploadThumbnails(
+    // Extract thumbnails to disk only — they get uploaded together with
+    // the variant playlists in the upload-segments worker (one packed
+    // Sia operation instead of N separate uploads).
+    const thumbnailPaths = await extractThumbnails(
       filePath,
       result.durationMs,
       outputDir,
@@ -121,12 +123,11 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
     await job.updateProgress(65);
     if (processingJob) {
       await updateProcessingJobProgress(processingJob.id, 65);
-      await appendProcessingLog(processingJob.id, 'transcode', `Extracted ${thumbnailObjectIds.length} thumbnails`);
+      await appendProcessingLog(processingJob.id, 'transcode', `Extracted ${thumbnailPaths.length} thumbnails`);
     }
 
     // Save transcode metadata to DB so downstream workers can access it
     await updateVideoAsset(videoAssetId, {
-      thumbnailObjectIds,
       durationMs: result.durationMs,
       resolution: result.resolution,
     });
@@ -134,16 +135,18 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
     // Fetch the video asset to get accessTier
     const videoAsset = await getVideoAssetById(videoAssetId);
 
-    // Enqueue the segment upload job
+    // Enqueue the segment upload job, passing thumbnail file paths so
+    // the upload-segments worker can pack them with the manifests.
     await uploadSegmentsQueue.add('upload-segments', {
       videoAssetId,
       uploadSessionId,
       outputDir,
       accessTier: videoAsset?.accessTier ?? 'public',
+      thumbnailPaths,
     });
 
     logger.info(
-      { videoAssetId, jobId: job.id, thumbnailCount: thumbnailObjectIds.length },
+      { videoAssetId, jobId: job.id, thumbnailCount: thumbnailPaths.length },
       'Transcode job complete, enqueued upload-segments',
     );
 
@@ -153,7 +156,7 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
       durationMs: result.durationMs,
       resolution: result.resolution,
       segmentCount: result.segmentCount,
-      thumbnailObjectIds,
+      thumbnailPaths,
     };
   },
   {
@@ -206,7 +209,7 @@ transcodeWorker.on('failed', async (job, error) => {
 export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
   'upload-segments',
   async (job: Job<UploadSegmentsJobData>) => {
-    const { videoAssetId, uploadSessionId, outputDir, accessTier } = job.data;
+    const { videoAssetId, uploadSessionId, outputDir, accessTier, thumbnailPaths } = job.data;
     logger.info(
       { videoAssetId, jobId: job.id, accessTier },
       'Starting upload-segments job',
@@ -225,6 +228,7 @@ export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
     // SIA_UPLOAD_CONCURRENCY.
     const result = await uploadSegments(outputDir, {
       concurrency: parseInt(process.env.SIA_UPLOAD_CONCURRENCY ?? '3', 10),
+      thumbnailPaths,
       onProgress: async (uploaded, total) => {
         // Scale upload progress to 65-90% of overall pipeline
         const percent = 65 + Math.round((uploaded / total) * 25);
@@ -238,16 +242,16 @@ export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
     const masterManifestObjectId = result.masterManifestObjectId;
     const totalSegments = result.totalSegments;
     const totalStorageBytes = result.totalBytes;
+    const thumbnailObjectIds = result.thumbnailObjectIds;
 
     if (processingJob) {
       await appendProcessingLog(processingJob.id, 'upload', `All segments uploaded: ${totalSegments} segments, ${totalStorageBytes} bytes`);
     }
 
-    // Read duration and resolution from the transcode output or the video asset
+    // Read duration and resolution from the video asset
     const videoAsset = await getVideoAssetById(videoAssetId);
     const durationMs = videoAsset?.durationMs ?? 0;
     const resolution = videoAsset?.resolution ?? '';
-    const thumbnailObjectIds = videoAsset?.thumbnailObjectIds ?? [];
 
     // Enqueue the finalize job
     await finalizeQueue.add('finalize', {

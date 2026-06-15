@@ -1,37 +1,32 @@
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { uploadAndPin } from '../storage/sia-client.js';
 import { logger } from '../config/logger.js';
 
 /**
- * Extract thumbnails at 25%, 50%, and 75% of video duration,
- * upload each to Sia, and return the object IDs.
+ * Extract thumbnails at 25%, 50%, and 75% of the video duration to
+ * disk. Returns the local file paths so the caller can upload them in
+ * a packed Sia batch alongside the variant playlists (see
+ * uploadSegments). Decoupled from upload so we can pack many small
+ * files into one Sia operation.
  */
-export async function extractAndUploadThumbnails(
+export async function extractThumbnails(
   inputPath: string,
   durationMs: number,
   outputDir: string,
 ): Promise<string[]> {
-  const positions = [0.25, 0.50, 0.75];
-  const thumbnailObjectIds: string[] = [];
-
+  const positions = [0.25, 0.5, 0.75];
+  const paths: string[] = [];
   for (const position of positions) {
     const timeSeconds = (durationMs / 1000) * position;
-    const outputPath = path.join(outputDir, `thumb_${Math.round(position * 100)}.jpg`);
-
+    const outputPath = path.join(
+      outputDir,
+      `thumb_${Math.round(position * 100)}.jpg`,
+    );
     logger.debug({ position, timeSeconds, outputPath }, 'Extracting thumbnail');
-
     await extractThumbnail(inputPath, timeSeconds, outputPath);
-
-    const thumbnailData = await readFile(outputPath);
-    const { objectId } = await uploadAndPin(new Uint8Array(thumbnailData));
-    thumbnailObjectIds.push(objectId);
-
-    logger.info({ position, objectId }, 'Thumbnail uploaded to Sia');
+    paths.push(outputPath);
   }
-
-  return thumbnailObjectIds;
+  return paths;
 }
 
 async function extractThumbnail(
@@ -42,22 +37,33 @@ async function extractThumbnail(
   return new Promise((resolve, reject) => {
     const args = [
       '-y',
-      '-ss', timeSeconds.toFixed(2),
-      '-i', inputPath,
-      '-vframes', '1',
-      '-vf', 'scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2',
-      '-q:v', '2',
+      '-ss',
+      timeSeconds.toFixed(2),
+      '-i',
+      inputPath,
+      '-vframes',
+      '1',
+      '-vf',
+      'scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2',
+      '-q:v',
+      '2',
       outputPath,
     ];
 
     const proc = spawn('ffmpeg', args);
     let stderr = '';
 
-    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
 
     proc.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(`Thumbnail extraction failed (code ${code}): ${stderr.slice(-300)}`));
+        reject(
+          new Error(
+            `Thumbnail extraction failed (code ${code}): ${stderr.slice(-300)}`,
+          ),
+        );
         return;
       }
       resolve();

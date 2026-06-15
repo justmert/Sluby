@@ -32,6 +32,12 @@ export interface UploadSegmentsJobData {
   uploadSessionId: string;
   outputDir: string;
   accessTier: string;
+  /**
+   * Local file paths of thumbnails extracted by the transcode worker.
+   * Uploaded as part of the same packed Sia batch as the variant
+   * playlists, so we save host-stream count vs. uploading separately.
+   */
+  thumbnailPaths?: string[];
 }
 
 export interface FinalizeJobData {
