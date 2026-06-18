@@ -1,8 +1,6 @@
 /**
- * Plain (non-React) helpers for reading / writing the creator wallet address
- * in localStorage.
- *
- * Mirrors the pattern used in api-key-store.ts.
+ * Plain (non-React) helpers for reading / writing the creator's display
+ * address in localStorage. Mirrors the pattern used in api-key-store.ts.
  */
 
 const STORAGE_KEY = 'siastream-creator-address';

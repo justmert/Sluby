@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Address display helpers (replaces the old sui-helpers.ts)
+// Address display helpers
 // ---------------------------------------------------------------------------
 
 /** Truncate a long hex address or ID for display. */

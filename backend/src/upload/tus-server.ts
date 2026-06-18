@@ -4,6 +4,11 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
+import {
+  SESSION_COOKIE_NAME,
+  parseCookieHeader,
+  verifySession,
+} from '../api/auth/session.js';
 
 export interface TusServerDeps {
   validateApiKey: (token: string) => Promise<{ id: string; creatorAddress: string; scopes: string[] } | null>;
@@ -41,6 +46,34 @@ export function createTusServer(deps: TusServerDeps): Server {
     async onIncomingRequest(req, _uploadId: string) {
       // Validate API key for all requests except OPTIONS
       if (req.method === 'OPTIONS') return;
+
+      // Session cookie path: when the Studio UI drives the upload, the
+      // browser sends the signed session cookie. We materialise an
+      // identity with full upload scope that downstream hooks can treat
+      // identically to an API-key caller.
+      const cookies = parseCookieHeader(req.headers.get('cookie') ?? undefined);
+      const session = verifySession(
+        cookies[SESSION_COOKIE_NAME],
+        env.SESSION_SECRET,
+      );
+      if (session) {
+        (req as unknown as Record<string, unknown>).__apiKey = {
+          id: `session:${session.login}`,
+          creatorAddress: `github:${session.login.toLowerCase()}`,
+          scopes: ['upload', 'read', 'manage'],
+        };
+        return;
+      }
+
+      // Dev bypass.
+      if (env.AUTH_DISABLED) {
+        (req as unknown as Record<string, unknown>).__apiKey = {
+          id: 'session:dev',
+          creatorAddress: 'github:dev',
+          scopes: ['upload', 'read', 'manage'],
+        };
+        return;
+      }
 
       const authHeader = req.headers.get('authorization');
       if (!authHeader?.startsWith('Bearer ')) {

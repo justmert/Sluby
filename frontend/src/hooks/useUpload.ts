@@ -46,7 +46,6 @@ export interface UploadMetadata {
   description: string;
   access_tier: string;
   creator_address?: string;
-  initial_viewer_addresses?: string;
 }
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -125,7 +124,6 @@ export function useUpload() {
             description: metadata.description,
             accessTier: metadata.access_tier,
             ...(metadata.creator_address ? { creatorAddress: metadata.creator_address } : {}),
-            ...(metadata.initial_viewer_addresses ? { initialViewerAddresses: metadata.initial_viewer_addresses } : {}),
           },
           chunkSize: CHUNK_SIZE,
           retryDelays: [0, 3000, 5000, 10000],

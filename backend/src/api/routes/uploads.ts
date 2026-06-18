@@ -27,7 +27,7 @@ export function createUploadRoutes(deps: UploadRouteDeps): Router {
 
   /**
    * POST /api/v1/uploads
-   * Create a new upload session and reserve a VideoAsset on-chain.
+   * Create a new upload session and reserve a VideoAsset row.
    */
   router.post('/', requireScope('upload'), async (req: Request, res: Response) => {
     const { title, description, access_tier } = req.body;

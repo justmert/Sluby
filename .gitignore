@@ -21,9 +21,6 @@ Thumbs.db
 pgdata/
 redis-data/
 
-# Move build output
-contracts/video_manager/build/
-
 # Build artifacts
 *.tsbuildinfo
 

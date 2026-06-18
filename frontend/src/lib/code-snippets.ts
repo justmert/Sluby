@@ -325,55 +325,6 @@ export const sdkTemplates: SdkTemplate[] = [
     category: 'Webhooks',
   },
 
-  // Access Control
-  {
-    label: 'Create Allowlist',
-    method: 'POST',
-    path: '/api/v1/access-control/allowlists',
-    body: JSON.stringify(
-      { video_asset_id: 'VIDEO_ID', name: 'VIP Allowlist', initial_addresses: ['0x...'] },
-      null,
-      2,
-    ),
-    category: 'Access Control',
-  },
-  {
-    label: 'Add Allowlist Member',
-    method: 'POST',
-    path: '/api/v1/access-control/allowlists/:id/members',
-    body: JSON.stringify({ address: '0x...' }, null, 2),
-    category: 'Access Control',
-  },
-  {
-    label: 'Create Subscription',
-    method: 'POST',
-    path: '/api/v1/access-control/subscriptions',
-    body: JSON.stringify(
-      {
-        subscriber_address: '0x...',
-        duration_days: 30,
-        tier: 1,
-      },
-      null,
-      2,
-    ),
-    category: 'Access Control',
-  },
-  {
-    label: 'Create Viewing Ticket',
-    method: 'POST',
-    path: '/api/v1/access-control/tickets',
-    body: JSON.stringify(
-      {
-        viewer_address: '0x...',
-        video_asset_id: 'VIDEO_ID',
-      },
-      null,
-      2,
-    ),
-    category: 'Access Control',
-  },
-
   // Metrics
   {
     label: 'Get Metrics (JSON)',

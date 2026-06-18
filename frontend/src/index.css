@@ -10,7 +10,7 @@
   /* ── Borders ── */
   --color-border-default: rgba(255, 255, 255, 0.08);
   --color-border-hover: rgba(255, 255, 255, 0.12);
-  --color-border-focus: rgba(20, 184, 166, 0.4);
+  --color-border-focus: rgba(255, 121, 26, 0.4);
 
   /* ── Text ── */
   --color-text-primary: #f0f0f0;
@@ -18,10 +18,10 @@
   --color-text-muted: #5a5a5a;
   --color-text-placeholder: #6a6a6a;
 
-  /* ── Primary: Teal ── */
-  --color-accent-primary: #14b8a6;
-  --color-accent-primary-hover: #0d9488;
-  --color-accent-primary-muted: rgba(20, 184, 166, 0.1);
+  /* ── Primary: Sia Orange ── */
+  --color-accent-primary: #ff791a;
+  --color-accent-primary-hover: #e6690f;
+  --color-accent-primary-muted: rgba(255, 121, 26, 0.1);
 
   /* ── Accent: Orange ── */
   --color-accent-orange: #f97316;
@@ -32,10 +32,27 @@
   --color-accent-amber: #f59e0b;
   --color-accent-red: #ef4444;
   --color-accent-violet: #8b5cf6;
-  --color-accent-sui: #4DA2FF;
+
+  /* ──────────────────────────────────────────────────────────────────────
+     Primary palette override — remap Tailwind's `teal-*` scale to Sia orange
+     so every `bg-teal-500`, `text-teal-400`, `shadow-teal-500/*`, etc.
+     utility throughout the codebase renders in the brand color without
+     touching individual component classNames. #ff791a sits at 500.
+     ────────────────────────────────────────────────────────────────────── */
+  --color-teal-50: #fff4ed;
+  --color-teal-100: #ffe6d4;
+  --color-teal-200: #ffc8a3;
+  --color-teal-300: #ffa573;
+  --color-teal-400: #ff8f47;
+  --color-teal-500: #ff791a;
+  --color-teal-600: #e6690f;
+  --color-teal-700: #c2560c;
+  --color-teal-800: #994507;
+  --color-teal-900: #7a3806;
+  --color-teal-950: #4d2303;
 
   /* ── Glow effects ── */
-  --color-glow-teal: rgba(20, 184, 166, 0.12);
+  --color-glow-teal: rgba(255, 121, 26, 0.12);
   --color-glow-orange: rgba(249, 115, 22, 0.10);
   --color-glow-emerald: rgba(16, 185, 129, 0.12);
   --color-glow-red: rgba(239, 68, 68, 0.12);
@@ -130,7 +147,7 @@ body {
   z-index: 0;
   pointer-events: none;
   background-image:
-    radial-gradient(circle at 15% 15%, rgba(20, 184, 166, 0.04) 0%, transparent 50%),
+    radial-gradient(circle at 15% 15%, rgba(255, 121, 26, 0.04) 0%, transparent 50%),
     radial-gradient(circle at 85% 80%, rgba(249, 115, 22, 0.03) 0%, transparent 50%),
     radial-gradient(circle 1px at center, rgba(255, 255, 255, 0.03) 0%, transparent 1px);
   background-size: 100% 100%, 100% 100%, 24px 24px;
@@ -150,7 +167,7 @@ body {
 
 /* Selection */
 ::selection {
-  background-color: rgba(20, 184, 166, 0.3);
+  background-color: rgba(255, 121, 26, 0.3);
   color: #f0f0f0;
 }
 
@@ -173,9 +190,9 @@ body {
   background: rgba(255, 255, 255, 0.15);
 }
 
-/* Global focus-visible — teal */
+/* Global focus-visible — Sia orange */
 *:focus-visible {
-  outline: 2px solid rgba(20, 184, 166, 0.5);
+  outline: 2px solid rgba(255, 121, 26, 0.5);
   outline-offset: 2px;
 }
 
@@ -184,7 +201,7 @@ body {
 }
 
 .focus-ring:focus-visible {
-  box-shadow: 0 0 0 2px #0a0a0f, 0 0 0 4px rgba(20, 184, 166, 0.5);
+  box-shadow: 0 0 0 2px #0a0a0f, 0 0 0 4px rgba(255, 121, 26, 0.5);
 }
 
 /* ── Heading font utility ── */
@@ -198,13 +215,13 @@ body {
 }
 
 .card-glow:hover {
-  box-shadow: 0 0 40px rgba(20, 184, 166, 0.05), 0 0 80px rgba(20, 184, 166, 0.02);
+  box-shadow: 0 0 40px rgba(255, 121, 26, 0.05), 0 0 80px rgba(255, 121, 26, 0.02);
   border-color: rgba(255, 255, 255, 0.12);
 }
 
 /* ── Gradient text utility ── */
 .text-gradient-teal {
-  background: linear-gradient(135deg, #14b8a6, #06b6d4);
+  background: linear-gradient(135deg, #ff791a, #e6690f);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

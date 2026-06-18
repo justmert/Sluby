@@ -47,6 +47,53 @@ function isManifestContent(data: Uint8Array): boolean {
   return data.length > 7 && data[0] === 0x23 && data[1] === 0x45;
 }
 
+/**
+ * Detect the Content-Type for a binary object by inspecting magic bytes.
+ * Covers the image formats we produce for thumbnails (JPEG, PNG, WebP,
+ * GIF). Returns `application/octet-stream` as a safe fallback.
+ */
+function detectBinaryContentType(data: Uint8Array): string {
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (
+    data.length >= 8 &&
+    data[0] === 0x89 &&
+    data[1] === 0x50 &&
+    data[2] === 0x4e &&
+    data[3] === 0x47 &&
+    data[4] === 0x0d &&
+    data[5] === 0x0a &&
+    data[6] === 0x1a &&
+    data[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  if (
+    data.length >= 12 &&
+    data[0] === 0x52 && // R
+    data[1] === 0x49 && // I
+    data[2] === 0x46 && // F
+    data[3] === 0x46 && // F
+    data[8] === 0x57 && // W
+    data[9] === 0x45 && // E
+    data[10] === 0x42 && // B
+    data[11] === 0x50 // P
+  ) {
+    return 'image/webp';
+  }
+  if (
+    data.length >= 6 &&
+    data[0] === 0x47 && // G
+    data[1] === 0x49 && // I
+    data[2] === 0x46 && // F
+    data[3] === 0x38 // 8
+  ) {
+    return 'image/gif';
+  }
+  return 'application/octet-stream';
+}
+
 interface ParsedRange {
   start: number;
   end: number;
@@ -110,7 +157,7 @@ async function serveRange(
     return;
   }
 
-  logger.debug(
+  logger.info(
     { objectId, offset: parsed.start, length: parsed.chunkLength, totalSize },
     'Range-passthrough fetch from Sia',
   );
@@ -154,7 +201,7 @@ async function serveFull(res: Response, objectId: string): Promise<void> {
   }
 
   res.set({
-    'Content-Type': 'application/octet-stream',
+    'Content-Type': detectBinaryContentType(data),
     'Content-Length': data.length.toString(),
     'Cache-Control': 'public, max-age=86400',
     'Accept-Ranges': 'bytes',

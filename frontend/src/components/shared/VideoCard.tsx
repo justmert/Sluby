@@ -5,6 +5,7 @@ import { siaObjectUrl } from '@/lib/sia';
 import { formatAddress, formatDuration, formatRelativeTime, formatBytes } from '@/lib/formatters';
 import { StatusBadge } from './StatusBadge';
 import { AccessTierBadge } from './AccessTierBadge';
+import { ObjectIdBadge } from './ObjectIdBadge';
 import type { VideoAsset } from '@/types/assets';
 
 export interface VideoCardProps {
@@ -120,6 +121,15 @@ function GridCard({ asset, onPlay, onEdit, onDelete, onClick }: VideoCardProps) 
           {asset.creatorAddress && asset.createdAt && <span>&middot;</span>}
           {asset.createdAt && <span>{formatRelativeTime(asset.createdAt)}</span>}
         </div>
+        {asset.manifestObjectId && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <ObjectIdBadge
+              value={asset.manifestObjectId}
+              truncate={6}
+              className="text-[10px]"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

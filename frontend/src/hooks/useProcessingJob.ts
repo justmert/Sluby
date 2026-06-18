@@ -7,7 +7,7 @@ import { apiClient } from '../lib/api-client';
 
 export interface ProcessingLog {
   timestamp: string;
-  stage: string; // 'transcode' | 'blockchain' | 'upload' | 'finalize'
+  stage: string; // 'transcode' | 'upload' | 'finalize'
   message: string;
 }
 

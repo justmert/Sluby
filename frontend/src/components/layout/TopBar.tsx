@@ -1,6 +1,7 @@
 import { useLocation } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { UserMenu } from './UserMenu';
 
 function getBreadcrumbs(pathname: string): Array<{ label: string; path?: string }> {
   const segments = pathname.split('/').filter(Boolean);
@@ -13,10 +14,8 @@ function getBreadcrumbs(pathname: string): Array<{ label: string; path?: string 
         upload: 'Upload',
         assets: 'Assets',
         player: 'Player',
-        'access-control': 'Access Control',
         developer: 'Developer',
         analytics: 'Analytics',
-        sponsorship: 'Sponsorship',
         settings: 'Settings',
       };
       const label = labels[segments[1]] || segments[1];
@@ -36,9 +35,9 @@ export function TopBar() {
   const breadcrumbs = getBreadcrumbs(location.pathname);
 
   return (
-    <header className="h-14 flex items-center px-6 border-b border-white/[0.06] bg-[#0a0a0f]/60 backdrop-blur-md">
+    <header className="h-14 flex items-center px-6 border-b border-white/[0.06] bg-[#0a0a0f]/60 backdrop-blur-md gap-4">
       {/* Breadcrumbs */}
-      <nav className="flex items-center gap-1 text-sm min-w-0 overflow-hidden">
+      <nav className="flex-1 flex items-center gap-1 text-sm min-w-0 overflow-hidden">
         {breadcrumbs.map((crumb, i) => (
           <span key={i} className="flex items-center gap-1 min-w-0 shrink-0 last:shrink">
             {i > 0 && <ChevronRight className="h-3 w-3 text-zinc-600 shrink-0" />}
@@ -55,6 +54,7 @@ export function TopBar() {
           </span>
         ))}
       </nav>
+      <UserMenu />
     </header>
   );
 }

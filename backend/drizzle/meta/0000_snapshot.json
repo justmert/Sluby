@@ -1,5 +1,5 @@
 {
-  "id": "0cd34d37-43ee-428b-88ce-143fcc40af48",
+  "id": "5b178f9f-ead0-4790-9147-0dc992a784fc",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -153,6 +153,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 3
+        },
+        "logs": {
+          "name": "logs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'::jsonb"
         },
         "created_at": {
           "name": "created_at",
@@ -321,14 +328,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "sui_object_id": {
-          "name": "sui_object_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "manifest_blob_id": {
-          "name": "manifest_blob_id",
+        "manifest_object_id": {
+          "name": "manifest_object_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -376,20 +377,14 @@
           "notNull": true,
           "default": "'public'"
         },
-        "seal_policy_id": {
-          "name": "seal_policy_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "creator_address": {
           "name": "creator_address",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "thumbnail_blob_ids": {
-          "name": "thumbnail_blob_ids",
+        "thumbnail_object_ids": {
+          "name": "thumbnail_object_ids",
           "type": "text[]",
           "primaryKey": false,
           "notNull": true,
@@ -409,6 +404,13 @@
           "notNull": true,
           "default": 0
         },
+        "sia_object_ids": {
+          "name": "sia_object_ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'::jsonb"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -427,15 +429,7 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "video_assets_sui_object_id_unique": {
-          "name": "video_assets_sui_object_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "sui_object_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -604,9 +598,7 @@
       "schema": "public",
       "values": [
         "public",
-        "private",
-        "pay_per_view",
-        "subscription"
+        "private"
       ]
     },
     "public.job_status": {

@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { createUploadRoutes, type UploadRouteDeps } from './routes/uploads.js';
 import { createAssetRoutes, type AssetRouteDeps } from './routes/assets.js';
+import { createSiaInfoRoutes, type SiaInfoRouteDeps } from './routes/sia-info.js';
 import { createPlaybackRoutes, type PlaybackRouteDeps } from './routes/playback.js';
 import { createWebhookRoutes, type WebhookRouteDeps } from './routes/webhooks.js';
-import { createAccessControlRoutes, type AccessControlRouteDeps } from './routes/access-control.js';
+import { createAuthRoutes } from './routes/auth.js';
 import { createApiKeyMiddleware, type ApiKeyMiddlewareDeps } from './middleware/api-key.js';
 import { rateLimiter } from './rate-limiter.js';
 import { generateApiKey } from './auth.js';
@@ -11,7 +12,7 @@ import { requireScope } from './middleware/api-key.js';
 import { getMetricsJson } from '../metrics/collector.js';
 import type { Request, Response } from 'express';
 
-export interface ApiRouterDeps extends UploadRouteDeps, AssetRouteDeps, PlaybackRouteDeps, WebhookRouteDeps, AccessControlRouteDeps, ApiKeyMiddlewareDeps {
+export interface ApiRouterDeps extends UploadRouteDeps, AssetRouteDeps, SiaInfoRouteDeps, PlaybackRouteDeps, WebhookRouteDeps, ApiKeyMiddlewareDeps {
   createApiKey: (data: {
     keyHash: string;
     name: string;
@@ -33,6 +34,12 @@ export interface ApiRouterDeps extends UploadRouteDeps, AssetRouteDeps, Playback
 export function createApiRouter(deps: ApiRouterDeps): Router {
   const router = Router();
 
+  // Auth routes run BEFORE the API-key middleware: they are the path by
+  // which the browser obtains a session in the first place, and /auth/me
+  // must be callable unauthenticated so the Studio can decide whether to
+  // show the sign-in screen.
+  router.use('/auth', createAuthRoutes());
+
   // Apply middleware
   const apiKeyMiddleware = createApiKeyMiddleware(deps);
   router.use(rateLimiter());
@@ -41,9 +48,9 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   // Mount route modules
   router.use('/uploads', createUploadRoutes(deps));
   router.use('/assets', createAssetRoutes(deps));
+  router.use('/assets', createSiaInfoRoutes(deps));
   router.use('/playback', createPlaybackRoutes(deps));
   router.use('/webhooks', createWebhookRoutes(deps));
-  router.use('/access-control', requireScope('manage'), createAccessControlRoutes(deps));
 
   // API key management routes
   router.post('/keys', requireScope('manage'), async (req: Request, res: Response) => {

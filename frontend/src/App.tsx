@@ -11,7 +11,6 @@ const StudioUpload = lazy(() => import('@/pages/studio/UploadPage'));
 const StudioAssets = lazy(() => import('@/pages/studio/AssetsPage'));
 const StudioAssetDetail = lazy(() => import('@/pages/studio/AssetDetailPage'));
 const StudioPlayer = lazy(() => import('@/pages/studio/PlayerPage'));
-const StudioAccessControl = lazy(() => import('@/pages/studio/AccessControlPage'));
 const StudioDeveloper = lazy(() => import('@/pages/studio/DeveloperPage'));
 const StudioAnalytics = lazy(() => import('@/pages/studio/AnalyticsPage'));
 const StudioSettings = lazy(() => import('@/pages/studio/SettingsPage'));
@@ -38,7 +37,6 @@ export function App() {
           <Route path="/studio/assets" element={<StudioAssets />} />
           <Route path="/studio/assets/:id" element={<StudioAssetDetail />} />
           <Route path="/studio/player" element={<StudioPlayer />} />
-          <Route path="/studio/access-control" element={<StudioAccessControl />} />
           <Route path="/studio/developer" element={<StudioDeveloper />} />
           <Route path="/studio/analytics" element={<StudioAnalytics />} />
           <Route path="/studio/settings" element={<StudioSettings />} />

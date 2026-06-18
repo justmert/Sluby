@@ -52,6 +52,7 @@ async function request<T>(
   const response = await fetch(buildUrl(path), {
     ...options,
     headers,
+    credentials: 'include',
   });
 
   if (!response.ok) {
@@ -127,7 +128,7 @@ export async function apiRawFetch(
     headers['Content-Type'] = 'application/json';
   }
 
-  return fetch(buildUrl(path), { ...options, headers });
+  return fetch(buildUrl(path), { ...options, headers, credentials: 'include' });
 }
 
 /**
@@ -135,7 +136,10 @@ export async function apiRawFetch(
  */
 export async function fetchRaw<T>(path: string): Promise<T> {
   const headers = authHeaders();
-  const response = await fetch(`${BASE_URL}${path}`, { headers });
+  const response = await fetch(`${BASE_URL}${path}`, {
+    headers,
+    credentials: 'include',
+  });
 
   if (!response.ok) {
     let errorBody: { message?: string; error?: string; details?: unknown } = {};

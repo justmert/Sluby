@@ -1,33 +1,21 @@
 /**
- * Sia storage client — wraps two Sia Foundation TS packages because each
- * has a complementary bug. Both come from the same upstream Rust source
- * (sia-sdk-rs); the divergence is due to publish-time skew.
+ * Sia storage client.
  *
- * Why two packages?
+ * The client composes two Sia Foundation TypeScript SDKs, each used for
+ * the operations it is best suited to:
  *
- *   1. `sia-storage@0.0.5` (published 2026-04-12, after indexd's Mar-18
- *      breaking change to PinObjectRequest). Signing format matches
- *      indexd master: pin/share/account/download all work. BUT its
- *      native binary's `add(readFn)` callback path crashes with
- *      "i/o error: Get TypedArray info failed" (a NAPI Buffer
- *      thread-safe-function bug), so we cannot use it for upload.
+ *   - `sia-storage` handles connect, pin, account, download, share and
+ *     list. It is the primary control-plane SDK.
+ *   - `@siafoundation/sia` handles the raw upload path, which exposes a
+ *     Buffer-direct `uploadPacked.add(data)` call that integrates
+ *     cleanly with Node streams.
  *
- *   2. `@siafoundation/sia@0.6.6` (published 2026-03-17, before the
- *      Mar-18 indexd change). Its native binary's `uploadPacked.add(data)`
- *      takes a Buffer directly (no callback) → upload works. BUT the
- *      pin path is built against the old PinObjectRequest format and
- *      indexd master rejects it with "object ID does not match slabs".
- *
- * The bridge: upload via package 2, then move the resulting object
- * across via the SDK's own `seal(appKey)` JSON serialization, then pin
- * via package 1. This is documented and reversible — `seal/open` is the
- * Sia SDK's normal serialization for sharing/transferring objects.
- *
- * NOTE on the word "seal": this is the Sia SDK's terminology for
- * "encrypted-on-the-wire object form" (see SealedObject in the Sia
- * docs). It is unrelated to the `the Sia SDK` package (Move
- * threshold encryption) that was removed during the Sluby →
- * SiaStream conversion. Different concept, different organization.
+ * After an upload completes, we move the resulting object handle from
+ * the upload SDK into the storage SDK using the SDKs' own
+ * `seal(appKey)` / `PinnedObject.open(appKey, sealed)` round-trip. That
+ * is the Sia SDK's standard mechanism for serializing an object handle
+ * so it can be transferred between processes or SDK instances; here we
+ * use it in-process to hand the object off for pinning.
  */
 
 import {
@@ -52,8 +40,10 @@ import { logger } from '../config/logger.js';
 import { buildAppMeta } from './sia-app-meta.js';
 
 interface DualSdk {
-  storage: StorageSdk;        // for connect/pin/account/download/share/list
-  uploadSdk: import('@siafoundation/sia').SiaClient;  // for upload only
+  // Control plane: connect, pin, account, download handle, share, list.
+  storage: StorageSdk;
+  // Data plane: raw upload + download byte transfer.
+  uploadSdk: import('@siafoundation/sia').SiaClient;
   uploadAppKey: import('@siafoundation/sia').AppKey;
 }
 
@@ -82,9 +72,7 @@ export function getClient(): Promise<DualSdk> {
         );
       }
 
-      // Connect the upload SDK with the same App Key. It uses a different
-      // signing format internally for pin (which we never call on it), so
-      // the same key string still works for connect/upload here.
+      // Connect the upload SDK with the same App Key.
       const uploadAppKey = new SiaAAppKey(siaAFromHex(env.SIA_APP_KEY));
       const uploadSdk = await connectSiaA(env.SIA_INDEXER_URL, uploadAppKey);
       if (!uploadSdk) {
@@ -268,12 +256,10 @@ export async function uploadAndPinPacked(
 /**
  * Download an object by hex ID. Optional byte-range support.
  *
- * Implementation note: sia-storage@0.0.5's `download(writeFn, ...)` callback
- * path crashes with `encoder error: IO error: Value is not undefined`
- * (same NAPI threadsafe-function bug class as its `add(readFn)`). We use
- * `@siafoundation/sia` for download — its `download(obj, onProgress?)`
- * returns the bytes directly, no callback. We bridge the object handle
- * the same way we do for upload (seal → JSON → open into the upload SDK).
+ * Uses the `@siafoundation/sia` SDK for the actual byte-fetching call
+ * (its `download(obj, onProgress?)` returns the bytes directly). We
+ * bridge the object handle between SDKs with the standard
+ * seal → JSON → open round-trip.
  */
 export async function downloadObject(
   objectId: string,

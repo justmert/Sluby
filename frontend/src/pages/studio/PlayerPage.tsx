@@ -2,9 +2,9 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Hls, { type HlsConfig } from 'hls.js';
 import {
-  Play, Gauge, AlertTriangle, AlertCircle, Download, Wifi, Clock,
-  ArrowUpDown, Database, Radio, Lock, Copy, Check, X, Maximize,
-  ExternalLink, ChevronDown, ChevronUp, Activity, Film, ArrowLeft,
+  Play, Gauge, AlertTriangle, Download, Wifi, Clock,
+  ArrowUpDown, Database, Radio, X, Maximize,
+  ChevronDown, ChevronUp, Activity, Film, ArrowLeft,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -82,12 +82,16 @@ function timeNow() {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers – Object ID links
+// Helpers – Object ID rendering
 // ---------------------------------------------------------------------------
+//
+// Object ids are app-layer hashes (renterd-generated) — they are not on-chain
+// and the Siascan explorer cannot resolve them. We just truncate the hex for
+// readability.
 
 const OBJECT_ID_RE = /\b([A-Za-z0-9_-]{40,})\b/;
 
-function renderDetailWithObjectLink(detail: string) {
+function renderDetailWithObjectId(detail: string) {
   const match = detail.match(OBJECT_ID_RE);
   if (!match) return <>{detail}</>;
   const objectId = match[1];
@@ -97,15 +101,12 @@ function renderDetailWithObjectLink(detail: string) {
   return (
     <>
       {before}
-      <a
-        href={`${BASE_URL}/v1/objects/${objectId}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-0.5 text-teal-400 hover:text-teal-300 transition-colors"
+      <span
+        title={objectId}
+        className="font-mono text-zinc-300"
       >
         {objectId.slice(0, 8)}&hellip;{objectId.slice(-4)}
-        <ExternalLink className="w-2.5 h-2.5 inline-block" />
-      </a>
+      </span>
       {after}
     </>
   );
@@ -207,7 +208,6 @@ export default function PlayerPage() {
 
   const selectedAsset = assets.data?.data?.find((a) => a.id === selectedId);
 
-  const [signedCopied, setSignedCopied] = useState(false);
   const [isLogHovered, setIsLogHovered] = useState(false);
 
   const readyAssets = assets.data?.data?.filter((a) => a.status === 'ready') ?? [];
@@ -423,7 +423,6 @@ export default function PlayerPage() {
     } else {
       setSearchParams({}, { replace: true });
     }
-    setSignedCopied(false);
   }, [setSearchParams]);
 
   const handleFullscreen = useCallback(() => {
@@ -572,37 +571,6 @@ export default function PlayerPage() {
                   </div>
                 </div>
 
-                {/* ── SHARE LINK ── Full width below, only for gated content */}
-                {playback.data.access_tier !== 'public' && selectedId && (
-                  <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Lock className="w-4 h-4 text-amber-400" />
-                      <span className="text-sm font-semibold text-[#f0f0f0] font-heading">Watch Page Link</span>
-                    </div>
-                    <p className="text-xs text-zinc-400">
-                      This asset uses <span className="text-zinc-200 font-medium">{playback.data.access_tier}</span> access.
-                      Share this link with authorized viewers — they will verify on-chain before playback.
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 text-xs font-mono text-emerald-400 bg-[#0a0a0f]/80 border border-white/[0.08] rounded-lg px-2.5 py-1.5 truncate block overflow-hidden">
-                        {`${window.location.origin}/watch/${selectedId}`}
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          navigator.clipboard.writeText(`${window.location.origin}/watch/${selectedId}`);
-                          setSignedCopied(true);
-                          setTimeout(() => setSignedCopied(false), 2000);
-                        }}
-                        className="shrink-0 h-7 w-7 p-0"
-                      >
-                        {signedCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
                 {/* ── PIPELINE INSPECTOR ── Full width collapsible section below */}
                 <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
                   <button
@@ -687,7 +655,7 @@ export default function PlayerPage() {
                                       <span className="text-zinc-300">{evt.message}</span>
                                       {evt.detail && (
                                         <div className="text-zinc-500 text-[10px] truncate mt-0.5">
-                                          {evt.kind === 'segment' ? renderDetailWithObjectLink(evt.detail) : evt.detail}
+                                          {evt.kind === 'segment' ? renderDetailWithObjectId(evt.detail) : evt.detail}
                                         </div>
                                       )}
                                     </div>

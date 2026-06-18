@@ -55,18 +55,6 @@ import {
   createWebhookDelivery,
 } from './db/queries/webhooks.js';
 
-import {
-  createAllowlistRecord,
-  listAllowlists as dbListAllowlists,
-  deleteAllowlistRecord,
-  addAllowlistMemberRecord,
-  removeAllowlistMemberRecord,
-  createSubscriptionRecord,
-  listSubscriptions as dbListSubscriptions,
-  createViewingTicketRecord,
-  listViewingTickets as dbListViewingTickets,
-} from './db/queries/access-control.js';
-
 // Other imports
 import { SessionManager } from './upload/session-manager.js';
 import { WebhookDispatcher } from './webhooks/dispatcher.js';
@@ -448,6 +436,20 @@ const apiRouterDeps: ApiRouterDeps = {
     await deleteVideoAsset(id);
   },
 
+  // ── SiaInfoRouteDeps ──
+  getAssetWithSiaIds: async (id) => {
+    const asset = await getVideoAssetById(id);
+    if (!asset) return null;
+    return {
+      id: asset.id,
+      manifestObjectId: asset.manifestObjectId,
+      thumbnailObjectIds: asset.thumbnailObjectIds,
+      siaObjectIds: (asset.siaObjectIds ?? []) as string[],
+      totalStorageBytes: asset.totalStorageBytes,
+      status: asset.status,
+    };
+  },
+
   getProcessingJob: async (videoAssetId) => {
     return getProcessingJobByVideoAssetId(videoAssetId);
   },
@@ -587,17 +589,6 @@ const apiRouterDeps: ApiRouterDeps = {
   deleteApiKey: async (id) => {
     await dbDeleteApiKey(id);
   },
-
-  // DB persistence for access control
-  createAllowlistRecord,
-  listAllowlists: dbListAllowlists,
-  deleteAllowlistRecord,
-  addAllowlistMemberRecord,
-  removeAllowlistMemberRecord,
-  createSubscriptionRecord,
-  listSubscriptions: dbListSubscriptions,
-  createViewingTicketRecord,
-  listViewingTickets: dbListViewingTickets,
 };
 
 const apiRouter = createApiRouter(apiRouterDeps);

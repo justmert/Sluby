@@ -14,6 +14,7 @@ import {
   ArrowRight,
   FileVideo,
   RefreshCw,
+  ExternalLink,
   type LucideIcon,
 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -25,6 +26,13 @@ import { useMetrics, type MetricsWithHistory } from '@/hooks/useMetrics';
 import { useAssets, type VideoAsset } from '@/hooks/useAssets';
 import { formatBytes, formatRelativeTime } from '@/lib/formatters';
 import { cn } from '@/lib/cn';
+import {
+  EXPLORER_BASE_URL,
+  EXPLORER_LABEL,
+  EXTERNAL_LINK_PROPS,
+  IS_TESTNET_EXPLORER,
+} from '@/lib/sia-explorer';
+import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
 
 // ---------------------------------------------------------------------------
 // Shared components
@@ -183,7 +191,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {isHealthLoading && (
             <Badge variant="secondary" className="gap-1.5">
               <Server className="w-3 h-3 animate-pulse" />
@@ -207,6 +215,19 @@ export default function DashboardPage() {
               </span>
             </>
           )}
+          <Badge variant="secondary" className="gap-1.5 bg-teal-500/10 text-teal-400 border-teal-500/20">
+            <Database className="w-3 h-3" />
+            {IS_TESTNET_EXPLORER ? 'Zen Testnet' : 'Sia Mainnet'}
+          </Badge>
+          <a
+            href={EXPLORER_BASE_URL}
+            {...EXTERNAL_LINK_PROPS}
+            title={`Browse ${EXPLORER_LABEL}`}
+            className="inline-flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300 transition-colors"
+          >
+            <ExternalLink className="w-3 h-3" aria-hidden="true" />
+            {EXPLORER_LABEL}
+          </a>
         </div>
       </motion.section>
 
@@ -332,6 +353,19 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-4 ml-4 shrink-0">
+                    {asset.manifest_object_id && (
+                      <div
+                        className="hidden md:inline-flex"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ObjectIdBadge
+                          value={asset.manifest_object_id}
+                          truncate={6}
+                          hideCopy
+                          className="text-[10px]"
+                        />
+                      </div>
+                    )}
                     <StatusBadge status={asset.status} />
                     <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                       <Clock className="w-3 h-3" />

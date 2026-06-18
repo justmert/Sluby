@@ -23,6 +23,9 @@ import {
   Image,
   Cpu,
   Timer,
+  Server,
+  Boxes,
+  Network,
 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -40,7 +43,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { useAsset, useUpdateAsset, useDeleteAsset } from '@/hooks/useAssets';
+import {
+  useAsset,
+  useUpdateAsset,
+  useDeleteAsset,
+  useAssetSiaInfo,
+  type AssetSiaInfo,
+  type SiaVariantInfo,
+} from '@/hooks/useAssets';
 import { usePlayback } from '@/hooks/usePlayback';
 import { useProcessingJob, type ProcessingLog } from '@/hooks/useProcessingJob';
 import { formatDuration, formatBytes, formatRelativeTime } from '@/lib/formatters';
@@ -48,7 +58,12 @@ import { truncateAddress } from '@/lib/address-helpers';
 import { siaObjectUrl } from '@/lib/sia';
 import { BASE_URL } from '@/lib/api-client';
 import { cn } from '@/lib/cn';
-// BlockchainStorageSection removed (on-chain specific component)
+import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
+import {
+  EXPLORER_LABEL,
+  EXTERNAL_LINK_PROPS,
+  explorerUrls,
+} from '@/lib/sia-explorer';
 
 // ---------------------------------------------------------------------------
 // CopyButton (inline)
@@ -98,8 +113,6 @@ function AccessTierBadge({ tier, large }: { tier: string; large?: boolean }) {
   const config: Record<string, { label: string; variant: 'default' | 'secondary' | 'warning' | 'success' }> = {
     public: { label: 'Public', variant: 'success' },
     private: { label: 'Private', variant: 'default' },
-    pay_per_view: { label: 'Pay-per-View', variant: 'warning' },
-    subscription: { label: 'Subscription', variant: 'default' },
   };
   const c = config[tier] ?? { label: tier, variant: 'secondary' as const };
   return (
@@ -342,9 +355,452 @@ function ThumbnailGallery({ objectIds }: { objectIds: string[] }) {
               className="w-full h-full object-cover"
               loading="lazy"
             />
+            <div
+              title={objectId}
+              className="absolute inset-0 flex items-end justify-start p-1.5 pointer-events-none"
+            >
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-mono text-zinc-300">
+                {truncateAddress(objectId, 6, 4)}
+              </span>
+            </div>
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sia Storage Section
+// ---------------------------------------------------------------------------
+
+function SiaStat({
+  label,
+  value,
+  sub,
+  icon: Icon,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  icon: typeof Cpu;
+}) {
+  return (
+    <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className="w-3.5 h-3.5 text-teal-400" />
+        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">
+          {label}
+        </span>
+      </div>
+      <div className="text-lg font-semibold text-zinc-100 font-heading tabular-nums">
+        {value}
+      </div>
+      {sub && <div className="text-[11px] text-zinc-500 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function RedundancyGraphic({
+  dataShards,
+  parityShards,
+}: {
+  dataShards: number;
+  parityShards: number;
+}) {
+  const data = Array.from({ length: dataShards });
+  const parity = Array.from({ length: parityShards });
+  return (
+    <div className="flex items-center gap-4">
+      <div className="flex items-center gap-1">
+        {data.map((_, i) => (
+          <div
+            key={`d-${i}`}
+            className="w-4 h-6 rounded-sm bg-teal-500/60 border border-teal-400/50"
+            title="Data shard"
+          />
+        ))}
+      </div>
+      <span className="text-zinc-600 text-xs font-mono">+</span>
+      <div className="flex items-center gap-1">
+        {parity.map((_, i) => (
+          <div
+            key={`p-${i}`}
+            className="w-4 h-6 rounded-sm bg-zinc-700/60 border border-zinc-600/50"
+            title="Parity shard"
+          />
+        ))}
+      </div>
+      <span className="text-zinc-600 text-xs font-mono">=</span>
+      <div className="text-sm font-semibold text-teal-400 font-heading">
+        {((dataShards + parityShards) / dataShards).toFixed(1)}× redundancy
+      </div>
+    </div>
+  );
+}
+
+function HostPill({ pubkey }: { pubkey: string }) {
+  const shortKey =
+    pubkey.length > 18 ? `${pubkey.slice(0, 10)}\u2026${pubkey.slice(-6)}` : pubkey;
+  return (
+    <a
+      href={explorerUrls.host(pubkey)}
+      {...EXTERNAL_LINK_PROPS}
+      title={`View host ${pubkey} on ${EXPLORER_LABEL}`}
+      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/[0.03] border border-white/[0.08] hover:bg-white/[0.06] hover:border-teal-500/30 transition-colors text-[11px] font-mono text-zinc-400 hover:text-teal-300"
+    >
+      <Server className="w-3 h-3 text-teal-400/70" />
+      {shortKey}
+      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+    </a>
+  );
+}
+
+function VariantRow({ variant }: { variant: SiaVariantInfo }) {
+  return (
+    <tr className="hover:bg-white/[0.03] transition-colors align-top">
+      <td className="px-5 py-3">
+        <div className="text-sm font-semibold text-zinc-100">
+          {variant.resolution || '\u2014'}
+        </div>
+        <div className="text-[10px] text-zinc-500 tabular-nums mt-0.5">
+          {variant.bitrateKbps > 0 ? `${variant.bitrateKbps.toLocaleString()} kbps` : ''}
+        </div>
+      </td>
+      <td className="px-5 py-3 text-xs">
+        {variant.dataObjectId ? (
+          <ObjectIdBadge value={variant.dataObjectId} truncate={6} />
+        ) : (
+          <span className="text-zinc-600">—</span>
+        )}
+      </td>
+      <td className="px-5 py-3 text-xs">
+        {variant.playlistObjectId ? (
+          <ObjectIdBadge value={variant.playlistObjectId} truncate={6} />
+        ) : (
+          <span className="text-zinc-600">—</span>
+        )}
+      </td>
+      <td className="px-5 py-3 text-right tabular-nums text-zinc-300">
+        {formatBytes(variant.dataSize)}
+      </td>
+      <td className="px-5 py-3 text-right tabular-nums text-zinc-500">
+        {variant.encodedBytes !== null ? (
+          formatBytes(variant.encodedBytes)
+        ) : (
+          <span className="text-zinc-700">—</span>
+        )}
+      </td>
+      <td className="px-5 py-3 text-right tabular-nums text-zinc-300">
+        {variant.segmentCount.toLocaleString()}
+      </td>
+      <td className="px-5 py-3 text-right tabular-nums text-teal-300">
+        {variant.hostCount}
+      </td>
+      <td className="px-5 py-3 text-right tabular-nums text-zinc-400">
+        {variant.slabCount}
+      </td>
+      <td className="px-5 py-3 text-right tabular-nums text-zinc-400">
+        {variant.sectorCount}
+      </td>
+      <td className="px-5 py-3 text-right tabular-nums text-zinc-400 font-mono">
+        {variant.minShards !== null && variant.totalShards !== null
+          ? `${variant.minShards}/${variant.totalShards}`
+          : '\u2014'}
+      </td>
+    </tr>
+  );
+}
+
+function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
+  const {
+    manifest,
+    manifestObjectId,
+    variants,
+    totals,
+    indexer,
+  } = info;
+
+  // Reed-Solomon parameters are only known once we've observed at least one
+  // populated slab — the Sia SDK carries them as slab metadata, not a
+  // renter-wide setting. If nothing has been pinned yet we show a
+  // placeholder state instead of guessing.
+  const hasShardInfo =
+    totals.dataShards !== null && totals.parityShards !== null;
+
+  return (
+    <div className="bg-gradient-to-br from-teal-500/[0.04] via-transparent to-transparent bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden backdrop-blur-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-white/[0.08]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-teal-500/10 border border-teal-500/20 flex items-center justify-center">
+            <Database className="w-4 h-4 text-teal-400" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-100 font-heading">
+              Sia Storage
+            </h3>
+            <p className="text-[11px] text-zinc-500">
+              Decentralized on the Sia network
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="secondary"
+            className="text-[10px] px-2 py-0.5 bg-teal-500/10 text-teal-400 border-teal-500/20"
+            title={indexer.url}
+          >
+            <Network className="w-3 h-3 mr-1" />
+            {indexer.network === 'zen' ? 'Zen Testnet' : 'Mainnet'}
+          </Badge>
+          {hasShardInfo && (
+            <Badge
+              variant="secondary"
+              className="text-[10px] px-2 py-0.5 bg-white/[0.05] text-zinc-300 border-white/[0.08]"
+              title="Reed-Solomon erasure coding (read from slab metadata)"
+            >
+              {totals.dataShards} + {totals.parityShards} shards
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Top stats grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-5">
+        <SiaStat
+          icon={Boxes}
+          label="Sia Operations"
+          value={totals.objectCount.toLocaleString()}
+          sub="Total objects pinned"
+        />
+        <SiaStat
+          icon={HardDrive}
+          label="Raw Size"
+          value={formatBytes(totals.rawBytes)}
+          sub={
+            totals.encodedBytes !== null
+              ? `${formatBytes(totals.encodedBytes)} on hosts`
+              : 'Encoded size pending'
+          }
+        />
+        <SiaStat
+          icon={Server}
+          label="Hosts"
+          value={totals.uniqueHostCount.toLocaleString()}
+          sub="Unique hosts storing data"
+        />
+        <SiaStat
+          icon={Shield}
+          label="Redundancy"
+          value={
+            totals.redundancyRatio !== null ? (
+              <>
+                {totals.redundancyRatio.toFixed(2)}
+                <span className="text-xs text-zinc-400 ml-1">×</span>
+              </>
+            ) : (
+              <span className="text-zinc-500">—</span>
+            )
+          }
+          sub={
+            hasShardInfo
+              ? `${totals.dataShards} data + ${totals.parityShards} parity per slab`
+              : 'Slab metadata not yet available'
+          }
+        />
+      </div>
+
+      {/* Redundancy visualization — only when real slab metadata is present */}
+      {hasShardInfo && totals.dataShards !== null && totals.parityShards !== null && (() => {
+        const totalSlabs =
+          (manifest?.slabCount ?? 0) +
+          variants.reduce((s, v) => s + v.slabCount, 0);
+        const totalSectors =
+          (manifest?.sectorCount ?? 0) +
+          variants.reduce((s, v) => s + v.sectorCount, 0);
+        return (
+          <div className="mx-5 mb-5 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium mb-1">
+                  Erasure Coding — observed across {totalSlabs} slab
+                  {totalSlabs === 1 ? '' : 's'}
+                </div>
+                <div className="text-xs text-zinc-400 max-w-md">
+                  Each slab stores{' '}
+                  <span className="text-teal-400 font-semibold">
+                    {totals.dataShards}
+                  </span>{' '}
+                  data +{' '}
+                  <span className="text-zinc-300 font-semibold">
+                    {totals.parityShards}
+                  </span>{' '}
+                  parity shards. Any {totals.dataShards} of{' '}
+                  {totals.dataShards + totals.parityShards} reconstruct the
+                  data. Total on hosts:{' '}
+                  <span className="font-mono text-zinc-300">
+                    {totalSectors} sector{totalSectors === 1 ? '' : 's'}
+                  </span>{' '}
+                  {totals.encodedBytes !== null && (
+                    <>
+                      {' '}× 4 MiB ={' '}
+                      <span className="font-mono text-zinc-300">
+                        {formatBytes(totals.encodedBytes)}
+                      </span>
+                    </>
+                  )}
+                  .
+                </div>
+              </div>
+              <RedundancyGraphic
+                dataShards={totals.dataShards}
+                parityShards={totals.parityShards}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Manifest row */}
+      {manifestObjectId && (
+        <div className="mx-5 mb-5 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium mb-2">
+            Master Manifest
+          </div>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <ObjectIdBadge
+              value={manifestObjectId}
+              truncate={10}
+              className="text-xs"
+            />
+            {manifest && (
+              <div className="flex items-center gap-4 text-[11px] text-zinc-400 tabular-nums">
+                <span>{formatBytes(manifest.size)}</span>
+                <span>
+                  {manifest.slabCount} slab{manifest.slabCount === 1 ? '' : 's'}
+                </span>
+                <span>
+                  {manifest.sectorCount} sector
+                  {manifest.sectorCount === 1 ? '' : 's'}
+                </span>
+                <span className="text-zinc-500">
+                  on {manifest.hosts.length} host
+                  {manifest.hosts.length === 1 ? '' : 's'}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Variants table */}
+      {variants.length > 0 && (
+        <div className="border-t border-white/[0.08] overflow-hidden">
+          <div className="px-5 py-3 border-b border-white/[0.08] flex items-center gap-2">
+            <Film className="w-3.5 h-3.5 text-zinc-400" />
+            <span className="text-sm font-semibold text-zinc-200 font-heading">
+              Per-Variant Breakdown
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-white/[0.02] border-b border-white/[0.06]">
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Rendition
+                  </th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Data Object
+                  </th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Playlist Object
+                  </th>
+                  <th className="text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Size
+                  </th>
+                  <th className="text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Encoded
+                  </th>
+                  <th className="text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Segments
+                  </th>
+                  <th className="text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Hosts
+                  </th>
+                  <th
+                    className="text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5"
+                    title="Number of 4 MiB sectors stored across all hosts"
+                  >
+                    Slabs
+                  </th>
+                  <th
+                    className="text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5"
+                    title="Physical 4 MiB sectors on hosts (real count from slab metadata)"
+                  >
+                    Sectors
+                  </th>
+                  <th
+                    className="text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5"
+                    title="Reed-Solomon data/total shards per slab"
+                  >
+                    k/n
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.06]">
+                {variants.map((v) => (
+                  <VariantRow
+                    key={v.playlistObjectId || v.dataObjectId || v.resolution}
+                    variant={v}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Hosts map */}
+      {totals.allHosts.length > 0 && (
+        <div className="border-t border-white/[0.08] p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Server className="w-3.5 h-3.5 text-zinc-400" />
+            <span className="text-sm font-semibold text-zinc-200 font-heading">
+              Host Pool
+            </span>
+            <span className="text-[11px] text-zinc-500">
+              {totals.uniqueHostCount} unique host
+              {totals.uniqueHostCount === 1 ? '' : 's'} holding this video
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {totals.allHosts.map((pubkey) => (
+              <HostPill key={pubkey} pubkey={pubkey} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SiaStorageSectionLoader() {
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <Database className="w-4 h-4 text-teal-400" />
+        <span className="text-sm font-semibold text-zinc-200 font-heading">
+          Sia Storage
+        </span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-20 rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="h-16 rounded-xl" />
+      <Skeleton className="h-40 rounded-xl" />
     </div>
   );
 }
@@ -355,7 +811,6 @@ function ThumbnailGallery({ objectIds }: { objectIds: string[] }) {
 
 const STAGE_CONFIG: Record<string, { icon: typeof Cpu; color: string; bg: string; label: string }> = {
   transcode: { icon: Cpu, color: 'text-zinc-400', bg: 'bg-zinc-400/20', label: 'Transcode' },
-  blockchain: { icon: Database, color: 'text-teal-400', bg: 'bg-teal-400/20', label: 'Blockchain' },
   upload: { icon: HardDrive, color: 'text-violet-400', bg: 'bg-violet-400/20', label: 'Upload' },
   finalize: { icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-400/20', label: 'Finalize' },
 };
@@ -411,7 +866,7 @@ function ProcessingLogsTimeline({ logs }: { logs: ProcessingLog[] }) {
     <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 backdrop-blur-sm">
       <h3 className="text-sm font-semibold text-zinc-200 font-heading flex items-center gap-2 mb-4">
         <Layers className="w-4 h-4 text-zinc-400" />
-        Blockchain Operations
+        Pipeline Activity
       </h3>
       <div className="relative ml-3">
         {/* Vertical timeline line */}
@@ -471,13 +926,13 @@ function ProcessingLogsTimeline({ logs }: { logs: ProcessingLog[] }) {
 function EmbedCodeGenerator({ assetId, playbackUrl }: { assetId: string; playbackUrl?: string }) {
   const hlsUrl = playbackUrl ?? `${BASE_URL}/api/v1/playback/${assetId}/hls`;
 
-  const htmlCode = `<iframe
-  src="${BASE_URL}/watch/${assetId}"
+  const htmlCode = `<video
+  src="${hlsUrl}"
+  data-asset-id="${assetId}"
   width="640"
   height="360"
-  frameborder="0"
-  allowfullscreen
-></iframe>`;
+  controls
+></video>`;
 
   const reactCode = `<SiaStreamPlayer
   src="${hlsUrl}"
@@ -580,6 +1035,82 @@ function DetailSkeleton() {
 
 
 // ---------------------------------------------------------------------------
+// Sia Objects Section (collapsible)
+// ---------------------------------------------------------------------------
+
+function SiaObjectsSection({
+  manifestId,
+  thumbnailIds,
+}: {
+  manifestId: string | null;
+  thumbnailIds: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const totalObjects = (manifestId ? 1 : 0) + thumbnailIds.length;
+
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/[0.04] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Database className="w-4 h-4 text-teal-400" />
+          <h3 className="text-sm font-semibold text-zinc-200 font-heading">
+            Sia Objects
+          </h3>
+          <Badge variant="secondary" className="text-[10px] px-2 py-0.5 ml-1 bg-teal-500/10 text-teal-400 border-teal-500/20">
+            {totalObjects}
+          </Badge>
+        </div>
+        <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+          {open ? 'Hide' : 'Show'}
+        </span>
+      </button>
+      {open && (
+        <div className="px-5 pb-5 pt-1 space-y-3 border-t border-white/[0.08]">
+          <p className="text-xs text-zinc-500">
+            Every asset artifact is stored on the Sia network. Object
+            identifiers are app-layer hashes — they are not consensus-layer
+            entities and do not appear on {EXPLORER_LABEL}.
+          </p>
+          {manifestId && (
+            <div className="flex items-center justify-between py-2 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                <Layers className="w-3.5 h-3.5 text-teal-400" />
+                <span className="text-xs text-zinc-400">Manifest</span>
+              </div>
+              <ObjectIdBadge value={manifestId} />
+            </div>
+          )}
+          {thumbnailIds.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Image className="w-3.5 h-3.5 text-zinc-400" />
+                <span className="text-xs text-zinc-400">
+                  Thumbnails ({thumbnailIds.length})
+                </span>
+              </div>
+              <ul className="space-y-1.5">
+                {thumbnailIds.map((id, i) => (
+                  <li
+                    key={id}
+                    className="flex items-center justify-between text-xs pl-5"
+                  >
+                    <span className="text-zinc-500 font-mono">#{i + 1}</span>
+                    <ObjectIdBadge value={id} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page Component
 // ---------------------------------------------------------------------------
 
@@ -589,6 +1120,9 @@ export default function AssetDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const { data: asset, isLoading, isError, refetch } = useAsset(id);
+  const siaInfo = useAssetSiaInfo(
+    asset?.status === 'ready' && asset?.manifest_object_id ? id : undefined,
+  );
   const playback = usePlayback(asset?.status === 'ready' ? id : undefined);
   // Fetch processing job both while processing AND when ready (to show timing data)
   const processingJob = useProcessingJob(
@@ -741,7 +1275,22 @@ export default function AssetDetailPage() {
           <ThumbnailGallery objectIds={asset.thumbnail_object_ids} />
         )}
 
-        {/* ── STORAGE INFO ── */}
+        {/* ── SIA OBJECTS ── */}
+        {(asset.manifest_object_id || (asset.thumbnail_object_ids && asset.thumbnail_object_ids.length > 0)) && (
+          <SiaObjectsSection
+            manifestId={asset.manifest_object_id}
+            thumbnailIds={asset.thumbnail_object_ids ?? []}
+          />
+        )}
+
+        {/* ── SIA STORAGE ── Only when asset is ready & manifest exists */}
+        {asset.status === 'ready' && asset.manifest_object_id && (
+          siaInfo.isLoading && !siaInfo.data ? (
+            <SiaStorageSectionLoader />
+          ) : siaInfo.data ? (
+            <SiaStorageSection info={siaInfo.data} />
+          ) : null
+        )}
 
         {/* ── TECHNICAL DETAILS ── */}
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 backdrop-blur-sm">
@@ -775,24 +1324,6 @@ export default function AssetDetailPage() {
                 <Progress value={processingJob.data.progress_percent} />
               </div>
             )}
-          </div>
-        )}
-
-        {/* ── ACCESS CONTROL ── Only for non-public */}
-        {asset.access_tier !== 'public' && (
-          <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Shield className="w-4 h-4 text-violet-400" />
-              <div>
-                <p className="text-sm font-medium text-zinc-200">Access Control</p>
-                <p className="text-xs text-zinc-500 mt-0.5">
-                  {asset.access_tier === 'private' ? 'Allowlisted addresses only' : asset.access_tier === 'pay_per_view' ? 'Viewing ticket required' : 'Subscription pass required'}
-                </p>
-              </div>
-            </div>
-            <Button variant="outline" size="sm" asChild className="bg-white/[0.04] hover:bg-white/[0.07]">
-              <Link to="/studio/access-control">Manage</Link>
-            </Button>
           </div>
         )}
 
@@ -881,7 +1412,7 @@ export default function AssetDetailPage() {
             <DialogTitle>Delete Asset</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete &ldquo;{asset.title}&rdquo;? This will permanently
-              remove the video, all renditions, and blockchain records. This action cannot be undone.
+              remove the video, all renditions, and Sia storage objects. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

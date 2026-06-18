@@ -1,1 +1,0 @@
-ALTER TABLE "processing_jobs" ADD COLUMN "logs" jsonb DEFAULT '[]'::jsonb;

@@ -11,11 +11,7 @@ export type VideoAssetStatus =
   | 'failed';
 
 /** Access tier controlling who can view a video. */
-export type AccessTier =
-  | 'public'
-  | 'private'
-  | 'pay_per_view'
-  | 'subscription';
+export type AccessTier = 'public' | 'private';
 
 // ---------------------------------------------------------------------------
 // Core resources

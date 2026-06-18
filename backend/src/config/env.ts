@@ -81,6 +81,31 @@ const envSchema = z.object({
    *  If set and no API keys exist in the DB, this key is auto-seeded on startup
    *  with full scopes (upload, read, manage). Solves the bootstrap problem. */
   BOOTSTRAP_API_KEY: z.string().optional(),
+
+  /** Public base URL the browser sees (no trailing slash).
+   *  Used to construct OAuth callback URLs and post-login redirects. */
+  PUBLIC_URL: z.string().url().default('http://localhost:3000'),
+
+  /** GitHub OAuth app client id (from https://github.com/settings/developers). */
+  GITHUB_CLIENT_ID: z.string().optional(),
+
+  /** GitHub OAuth app client secret. */
+  GITHUB_CLIENT_SECRET: z.string().optional(),
+
+  /** Comma-separated list of GitHub usernames allowed into the Studio.
+   *  Empty/unset means no one (locks the UI entirely). Case-insensitive. */
+  GITHUB_ALLOWED_USERS: z.string().default(''),
+
+  /** HMAC secret for signing session cookies. Must be set in production. */
+  SESSION_SECRET: z
+    .string()
+    .default('dev-only-do-not-use-in-production-change-me'),
+
+  /** When set to 'true', bypasses the GitHub auth gate entirely (dev only). */
+  AUTH_DISABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
 });
 
 export type Env = z.infer<typeof envSchema>;

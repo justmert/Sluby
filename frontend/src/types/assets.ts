@@ -83,14 +83,6 @@ export type WebhookEvent =
   | 'asset.ready'
   | 'asset.errored';
 
-export interface AllowlistEntry {
-  id: string;
-  name: string;
-  videoId: string;
-  members: string[];
-  createdAt: string;
-}
-
 export interface PlaybackInfo {
   url: string;
   format: string;

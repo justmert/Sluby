@@ -11,7 +11,7 @@ export const Progress = forwardRef<
     v >= 80
       ? 'bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
       : v >= 50
-        ? 'bg-gradient-to-r from-teal-500 to-teal-400 shadow-[0_0_12px_rgba(20,184,166,0.25)]'
+        ? 'bg-gradient-to-r from-teal-500 to-teal-400 shadow-[0_0_12px_rgba(255,121,26,0.25)]'
         : v >= 25
           ? 'bg-gradient-to-r from-amber-500 to-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
           : 'bg-gradient-to-r from-red-500 to-red-400 shadow-[0_0_12px_rgba(239,68,68,0.25)]';

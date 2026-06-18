@@ -84,6 +84,75 @@ export function useAssets(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Sia info types
+// ---------------------------------------------------------------------------
+
+export interface SiaObjectSummary {
+  size: number;
+  slabCount: number;
+  sectorCount: number;
+  minShards: number;
+  totalShards: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+  hosts: string[];
+}
+
+export interface SiaVariantInfo {
+  resolution: string;
+  bitrateKbps: number;
+  dataObjectId: string;
+  playlistObjectId: string;
+  dataSize: number;
+  segmentCount: number;
+  hostCount: number;
+  hosts: string[];
+  slabCount: number;
+  sectorCount: number;
+  encodedBytes: number | null;
+  minShards: number | null;
+  totalShards: number | null;
+}
+
+export interface SiaThumbnailInfo {
+  objectId: string;
+  size: number;
+}
+
+export interface AssetSiaInfo {
+  manifestObjectId: string | null;
+  manifest: SiaObjectSummary | null;
+  variants: SiaVariantInfo[];
+  thumbnails: SiaThumbnailInfo[];
+  totals: {
+    objectCount: number;
+    rawBytes: number;
+    encodedBytes: number | null;
+    redundancyRatio: number | null;
+    dataShards: number | null;
+    parityShards: number | null;
+    uniqueHostCount: number;
+    allHosts: string[];
+  };
+  indexer: {
+    url: string;
+    network: 'zen' | 'mainnet';
+  };
+}
+
+export function useAssetSiaInfo(id?: string): UseQueryResult<AssetSiaInfo> {
+  return useQuery({
+    queryKey: ['assets', id, 'sia'],
+    queryFn: () => apiClient.get<AssetSiaInfo>(`/assets/${id}/sia`),
+    enabled: !!id,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useAsset(id?: string): UseQueryResult<VideoAsset> {
   return useQuery({
     queryKey: ['assets', id],

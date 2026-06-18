@@ -31,10 +31,8 @@ import {
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-// useCurrentAccount removed (Sia wallet integration removed)
 import { useUpload, type UploadMetadata, type ProcessingLogEntry } from '@/hooks/useUpload';
 import { formatBytes } from '@/lib/formatters';
-import { truncateAddress } from '@/lib/address-helpers';
 import { cn } from '@/lib/cn';
 
 // ---------------------------------------------------------------------------
@@ -433,7 +431,6 @@ export default function UploadPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [accessTier, setAccessTier] = useState('public');
-  const [viewerAddresses, setViewerAddresses] = useState('');
 
   const handleFileSelect = (f: File) => {
     setFile(f);
@@ -449,9 +446,6 @@ export default function UploadPage() {
       description,
       access_tier: accessTier,
     };
-    if (accessTier === 'private' && viewerAddresses.trim()) {
-      metadata.initial_viewer_addresses = viewerAddresses.trim();
-    }
     startUpload(file, metadata);
   };
 
@@ -461,7 +455,6 @@ export default function UploadPage() {
     setTitle('');
     setDescription('');
     setAccessTier('public');
-    setViewerAddresses('');
   };
 
   return (
@@ -519,27 +512,6 @@ export default function UploadPage() {
                   </SelectContent>
                 </Select>
               </div>
-
-              {accessTier === 'private' && (
-                <div>
-                  <label className="text-xs text-zinc-400 font-medium mb-1.5 block">
-                    Initial Viewer Addresses <span className="text-zinc-600">(optional)</span>
-                  </label>
-                  <Textarea
-                    placeholder={"Enter Sia addresses, one per line or comma-separated\n0x1234...\n0xabcd..."}
-                    value={viewerAddresses}
-                    onChange={(e) => setViewerAddresses(e.target.value)}
-                    className="font-mono text-sm h-24"
-                  />
-                  <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
-                    An on-chain allowlist will be automatically created during processing.
-                    Your wallet address is included by default so you can always watch your own content.
-                    You can add or remove viewers later from the{' '}
-                    <Link to="/studio/access-control" className="text-teal-400 hover:underline">Access Control</Link>{' '}
-                    page.
-                  </p>
-                </div>
-              )}
 
               <Button
                 onClick={handleStartUpload}
@@ -662,10 +634,10 @@ export default function UploadPage() {
                 </h2>
                 <p className="text-sm text-zinc-400 mb-3">
                   {state.processingProgress <= 80
-                    ? 'Converting video to adaptive HLS segments across 4 quality levels'
+                    ? 'Converting video to adaptive HLS renditions across 4 quality levels'
                     : state.processingProgress < 95
-                      ? 'Uploading segments to decentralized Sia storage'
-                      : 'Registering asset on Sia blockchain and generating manifest'}
+                      ? 'Uploading rendition files to decentralized Sia storage'
+                      : 'Finalizing asset and generating manifest'}
                 </p>
                 {/* Stage pills */}
                 <div className="flex items-center gap-2">
@@ -806,8 +778,6 @@ export default function UploadPage() {
                         title: title || file.name,
                         description,
                         access_tier: accessTier,
-                        ...(viewerAddresses.trim() ? { initial_viewer_addresses: viewerAddresses.trim() } : {}),
-                        ...(ticketPrice ? { ticket_price: ticketPrice } : {}),
                       });
                     }, 100);
                   }

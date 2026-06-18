@@ -1,6 +1,7 @@
 services:
   backend:
     build: ./backend
+    container_name: siastream-backend
     ports:
       - "4500:3000"
     depends_on:
@@ -9,7 +10,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql://sia:sia@postgres:5432/siastream
+      - DATABASE_URL=postgresql://siastream:siastream@postgres:5432/siastream
       - REDIS_URL=redis://redis:6379
       - SIA_INDEXER_URL=${SIA_INDEXER_URL:-http://localhost:9980}
       - SIA_APP_ID=${SIA_APP_ID}
@@ -27,6 +28,7 @@ services:
 
   nginx:
     image: nginx:alpine
+    container_name: siastream-nginx
     ports:
       - "80:80"
     depends_on:
@@ -39,16 +41,17 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    container_name: siastream-postgres
     environment:
-      POSTGRES_USER: sia
-      POSTGRES_PASSWORD: sia
+      POSTGRES_USER: siastream
+      POSTGRES_PASSWORD: siastream
       POSTGRES_DB: siastream
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sia -d siastream"]
+      test: ["CMD-SHELL", "pg_isready -U siastream -d siastream"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -56,6 +59,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    container_name: siastream-redis
     volumes:
       - redis-data:/data
     ports:

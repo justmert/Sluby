@@ -1,4 +1,4 @@
-CREATE TYPE "public"."access_tier" AS ENUM('public', 'private', 'pay_per_view', 'subscription');--> statement-breakpoint
+CREATE TYPE "public"."access_tier" AS ENUM('public', 'private');--> statement-breakpoint
 CREATE TYPE "public"."job_status" AS ENUM('queued', 'processing', 'completed', 'failed', 'retrying');--> statement-breakpoint
 CREATE TYPE "public"."upload_status" AS ENUM('uploading', 'completed', 'cancelled', 'failed');--> statement-breakpoint
 CREATE TYPE "public"."video_status" AS ENUM('created', 'uploading', 'processing', 'ready', 'failed');--> statement-breakpoint
@@ -26,6 +26,7 @@ CREATE TABLE "processing_jobs" (
 	"completed_at" timestamp with time zone,
 	"retry_count" integer DEFAULT 0 NOT NULL,
 	"max_retries" integer DEFAULT 3 NOT NULL,
+	"logs" jsonb DEFAULT '[]'::jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -47,22 +48,20 @@ CREATE TABLE "upload_sessions" (
 --> statement-breakpoint
 CREATE TABLE "video_assets" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"sui_object_id" text,
-	"manifest_blob_id" text,
+	"manifest_object_id" text,
 	"title" text NOT NULL,
 	"description" text DEFAULT '' NOT NULL,
 	"duration_ms" bigint DEFAULT 0,
 	"resolution" text DEFAULT '',
 	"status" "video_status" DEFAULT 'created' NOT NULL,
 	"access_tier" "access_tier" DEFAULT 'public' NOT NULL,
-	"seal_policy_id" text,
 	"creator_address" text NOT NULL,
-	"thumbnail_blob_ids" text[] DEFAULT '{}' NOT NULL,
+	"thumbnail_object_ids" text[] DEFAULT '{}' NOT NULL,
 	"segment_count" integer DEFAULT 0 NOT NULL,
 	"total_storage_bytes" bigint DEFAULT 0 NOT NULL,
+	"sia_object_ids" jsonb DEFAULT '[]'::jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "video_assets_sui_object_id_unique" UNIQUE("sui_object_id")
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "webhook_deliveries" (

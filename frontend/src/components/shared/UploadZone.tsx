@@ -141,7 +141,7 @@ export function UploadZone({
         'relative h-52 rounded-xl border-2 border-dashed border-white/[0.08] bg-white/[0.01] transition-all duration-300 cursor-pointer',
         'flex flex-col items-center justify-center gap-4',
         'hover:border-white/[0.15] hover:bg-white/[0.03]',
-        isDragOver && 'border-teal-500/50 bg-teal-500/5 scale-[1.01] shadow-[0_0_30px_rgba(20,184,166,0.1)]',
+        isDragOver && 'border-teal-500/50 bg-teal-500/5 scale-[1.01] shadow-[0_0_30px_rgba(255,121,26,0.1)]',
         disabled && 'opacity-40 pointer-events-none cursor-not-allowed',
         className,
       )}

@@ -37,10 +37,8 @@ const STATUS_COLORS = {
 };
 
 const TIER_COLORS = {
-  public: '#14b8a6',
+  public: '#ff791a',
   private: '#8b5cf6',
-  ppv: '#f59e0b',
-  subscription: '#10b981',
 };
 
 // ---------------------------------------------------------------------------
@@ -83,7 +81,7 @@ interface MetricCardProps {
   sparkColor?: string;
 }
 
-function MetricCard({ icon: Icon, label, value, sparkData, sparkColor = '#14b8a6' }: MetricCardProps) {
+function MetricCard({ icon: Icon, label, value, sparkData, sparkColor = '#ff791a' }: MetricCardProps) {
   return (
     <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 space-y-2 hover:bg-white/[0.05] transition-all duration-200">
       <div className="flex items-center gap-2">
@@ -177,8 +175,6 @@ export default function AnalyticsPage() {
   // Fetch real asset counts by access tier (must be before early returns per React rules)
   const publicAssets = useAssets({ accessTier: 'public', limit: 1 });
   const privateAssets = useAssets({ accessTier: 'private', limit: 1 });
-  const ppvAssets = useAssets({ accessTier: 'pay_per_view', limit: 1 });
-  const subAssets = useAssets({ accessTier: 'subscription', limit: 1 });
   const allAssets = useAssets({ limit: 100 });
 
   const m = metrics.data;
@@ -221,8 +217,6 @@ export default function AnalyticsPage() {
   const tierCounts = {
     public: publicAssets.data?.total ?? 0,
     private: privateAssets.data?.total ?? 0,
-    ppv: ppvAssets.data?.total ?? 0,
-    subscription: subAssets.data?.total ?? 0,
   };
 
   // Derive REAL counts from the database via assets API
@@ -245,8 +239,6 @@ export default function AnalyticsPage() {
   const tierDistribution: DonutSlice[] = [
     { name: 'Public', value: tierCounts.public, color: TIER_COLORS.public },
     { name: 'Private', value: tierCounts.private, color: TIER_COLORS.private },
-    { name: 'PPV', value: tierCounts.ppv, color: TIER_COLORS.ppv },
-    { name: 'Subscription', value: tierCounts.subscription, color: TIER_COLORS.subscription },
   ];
 
   return (
@@ -283,11 +275,11 @@ export default function AnalyticsPage() {
           <section>
             <h2 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-4">Overview</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <MetricCard icon={Database} label="Total Assets" value={dbTotalAssets} sparkColor="#14b8a6" />
+              <MetricCard icon={Database} label="Total Assets" value={dbTotalAssets} sparkColor="#ff791a" />
               <MetricCard icon={Globe} label="Ready to Stream" value={dbReadyCount} sparkColor="#10b981" />
               <MetricCard icon={Activity} label="Processing" value={dbProcessingCount} sparkColor="#f59e0b" />
               <MetricCard icon={Server} label="Storage Used" value={formatBytes(dbTotalStorage)} sparkColor="#8b5cf6" />
-              <MetricCard icon={Upload} label="Total Uploads" value={dbTotalAssets} sparkColor="#14b8a6" />
+              <MetricCard icon={Upload} label="Total Uploads" value={dbTotalAssets} sparkColor="#ff791a" />
               <MetricCard icon={Zap} label="Failed" value={dbFailedCount} sparkColor="#ef4444" />
               <MetricCard icon={Clock} label="Avg Duration" value={dbTotalAssets > 0 ? `${(dbAssets.reduce((sum, a) => sum + (a.duration_ms ?? 0), 0) / dbTotalAssets / 1000).toFixed(0)}s` : '\u2014'} sparkColor="#f59e0b" />
               <MetricCard icon={BarChart3} label="Total Duration" value={(() => { const totalMs = dbAssets.reduce((sum, a) => sum + (a.duration_ms ?? 0), 0); return totalMs > 0 ? `${(totalMs / 60000).toFixed(1)}m` : '\u2014'; })()} sparkColor="#8b5cf6" />

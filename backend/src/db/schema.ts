@@ -8,7 +8,6 @@ import {
   timestamp,
   jsonb,
   pgEnum,
-  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -194,68 +193,6 @@ export const webhookDeliveries = pgTable('webhook_deliveries', {
     .defaultNow(),
 });
 
-/**
- * allowlists tracks Seal allowlists created on-chain for private video access.
- * Each allowlist is linked to a video asset and has a corresponding Sia object.
- */
-export const allowlists = pgTable('allowlists', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  videoAssetId: uuid('video_asset_id')
-    .notNull()
-    .references(() => videoAssets.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  creatorAddress: text('creator_address').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-/**
- * allowlist_members stores addresses that have been added to an allowlist.
- */
-export const allowlistMembers = pgTable('allowlist_members', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  allowlistId: uuid('allowlist_id')
-    .notNull()
-    .references(() => allowlists.id, { onDelete: 'cascade' }),
-  address: text('address').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-}, (table) => [
-  uniqueIndex('allowlist_members_allowlist_address_idx').on(table.allowlistId, table.address),
-]);
-
-/**
- * subscriptions tracks time-limited subscription passes created on-chain.
- */
-export const subscriptions = pgTable('subscriptions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  subscriberAddress: text('subscriber_address').notNull(),
-  creatorAddress: text('creator_address').notNull(),
-  tier: integer('tier').notNull().default(0),
-  durationDays: integer('duration_days').notNull(),
-  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-/**
- * viewing_tickets tracks single-use viewing tickets created on-chain.
- */
-export const viewingTickets = pgTable('viewing_tickets', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  viewerAddress: text('viewer_address').notNull(),
-  videoAssetId: uuid('video_asset_id')
-    .notNull()
-    .references(() => videoAssets.id, { onDelete: 'cascade' }),
-  creatorAddress: text('creator_address').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
 // ──────────────────────────────────────────
 // Relations
 // ──────────────────────────────────────────
@@ -314,36 +251,6 @@ export const webhookDeliveriesRelations = relations(
   }),
 );
 
-export const allowlistsRelations = relations(allowlists, ({ one, many }) => ({
-  videoAsset: one(videoAssets, {
-    fields: [allowlists.videoAssetId],
-    references: [videoAssets.id],
-  }),
-  members: many(allowlistMembers),
-}));
-
-export const allowlistMembersRelations = relations(
-  allowlistMembers,
-  ({ one }) => ({
-    allowlist: one(allowlists, {
-      fields: [allowlistMembers.allowlistId],
-      references: [allowlists.id],
-    }),
-  }),
-);
-
-export const subscriptionsRelations = relations(subscriptions, () => ({}));
-
-export const viewingTicketsRelations = relations(
-  viewingTickets,
-  ({ one }) => ({
-    videoAsset: one(videoAssets, {
-      fields: [viewingTickets.videoAssetId],
-      references: [videoAssets.id],
-    }),
-  }),
-);
-
 // ──────────────────────────────────────────
 // Type exports for use in queries
 // ──────────────────────────────────────────
@@ -366,14 +273,3 @@ export type NewWebhookEndpoint = typeof webhookEndpoints.$inferInsert;
 export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
 export type NewWebhookDelivery = typeof webhookDeliveries.$inferInsert;
 
-export type Allowlist = typeof allowlists.$inferSelect;
-export type NewAllowlist = typeof allowlists.$inferInsert;
-
-export type AllowlistMember = typeof allowlistMembers.$inferSelect;
-export type NewAllowlistMember = typeof allowlistMembers.$inferInsert;
-
-export type Subscription = typeof subscriptions.$inferSelect;
-export type NewSubscription = typeof subscriptions.$inferInsert;
-
-export type ViewingTicket = typeof viewingTickets.$inferSelect;
-export type NewViewingTicket = typeof viewingTickets.$inferInsert;

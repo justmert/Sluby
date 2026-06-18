@@ -37,9 +37,9 @@ import {
 } from '@/hooks/useAssets';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatDuration, formatBytes, formatRelativeTime } from '@/lib/formatters';
-import { truncateAddress } from '@/lib/address-helpers';
 import { cn } from '@/lib/cn';
 import { siaObjectUrl } from '@/lib/sia';
+import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
 
 // ---------------------------------------------------------------------------
 // Inline shared badges
@@ -61,8 +61,6 @@ function AccessTierBadge({ tier }: { tier: string }) {
   const config: Record<string, { label: string; variant: 'default' | 'secondary' | 'warning' | 'success' }> = {
     public: { label: 'Public', variant: 'success' },
     private: { label: 'Private', variant: 'default' },
-    pay_per_view: { label: 'PPV', variant: 'warning' },
-    subscription: { label: 'Subscription', variant: 'default' },
   };
   const c = config[tier] ?? { label: tier, variant: 'secondary' as const };
   return <Badge variant={c.variant}>{c.label}</Badge>;
@@ -145,6 +143,18 @@ function VideoCard({
                 {formatRelativeTime(asset.created_at)}
               </span>
             </div>
+            {asset.manifest_object_id && (
+              <div
+                className="mt-2 pt-2 border-t border-white/[0.06]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ObjectIdBadge
+                  value={asset.manifest_object_id}
+                  truncate={6}
+                  className="text-[10px]"
+                />
+              </div>
+            )}
           </div>
         </div>
       </Link>
@@ -240,6 +250,20 @@ function AssetListRow({
       {/* Storage */}
       <span className="text-xs text-zinc-400 tabular-nums w-16 text-right shrink-0 hidden lg:block">
         {formatBytes(asset.total_storage_bytes)}
+      </span>
+
+      {/* Object ID (manifest on Sia) */}
+      <span className="text-xs tabular-nums w-24 text-right shrink-0 hidden xl:flex justify-end">
+        {asset.manifest_object_id ? (
+          <ObjectIdBadge
+            value={asset.manifest_object_id}
+            truncate={4}
+            hideCopy
+            className="text-[10px]"
+          />
+        ) : (
+          <span className="text-zinc-600">--</span>
+        )}
       </span>
 
       {/* Created */}
@@ -532,8 +556,6 @@ export default function AssetsPage() {
               <SelectItem value="all">All Access</SelectItem>
               <SelectItem value="public">Public</SelectItem>
               <SelectItem value="private">Private</SelectItem>
-              <SelectItem value="pay_per_view">Pay-per-View</SelectItem>
-              <SelectItem value="subscription">Subscription</SelectItem>
             </SelectContent>
           </Select>
 
@@ -579,7 +601,7 @@ export default function AssetsPage() {
                 <span className="shrink-0 w-16 text-right hidden lg:block">Resolution</span>
                 <span className="shrink-0 w-14 text-right hidden md:block">Duration</span>
                 <span className="shrink-0 w-16 text-right hidden lg:block">Storage</span>
-                <span className="shrink-0 w-20 text-right hidden xl:block">Sia Object</span>
+                <span className="shrink-0 w-20 text-right hidden xl:block">Object ID</span>
                 <span className="shrink-0 w-24 text-right hidden md:block">Created</span>
                 {!isSelecting && <span className="shrink-0 w-16" />}
               </div>

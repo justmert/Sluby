@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1771408935696,
-      "tag": "0000_greedy_arclight",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1771454766017,
-      "tag": "0001_polite_true_believers",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1771517037087,
-      "tag": "0002_simple_mesmero",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1771519080736,
-      "tag": "0003_perfect_ted_forrester",
+      "when": 1776162331336,
+      "tag": "0000_init",
       "breakpoints": true
     }
   ]

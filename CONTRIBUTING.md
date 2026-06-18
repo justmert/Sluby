@@ -1,154 +1,141 @@
-# Contributing to Sluby
+# Contributing to SiaStream
 
-Thank you for your interest in contributing to Sluby! This guide will help you get started.
+Thanks for your interest in contributing! This guide covers the day-to-day
+mechanics of working on the repo.
 
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
-- [Development Environment Setup](#development-environment-setup)
-- [Running the Project Locally](#running-the-project-locally)
-- [Code Style Guidelines](#code-style-guidelines)
-- [Running Tests](#running-tests)
-- [Submitting Changes](#submitting-changes)
-- [Move Contract Development](#move-contract-development)
-- [Commit Message Conventions](#commit-message-conventions)
-- [Issues and Pull Requests](#issues-and-pull-requests)
-- [Code of Conduct](#code-of-conduct)
+- [Getting set up](#getting-set-up)
+- [Running the project locally](#running-the-project-locally)
+- [Code style](#code-style)
+- [Running tests](#running-tests)
+- [Submitting changes](#submitting-changes)
+- [Commit message conventions](#commit-message-conventions)
+- [Issues and pull requests](#issues-and-pull-requests)
+- [Code of conduct](#code-of-conduct)
 
 ## Prerequisites
 
-Before you begin, make sure you have the following installed:
+- **Node.js 20+** — [download](https://nodejs.org/)
+- **Docker** and **Docker Compose** — [install](https://docs.docker.com/get-docker/)
+- **FFmpeg 5+** — required only when running the backend outside Docker
+- **Git**
 
-- **Node.js 20+** -- [Download](https://nodejs.org/)
-- **Docker** and **Docker Compose** -- [Download](https://docs.docker.com/get-docker/)
-- **Sia CLI** -- [Installation guide](https://docs.sui.io/build/install)
-- **Git** -- [Download](https://git-scm.com/)
+## Getting set up
 
-## Development Environment Setup
-
-1. **Fork the repository** on GitHub and clone your fork:
+1. Fork and clone:
 
    ```bash
-   git clone https://github.com/<your-username>/sluby.git
-   cd sluby
+   git clone https://github.com/<your-username>/sia-stream.git
+   cd sia-stream
    ```
 
-2. **Copy the environment file** and configure it:
+2. Copy the env template and adjust it for your environment:
 
    ```bash
    cp .env.example .env
    ```
 
-   Edit `.env` with your local configuration (database credentials, Sia network settings, etc.).
+   At minimum you'll need valid `SIA_APP_ID` / `SIA_APP_KEY` values before the
+   backend will start. Either run the onboarding helper
+   (`cd backend && npm run sia:onboard`) against a live Sia indexer, or point
+   `SIA_INDEXER_URL` at a local stack started with
+   `docker compose -f docker-compose.sia.yml up -d` and onboard against that.
 
-3. **Install dependencies** from the repository root:
+3. Install dependencies from the repo root:
 
    ```bash
    npm install
    ```
 
-   This installs dependencies for all workspaces (backend, packages/sdk, packages/react, frontend).
+   This installs every workspace (`backend`, `packages/sdk`, `packages/react`,
+   `frontend`).
 
-## Running the Project Locally
+## Running the project locally
 
-1. **Start infrastructure services** (PostgreSQL, Redis) with Docker:
+Start infrastructure (Postgres + Redis + Nginx proxy + backend container):
 
-   ```bash
-   docker-compose up -d
-   ```
+```bash
+docker compose up -d
+```
 
-2. **Run database migrations** (if applicable):
+Apply database migrations when schema changes land:
 
-   ```bash
-   npm run db:push --workspace=backend
-   ```
+```bash
+npm run db:push --workspace=backend
+```
 
-3. **Start the development server**:
+Run the backend with hot reload (outside Docker) in a separate shell:
 
-   ```bash
-   npm run dev
-   ```
+```bash
+npm run dev
+```
 
-   This starts the backend server with hot-reloading via `tsx watch`.
+Run the frontend:
 
-4. **Build all packages** (if you need to test the SDK or React components):
+```bash
+npm run dev:frontend
+```
 
-   ```bash
-   npm run build
-   ```
+Build every workspace:
 
-## Code Style Guidelines
+```bash
+npm run build
+```
 
-We enforce consistent code style across the project:
+## Code style
 
-- **TypeScript strict mode** is enabled in all packages. Do not use `any` unless absolutely necessary, and prefer explicit type annotations for function signatures.
-- **ESLint** is configured with TypeScript support. Run the linter with:
+- **TypeScript strict mode** across all packages. Avoid `any`; prefer explicit
+  types for public function signatures.
+- **ESLint**:
 
   ```bash
   npm run lint
   ```
 
-- **Prettier** is used for code formatting. Format your code with:
+- **Prettier** for formatting:
 
   ```bash
-  npm run format
+  npm run format          # write
+  npm run format:check    # check only
   ```
 
-  Check formatting without writing changes:
-
-  ```bash
-  npm run format:check
-  ```
-
-- **General guidelines**:
-  - Use `const` over `let` where possible; avoid `var`.
-  - Prefer named exports over default exports.
-  - Use async/await instead of raw Promises.
+- General guidance:
+  - `const` over `let`; avoid `var`.
+  - Prefer named exports.
+  - Use `async`/`await` over raw Promises.
   - Keep functions small and focused.
-  - Add JSDoc comments for public API surfaces (SDK and React packages).
+  - Add JSDoc to public surfaces (SDK + React package).
 
-## Running Tests
+## Running tests
 
-Tests are organized per package. Run them from the repository root:
+Tests live per-package. From the repo root:
 
-- **Backend tests**:
+```bash
+npm test --workspace=backend
+npm test --workspace=@siastream/sdk
+npm test --workspace=@siastream/react
+```
 
-  ```bash
-  npm test --workspace=backend
-  ```
+Or run all tests where present:
 
-- **SDK tests**:
+```bash
+npm test --workspaces --if-present
+```
 
-  ```bash
-  npm test --workspace=@sluby/sdk
-  ```
+## Submitting changes
 
-- **React component tests**:
-
-  ```bash
-  npm test --workspace=@sluby/react
-  ```
-
-- **Move contract tests** (requires Sia CLI):
-
-  ```bash
-  cd contracts/video_manager
-  sui move test
-  ```
-
-## Submitting Changes
-
-We follow a standard fork-and-branch workflow:
-
-1. **Fork** the repository on GitHub.
-2. **Create a feature branch** from `main`:
+1. Branch from `main`:
 
    ```bash
    git checkout -b feat/your-feature-name
    ```
 
-3. **Make your changes** in small, focused commits (see [Commit Message Conventions](#commit-message-conventions)).
-4. **Run linting and tests** before pushing:
+2. Make small, focused commits (see
+   [Commit message conventions](#commit-message-conventions)).
+
+3. Before pushing:
 
    ```bash
    npm run lint
@@ -156,58 +143,18 @@ We follow a standard fork-and-branch workflow:
    npm test --workspaces --if-present
    ```
 
-5. **Push your branch** to your fork:
+4. Push and open a pull request against `main`.
 
-   ```bash
-   git push origin feat/your-feature-name
-   ```
+### Pull request guidelines
 
-6. **Open a Pull Request** against the `main` branch of the upstream repository.
-7. **Respond to review feedback** -- maintainers may request changes before merging.
+- Keep PRs focused on a single change. Split unrelated fixes.
+- Describe what the PR does and why.
+- Reference related issues (e.g. "Closes #42").
+- Make sure CI is green before requesting review.
 
-### Pull Request Guidelines
+## Commit message conventions
 
-- Keep PRs focused on a single change. If you have multiple unrelated fixes, open separate PRs.
-- Include a clear description of what the PR does and why.
-- Reference any related issues (e.g., "Closes #42").
-- Ensure CI passes before requesting review.
-
-## Move Contract Development
-
-The Move smart contracts live in `contracts/video_manager/`.
-
-### Structure
-
-- `sources/` -- Move module source files
-- `tests/` -- Move test files
-- `Move.toml` -- Package manifest
-
-### Building Contracts
-
-```bash
-cd contracts/video_manager
-sui move build
-```
-
-### Testing Contracts
-
-```bash
-cd contracts/video_manager
-sui move test
-```
-
-### Guidelines
-
-- Follow the [Move conventions](https://docs.sui.io/concepts/sui-move-concepts) for naming and module structure.
-- Use `#[test]` attributes for unit tests and place them in the `tests/` directory.
-- Document public functions with doc comments (`///`).
-- Keep modules focused -- one module per logical domain concept.
-- Use capability patterns for access control.
-- Test all public entry functions and error paths.
-
-## Commit Message Conventions
-
-We follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+We use [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 <type>(<scope>): <description>
@@ -219,21 +166,21 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) speci
 
 ### Types
 
-| Type       | Description                                      |
-| ---------- | ------------------------------------------------ |
-| `feat`     | A new feature                                    |
-| `fix`      | A bug fix                                        |
-| `docs`     | Documentation only changes                       |
-| `style`    | Code style changes (formatting, no logic change) |
-| `refactor` | Code change that neither fixes a bug nor adds a feature |
-| `perf`     | A code change that improves performance          |
-| `test`     | Adding or correcting tests                       |
-| `chore`    | Changes to build process or auxiliary tools       |
-| `ci`       | Changes to CI configuration files and scripts    |
+| Type       | Description                                              |
+| ---------- | -------------------------------------------------------- |
+| `feat`     | A new feature                                            |
+| `fix`      | A bug fix                                                |
+| `docs`     | Documentation-only changes                               |
+| `style`    | Formatting / cosmetic (no behavior change)               |
+| `refactor` | Refactor that neither fixes a bug nor adds a feature     |
+| `perf`     | Performance improvement                                  |
+| `test`     | Adding or correcting tests                               |
+| `chore`    | Build / tooling / housekeeping                           |
+| `ci`       | CI configuration and scripts                             |
 
 ### Scopes
 
-Use the package or area name as the scope: `backend`, `sdk`, `react`, `contracts`, `ci`, `docs`.
+Use the package or area name: `backend`, `sdk`, `react`, `frontend`, `ci`, `docs`.
 
 ### Examples
 
@@ -241,27 +188,30 @@ Use the package or area name as the scope: `backend`, `sdk`, `react`, `contracts
 feat(backend): add video transcoding queue with BullMQ
 fix(sdk): handle timeout errors in upload client
 docs: update README with deployment instructions
-ci: add Move contract compilation to CI pipeline
 chore: upgrade TypeScript to 5.7
 ```
 
-## Issues and Pull Requests
+## Issues and pull requests
 
-### Opening Issues
+### Opening issues
 
-- **Bug reports**: Include steps to reproduce, expected behavior, actual behavior, and environment details (Node version, OS, browser if applicable).
-- **Feature requests**: Describe the use case, proposed solution, and any alternatives you have considered.
-- Use the issue templates provided in the repository when available.
+- **Bug reports**: include reproduction steps, expected vs. actual behavior,
+  and environment details (Node version, OS, browser if applicable).
+- **Feature requests**: describe the use case, proposed solution, and any
+  alternatives you considered.
 
-### Pull Request Templates
+### Pull request template
 
-When opening a PR, please include:
+When opening a PR, include:
 
-- A summary of the changes and the motivation behind them.
-- How the changes were tested.
+- A summary of the change and the motivation.
+- How you tested it.
 - Any breaking changes or migration steps.
 - Screenshots or recordings for UI changes.
 
-## Code of Conduct
+## Code of conduct
 
-This project follows the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). By participating, you are expected to uphold this code. Please report unacceptable behavior to the project maintainers.
+This project follows the
+[Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
+By participating you agree to uphold it; please report unacceptable behavior
+to the project maintainers.

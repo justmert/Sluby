@@ -3,7 +3,6 @@ import {
   Upload,
   Film,
   Play,
-  Shield,
   Code2,
   BarChart3,
   Settings,
@@ -17,7 +16,6 @@ export const ROUTES = {
   STUDIO_ASSETS: '/studio/assets',
   STUDIO_ASSET_DETAIL: '/studio/assets/:id',
   STUDIO_PLAYER: '/studio/player',
-  STUDIO_ACCESS_CONTROL: '/studio/access-control',
   STUDIO_DEVELOPER: '/studio/developer',
   STUDIO_ANALYTICS: '/studio/analytics',
   STUDIO_SETTINGS: '/studio/settings',
@@ -34,8 +32,6 @@ export const API = {
   PLAYBACK: '/api/v1/playback',
   KEYS: '/api/v1/keys',
   WEBHOOKS: '/api/v1/webhooks',
-  ACCESS_CONTROL: '/api/v1/access-control',
-  SPONSOR: '/api/v1/sponsor',
 } as const;
 
 // Navigation items
@@ -50,7 +46,6 @@ export const STUDIO_NAV: NavItem[] = [
   { label: 'Upload', path: ROUTES.STUDIO_UPLOAD, icon: Upload },
   { label: 'Assets', path: ROUTES.STUDIO_ASSETS, icon: Film },
   { label: 'Player', path: ROUTES.STUDIO_PLAYER, icon: Play },
-  { label: 'Access Control', path: ROUTES.STUDIO_ACCESS_CONTROL, icon: Shield },
   { label: 'Developer', path: ROUTES.STUDIO_DEVELOPER, icon: Code2 },
   { label: 'Analytics', path: ROUTES.STUDIO_ANALYTICS, icon: BarChart3 },
   { label: 'Settings', path: ROUTES.STUDIO_SETTINGS, icon: Settings },
