@@ -188,14 +188,19 @@ export function createAuthRoutes(): Router {
     try {
       const accessToken = await exchangeCodeForToken(code);
       const user = await fetchGithubUser(accessToken);
-      const allowed = getAllowedUsers();
-      if (allowed.size === 0 || !allowed.has(user.login.toLowerCase())) {
-        logger.warn({ login: user.login }, 'GitHub user not in allowlist');
-        res.status(403).send(
-          `Access denied: GitHub user "${user.login}" is not on the Studio allowlist.`,
-        );
-        return;
-      }
+
+      // Studio sign-in is OPEN to any authenticated GitHub account while
+      // the project is being reviewed. To re-enable the allowlist, set
+      // GITHUB_ALLOWED_USERS in .env and uncomment the block below.
+      //
+      // const allowed = getAllowedUsers();
+      // if (allowed.size === 0 || !allowed.has(user.login.toLowerCase())) {
+      //   logger.warn({ login: user.login }, 'GitHub user not in allowlist');
+      //   res.status(403).send(
+      //     `Access denied: GitHub user "${user.login}" is not on the Studio allowlist.`,
+      //   );
+      //   return;
+      // }
 
       const token = signSession(user.login, env.SESSION_SECRET);
       const setCookies = [

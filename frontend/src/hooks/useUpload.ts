@@ -98,15 +98,11 @@ export function useUpload() {
         chunks,
       });
 
+      // Studio sessions authenticate via the signed OAuth cookie
+      // (`withCredentials: true` makes the browser send it on TUS
+      // requests). An API key is still accepted for SDK-style callers
+      // who set one in Settings.
       const apiKey = getStoredApiKey();
-      if (!apiKey) {
-        setState((s) => ({
-          ...s,
-          status: 'error',
-          error: 'Please set an API key first.',
-        }));
-        return;
-      }
 
       try {
         const { Upload } = await import('tus-js-client');
@@ -116,7 +112,11 @@ export function useUpload() {
 
         const upload = new Upload(file, {
           endpoint: TUS_ENDPOINT,
-          headers: { Authorization: `Bearer ${apiKey}` },
+          // `withCredentials` is a valid tus-js-client option (it is
+          // forwarded to the underlying XMLHttpRequest), but the
+          // package's UploadOptions type omits it. Cast around that.
+          ...({ withCredentials: true } as { withCredentials: boolean }),
+          headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
           metadata: {
             filename: file.name,
             filetype: file.type,
