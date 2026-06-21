@@ -13,11 +13,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:push": "drizzle-kit push",
-    "db:seed-key": "tsx src/db/seed-api-key.ts",
-    "sia:onboard": "tsx scripts/sia-onboard.ts"
+    "db:seed-key": "tsx src/db/seed-api-key.ts"
   },
   "dependencies": {
-    "@siafoundation/sia": "^0.6.6",
     "@tus/file-store": "^1.5.0",
     "@tus/server": "^2.3.0",
     "bullmq": "^5.34.0",
@@ -33,7 +31,6 @@
     "pino-pretty": "^13.0.0",
     "postgres": "^3.4.0",
     "prom-client": "^15.1.0",
-    "sia-storage": "^0.0.5",
     "zod": "^3.24.0"
   },
   "devDependencies": {

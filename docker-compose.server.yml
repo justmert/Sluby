@@ -1,0 +1,107 @@
+#
+# Server compose file for the SiaStream deployment at siastream.com.
+#
+# Architecture:
+#   - siastream-renterd  : official renterd binary, handles the Sia
+#                          protocol (contracts, slabs, hosts). Runs on
+#                          Zen testnet. Wallet address is seeded from
+#                          RENTERD_SEED; autopilot forms contracts.
+#   - siastream-backend  : Node.js service, talks to renterd over HTTP
+#                          at http://siastream-renterd:9980. No NAPI
+#                          native dependency. Bound to 127.0.0.1:4600
+#                          on the host so the system nginx can proxy.
+#   - siastream-postgres : metadata store.
+#   - siastream-redis    : BullMQ + rate limiter backing store.
+#
+# No ports conflict with the other stacks already on the host —
+# renterd and postgres/redis are only on the internal Docker network.
+#
+services:
+  renterd:
+    image: ghcr.io/siafoundation/renterd:latest
+    container_name: siastream-renterd
+    restart: unless-stopped
+    environment:
+      RENTERD_NETWORK: ${SIA_NETWORK:-zen}
+      RENTERD_API_PASSWORD: ${RENTERD_API_PASSWORD}
+      RENTERD_SEED: ${RENTERD_SEED}
+    volumes:
+      - renterd-data:/data
+
+  backend:
+    build: ./backend
+    image: siastream-backend:latest
+    container_name: siastream-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      renterd:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql://siastream:siastream@postgres:5432/siastream
+      - REDIS_URL=redis://redis:6379
+      - RENTERD_API_URL=http://renterd:9980
+      - RENTERD_API_PASSWORD=${RENTERD_API_PASSWORD}
+      - RENTERD_BUCKET=${RENTERD_BUCKET:-siastream}
+      - SIA_NETWORK=${SIA_NETWORK:-zen}
+      - PORT=3000
+      - HOST=0.0.0.0
+      - UPLOAD_DIR=/app/uploads
+      - TRANSCODE_OUTPUT_DIR=/app/transcode-output
+      - CACHE_DIR=/app/cache
+      - PUBLIC_URL=${PUBLIC_URL}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GITHUB_ALLOWED_USERS=${GITHUB_ALLOWED_USERS:-}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CORS_ORIGIN=${PUBLIC_URL}
+    ports:
+      - "127.0.0.1:4600:3000"
+    volumes:
+      - uploads:/app/uploads
+      - transcode-output:/app/transcode-output
+      - cache:/app/cache
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: siastream-postgres
+    environment:
+      POSTGRES_USER: siastream
+      POSTGRES_PASSWORD: siastream
+      POSTGRES_DB: siastream
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U siastream -d siastream"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: siastream-redis
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  uploads:
+  transcode-output:
+  cache:
+  pgdata:
+  redis-data:
+  # Reuse the pre-synced, pre-funded renterd data volume created by
+  # the first manual `docker run`. Keeping it external avoids a fresh
+  # chain sync and avoids losing contracts/wallet state on redeploy.
+  renterd-data:
+    external: true
+    name: renterd-data

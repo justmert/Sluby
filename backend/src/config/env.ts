@@ -31,23 +31,27 @@ const envSchema = z.object({
   /** Redis connection string for BullMQ and caching */
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
 
-  /** Sia indexer base URL */
-  SIA_INDEXER_URL: z.string().url().default('https://sia.storage'),
+  /** Base URL of the renterd HTTP API (no trailing slash).
+   *  e.g. `http://127.0.0.1:9880` or `http://renterd:9980` inside a
+   *  Docker network. */
+  RENTERD_API_URL: z.string().url().default('http://127.0.0.1:9880'),
 
-  /** Sia App ID — 32-byte identifier, hex-encoded (64 chars). Generated
-   *  once via `npm run sia:onboard` and persisted across restarts. */
-  SIA_APP_ID: z
-    .string()
-    .regex(/^[a-fA-F0-9]{64}$/, 'SIA_APP_ID must be 64 hex chars (32 bytes)'),
+  /** HTTP-Basic password for the renterd API. Generate on the host
+   *  running renterd (`openssl rand -base64 24`) and pass in both
+   *  places identically. Empty is accepted so unit tests can load the
+   *  module without hitting renterd; a runtime error is raised if you
+   *  actually try to talk to the API with no password set. */
+  RENTERD_API_PASSWORD: z.string().default(''),
 
-  /** Sia App Key — private key exported from Builder.register(), hex-encoded.
-   *  Actual byte length is determined by the SDK (Ed25519 private key);
-   *  we validate hex format here and let the AppKey constructor fail at
-   *  startup if the bytes are malformed. */
-  SIA_APP_KEY: z
-    .string()
-    .regex(/^[a-fA-F0-9]+$/, 'SIA_APP_KEY must be a hex string')
-    .refine((v) => v.length % 2 === 0, 'SIA_APP_KEY must have an even number of hex chars'),
+  /** Bucket name all SiaStream objects live in. Created at startup if
+   *  it doesn't exist. */
+  RENTERD_BUCKET: z.string().default('siastream'),
+
+  /** Which Sia network the connected renterd runs against. Used for
+   *  UI labelling only (badge on the asset detail page, etc). */
+  SIA_NETWORK: z
+    .enum(['zen', 'mainnet', 'testnet', 'anagami'])
+    .default('zen'),
 
   /** HTTP server port */
   PORT: z.coerce.number().int().positive().default(3000),

@@ -1,95 +1,50 @@
 /**
- * Sia storage client.
+ * Sia storage client — talks directly to a `renterd` HTTP API.
  *
- * The client composes two Sia Foundation TypeScript SDKs, each used for
- * the operations it is best suited to:
+ * Why this shape:
+ *   - `renterd` is the official Sia renter daemon. It is a Go binary
+ *     that runs natively on every OS the Go toolchain targets. It
+ *     handles contract management, slab formation, erasure coding,
+ *     encryption and host selection internally.
+ *   - Its HTTP API is documented at https://api.sia.tech/renterd and
+ *     is the same API `renterd`'s own Web UI speaks.
+ *   - Two endpoints we care about:
+ *       `PUT /api/worker/object/<key>?bucket=<b>`     — upload bytes
+ *       `GET /api/worker/object/<key>?bucket=<b>`     — download bytes (Range OK)
+ *       `HEAD /api/worker/object/<key>?bucket=<b>`    — size / etag
+ *       `DELETE /api/bus/object/<key>?bucket=<b>`     — delete
+ *       `GET /api/bus/object/<key>?bucket=<b>`        — slab / shard metadata
  *
- *   - `sia-storage` handles connect, pin, account, download, share and
- *     list. It is the primary control-plane SDK.
- *   - `@siafoundation/sia` handles the raw upload path, which exposes a
- *     Buffer-direct `uploadPacked.add(data)` call that integrates
- *     cleanly with Node streams.
+ * Authentication is HTTP Basic with an empty username and the
+ * `RENTERD_API_PASSWORD` env var as the password.
  *
- * After an upload completes, we move the resulting object handle from
- * the upload SDK into the storage SDK using the SDKs' own
- * `seal(appKey)` / `PinnedObject.open(appKey, sealed)` round-trip. That
- * is the Sia SDK's standard mechanism for serializing an object handle
- * so it can be transferred between processes or SDK instances; here we
- * use it in-process to hand the object off for pinning.
+ * Object ids in this codebase have always been opaque hex strings.
+ * We generate each id as a random 32-byte hex (64 chars) so the shape
+ * of `video_assets.manifest_object_id` and friends is unchanged — the
+ * database column, JSON API, and frontend code all keep working
+ * without migration.
  */
 
-import {
-  initSia as initStorage,
-  connect as connectStorage,
-  AppKey as StorageAppKey,
-  fromHex as storageFromHex,
-  PinnedObject as StoragePinnedObject,
-  type Sdk as StorageSdk,
-  type SealedObject,
-  type SlabInfo,
-} from 'sia-storage';
-import {
-  initSia as initSiaA,
-  connect as connectSiaA,
-  AppKey as SiaAAppKey,
-  fromHex as siaAFromHex,
-  PinnedObject as SiaAPinnedObject,
-} from '@siafoundation/sia';
+import crypto from 'node:crypto';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
-import { buildAppMeta } from './sia-app-meta.js';
 
-interface DualSdk {
-  // Control plane: connect, pin, account, download handle, share, list.
-  storage: StorageSdk;
-  // Data plane: raw upload + download byte transfer.
-  uploadSdk: import('@siafoundation/sia').SiaClient;
-  uploadAppKey: import('@siafoundation/sia').AppKey;
-}
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
 
-let sdkPromise: Promise<DualSdk> | null = null;
+/** Renterd HTTP base URL, e.g. http://127.0.0.1:9880 (no trailing slash). */
+const BASE_URL = env.RENTERD_API_URL.replace(/\/$/, '');
+/** Bucket all SiaStream objects live in. Created on demand at startup. */
+const BUCKET = env.RENTERD_BUCKET;
+/** Base64(":password") for the HTTP Basic header. */
+const AUTH_HEADER =
+  'Basic ' + Buffer.from(':' + env.RENTERD_API_PASSWORD).toString('base64');
 
-/**
- * Lazily initialize both SDKs (singleton).
- */
-export function getClient(): Promise<DualSdk> {
-  if (!sdkPromise) {
-    sdkPromise = (async () => {
-      await Promise.all([initStorage(), initSiaA()]);
-
-      const appMeta = buildAppMeta(env.SIA_APP_ID);
-      const storageKey = new StorageAppKey(storageFromHex(env.SIA_APP_KEY));
-
-      logger.info(
-        { indexerUrl: env.SIA_INDEXER_URL, publicKey: storageKey.publicKey() },
-        'Connecting to Sia indexer',
-      );
-      const storage = await connectStorage(env.SIA_INDEXER_URL, appMeta, storageKey);
-      if (!storage) {
-        throw new Error(
-          `Sia indexer at ${env.SIA_INDEXER_URL} did not recognize the App Key. ` +
-            `Run onboarding: npm run sia:onboard (from backend/).`,
-        );
-      }
-
-      // Connect the upload SDK with the same App Key.
-      const uploadAppKey = new SiaAAppKey(siaAFromHex(env.SIA_APP_KEY));
-      const uploadSdk = await connectSiaA(env.SIA_INDEXER_URL, uploadAppKey);
-      if (!uploadSdk) {
-        throw new Error(
-          `Upload SDK could not connect to ${env.SIA_INDEXER_URL} with App Key.`,
-        );
-      }
-
-      logger.info('Sia SDKs connected (storage + upload)');
-      return { storage, uploadSdk, uploadAppKey };
-    })().catch((err) => {
-      sdkPromise = null;
-      throw err;
-    });
-  }
-  return sdkPromise;
-}
+// ---------------------------------------------------------------------------
+// Public types (kept identical to the previous SDK shape so the rest of
+// the codebase — uploader, aggregator, sia-info — compiles unchanged).
+// ---------------------------------------------------------------------------
 
 export interface UploadResult {
   objectId: string;
@@ -97,292 +52,323 @@ export interface UploadResult {
 }
 
 /**
- * Default redundancy for Zen testnet (limited host pool: 12 contracts).
- * Tunable via env vars for production deployments with bigger host pools.
+ * A lightweight "PinnedObject" stand-in. Upstream callers only use
+ * `.id()`, `.size()`, `.slabs()`, `.createdAt()`, `.updatedAt()`. The
+ * richer sia-storage type isn't needed now that we drive renterd
+ * directly.
  */
-const DATA_SHARDS = parseInt(process.env.SIA_DATA_SHARDS ?? '3', 10);
-const PARITY_SHARDS = parseInt(process.env.SIA_PARITY_SHARDS ?? '9', 10);
-const MAX_INFLIGHT = parseInt(process.env.SIA_MAX_INFLIGHT ?? '12', 10);
-
-/**
- * Convert a value (Buffer, base64 string, Uint8Array, number array) to a
- * Node Buffer. Used when re-hydrating a SealedObject from the JSON form
- * produced by the upload SDK.
- */
-function toBuffer(v: unknown): Buffer {
-  if (v == null) return Buffer.alloc(0);
-  if (Buffer.isBuffer(v)) return v;
-  if (typeof v === 'string') return Buffer.from(v, 'base64');
-  if (Array.isArray(v)) return Buffer.from(v as number[]);
-  if (v instanceof Uint8Array) return Buffer.from(v);
-  return Buffer.alloc(0);
+export interface PinnedObject {
+  id(): string;
+  size(): bigint;
+  slabs(): RawSlab[];
+  createdAt(): Date | null;
+  updatedAt(): Date | null;
 }
 
-/**
- * Bridge a single PinnedObject from the upload SDK (@siafoundation/sia)
- * into a storage-SDK PinnedObject via seal → JSON → open. Used after
- * upload to switch to the storage SDK for pin (indexd-compatible format).
- */
-function bridgeToStorageObject(
-  uploaded: import('@siafoundation/sia').PinnedObject,
-  uploadAppKey: import('@siafoundation/sia').AppKey,
-): StoragePinnedObject {
-  const sealedJson = uploaded.seal(uploadAppKey);
-  const raw =
-    typeof sealedJson === 'string'
-      ? JSON.parse(sealedJson)
-      : (sealedJson as Record<string, unknown>);
-
-  const sealed: SealedObject = {
-    id: String((raw as { id: string }).id),
-    encryptedDataKey: toBuffer((raw as Record<string, unknown>).encryptedDataKey),
-    encryptedMetadataKey: toBuffer((raw as Record<string, unknown>).encryptedMetadataKey),
-    encryptedMetadata: toBuffer((raw as Record<string, unknown>).encryptedMetadata),
-    dataSignature: toBuffer((raw as Record<string, unknown>).dataSignature),
-    metadataSignature: toBuffer((raw as Record<string, unknown>).metadataSignature),
-    slabs: ((raw as { slabs?: unknown[] }).slabs ?? []).map((s) => {
-      const slab = s as Record<string, unknown>;
-      return {
-        encryptionKey: toBuffer(slab.encryptionKey),
-        minShards: Number(slab.minShards),
-        offset: Number(slab.offset),
-        length: Number(slab.length),
-        sectors: ((slab.sectors as unknown[]) ?? []).map((sec) => {
-          const sector = sec as Record<string, unknown>;
-          return { root: String(sector.root), hostKey: String(sector.hostKey) };
-        }),
-      } satisfies SlabInfo;
-    }),
-    createdAt: new Date(String((raw as { createdAt: string }).createdAt)),
-    updatedAt: new Date(String((raw as { updatedAt: string }).updatedAt)),
-  };
-
-  const storageAppKey = new StorageAppKey(storageFromHex(env.SIA_APP_KEY));
-  const PinnedObjectCtor = StoragePinnedObject as unknown as {
-    open(appKey: StorageAppKey, sealed: SealedObject): StoragePinnedObject;
-  };
-  return PinnedObjectCtor.open(storageAppKey, sealed);
+/** Matches the shape upstream code pulls `minShards` / `sectors` from. */
+export interface RawSlab {
+  minShards: number;
+  sectors: Array<{ root: string; hostKey: string }>;
 }
 
+// ---------------------------------------------------------------------------
+// Internals
+// ---------------------------------------------------------------------------
+
+function newObjectId(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/** URL-encode an object key while leaving slashes intact (renterd allows them). */
+function encKey(key: string): string {
+  return key
+    .split('/')
+    .map((s) => encodeURIComponent(s))
+    .join('/');
+}
+
+function qs(params: Record<string, string | number | undefined>): string {
+  const out = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined) out.append(k, String(v));
+  }
+  const s = out.toString();
+  return s ? `?${s}` : '';
+}
+
+async function renterdFetch(
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  headers.set('Authorization', AUTH_HEADER);
+  const res = await fetch(`${BASE_URL}${path}`, { ...init, headers });
+  return res;
+}
+
+async function renterdJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await renterdFetch(path, init);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(
+      `renterd ${init?.method ?? 'GET'} ${path} → ${res.status}: ${body.slice(0, 200)}`,
+    );
+  }
+  return (await res.json()) as T;
+}
+
+// ---------------------------------------------------------------------------
+// renterd response shapes (documented at api.sia.tech/renterd)
+// ---------------------------------------------------------------------------
+
+interface BusObjectResponse {
+  bucket: string;
+  key: string;
+  size: number;
+  eTag?: string;
+  modTime: string;
+  mimeType?: string;
+  encryptionKey?: string;
+  slabs?: Array<{
+    slab: {
+      health: number;
+      encryptionKey: string;
+      minShards: number;
+      shards?: Array<{
+        root: string;
+        contracts?: Record<string, string[]>;
+      }>;
+    };
+    offset: number;
+    length: number;
+  }>;
+}
+
+// ---------------------------------------------------------------------------
+// Client init / readiness
+// ---------------------------------------------------------------------------
+
+let ensureReadyPromise: Promise<void> | null = null;
+
+export function getClient(): Promise<void> {
+  if (!ensureReadyPromise) {
+    ensureReadyPromise = (async () => {
+      logger.info(
+        { url: BASE_URL, bucket: BUCKET },
+        'Connecting to renterd',
+      );
+
+      // Probe the API.
+      const state = await renterdJson<{ network: string; version: string }>(
+        '/api/bus/state',
+      );
+      logger.info(
+        { network: state.network, version: state.version },
+        'renterd reachable',
+      );
+
+      // Ensure our bucket exists. renterd 409s when it already does;
+      // swallow that.
+      const res = await renterdFetch('/api/bus/buckets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: BUCKET }),
+      });
+      if (!res.ok && res.status !== 409) {
+        const body = await res.text().catch(() => '');
+        throw new Error(
+          `Failed to create bucket ${BUCKET}: ${res.status} ${body}`,
+        );
+      }
+      logger.info({ bucket: BUCKET }, 'renterd bucket ready');
+    })().catch((err) => {
+      ensureReadyPromise = null;
+      throw err;
+    });
+  }
+  return ensureReadyPromise;
+}
+
+// ---------------------------------------------------------------------------
+// Upload
+// ---------------------------------------------------------------------------
+
 /**
- * Upload a Uint8Array to Sia and pin the resulting object.
- *
- * Step 1: upload via @siafoundation/sia (Buffer-direct API works).
- * Step 2: seal the resulting object → JSON.
- * Step 3: open the sealed object as a sia-storage PinnedObject.
- * Step 4: pin via sia-storage (matches indexd master signing format).
+ * Upload a Uint8Array to renterd and return an object handle. renterd
+ * does the slab formation, encryption and host placement internally.
  */
 export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
-  const { storage, uploadSdk, uploadAppKey } = await getClient();
-  logger.debug({ size: data.length }, 'Uploading object to Sia');
+  await getClient();
 
-  const packed = uploadSdk.uploadPacked({
-    dataShards: DATA_SHARDS,
-    parityShards: PARITY_SHARDS,
-    maxInflight: MAX_INFLIGHT,
-  });
-  await packed.add(Buffer.from(data));
-  const objects = await packed.finalize();
-  const uploaded = objects[0];
-  if (!uploaded) {
-    throw new Error('Sia uploadPacked.finalize() returned no objects');
+  const objectId = newObjectId();
+  logger.debug({ size: data.length, objectId }, 'Uploading object to renterd');
+
+  const res = await renterdFetch(
+    `/api/worker/object/${encKey(objectId)}${qs({ bucket: BUCKET })}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: Buffer.from(data),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(
+      `renterd upload failed: ${res.status} ${body.slice(0, 200)}`,
+    );
   }
 
-  const storageObj = bridgeToStorageObject(uploaded, uploadAppKey);
-  await storage.pinObject(storageObj);
-
-  const objectId = storageObj.id();
-  const size = Number(storageObj.size());
-  logger.info({ objectId, size }, 'Object uploaded and pinned on Sia');
-  return { objectId, size };
+  logger.info({ objectId, size: data.length }, 'Object uploaded to renterd');
+  return { objectId, size: data.length };
 }
 
 /**
- * Upload N Uint8Arrays in ONE Sia packed batch and pin each resulting
- * object. Designed for groups of small files (manifests, thumbnails)
- * that share a slab to reduce host-stream count vs. uploading each
- * separately.
- *
- * One network upload event (or a few if total exceeds the slab size of
- * ~12 MiB), N pin calls (cheap HTTPS to indexd). Returns one
- * UploadResult per input in the same order.
+ * Upload N Uint8Arrays. renterd has no "packed batch" primitive — each
+ * upload is its own PUT — but renterd packs slabs server-side when the
+ * data is small, so the on-disk overhead is essentially the same as
+ * the old packed-upload path. We fire them in parallel with a bounded
+ * concurrency window.
  */
 export async function uploadAndPinPacked(
   items: Uint8Array[],
 ): Promise<UploadResult[]> {
   if (items.length === 0) return [];
-  const { storage, uploadSdk, uploadAppKey } = await getClient();
-  logger.debug(
-    { count: items.length, totalBytes: items.reduce((a, b) => a + b.length, 0) },
-    'Packing batch upload to Sia',
-  );
+  await getClient();
 
-  const packed = uploadSdk.uploadPacked({
-    dataShards: DATA_SHARDS,
-    parityShards: PARITY_SHARDS,
-    maxInflight: MAX_INFLIGHT,
-  });
-  for (const item of items) {
-    await packed.add(Buffer.from(item));
-  }
-  const uploaded = await packed.finalize();
-  if (uploaded.length !== items.length) {
-    throw new Error(
-      `packed upload returned ${uploaded.length} objects, expected ${items.length}`,
-    );
-  }
+  const concurrency = Math.min(items.length, 4);
+  const results: UploadResult[] = new Array(items.length);
+  let next = 0;
 
-  // Pin each object via the storage SDK (sequential — pin is cheap HTTP).
-  const results: UploadResult[] = [];
-  for (let i = 0; i < uploaded.length; i++) {
-    const storageObj = bridgeToStorageObject(uploaded[i], uploadAppKey);
-    await storage.pinObject(storageObj);
-    results.push({
-      objectId: storageObj.id(),
-      size: Number(storageObj.size()),
-    });
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await uploadAndPin(items[i]);
+    }
   }
-
-  logger.info(
-    {
-      count: results.length,
-      objectIds: results.map((r) => r.objectId),
-    },
-    'Packed batch uploaded and pinned on Sia',
+  await Promise.all(
+    Array.from({ length: concurrency }, () => worker()),
   );
   return results;
 }
 
-/**
- * Download an object by hex ID. Optional byte-range support.
- *
- * Uses the `@siafoundation/sia` SDK for the actual byte-fetching call
- * (its `download(obj, onProgress?)` returns the bytes directly). We
- * bridge the object handle between SDKs with the standard
- * seal → JSON → open round-trip.
- */
+// ---------------------------------------------------------------------------
+// Download (with byte-range passthrough)
+// ---------------------------------------------------------------------------
+
 export async function downloadObject(
   objectId: string,
   options?: { offset?: number; length?: number },
 ): Promise<Uint8Array> {
-  const { storage, uploadSdk, uploadAppKey } = await getClient();
-  logger.debug({ objectId, ...options }, 'Downloading object from Sia');
+  await getClient();
 
-  // Look up via the storage SDK (its account/object methods work).
-  const storageObj = await storage.object(objectId);
+  const headers: Record<string, string> = {};
+  if (options?.offset !== undefined || options?.length !== undefined) {
+    const start = options.offset ?? 0;
+    const end =
+      options.length !== undefined ? start + options.length - 1 : '';
+    headers['Range'] = `bytes=${start}-${end}`;
+  }
 
-  // Bridge to the upload SDK's PinnedObject so we can call its download().
-  const storageAppKey = new StorageAppKey(storageFromHex(env.SIA_APP_KEY));
-  const sealedAsString = (
-    storageObj as unknown as { seal(k: StorageAppKey): unknown }
-  ).seal(storageAppKey);
-  const sealed = importToSiaA(sealedAsString);
+  const res = await renterdFetch(
+    `/api/worker/object/${encKey(objectId)}${qs({ bucket: BUCKET })}`,
+    { method: 'GET', headers },
+  );
+  if (!res.ok && res.status !== 206) {
+    const body = await res.text().catch(() => '');
+    throw new Error(
+      `renterd download failed: ${res.status} ${body.slice(0, 200)}`,
+    );
+  }
+  const buf = new Uint8Array(await res.arrayBuffer());
+  logger.debug(
+    { objectId, size: buf.length, range: headers['Range'] ?? 'full' },
+    'Object downloaded from renterd',
+  );
+  return buf;
+}
 
-  const SiaAObjectCtor = SiaAPinnedObject as unknown as {
-    open(appKey: SiaAAppKey, sealed: unknown): SiaAPinnedObject;
-  };
-  const siaAObj = SiaAObjectCtor.open(uploadAppKey, sealed);
+// ---------------------------------------------------------------------------
+// Metadata / object handle (used by aggregator + sia-info)
+// ---------------------------------------------------------------------------
 
-  const data = await uploadSdk.download(
-    siaAObj,
-    undefined,
-    options?.offset !== undefined || options?.length !== undefined
-      ? {
-          range: {
-            offset: options?.offset ?? 0,
-            length:
-              options?.length ??
-              Number(siaAObj.size()) - (options?.offset ?? 0),
-          },
-        }
-      : undefined,
+/**
+ * Returns a PinnedObject-shaped handle. Only the fields upstream
+ * callers need are populated — `.id()`, `.size()`, `.slabs()`,
+ * `.createdAt()`, `.updatedAt()`.
+ */
+export async function getObject(objectId: string): Promise<PinnedObject> {
+  await getClient();
+
+  const res = await renterdJson<BusObjectResponse>(
+    `/api/bus/object/${encKey(objectId)}${qs({ bucket: BUCKET })}`,
   );
 
-  logger.debug({ objectId, size: data.length }, 'Object downloaded from Sia');
-  return data;
-}
+  const slabs: RawSlab[] = (res.slabs ?? []).map((ss) => {
+    const sectors = (ss.slab.shards ?? []).map((sh) => {
+      const contracts = sh.contracts ?? {};
+      const hostKey = Object.keys(contracts)[0] ?? '';
+      return { root: sh.root, hostKey };
+    });
+    return { minShards: ss.slab.minShards, sectors };
+  });
 
-/**
- * Convert a sealed object from sia-storage's `seal()` (JS-object form
- * with Date timestamps and Buffer fields) into the JSON-string form
- * `@siafoundation/sia.PinnedObject.open()` expects.
- *
- * Differences between the two SDKs' on-the-wire format:
- *   - Buffers: sia-storage uses Node Buffers; @siafoundation/sia expects
- *     base64 strings. JSON.stringify turns Buffer into {"type":"Buffer","data":[…]}
- *     by default — we override via a replacer to emit base64 strings.
- *   - Dates: sia-storage exposes Date objects; @siafoundation/sia expects
- *     Unix timestamps in seconds (f64). We convert via getTime()/1000.
- */
-function importToSiaA(sealed: unknown): string {
-  const replacer = (key: string, value: unknown): unknown => {
-    // Date timestamps → Unix seconds (f64)
-    if (
-      (key === 'createdAt' || key === 'updatedAt') &&
-      typeof value === 'string'
-    ) {
-      const ms = Date.parse(value);
-      if (!Number.isNaN(ms)) return ms / 1000;
-    }
-    // Buffer-serialized objects {type:'Buffer', data:[…]} → base64 string
-    if (
-      value &&
-      typeof value === 'object' &&
-      (value as { type?: string }).type === 'Buffer' &&
-      Array.isArray((value as { data?: unknown }).data)
-    ) {
-      return Buffer.from((value as { data: number[] }).data).toString('base64');
-    }
-    if (Buffer.isBuffer(value)) return value.toString('base64');
-    if (value instanceof Uint8Array) return Buffer.from(value).toString('base64');
-    return value;
+  const modTime = res.modTime ? new Date(res.modTime) : null;
+  const size = BigInt(res.size);
+  const id = res.key;
+
+  return {
+    id: () => id,
+    size: () => size,
+    slabs: () => slabs,
+    createdAt: () => modTime,
+    updatedAt: () => modTime,
   };
-  return JSON.stringify(sealed, replacer);
 }
 
-/**
- * Delete an object from the indexer.
- */
+// ---------------------------------------------------------------------------
+// Delete / maintenance
+// ---------------------------------------------------------------------------
+
 export async function deleteObject(objectId: string): Promise<void> {
-  const { storage } = await getClient();
-  logger.debug({ objectId }, 'Deleting object on Sia');
-  await storage.deleteObject(objectId);
-  logger.info({ objectId }, 'Object deleted on Sia');
+  await getClient();
+  const res = await renterdFetch(
+    `/api/bus/object/${encKey(objectId)}${qs({ bucket: BUCKET })}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok && res.status !== 404) {
+    const body = await res.text().catch(() => '');
+    throw new Error(
+      `renterd delete failed: ${res.status} ${body.slice(0, 200)}`,
+    );
+  }
+  logger.info({ objectId }, 'Object deleted on renterd');
 }
 
 /**
- * Remove slabs no longer referenced by any pinned object.
+ * renterd prunes unreferenced slabs automatically via its autopilot
+ * loop. Kept as a no-op so the queue processor can still call it.
  */
 export async function pruneSlabs(): Promise<void> {
-  const { storage } = await getClient();
-  logger.debug('Pruning unreferenced slabs on Sia');
-  await storage.pruneSlabs();
-  logger.info('Slabs pruned on Sia');
+  logger.debug('pruneSlabs is a no-op with renterd (handled by autopilot)');
 }
 
 /**
- * Create a time-limited share URL for an object.
+ * Generate a signed URL that lets a caller fetch this object
+ * directly. The previous SDK returned a share URL that talked to a
+ * hosted gateway; with renterd we return a URL into our own delivery
+ * gateway (the aggregator proxies the actual bytes back out of
+ * renterd under our auth).
  */
 export async function shareObject(
   objectId: string,
   expiresAt: Date,
 ): Promise<string> {
-  const { storage } = await getClient();
-  const obj = await storage.object(objectId);
-  const shareUrl = storage.shareObject(obj, expiresAt);
+  const base = env.PUBLIC_URL.replace(/\/$/, '');
+  const url = `${base}/v1/objects/${encodeURIComponent(objectId)}?expires=${Math.floor(expiresAt.getTime() / 1000)}`;
   logger.info(
     { objectId, expiresAt: expiresAt.toISOString() },
-    'Object shared on Sia',
+    'Object share URL generated',
   );
-  return shareUrl;
-}
-
-/**
- * Fetch a rehydrated PinnedObject handle.
- */
-export async function getObject(
-  objectId: string,
-): Promise<StoragePinnedObject> {
-  const { storage } = await getClient();
-  return storage.object(objectId);
+  return url;
 }

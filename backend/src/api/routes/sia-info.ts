@@ -150,9 +150,9 @@ const SECTOR_SIZE_BYTES = 4 * 1024 * 1024;
 // Helpers
 // ---------------------------------------------------------------------------
 
-function detectNetwork(indexerUrl: string): 'zen' | 'mainnet' {
-  const u = indexerUrl.toLowerCase();
-  if (u.includes('zen') || u.includes('testnet')) return 'zen';
+function detectNetwork(network: string): 'zen' | 'mainnet' {
+  const n = network.toLowerCase();
+  if (n === 'zen' || n === 'testnet') return 'zen';
   return 'mainnet';
 }
 
@@ -315,8 +315,11 @@ function extractDataObjectId(playlistContent: string): string | null {
 async function buildSiaInfo(
   asset: SiaInfoAssetRecord,
 ): Promise<SiaInfoResponse> {
-  const indexerUrl = env.SIA_INDEXER_URL;
-  const network = detectNetwork(indexerUrl);
+  // The "indexer URL" is an opaque identifier for the Sia network this
+  // deployment is talking to. With the renterd backend we don't have a
+  // single public indexer URL, so we label by network only.
+  const indexerUrl = env.RENTERD_API_URL;
+  const network = detectNetwork(env.SIA_NETWORK);
 
   const allHosts = new Set<string>();
   let rawBytes = 0;
