@@ -57,6 +57,7 @@ services:
       - GITHUB_ALLOWED_USERS=${GITHUB_ALLOWED_USERS:-}
       - SESSION_SECRET=${SESSION_SECRET}
       - CORS_ORIGIN=${PUBLIC_URL}
+      - BOOTSTRAP_API_KEY=${BOOTSTRAP_API_KEY:-}
     ports:
       - "127.0.0.1:4600:3000"
     volumes:

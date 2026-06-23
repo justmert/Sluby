@@ -240,17 +240,8 @@ deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) 
 deliveryRouter.get('/v1/stream/:videoAssetId/master.m3u8', async (req: Request, res: Response) => {
   const videoAssetId = String(req.params.videoAssetId);
   try {
-    const db = req.app.get('db');
-    if (!db) {
-      res.status(500).json({ error: 'Database not configured' });
-      return;
-    }
-
-    const asset = await db.query.videoAssets?.findFirst({
-      where: (va: { id: { equals: (id: string) => unknown } }) =>
-        va.id.equals(videoAssetId),
-    });
-
+    const { getVideoAssetById } = await import('../db/queries/assets.js');
+    const asset = await getVideoAssetById(videoAssetId);
     if (!asset?.manifestObjectId) {
       res.status(404).json({ error: 'Video asset not found or not ready' });
       return;
