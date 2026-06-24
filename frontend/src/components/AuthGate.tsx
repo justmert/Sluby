@@ -84,8 +84,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
         )}
 
         <p className="text-xs text-zinc-600 max-w-xs leading-relaxed">
-          Studio access is limited to approved GitHub accounts. The backend
-          REST API and SDK still accept API keys for programmatic use.
+          Open to any GitHub account. The backend REST API and SDK still
+          accept API keys for programmatic use.
         </p>
       </div>
     </div>
