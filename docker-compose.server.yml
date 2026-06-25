@@ -58,6 +58,7 @@ services:
       - SESSION_SECRET=${SESSION_SECRET}
       - CORS_ORIGIN=${PUBLIC_URL}
       - BOOTSTRAP_API_KEY=${BOOTSTRAP_API_KEY:-}
+      - AUTH_DISABLED=${AUTH_DISABLED:-false}
     ports:
       - "127.0.0.1:4600:3000"
     volumes:
