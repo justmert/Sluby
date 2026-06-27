@@ -97,6 +97,7 @@ export interface SiaObjectSummary {
   createdAt: string | null;
   updatedAt: string | null;
   hosts: string[];
+  contracts: string[];
 }
 
 export interface SiaVariantInfo {
@@ -108,6 +109,7 @@ export interface SiaVariantInfo {
   segmentCount: number;
   hostCount: number;
   hosts: string[];
+  contracts: string[];
   slabCount: number;
   sectorCount: number;
   encodedBytes: number | null;
@@ -134,10 +136,13 @@ export interface AssetSiaInfo {
     parityShards: number | null;
     uniqueHostCount: number;
     allHosts: string[];
+    uniqueContractCount: number;
+    allContracts: string[];
   };
   indexer: {
     url: string;
     network: 'zen' | 'mainnet';
+    walletAddress: string | null;
   };
 }
 

@@ -68,7 +68,14 @@ export interface PinnedObject {
 /** Matches the shape upstream code pulls `minShards` / `sectors` from. */
 export interface RawSlab {
   minShards: number;
-  sectors: Array<{ root: string; hostKey: string }>;
+  sectors: Array<{
+    root: string;
+    hostKey: string;
+    /** Sia file-contract id that commits this host to storing this
+     *  sector. Empty string if renterd didn't return one (shouldn't
+     *  happen for healthy shards). */
+    contractId: string;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +315,8 @@ export async function getObject(objectId: string): Promise<PinnedObject> {
     const sectors = (ss.slab.shards ?? []).map((sh) => {
       const contracts = sh.contracts ?? {};
       const hostKey = Object.keys(contracts)[0] ?? '';
-      return { root: sh.root, hostKey };
+      const contractId = hostKey ? (contracts[hostKey]?.[0] ?? '') : '';
+      return { root: sh.root, hostKey, contractId };
     });
     return { minShards: ss.slab.minShards, sectors };
   });
@@ -351,6 +359,24 @@ export async function deleteObject(objectId: string): Promise<void> {
  */
 export async function pruneSlabs(): Promise<void> {
   logger.debug('pruneSlabs is a no-op with renterd (handled by autopilot)');
+}
+
+/**
+ * Fetch the renterd wallet address. Cached — the seed doesn't change
+ * after boot, so one lookup per process lifetime is fine. Returns
+ * null if renterd isn't reachable.
+ */
+let walletAddressCache: string | null = null;
+export async function getWalletAddress(): Promise<string | null> {
+  if (walletAddressCache) return walletAddressCache;
+  try {
+    const res = await renterdJson<{ address: string }>('/api/bus/wallet');
+    walletAddressCache = res.address ?? null;
+    return walletAddressCache;
+  } catch (err) {
+    logger.warn({ err }, 'Failed to fetch renterd wallet address');
+    return null;
+  }
 }
 
 /**

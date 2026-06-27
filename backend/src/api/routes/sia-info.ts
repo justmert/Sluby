@@ -1,7 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
 import { AppError } from '../middleware/error-handler.js';
-import { getObject, downloadObject } from '../../storage/sia-client.js';
+import {
+  getObject,
+  downloadObject,
+  getWalletAddress,
+} from '../../storage/sia-client.js';
 import { parseMasterPlaylist, parseVariantPlaylist } from '../../transcode/manifest-rewriter.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
@@ -41,6 +45,8 @@ interface ObjectSummary {
   createdAt: string | null;
   updatedAt: string | null;
   hosts: string[];
+  /** Sia file-contract IDs committing hosts to store this object. */
+  contracts: string[];
 }
 
 interface VariantInfo {
@@ -52,6 +58,9 @@ interface VariantInfo {
   segmentCount: number;
   hostCount: number;
   hosts: string[];
+  /** Sia file-contract IDs committing hosts to store this variant's
+   *  slabs. Deduped across data + playlist objects. */
+  contracts: string[];
   slabCount: number;
   /** Total sectors across the variant's data+playlist slabs (real count). */
   sectorCount: number;
@@ -98,10 +107,19 @@ interface SiaInfoResponse {
     parityShards: number | null;
     uniqueHostCount: number;
     allHosts: string[];
+    /** Deduped Sia file-contract IDs backing any sector of this asset.
+     *  Each one is an on-chain obligation by a host to keep our data —
+     *  click through on Siascan for independent verification. */
+    uniqueContractCount: number;
+    allContracts: string[];
   };
   indexer: {
     url: string;
     network: 'zen' | 'mainnet';
+    /** Wallet address the renterd backing this deployment spends from.
+     *  All contract formations and renewals show up on Siascan for
+     *  this address. */
+    walletAddress: string | null;
   };
 }
 
@@ -169,12 +187,13 @@ function dedupe(values: string[]): string[] {
 }
 
 /**
- * SDK slab sectors (from PinnedObject.slabs()) are typed as `unknown`. We
- * extract fields defensively by walking the shape that sia-storage returns.
+ * Sia-client slab sectors are typed as `unknown` from the module's
+ * viewpoint. We extract fields defensively by walking the shape that
+ * sia-client.ts's getObject() returns (hostKey + contractId per sector).
  */
 interface RawSlab {
   minShards?: number;
-  sectors?: Array<{ hostKey?: string }>;
+  sectors?: Array<{ hostKey?: string; contractId?: string }>;
 }
 
 function extractHostsFromSlabs(slabs: unknown[]): string[] {
@@ -186,6 +205,17 @@ function extractHostsFromSlabs(slabs: unknown[]): string[] {
     }
   }
   return hosts;
+}
+
+function extractContractsFromSlabs(slabs: unknown[]): string[] {
+  const ids: string[] = [];
+  for (const slab of slabs) {
+    const sectors = (slab as RawSlab).sectors ?? [];
+    for (const sec of sectors) {
+      if (sec?.contractId) ids.push(sec.contractId);
+    }
+  }
+  return ids;
 }
 
 function countSectors(slabs: unknown[]): number {
@@ -236,6 +266,7 @@ async function summarizeObject(objectId: string): Promise<ObjectSummary | null> 
       createdAt: obj.createdAt()?.toISOString() ?? null,
       updatedAt: obj.updatedAt()?.toISOString() ?? null,
       hosts: dedupe(extractHostsFromSlabs(slabs)),
+      contracts: dedupe(extractContractsFromSlabs(slabs)),
     };
   } catch (err) {
     logger.warn({ objectId, err }, 'Failed to summarize Sia object');
@@ -322,6 +353,7 @@ async function buildSiaInfo(
   const network = detectNetwork(env.SIA_NETWORK);
 
   const allHosts = new Set<string>();
+  const allContracts = new Set<string>();
   let rawBytes = 0;
   let totalSectorCount = 0;
   let observedMinShards = 0;
@@ -331,6 +363,7 @@ async function buildSiaInfo(
   const accumulate = (summary: ObjectSummary | null): void => {
     if (!summary) return;
     for (const h of summary.hosts) allHosts.add(h);
+    for (const c of summary.contracts) allContracts.add(c);
     rawBytes += summary.size;
     totalSectorCount += summary.sectorCount;
     // Record the first non-zero shard config we see; all slabs in a
@@ -382,6 +415,10 @@ async function buildSiaInfo(
             ...(playlistSummary?.hosts ?? []),
             ...(dataSummary?.hosts ?? []),
           ]);
+          const variantContracts = dedupe([
+            ...(playlistSummary?.contracts ?? []),
+            ...(dataSummary?.contracts ?? []),
+          ]);
           const dataSize = dataSummary?.size ?? 0;
 
           // Prefer the data object's shard config (it is the big one and
@@ -407,6 +444,7 @@ async function buildSiaInfo(
             segmentCount,
             hostCount: variantHosts.length,
             hosts: variantHosts,
+            contracts: variantContracts,
             slabCount:
               (playlistSummary?.slabCount ?? 0) + (dataSummary?.slabCount ?? 0),
             sectorCount: variantSectorCount,
@@ -469,6 +507,10 @@ async function buildSiaInfo(
         asset.thumbnailObjectIds.length +
         variants.length * 2;
 
+  // Wallet address is fetched out-of-band (cached inside sia-client)
+  // so the Studio can link to Siascan for live on-chain activity.
+  const walletAddress = await getWalletAddress();
+
   return {
     manifestObjectId: asset.manifestObjectId,
     manifest: manifestSummary,
@@ -483,10 +525,13 @@ async function buildSiaInfo(
       parityShards,
       uniqueHostCount: allHosts.size,
       allHosts: Array.from(allHosts),
+      uniqueContractCount: allContracts.size,
+      allContracts: Array.from(allContracts),
     },
     indexer: {
       url: indexerUrl,
       network,
+      walletAddress,
     },
   };
 }

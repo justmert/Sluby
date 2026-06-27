@@ -26,6 +26,8 @@ import {
   Server,
   Boxes,
   Network,
+  FileSignature,
+  Wallet,
 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -456,6 +458,23 @@ function HostPill({ pubkey }: { pubkey: string }) {
   );
 }
 
+function ContractPill({ id }: { id: string }) {
+  const short =
+    id.length > 18 ? `${id.slice(0, 10)}\u2026${id.slice(-6)}` : id;
+  return (
+    <a
+      href={explorerUrls.contract(id)}
+      {...EXTERNAL_LINK_PROPS}
+      title={`File contract ${id} on ${EXPLORER_LABEL}`}
+      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-teal-500/[0.06] border border-teal-500/25 hover:bg-teal-500/[0.12] hover:border-teal-500/50 transition-colors text-[11px] font-mono text-teal-300 hover:text-teal-200"
+    >
+      <FileSignature className="w-3 h-3" />
+      {short}
+      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+    </a>
+  );
+}
+
 function VariantRow({ variant }: { variant: SiaVariantInfo }) {
   return (
     <tr className="hover:bg-white/[0.03] transition-colors align-top">
@@ -761,24 +780,74 @@ function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
         </div>
       )}
 
-      {/* Hosts map */}
-      {totals.allHosts.length > 0 && (
-        <div className="border-t border-white/[0.08] p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Server className="w-3.5 h-3.5 text-zinc-400" />
-            <span className="text-sm font-semibold text-zinc-200 font-heading">
-              Host Pool
-            </span>
-            <span className="text-[11px] text-zinc-500">
-              {totals.uniqueHostCount} unique host
-              {totals.uniqueHostCount === 1 ? '' : 's'} holding this video
+      {/* Verified on Sia — on-chain proof panel */}
+      {(totals.allContracts.length > 0 || totals.allHosts.length > 0) && (
+        <div className="border-t border-white/[0.08] p-5 bg-teal-500/[0.02]">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Shield className="w-3.5 h-3.5 text-teal-400" />
+            <span className="text-sm font-semibold text-zinc-100 font-heading">
+              Verified on Sia
             </span>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {totals.allHosts.map((pubkey) => (
-              <HostPill key={pubkey} pubkey={pubkey} />
-            ))}
-          </div>
+          <p className="text-[11px] text-zinc-500 mb-4 max-w-2xl leading-relaxed">
+            Every shard of this asset is backed by a Sia file contract — an
+            on-chain obligation where the host has locked collateral to store
+            the data until expiry. Click any contract or host ID below to
+            independently verify it on {EXPLORER_LABEL}.
+          </p>
+
+          {totals.allContracts.length > 0 && (
+            <div className="mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <FileSignature className="w-3.5 h-3.5 text-teal-400" />
+                <span className="text-xs font-semibold text-zinc-200">
+                  File contracts
+                </span>
+                <span className="text-[11px] text-zinc-500">
+                  {totals.uniqueContractCount} on-chain contract
+                  {totals.uniqueContractCount === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {totals.allContracts.map((id) => (
+                  <ContractPill key={id} id={id} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {totals.allHosts.length > 0 && (
+            <div className="mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Server className="w-3.5 h-3.5 text-zinc-400" />
+                <span className="text-xs font-semibold text-zinc-200">
+                  Hosts
+                </span>
+                <span className="text-[11px] text-zinc-500">
+                  {totals.uniqueHostCount} unique host
+                  {totals.uniqueHostCount === 1 ? '' : 's'} storing sectors
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {totals.allHosts.map((pubkey) => (
+                  <HostPill key={pubkey} pubkey={pubkey} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {info.indexer.walletAddress && (
+            <a
+              href={explorerUrls.address(info.indexer.walletAddress)}
+              {...EXTERNAL_LINK_PROPS}
+              title={`View this server's wallet on ${EXPLORER_LABEL}`}
+              className="inline-flex items-center gap-1.5 text-[11px] text-teal-400 hover:text-teal-300 transition-colors mt-1"
+            >
+              <Wallet className="w-3 h-3" />
+              View this server's on-chain activity on {EXPLORER_LABEL}
+              <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+            </a>
+          )}
         </div>
       )}
     </div>
