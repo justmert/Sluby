@@ -632,12 +632,18 @@ function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
 
       {/* Redundancy visualization — only when real slab metadata is present */}
       {hasShardInfo && totals.dataShards !== null && totals.parityShards !== null && (() => {
-        const totalSlabs =
-          (manifest?.slabCount ?? 0) +
-          variants.reduce((s, v) => s + v.slabCount, 0);
-        const totalSectors =
-          (manifest?.sectorCount ?? 0) +
-          variants.reduce((s, v) => s + v.sectorCount, 0);
+        // Derive totals from the single source of truth — the API's
+        // totals.encodedBytes. Sectors are a 4 MiB protocol constant,
+        // so N sectors × 4 MiB is guaranteed to equal encodedBytes.
+        // (Previous local sum over manifest+variants omitted
+        // thumbnails and drifted from the API's real number.)
+        const SECTOR = 4 * 1024 * 1024;
+        const totalSectors = totals.encodedBytes !== null
+          ? Math.floor(totals.encodedBytes / SECTOR)
+          : 0;
+        const totalSlabs = totalSectors > 0
+          ? Math.ceil(totalSectors / (totals.dataShards + totals.parityShards))
+          : 0;
         return (
           <div className="mx-5 mb-5 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
             <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -790,10 +796,12 @@ function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
             </span>
           </div>
           <p className="text-[11px] text-zinc-500 mb-4 max-w-2xl leading-relaxed">
-            Every shard of this asset is backed by a Sia file contract — an
-            on-chain obligation where the host has locked collateral to store
-            the data until expiry. Click any contract or host ID below to
-            independently verify it on {EXPLORER_LABEL}.
+            Every slab that has been flushed to hosts is committed by a Sia
+            file contract — an on-chain obligation where the host has locked
+            collateral to store the data until expiry. Click any contract or
+            host ID below to independently verify it on {EXPLORER_LABEL}.
+            Tiny sub-slab objects (manifests, playlists) may briefly sit in
+            renterd's packing buffer before the next flush.
           </p>
 
           {totals.allContracts.length > 0 && (
