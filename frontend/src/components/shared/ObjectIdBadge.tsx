@@ -2,7 +2,7 @@ import { CopyButton } from './CopyButton';
 import { cn } from '@/lib/cn';
 
 export interface ObjectIdBadgeProps {
-  /** The renterd object id (hex string). */
+  /** The Sia object id (hex string). */
   value: string;
   /** Chars to show on each side of the ellipsis (default 8). */
   truncate?: number;
@@ -18,7 +18,7 @@ function truncateMiddle(value: string, chars: number): string {
 }
 
 /**
- * Renders a renterd object id as truncated monospace hex with an optional
+ * Renders a Sia object id as truncated monospace hex with an optional
  * copy control. Object ids are app-layer hashes (not on-chain entities) so
  * they intentionally do not link to the blockchain explorer — see
  * `lib/sia-explorer.ts` for why.

@@ -10,7 +10,7 @@ const envSchema = z.object({
   DATABASE_URL: z
     .string()
     .url()
-    .default('postgresql://siastream:siastream@localhost:5432/siastream'),
+    .default('postgresql://sluby:sluby@localhost:5432/sluby'),
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
   SIA_INDEXER_URL: z.string().url().default('https://sia.storage'),
   SIA_APP_ID: z.string().length(64),
@@ -43,7 +43,7 @@ describe('config/env schema validation', () => {
         expect(result.data.PORT).toBe(3000);
         expect(result.data.HOST).toBe('0.0.0.0');
         expect(result.data.SIA_INDEXER_URL).toBe('https://sia.storage');
-        expect(result.data.DATABASE_URL).toBe('postgresql://siastream:siastream@localhost:5432/siastream');
+        expect(result.data.DATABASE_URL).toBe('postgresql://sluby:sluby@localhost:5432/sluby');
         expect(result.data.REDIS_URL).toBe('redis://localhost:6379');
         expect(result.data.UPLOAD_DIR).toBe('./uploads');
         expect(result.data.TRANSCODE_OUTPUT_DIR).toBe('./transcode-output');
@@ -81,11 +81,11 @@ describe('config/env schema validation', () => {
     it('should accept custom SIA_INDEXER_URL', () => {
       const result = envSchema.safeParse({
         ...validEnv,
-        SIA_INDEXER_URL: 'https://renterd.example.com',
+        SIA_INDEXER_URL: 'https://indexd.example.com',
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.SIA_INDEXER_URL).toBe('https://renterd.example.com');
+        expect(result.data.SIA_INDEXER_URL).toBe('https://indexd.example.com');
       }
     });
   });

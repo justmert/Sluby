@@ -1,8 +1,8 @@
-# SiaStream
+# Sluby
 
 **Decentralized video streaming on Sia.**
 
-SiaStream takes a source video, transcodes it into adaptive HLS, stores every
+Sluby takes a source video, transcodes it into adaptive HLS, stores every
 segment on the [Sia network](https://sia.tech) via the `sia-storage` SDK, and
 serves playback through a byte-range aware HTTP gateway with an on-disk cache
 in front.
@@ -17,8 +17,8 @@ in front.
 - **Delivery gateway** — an aggregator route fetches objects from Sia, caches
   them locally, and streams byte-range responses suitable for `<video>` and
   hls.js playback.
-- **API + SDK** — a REST backend plus first-party TypeScript (`@siastream/sdk`)
-  and React (`@siastream/react`) packages.
+- **API + SDK** — a REST backend plus first-party TypeScript (`@sluby/sdk`)
+  and React (`@sluby/react`) packages.
 
 ## Quick start
 
@@ -26,8 +26,8 @@ Requirements: Node.js 20+, Docker + Docker Compose, FFmpeg 5+ (only needed
 when running the backend outside Docker).
 
 ```bash
-git clone https://github.com/justmert/sia-stream.git
-cd sia-stream
+git clone https://github.com/justmert/sluby.git
+cd sluby
 cp .env.example .env
 docker compose up -d
 ```
@@ -70,10 +70,10 @@ video, and copy its playback URL into the player page.
 ### Using the SDK
 
 ```ts
-import { SiaStreamClient } from "@siastream/sdk";
+import { SlubyClient } from "@sluby/sdk";
 
-const client = new SiaStreamClient({
-  apiKey: "wss_your_api_key",
+const client = new SlubyClient({
+  apiKey: "sluby_your_api_key",
   baseUrl: "http://localhost:4500",
 });
 
@@ -90,9 +90,9 @@ const asset = await client.assets.waitForReady(videoAssetId);
 ```
 
 ```tsx
-import { SiaStreamPlayer } from "@siastream/react";
+import { SlubyPlayer } from "@sluby/react";
 
-<SiaStreamPlayer
+<SlubyPlayer
   src={`http://localhost/v1/stream/${videoAssetId}/master.m3u8`}
   controls
 />
@@ -131,8 +131,8 @@ ranges through), and caches them on local disk so repeat plays stay hot.
 ```
 backend/       Node.js backend (Express + BullMQ + Drizzle + sia-storage SDK)
 frontend/      Vite + React studio app
-packages/sdk/  @siastream/sdk       — TypeScript API client
-packages/react/@siastream/react     — SiaStreamPlayer + hooks
+packages/sdk/  @sluby/sdk       — TypeScript API client
+packages/react/@sluby/react     — SlubyPlayer + hooks
 nginx/         Aggregator/gateway config
 docker-compose.yml      App stack (backend, postgres, redis, nginx)
 docker-compose.sia.yml  Optional local Sia indexer / walletd / miner stack
@@ -143,8 +143,8 @@ docker-compose.prod.yml Production overrides
 
 ```bash
 npm test --workspace=backend
-npm test --workspace=@siastream/sdk
-npm test --workspace=@siastream/react
+npm test --workspace=@sluby/sdk
+npm test --workspace=@sluby/react
 ```
 
 ## Contributing

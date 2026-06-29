@@ -4,12 +4,12 @@ import { apiKeys, type ApiKey, type NewApiKey } from '../schema.js';
 import { createHash, randomBytes } from 'node:crypto';
 
 /**
- * Generate a new raw API key string with a "wss_" prefix.
+ * Generate a new raw API key string with a "sluby_" prefix.
  * The raw key is returned only once at creation time.
  */
 export function generateRawApiKey(): string {
   const bytes = randomBytes(32);
-  return `wss_${bytes.toString('base64url')}`;
+  return `sluby_${bytes.toString('base64url')}`;
 }
 
 /**

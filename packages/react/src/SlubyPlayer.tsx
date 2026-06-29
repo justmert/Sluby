@@ -7,13 +7,13 @@ import React, {
 } from 'react';
 import Hls from 'hls.js';
 import type { HlsConfig } from 'hls.js';
-import type { SiaStreamPlayerProps, QualityLevel } from './types.js';
+import type { SlubyPlayerProps, QualityLevel } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Public imperative handle exposed via ref
 // ---------------------------------------------------------------------------
 
-export interface SiaStreamPlayerHandle {
+export interface SlubyPlayerHandle {
   /** The underlying HTMLVideoElement, or null before mount. */
   getVideoElement: () => HTMLVideoElement | null;
   /** The underlying hls.js instance, or null when using native playback. */
@@ -45,7 +45,7 @@ function toQualityLevel(
 // ---------------------------------------------------------------------------
 
 /**
- * `<SiaStreamPlayer>` -- a drop-in React component for playing HLS streams
+ * `<SlubyPlayer>` -- a drop-in React component for playing HLS streams
  * stored on Sia.
  *
  * Simply pass a `src` URL pointing to the HLS master manifest.
@@ -53,10 +53,10 @@ function toQualityLevel(
  * The component can be controlled imperatively via a ref that exposes the
  * underlying `<video>` element and the hls.js instance.
  */
-export const SiaStreamPlayer = forwardRef<
-  SiaStreamPlayerHandle,
-  SiaStreamPlayerProps
->(function SiaStreamPlayer(props, ref) {
+export const SlubyPlayer = forwardRef<
+  SlubyPlayerHandle,
+  SlubyPlayerProps
+>(function SlubyPlayer(props, ref) {
   const {
     src,
     poster,

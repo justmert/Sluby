@@ -93,6 +93,3 @@ export const WEBHOOK_EVENTS = [
   'asset.errored',
 ] as const;
 
-// Sia renterd URL
-export const SIA_RENTERD_URL =
-  import.meta.env.VITE_SIA_RENTERD_URL || 'http://localhost:9980';

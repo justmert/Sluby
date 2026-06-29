@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @siastream/sdk - WebhookManager
+// @sluby/sdk - WebhookManager
 // ---------------------------------------------------------------------------
 
 import type { WebhookEvent } from './types.js';
@@ -20,8 +20,8 @@ export class WebhookManager {
   /**
    * Verify the HMAC-SHA256 signature of a webhook payload.
    *
-   * The SiaStream backend sends the signature in the
-   * `X-SiaStream-Signature` header, computed as:
+   * The Sluby backend sends the signature in the
+   * `X-Sluby-Signature` header, computed as:
    *
    *   HMAC-SHA256(payload, secret)
    *

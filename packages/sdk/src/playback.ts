@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @siastream/sdk - PlaybackManager
+// @sluby/sdk - PlaybackManager
 // ---------------------------------------------------------------------------
 
 import type { AccessTier, PlaybackInfo, SignedPlaybackInfo } from './types.js';

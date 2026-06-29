@@ -5,7 +5,7 @@
  * Both modules MUST use the same localStorage key.
  */
 
-const STORAGE_KEY = 'siastream-api-key';
+const STORAGE_KEY = 'sluby-api-key';
 
 // ---------------------------------------------------------------------------
 // Auto-seed from VITE_API_KEY env var on first load
@@ -40,5 +40,5 @@ export function clearStoredApiKey(): void {
 export function maskApiKey(key: string): string {
   if (!key || key.length < 8) return key;
   const last4 = key.slice(-4);
-  return `wss_****...${last4}`;
+  return `sluby_****...${last4}`;
 }

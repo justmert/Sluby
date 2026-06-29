@@ -20,7 +20,7 @@ export interface SessionPayload {
 
 const SEVEN_DAYS_SEC = 7 * 24 * 3600;
 
-export const SESSION_COOKIE_NAME = 'siastream_session';
+export const SESSION_COOKIE_NAME = 'sluby_session';
 
 export function signSession(
   login: string,

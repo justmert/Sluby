@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @siastream/sdk - SiaStreamClient
+// @sluby/sdk - SlubyClient
 // ---------------------------------------------------------------------------
 
 import { AssetManager } from './assets.js';
@@ -7,23 +7,23 @@ import {
   AuthenticationError,
   NotFoundError,
   RateLimitError,
-  SiaStreamError,
+  SlubyError,
 } from './errors.js';
 import { PlaybackManager } from './playback.js';
-import type { SiaStreamConfig } from './types.js';
+import type { SlubyConfig } from './types.js';
 import { UploadManager } from './uploads.js';
 import { WebhookManager } from './webhooks.js';
 
 /**
- * Primary entry point for the SiaStream TypeScript SDK.
+ * Primary entry point for the Sluby TypeScript SDK.
  *
  * @example
  * ```ts
- * import { SiaStreamClient } from '@siastream/sdk';
+ * import { SlubyClient } from '@sluby/sdk';
  *
- * const client = new SiaStreamClient({
- *   apiKey: 'wss_...',
- *   baseUrl: 'https://api.siastream.io',
+ * const client = new SlubyClient({
+ *   apiKey: 'sluby_...',
+ *   baseUrl: 'https://api.sluby.app',
  * });
  *
  * // Create an upload session
@@ -45,7 +45,7 @@ import { WebhookManager } from './webhooks.js';
  * const { playbackUrl } = await client.playback.getUrl(videoAssetId);
  * ```
  */
-export class SiaStreamClient {
+export class SlubyClient {
   /** Video upload management (create session, TUS upload, status, cancel). */
   readonly uploads: UploadManager;
 
@@ -58,14 +58,14 @@ export class SiaStreamClient {
   /** Webhook signature verification and event parsing utilities. */
   readonly webhooks: WebhookManager;
 
-  private readonly _config: SiaStreamConfig;
+  private readonly _config: SlubyConfig;
 
-  constructor(config: SiaStreamConfig) {
+  constructor(config: SlubyConfig) {
     if (!config.apiKey) {
-      throw new Error('SiaStreamClient requires a non-empty apiKey.');
+      throw new Error('SlubyClient requires a non-empty apiKey.');
     }
     if (!config.baseUrl) {
-      throw new Error('SiaStreamClient requires a non-empty baseUrl.');
+      throw new Error('SlubyClient requires a non-empty baseUrl.');
     }
 
     // Normalise the base URL: remove trailing slash to simplify path
@@ -90,7 +90,7 @@ export class SiaStreamClient {
   // -----------------------------------------------------------------------
 
   /**
-   * Perform an HTTP request against the SiaStream API.
+   * Perform an HTTP request against the Sluby API.
    *
    * - Automatically prepends the base URL.
    * - Injects the `Authorization: Bearer <apiKey>` header.
@@ -146,7 +146,7 @@ export class SiaStreamClient {
         );
       }
       default:
-        throw new SiaStreamError(message, response.status, responseBody);
+        throw new SlubyError(message, response.status, responseBody);
     }
   }
 }

@@ -63,7 +63,7 @@ export function Sidebar() {
                 <span className="text-white text-sm font-bold">S</span>
               </div>
               <div className="min-w-0">
-                <span className="text-sm font-semibold text-zinc-100 block leading-tight font-heading">SiaStream</span>
+                <span className="text-sm font-semibold text-zinc-100 block leading-tight font-heading">Sluby</span>
                 <span className="text-[10px] text-zinc-600 block leading-tight">Studio Platform</span>
               </div>
             </motion.div>

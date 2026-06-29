@@ -1,10 +1,10 @@
 // ---------------------------------------------------------------------------
-// @siastream/sdk - Package entry point
+// @sluby/sdk - Package entry point
 // ---------------------------------------------------------------------------
 
 // Primary client
-export { SiaStreamClient } from './client.js';
-export { SiaStreamClient as default } from './client.js';
+export { SlubyClient } from './client.js';
+export { SlubyClient as default } from './client.js';
 
 // Sub-managers (for advanced typing or standalone use)
 export { UploadManager } from './uploads.js';
@@ -14,7 +14,7 @@ export { WebhookManager } from './webhooks.js';
 
 // Error classes
 export {
-  SiaStreamError,
+  SlubyError,
   AuthenticationError,
   NotFoundError,
   RateLimitError,
@@ -36,6 +36,6 @@ export type {
   UploadFileOptions,
   ListAssetsOptions,
   PaginatedResponse,
-  SiaStreamConfig,
+  SlubyConfig,
   WebhookEvent,
 } from './types.js';

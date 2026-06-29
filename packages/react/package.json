@@ -1,5 +1,5 @@
 {
-  "name": "@siastream/react",
+  "name": "@sluby/react",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",

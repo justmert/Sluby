@@ -26,28 +26,43 @@ const envSchema = z.object({
   DATABASE_URL: z
     .string()
     .url()
-    .default('postgresql://siastream:siastream@localhost:5432/siastream'),
+    .default('postgresql://sluby:sluby@localhost:5432/sluby'),
 
   /** Redis connection string for BullMQ and caching */
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
 
-  /** Base URL of the renterd HTTP API (no trailing slash).
-   *  e.g. `http://127.0.0.1:9880` or `http://renterd:9980` inside a
-   *  Docker network. */
-  RENTERD_API_URL: z.string().url().default('http://127.0.0.1:9880'),
+  /** Base URL of the indexd application API (no trailing slash).
+   *  e.g. `http://127.0.0.1:9982` or `http://sia-indexd:9982` inside
+   *  a Docker network. The SDK signs every request with the AppKey,
+   *  so this URL doesn't need authentication of its own. */
+  SIA_INDEXER_URL: z.string().url().default('http://127.0.0.1:9982'),
 
-  /** HTTP-Basic password for the renterd API. Generate on the host
-   *  running renterd (`openssl rand -base64 24`) and pass in both
-   *  places identically. Empty is accepted so unit tests can load the
-   *  module without hitting renterd; a runtime error is raised if you
-   *  actually try to talk to the API with no password set. */
-  RENTERD_API_PASSWORD: z.string().default(''),
+  /** Base URL of the indexd admin API (no trailing slash). Used for
+   *  out-of-band reads (wallet address, contract list) that the SDK
+   *  doesn't expose. Must be HTTP-Basic-protected. */
+  SIA_ADMIN_URL: z.string().url().default('http://127.0.0.1:9980'),
 
-  /** Bucket name all SiaStream objects live in. Created at startup if
-   *  it doesn't exist. */
-  RENTERD_BUCKET: z.string().default('siastream'),
+  /** HTTP-Basic password for the indexd admin API. Set in the indexd
+   *  config file (`adminAPI.password`) and mirrored here. */
+  SIA_ADMIN_PASSWORD: z.string().default(''),
 
-  /** Which Sia network the connected renterd runs against. Used for
+  /** 32-byte AppKey secret (hex) the backend uses to sign indexd
+   *  requests. Produced once during onboarding (Builder.register
+   *  returns an Sdk whose .appKey().export() gives the bytes); persist
+   *  here so the backend re-attaches via Builder.connected at boot. */
+  SIA_APP_KEY: z.string().default(''),
+
+  /** 32-byte App ID (hex). Stable across restarts so indexd ties all
+   *  uploads to the same registered application row. */
+  SIA_APP_ID: z.string().default(''),
+
+  /** Erasure-coding shards per slab. Adjust to fit the host pool of
+   *  the network being used: 2-of-6 works for the Zen testnet's small
+   *  pool; 10-of-30 is the typical mainnet ratio. */
+  SIA_DATA_SHARDS: z.coerce.number().int().positive().default(2),
+  SIA_PARITY_SHARDS: z.coerce.number().int().positive().default(4),
+
+  /** Which Sia network the connected indexd runs against. Used for
    *  UI labelling only (badge on the asset detail page, etc). */
   SIA_NETWORK: z
     .enum(['zen', 'mainnet', 'testnet', 'anagami'])
@@ -81,7 +96,7 @@ const envSchema = z.object({
   /** API rate limit: max requests per minute per key */
   API_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(100),
 
-  /** Optional bootstrap API key (raw wss_ value).
+  /** Optional bootstrap API key (raw sluby_ value).
    *  If set and no API keys exist in the DB, this key is auto-seeded on startup
    *  with full scopes (upload, read, manage). Solves the bootstrap problem. */
   BOOTSTRAP_API_KEY: z.string().optional(),

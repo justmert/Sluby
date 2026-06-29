@@ -85,7 +85,7 @@ function timeNow() {
 // Helpers – Object ID rendering
 // ---------------------------------------------------------------------------
 //
-// Object ids are app-layer hashes (renterd-generated) — they are not on-chain
+// Object ids are app-layer hashes (indexer-generated) — they are not on-chain
 // and the Siascan explorer cannot resolve them. We just truncate the hex for
 // readability.
 

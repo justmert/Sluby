@@ -1,50 +1,49 @@
 #
-# Server compose file for the SiaStream deployment at siastream.com.
+# Server compose file for the Sluby deployment at sluby.app.
 #
 # Architecture:
-#   - siastream-renterd  : official renterd binary, handles the Sia
-#                          protocol (contracts, slabs, hosts). Runs on
-#                          Zen testnet. Wallet address is seeded from
-#                          RENTERD_SEED; autopilot forms contracts.
-#   - siastream-backend  : Node.js service, talks to renterd over HTTP
-#                          at http://siastream-renterd:9980. No NAPI
-#                          native dependency. Bound to 127.0.0.1:4600
-#                          on the host so the system nginx can proxy.
-#   - siastream-postgres : metadata store.
-#   - siastream-redis    : BullMQ + rate limiter backing store.
+#   - sia-indexd (sluby/indexd:patched, see docker-compose.sia.yml):
+#       runs in its own compose project. Manages contracts, accounts,
+#       and slabs across Zen-testnet hosts. Backend talks to it via
+#       the indexd application API on port 9982 and the admin API on
+#       port 9980 — both are bound to 127.0.0.1 only.
+#   - sluby-backend  : Node.js service. Loads sia-storage NAPI,
+#                          signs requests with a stored AppKey, and
+#                          uploads/downloads through indexd. Bound to
+#                          127.0.0.1:4600 on the host so the system
+#                          nginx can proxy.
+#   - sluby-postgres : metadata store.
+#   - sluby-redis    : BullMQ + rate limiter backing store.
 #
-# No ports conflict with the other stacks already on the host —
-# renterd and postgres/redis are only on the internal Docker network.
+# The backend container uses host networking to reach indexd on the
+# host's loopback interface (where docker-compose.sia.yml publishes
+# its ports). Postgres and Redis stay on this compose project's own
+# network — their hostnames resolve via the Docker network.
 #
 services:
-  renterd:
-    image: ghcr.io/siafoundation/renterd:latest
-    container_name: siastream-renterd
-    restart: unless-stopped
-    environment:
-      RENTERD_NETWORK: ${SIA_NETWORK:-zen}
-      RENTERD_API_PASSWORD: ${RENTERD_API_PASSWORD}
-      RENTERD_SEED: ${RENTERD_SEED}
-    volumes:
-      - renterd-data:/data
-
   backend:
     build: ./backend
-    image: siastream-backend:latest
-    container_name: siastream-backend
+    image: sluby-backend:latest
+    container_name: sluby-backend
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      renterd:
-        condition: service_started
     environment:
-      - DATABASE_URL=postgresql://siastream:siastream@postgres:5432/siastream
+      - DATABASE_URL=postgresql://sluby:sluby@postgres:5432/sluby
       - REDIS_URL=redis://redis:6379
-      - RENTERD_API_URL=http://renterd:9980
-      - RENTERD_API_PASSWORD=${RENTERD_API_PASSWORD}
-      - RENTERD_BUCKET=${RENTERD_BUCKET:-siastream}
+      # indexd runs in the same compose project's default network
+      # (docker-compose.sia.yml lives under the same /home/admin/sluby
+      # directory, so both projects share `sluby_default`). Container
+      # hostname `sia-indexd` resolves on that network.
+      - SIA_INDEXER_URL=${SIA_INDEXER_URL:-http://sia-indexd:9982}
+      - SIA_ADMIN_URL=${SIA_ADMIN_URL:-http://sia-indexd:9980}
+      - SIA_ADMIN_PASSWORD=${SIA_ADMIN_PASSWORD}
+      - SIA_APP_ID=${SIA_APP_ID}
+      - SIA_APP_KEY=${SIA_APP_KEY}
+      - SIA_DATA_SHARDS=${SIA_DATA_SHARDS:-2}
+      - SIA_PARITY_SHARDS=${SIA_PARITY_SHARDS:-4}
       - SIA_NETWORK=${SIA_NETWORK:-zen}
       - PORT=3000
       - HOST=0.0.0.0
@@ -69,15 +68,15 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: siastream-postgres
+    container_name: sluby-postgres
     environment:
-      POSTGRES_USER: siastream
-      POSTGRES_PASSWORD: siastream
-      POSTGRES_DB: siastream
+      POSTGRES_USER: sluby
+      POSTGRES_PASSWORD: sluby
+      POSTGRES_DB: sluby
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U siastream -d siastream"]
+      test: ["CMD-SHELL", "pg_isready -U sluby -d sluby"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -85,7 +84,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: siastream-redis
+    container_name: sluby-redis
     volumes:
       - redis-data:/data
     healthcheck:
@@ -101,9 +100,3 @@ volumes:
   cache:
   pgdata:
   redis-data:
-  # Reuse the pre-synced, pre-funded renterd data volume created by
-  # the first manual `docker run`. Keeping it external avoids a fresh
-  # chain sync and avoids losing contracts/wallet state on redeploy.
-  renterd-data:
-    external: true
-    name: renterd-data

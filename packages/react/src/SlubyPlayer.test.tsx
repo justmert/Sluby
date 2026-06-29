@@ -88,14 +88,14 @@ vi.mock('hls.js', () => {
 });
 
 // Import component after mocks are set up
-import { SiaStreamPlayer } from './SiaStreamPlayer.js';
-import type { SiaStreamPlayerHandle } from './SiaStreamPlayer.js';
+import { SlubyPlayer } from './SlubyPlayer.js';
+import type { SlubyPlayerHandle } from './SlubyPlayer.js';
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('SiaStreamPlayer', () => {
+describe('SlubyPlayer', () => {
   beforeEach(() => {
     mockOn.mockClear();
     mockOff.mockClear();
@@ -115,7 +115,7 @@ describe('SiaStreamPlayer', () => {
   describe('rendering', () => {
     it('should render a video element', () => {
       const { container } = render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" />
+        <SlubyPlayer src="https://example.com/video.m3u8" />
       );
 
       const video = container.querySelector('video');
@@ -124,7 +124,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should render with controls by default', () => {
       const { container } = render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" />
+        <SlubyPlayer src="https://example.com/video.m3u8" />
       );
 
       const video = container.querySelector('video');
@@ -133,7 +133,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should render without controls when controls=false', () => {
       const { container } = render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" controls={false} />
+        <SlubyPlayer src="https://example.com/video.m3u8" controls={false} />
       );
 
       const video = container.querySelector('video');
@@ -142,7 +142,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should set playsInline attribute', () => {
       const { container } = render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" />
+        <SlubyPlayer src="https://example.com/video.m3u8" />
       );
 
       const video = container.querySelector('video');
@@ -151,7 +151,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should pass through poster prop', () => {
       const { container } = render(
-        <SiaStreamPlayer
+        <SlubyPlayer
           src="https://example.com/video.m3u8"
           poster="https://example.com/poster.jpg"
         />
@@ -163,7 +163,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should pass through width and height props', () => {
       const { container } = render(
-        <SiaStreamPlayer
+        <SlubyPlayer
           src="https://example.com/video.m3u8"
           width={800}
           height={450}
@@ -177,7 +177,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should pass through className prop', () => {
       const { container } = render(
-        <SiaStreamPlayer
+        <SlubyPlayer
           src="https://example.com/video.m3u8"
           className="my-player"
         />
@@ -189,7 +189,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should pass through style prop', () => {
       const { container } = render(
-        <SiaStreamPlayer
+        <SlubyPlayer
           src="https://example.com/video.m3u8"
           style={{ borderRadius: '8px' }}
         />
@@ -203,7 +203,7 @@ describe('SiaStreamPlayer', () => {
   describe('HLS initialization', () => {
     it('should create an hls.js instance when HLS is supported', () => {
       render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" />
+        <SlubyPlayer src="https://example.com/video.m3u8" />
       );
 
       expect(hlsInstanceRef.current).not.toBeNull();
@@ -215,7 +215,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should attach media and load source', () => {
       render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" />
+        <SlubyPlayer src="https://example.com/video.m3u8" />
       );
 
       expect(mockAttachMedia).toHaveBeenCalled();
@@ -224,7 +224,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should register event listeners for MANIFEST_PARSED, LEVEL_SWITCHED, and ERROR', () => {
       render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" />
+        <SlubyPlayer src="https://example.com/video.m3u8" />
       );
 
       const registeredEvents = mockOn.mock.calls.map((call: unknown[]) => call[0]);
@@ -235,7 +235,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should pass correct HLS config values', () => {
       render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" />
+        <SlubyPlayer src="https://example.com/video.m3u8" />
       );
 
       expect(hlsInstanceRef.current.config).toEqual(expect.objectContaining({
@@ -251,7 +251,7 @@ describe('SiaStreamPlayer', () => {
 
     it('should not create hls.js instance when src is empty', () => {
       render(
-        <SiaStreamPlayer src="" />
+        <SlubyPlayer src="" />
       );
 
       expect(hlsInstanceRef.current).toBeNull();
@@ -261,7 +261,7 @@ describe('SiaStreamPlayer', () => {
   describe('cleanup on unmount', () => {
     it('should destroy hls.js instance on unmount', () => {
       const { unmount } = render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" />
+        <SlubyPlayer src="https://example.com/video.m3u8" />
       );
 
       unmount();
@@ -272,10 +272,10 @@ describe('SiaStreamPlayer', () => {
 
   describe('imperative handle via ref', () => {
     it('should expose getVideoElement via ref', () => {
-      const ref = React.createRef<SiaStreamPlayerHandle>();
+      const ref = React.createRef<SlubyPlayerHandle>();
 
       render(
-        <SiaStreamPlayer
+        <SlubyPlayer
           ref={ref}
           src="https://example.com/video.m3u8"
         />
@@ -287,10 +287,10 @@ describe('SiaStreamPlayer', () => {
     });
 
     it('should expose getHlsInstance via ref', () => {
-      const ref = React.createRef<SiaStreamPlayerHandle>();
+      const ref = React.createRef<SlubyPlayerHandle>();
 
       render(
-        <SiaStreamPlayer
+        <SlubyPlayer
           ref={ref}
           src="https://example.com/video.m3u8"
         />
@@ -306,7 +306,7 @@ describe('SiaStreamPlayer', () => {
     it('should call onPlay when video play event fires', () => {
       const onPlay = vi.fn();
       const { container } = render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" onPlay={onPlay} />
+        <SlubyPlayer src="https://example.com/video.m3u8" onPlay={onPlay} />
       );
 
       const video = container.querySelector('video')!;
@@ -318,7 +318,7 @@ describe('SiaStreamPlayer', () => {
     it('should call onPause when video pause event fires', () => {
       const onPause = vi.fn();
       const { container } = render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" onPause={onPause} />
+        <SlubyPlayer src="https://example.com/video.m3u8" onPause={onPause} />
       );
 
       const video = container.querySelector('video')!;
@@ -330,7 +330,7 @@ describe('SiaStreamPlayer', () => {
     it('should call onEnd when video ended event fires', () => {
       const onEnd = vi.fn();
       const { container } = render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" onEnd={onEnd} />
+        <SlubyPlayer src="https://example.com/video.m3u8" onEnd={onEnd} />
       );
 
       const video = container.querySelector('video')!;
@@ -346,7 +346,7 @@ describe('SiaStreamPlayer', () => {
       const onError = vi.fn();
 
       render(
-        <SiaStreamPlayer src="https://example.com/video.m3u8" onError={onError} />
+        <SlubyPlayer src="https://example.com/video.m3u8" onError={onError} />
       );
 
       // jsdom does not support HLS natively either, so video.canPlayType returns ''

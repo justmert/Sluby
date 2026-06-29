@@ -34,7 +34,7 @@ for (const envPath of envPaths) {
 
 const connectionString =
   process.env.DATABASE_URL ||
-  'postgresql://siastream:siastream@localhost:5432/siastream';
+  'postgresql://sluby:sluby@localhost:5432/sluby';
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -52,7 +52,7 @@ async function seedApiKey() {
   const db = drizzle(sql);
 
   // Generate key
-  const rawKey = `wss_${randomBytes(32).toString('base64url')}`;
+  const rawKey = `sluby_${randomBytes(32).toString('base64url')}`;
   const keyHash = createHash('sha256').update(rawKey).digest('hex');
 
   const [result] = await db

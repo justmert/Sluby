@@ -38,10 +38,10 @@ jobs:
             workspace: backend
             path: backend
           - package: sdk
-            workspace: "@siastream/sdk"
+            workspace: "@sluby/sdk"
             path: packages/sdk
           - package: react
-            workspace: "@siastream/react"
+            workspace: "@sluby/react"
             path: packages/react
 
     steps:

@@ -11,15 +11,15 @@ const ApiKeyContext = createContext<ApiKeyContextValue | undefined>(undefined);
 export function ApiKeyProvider({ children }: { children: ReactNode }) {
   const [apiKey, setApiKeyState] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
-    return localStorage.getItem('siastream-api-key');
+    return localStorage.getItem('sluby-api-key');
   });
 
   const setApiKey = (key: string | null) => {
     setApiKeyState(key);
     if (key) {
-      localStorage.setItem('siastream-api-key', key);
+      localStorage.setItem('sluby-api-key', key);
     } else {
-      localStorage.removeItem('siastream-api-key');
+      localStorage.removeItem('sluby-api-key');
     }
   };
 

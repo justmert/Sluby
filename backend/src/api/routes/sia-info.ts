@@ -116,7 +116,7 @@ interface SiaInfoResponse {
   indexer: {
     url: string;
     network: 'zen' | 'mainnet';
-    /** Wallet address the renterd backing this deployment spends from.
+    /** Wallet address the indexd backing this deployment spends from.
      *  All contract formations and renewals show up on Siascan for
      *  this address. */
     walletAddress: string | null;
@@ -346,10 +346,10 @@ function extractDataObjectId(playlistContent: string): string | null {
 async function buildSiaInfo(
   asset: SiaInfoAssetRecord,
 ): Promise<SiaInfoResponse> {
-  // The "indexer URL" is an opaque identifier for the Sia network this
-  // deployment is talking to. With the renterd backend we don't have a
-  // single public indexer URL, so we label by network only.
-  const indexerUrl = env.RENTERD_API_URL;
+  // The "indexer URL" is the indexd application API the SDK signs
+  // requests against. Surfaced in the UI so reviewers can see the
+  // exact endpoint backing the deployment.
+  const indexerUrl = env.SIA_INDEXER_URL;
   const network = detectNetwork(env.SIA_NETWORK);
 
   const allHosts = new Set<string>();

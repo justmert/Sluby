@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @siastream/sdk - Type definitions
+// @sluby/sdk - Type definitions
 // ---------------------------------------------------------------------------
 
 /** Processing status of a video asset. */
@@ -128,10 +128,10 @@ export interface PaginatedResponse<T> {
 }
 
 /** SDK client configuration. */
-export interface SiaStreamConfig {
+export interface SlubyConfig {
   /** API key (Bearer token). */
   apiKey: string;
-  /** Base URL of the SiaStream API (e.g. "https://api.siastream.io"). */
+  /** Base URL of the Sluby API (e.g. "https://api.sluby.app"). */
   baseUrl: string;
 }
 

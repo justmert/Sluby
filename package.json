@@ -1,5 +1,5 @@
 {
-  "name": "sia-stream",
+  "name": "sluby",
   "version": "0.1.0",
   "private": true,
   "workspaces": [
@@ -12,10 +12,10 @@
     "dev": "npm run dev --workspace=backend",
     "build": "npm run build --workspaces",
     "build:backend": "npm run build --workspace=backend",
-    "build:sdk": "npm run build --workspace=@siastream/sdk",
-    "build:react": "npm run build --workspace=@siastream/react",
-    "dev:frontend": "npm run dev --workspace=siastream-frontend",
-    "build:frontend": "npm run build --workspace=siastream-frontend",
+    "build:sdk": "npm run build --workspace=@sluby/sdk",
+    "build:react": "npm run build --workspace=@sluby/react",
+    "dev:frontend": "npm run dev --workspace=sluby-frontend",
+    "build:frontend": "npm run build --workspace=sluby-frontend",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -31,5 +31,9 @@
     "prettier": "^3.8.1",
     "typescript-eslint": "^8.56.0"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "overrides": {
+    "esbuild": "0.27.3",
+    "@esbuild/darwin-arm64": "0.27.3"
+  }
 }

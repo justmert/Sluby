@@ -6,7 +6,7 @@ export interface QualityLevel {
   name: string;
 }
 
-export interface SiaStreamPlayerProps {
+export interface SlubyPlayerProps {
   src: string;
   poster?: string;
   autoPlay?: boolean;

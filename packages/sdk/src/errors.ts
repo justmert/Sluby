@@ -1,14 +1,14 @@
 // ---------------------------------------------------------------------------
-// @siastream/sdk - Custom error classes
+// @sluby/sdk - Custom error classes
 // ---------------------------------------------------------------------------
 
 /**
- * Base error class for all SiaStream SDK errors.
+ * Base error class for all Sluby SDK errors.
  *
  * Carries an HTTP status code when the error originates from an API response
  * and preserves the original response body for debugging.
  */
-export class SiaStreamError extends Error {
+export class SlubyError extends Error {
   /** HTTP status code returned by the API, or `0` for client-side errors. */
   readonly statusCode: number;
 
@@ -17,7 +17,7 @@ export class SiaStreamError extends Error {
 
   constructor(message: string, statusCode: number = 0, responseBody?: string) {
     super(message);
-    this.name = 'SiaStreamError';
+    this.name = 'SlubyError';
     this.statusCode = statusCode;
     this.responseBody = responseBody;
 
@@ -29,7 +29,7 @@ export class SiaStreamError extends Error {
 /**
  * Thrown when the API returns a 401 Unauthorized or 403 Forbidden response.
  */
-export class AuthenticationError extends SiaStreamError {
+export class AuthenticationError extends SlubyError {
   constructor(message: string, statusCode: number, responseBody?: string) {
     super(message, statusCode, responseBody);
     this.name = 'AuthenticationError';
@@ -39,7 +39,7 @@ export class AuthenticationError extends SiaStreamError {
 /**
  * Thrown when the API returns a 404 Not Found response.
  */
-export class NotFoundError extends SiaStreamError {
+export class NotFoundError extends SlubyError {
   constructor(message: string, responseBody?: string) {
     super(message, 404, responseBody);
     this.name = 'NotFoundError';
@@ -49,7 +49,7 @@ export class NotFoundError extends SiaStreamError {
 /**
  * Thrown when the API returns a 429 Too Many Requests response.
  */
-export class RateLimitError extends SiaStreamError {
+export class RateLimitError extends SlubyError {
   /** Seconds until the client should retry (from Retry-After header). */
   readonly retryAfter?: number;
 
@@ -63,7 +63,7 @@ export class RateLimitError extends SiaStreamError {
 /**
  * Thrown when an operation exceeds its timeout.
  */
-export class TimeoutError extends SiaStreamError {
+export class TimeoutError extends SlubyError {
   constructor(message: string) {
     super(message, 0);
     this.name = 'TimeoutError';

@@ -3,7 +3,7 @@
  * address in localStorage. Mirrors the pattern used in api-key-store.ts.
  */
 
-const STORAGE_KEY = 'siastream-creator-address';
+const STORAGE_KEY = 'sluby-creator-address';
 
 export function getStoredCreatorAddress(): string | null {
   if (typeof localStorage === 'undefined') return null;

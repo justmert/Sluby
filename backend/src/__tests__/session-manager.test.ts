@@ -69,10 +69,10 @@ describe('SessionManager', () => {
         apiKeyId: 'key-1',
         fileSize: 1000,
         metadata: {},
-        uploadBaseUrl: 'https://api.siastream.io',
+        uploadBaseUrl: 'https://api.sluby.app',
       });
 
-      expect(result.uploadUrl).toMatch(/^https:\/\/api\.siastream\.io\/api\/v1\/uploads\//);
+      expect(result.uploadUrl).toMatch(/^https:\/\/api\.sluby\.app\/api\/v1\/uploads\//);
     });
 
     it('should call insertSession with correct data', async () => {

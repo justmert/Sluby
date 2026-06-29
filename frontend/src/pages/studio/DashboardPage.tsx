@@ -182,7 +182,7 @@ export default function DashboardPage() {
             </div>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-[#f0f0f0] font-heading">
-                SiaStream
+                Sluby
               </h1>
               <p className="text-sm text-zinc-400">
                 Decentralized video infrastructure on Sia

@@ -105,7 +105,7 @@ async function fetchGithubUser(accessToken: string): Promise<GithubUser> {
     headers: {
       'Accept': 'application/vnd.github+json',
       'Authorization': `Bearer ${accessToken}`,
-      'User-Agent': 'siastream',
+      'User-Agent': 'sluby',
     },
   });
   if (!res.ok) {
@@ -144,7 +144,7 @@ export function createAuthRoutes(): Router {
     const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/studio';
 
     const nextCookie = [
-      `siastream_login_next=${encodeURIComponent(safeNext)}`,
+      `sluby_login_next=${encodeURIComponent(safeNext)}`,
       'Path=/',
       'HttpOnly',
       'SameSite=Lax',
@@ -211,7 +211,7 @@ export function createAuthRoutes(): Router {
       ];
 
       const cookies = parseCookieHeader(req.headers.cookie);
-      const next = cookies['siastream_login_next'];
+      const next = cookies['sluby_login_next'];
       const redirectTo =
         next && next.startsWith('/') && !next.startsWith('//')
           ? next
@@ -219,7 +219,7 @@ export function createAuthRoutes(): Router {
 
       // Clear the one-shot next cookie.
       const clearNext = [
-        'siastream_login_next=',
+        'sluby_login_next=',
         'Path=/',
         'HttpOnly',
         'SameSite=Lax',

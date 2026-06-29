@@ -19,7 +19,7 @@ function getSystemTheme(): 'light' | 'dark' {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window === 'undefined') return 'dark';
-    return (localStorage.getItem('siastream-theme') as Theme) || 'dark';
+    return (localStorage.getItem('sluby-theme') as Theme) || 'dark';
   });
 
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
@@ -29,7 +29,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);
-    localStorage.setItem('siastream-theme', newTheme);
+    localStorage.setItem('sluby-theme', newTheme);
   };
 
   useEffect(() => {

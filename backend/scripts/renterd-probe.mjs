@@ -10,7 +10,7 @@ import {
 } from '../dist/storage/sia-client.js';
 
 const payload = new TextEncoder().encode(
-  'SiaStream renterd round-trip ' + Date.now(),
+  'Sluby renterd round-trip ' + Date.now(),
 );
 console.log('upload size:', payload.length);
 const { objectId, size } = await uploadAndPin(payload);

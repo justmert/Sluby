@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import {
-  Sun, Moon, Monitor, Key, Globe, Database,
-  Copy, Check, ExternalLink, Eye, EyeOff,
+  Sun, Moon, Monitor, Key, Globe,
+  Check, ExternalLink, Eye, EyeOff,
   CheckCircle2, XCircle,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { SIA_RENTERD_URL } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -134,47 +133,6 @@ function ApiConfigSection() {
 }
 
 // ---------------------------------------------------------------------------
-// Network Configuration Section
-// ---------------------------------------------------------------------------
-
-function NetworkConfigSection() {
-  const [copiedField, setCopiedField] = useState<string | null>(null);
-
-  const handleCopy = async (value: string, field: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
-  };
-
-  const networkInfo = [
-    { label: 'Sia Renterd URL', value: SIA_RENTERD_URL },
-  ];
-
-  return (
-    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
-      <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-1">Network Configuration</h3>
-      <p className="text-sm text-zinc-400 mb-4">Sia network settings</p>
-      <div className="space-y-3">
-        {networkInfo.map(({ label, value }) => (
-          <div key={label}>
-            <label className="text-xs text-zinc-400 font-medium mb-1.5 block">{label}</label>
-            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/[0.08] bg-white/[0.03]">
-              <code className="flex-1 text-xs font-mono text-zinc-300 truncate">{value}</code>
-              <button
-                onClick={() => handleCopy(value, label)}
-                className="shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors"
-              >
-                {copiedField === label ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // About Section
 // ---------------------------------------------------------------------------
 
@@ -193,7 +151,7 @@ function AboutSection() {
         </div>
         <div className="flex items-center gap-3 pt-2">
           <a
-            href="https://github.com/siastream/sia-stream"
+            href="https://github.com/justmert/sluby"
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-teal-400 hover:text-teal-300 flex items-center gap-1 transition-colors"
@@ -201,7 +159,7 @@ function AboutSection() {
             GitHub <ExternalLink className="w-3 h-3" />
           </a>
           <a
-            href="https://docs.siastream.com"
+            href="https://docs.sluby.app"
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-teal-400 hover:text-teal-300 flex items-center gap-1 transition-colors"
@@ -224,13 +182,12 @@ export default function SettingsPage() {
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-[#f0f0f0] font-heading mb-1">Settings</h1>
-          <p className="text-sm text-zinc-400">Configure appearance, API, and network settings</p>
+          <p className="text-sm text-zinc-400">Configure appearance and API access</p>
         </div>
 
         <div className="space-y-6">
           <AppearanceSection />
           <ApiConfigSection />
-          <NetworkConfigSection />
           <AboutSection />
         </div>
       </motion.div>

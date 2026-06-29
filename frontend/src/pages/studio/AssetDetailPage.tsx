@@ -801,7 +801,7 @@ function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
             collateral to store the data until expiry. Click any contract or
             host ID below to independently verify it on {EXPLORER_LABEL}.
             Tiny sub-slab objects (manifests, playlists) may briefly sit in
-            renterd's packing buffer before the next flush.
+            the indexer's packing buffer before the next flush.
           </p>
 
           {totals.allContracts.length > 0 && (
@@ -1011,16 +1011,16 @@ function EmbedCodeGenerator({ assetId, playbackUrl }: { assetId: string; playbac
   controls
 ></video>`;
 
-  const reactCode = `<SiaStreamPlayer
+  const reactCode = `<SlubyPlayer
   src="${hlsUrl}"
   assetId="${assetId}"
   autoPlay={false}
   controls
 />`;
 
-  const sdkCode = `import { SiaStreamClient } from '@siastream/sdk';
+  const sdkCode = `import { SlubyClient } from '@sluby/sdk';
 
-const client = new SiaStreamClient({
+const client = new SlubyClient({
   apiKey: 'YOUR_API_KEY',
   baseUrl: '${BASE_URL}',
 });

@@ -1,7 +1,7 @@
 services:
   backend:
     build: ./backend
-    container_name: siastream-backend
+    container_name: sluby-backend
     ports:
       - "4500:3000"
     depends_on:
@@ -10,7 +10,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql://siastream:siastream@postgres:5432/siastream
+      - DATABASE_URL=postgresql://sluby:sluby@postgres:5432/sluby
       - REDIS_URL=redis://redis:6379
       - SIA_INDEXER_URL=${SIA_INDEXER_URL:-http://localhost:9980}
       - SIA_APP_ID=${SIA_APP_ID}
@@ -30,16 +30,16 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: siastream-postgres
+    container_name: sluby-postgres
     environment:
-      POSTGRES_USER: siastream
-      POSTGRES_PASSWORD: siastream
-      POSTGRES_DB: siastream
+      POSTGRES_USER: sluby
+      POSTGRES_PASSWORD: sluby
+      POSTGRES_DB: sluby
     volumes:
       - pgdata:/var/lib/postgresql/data
     # No host port exposure — only accessible within Docker network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U siastream -d siastream"]
+      test: ["CMD-SHELL", "pg_isready -U sluby -d sluby"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -47,7 +47,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: siastream-redis
+    container_name: sluby-redis
     volumes:
       - redis-data:/data
     # No host port exposure — only accessible within Docker network

@@ -83,27 +83,27 @@ function parseMetrics(data: PromMetricsResponse): ParsedMetrics {
 
   // Cache hit ratio is a gauge 0-1; derive hit/miss counts from cache stats endpoint.
   // Here we expose the ratio itself so the UI can display it directly.
-  const cacheHitRatio = getMetricValue(metrics, 'siastream_cache_hit_ratio');
+  const cacheHitRatio = getMetricValue(metrics, 'sluby_cache_hit_ratio');
 
-  const uploadSuccess = sumMetricValues(metrics, 'siastream_upload_success_total');
-  const uploadFailure = sumMetricValues(metrics, 'siastream_upload_failure_total');
+  const uploadSuccess = sumMetricValues(metrics, 'sluby_upload_success_total');
+  const uploadFailure = sumMetricValues(metrics, 'sluby_upload_failure_total');
 
   return {
     timestamp,
     uptime,
     totalAssets: uploadSuccess, // best available proxy from prom metrics
     totalUploads: uploadSuccess,
-    activeStreams: sumMetricValues(metrics, 'siastream_playback_initiation_total'),
-    storageBytes: sumMetricValues(metrics, 'siastream_upload_bytes_total'),
+    activeStreams: sumMetricValues(metrics, 'sluby_playback_initiation_total'),
+    storageBytes: sumMetricValues(metrics, 'sluby_upload_bytes_total'),
     cacheHits: cacheHitRatio * 100, // store as percentage for display convenience
     cacheMisses: (1 - cacheHitRatio) * 100,
     cacheSize: 0, // not available as prom metric; sourced from /v1/cache/stats instead
-    requestsTotal: sumMetricValues(metrics, 'siastream_segment_requests_total'),
+    requestsTotal: sumMetricValues(metrics, 'sluby_segment_requests_total'),
     errorsTotal: uploadFailure,
     avgResponseMs:
-      getMetricValue(metrics, 'siastream_sia_upload_duration_seconds') * 1000 +
-      getMetricValue(metrics, 'siastream_metadata_duration_seconds') * 1000,
-    bandwidthBytes: sumMetricValues(metrics, 'siastream_bandwidth_bytes_total'),
+      getMetricValue(metrics, 'sluby_sia_upload_duration_seconds') * 1000 +
+      getMetricValue(metrics, 'sluby_metadata_duration_seconds') * 1000,
+    bandwidthBytes: sumMetricValues(metrics, 'sluby_bandwidth_bytes_total'),
     raw: metrics.map((m) => ({
       name: m.name,
       help: m.help,

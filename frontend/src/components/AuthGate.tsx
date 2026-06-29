@@ -63,7 +63,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       <div className="flex flex-col items-center gap-8 w-full max-w-sm px-6 text-center">
         <div className="flex flex-col items-center gap-2">
           <h1 className="text-3xl font-semibold text-zinc-100 font-heading">
-            SiaStream
+            Sluby
           </h1>
           <p className="text-sm text-zinc-500">
             Decentralized video streaming on Sia

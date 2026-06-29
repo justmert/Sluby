@@ -67,8 +67,8 @@ export class WebhookDispatcher {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-SiaStream-Signature': signature,
-          'X-SiaStream-Event': event,
+          'X-Sluby-Signature': signature,
+          'X-Sluby-Event': event,
         },
         body: payloadStr,
         signal: controller.signal,

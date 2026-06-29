@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SiaStreamClient } from './client.js';
+import { SlubyClient } from './client.js';
 import {
   AuthenticationError,
   NotFoundError,
   RateLimitError,
-  SiaStreamError,
+  SlubyError,
 } from './errors.js';
 
 // ---------------------------------------------------------------------------
@@ -39,23 +39,23 @@ function getStatusText(status: number): string {
 // Tests: Constructor
 // ---------------------------------------------------------------------------
 
-describe('SiaStreamClient constructor', () => {
+describe('SlubyClient constructor', () => {
   it('should throw if apiKey is empty', () => {
-    expect(() => new SiaStreamClient({ apiKey: '', baseUrl: 'https://api.example.com' }))
-      .toThrow('SiaStreamClient requires a non-empty apiKey.');
+    expect(() => new SlubyClient({ apiKey: '', baseUrl: 'https://api.example.com' }))
+      .toThrow('SlubyClient requires a non-empty apiKey.');
   });
 
   it('should throw if baseUrl is empty', () => {
-    expect(() => new SiaStreamClient({ apiKey: 'wss_test', baseUrl: '' }))
-      .toThrow('SiaStreamClient requires a non-empty baseUrl.');
+    expect(() => new SlubyClient({ apiKey: 'sluby_test', baseUrl: '' }))
+      .toThrow('SlubyClient requires a non-empty baseUrl.');
   });
 
   it('should create an instance with valid config', () => {
-    const client = new SiaStreamClient({
-      apiKey: 'wss_test',
+    const client = new SlubyClient({
+      apiKey: 'sluby_test',
       baseUrl: 'https://api.example.com',
     });
-    expect(client).toBeInstanceOf(SiaStreamClient);
+    expect(client).toBeInstanceOf(SlubyClient);
     expect(client.uploads).toBeDefined();
     expect(client.assets).toBeDefined();
     expect(client.playback).toBeDefined();
@@ -66,8 +66,8 @@ describe('SiaStreamClient constructor', () => {
     const mockFetch = vi.fn().mockResolvedValueOnce(makeResponse(200, { data: [], total: 0, page: 1, limit: 20 }));
     vi.stubGlobal('fetch', mockFetch);
 
-    const client = new SiaStreamClient({
-      apiKey: 'wss_test',
+    const client = new SlubyClient({
+      apiKey: 'sluby_test',
       baseUrl: 'https://api.example.com/',
     });
 
@@ -84,8 +84,8 @@ describe('SiaStreamClient constructor', () => {
     const mockFetch = vi.fn().mockResolvedValueOnce(makeResponse(200, { data: [], total: 0, page: 1, limit: 20 }));
     vi.stubGlobal('fetch', mockFetch);
 
-    const client = new SiaStreamClient({
-      apiKey: 'wss_test',
+    const client = new SlubyClient({
+      apiKey: 'sluby_test',
       baseUrl: 'https://api.example.com///',
     });
 
@@ -103,16 +103,16 @@ describe('SiaStreamClient constructor', () => {
 // Tests: _fetch (via sub-managers)
 // ---------------------------------------------------------------------------
 
-describe('SiaStreamClient._fetch', () => {
+describe('SlubyClient._fetch', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
-  let client: SiaStreamClient;
+  let client: SlubyClient;
 
   beforeEach(() => {
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    client = new SiaStreamClient({
-      apiKey: 'wss_test_key',
-      baseUrl: 'https://api.siastream.io',
+    client = new SlubyClient({
+      apiKey: 'sluby_test_key',
+      baseUrl: 'https://api.sluby.app',
     });
   });
 
@@ -123,7 +123,7 @@ describe('SiaStreamClient._fetch', () => {
 
     const [, init] = fetchMock.mock.calls[0];
     const headers = init.headers as Headers;
-    expect(headers.get('Authorization')).toBe('Bearer wss_test_key');
+    expect(headers.get('Authorization')).toBe('Bearer sluby_test_key');
   });
 
   it('should set Accept: application/json by default', async () => {
@@ -158,7 +158,7 @@ describe('SiaStreamClient._fetch', () => {
     await client.assets.get('abc');
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.siastream.io/api/v1/assets/abc',
+      'https://api.sluby.app/api/v1/assets/abc',
       expect.any(Object),
     );
   });
@@ -217,7 +217,7 @@ describe('SiaStreamClient._fetch', () => {
     }
   });
 
-  it('should throw SiaStreamError on 500', async () => {
+  it('should throw SlubyError on 500', async () => {
     fetchMock.mockResolvedValueOnce(
       makeResponse(500, { error: 'Internal server error' }),
     );
@@ -226,8 +226,8 @@ describe('SiaStreamClient._fetch', () => {
       await client.assets.get('x');
       expect.unreachable('Should have thrown');
     } catch (e) {
-      expect(e).toBeInstanceOf(SiaStreamError);
-      expect((e as SiaStreamError).statusCode).toBe(500);
+      expect(e).toBeInstanceOf(SlubyError);
+      expect((e as SlubyError).statusCode).toBe(500);
     }
   });
 

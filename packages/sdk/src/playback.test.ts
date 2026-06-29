@@ -29,8 +29,8 @@ describe('PlaybackManager.getUrl()', () => {
   it('should GET /api/v1/playback/:id and map snake_case response', async () => {
     mockFetch.mockResolvedValueOnce(
       makeJsonResponse({
-        playback_url: 'https://cdn.siastream.io/v/abc/master.m3u8',
-        poster_url: 'https://cdn.siastream.io/v/abc/poster.jpg',
+        playback_url: 'https://cdn.sluby.app/v/abc/master.m3u8',
+        poster_url: 'https://cdn.sluby.app/v/abc/poster.jpg',
         duration_ms: 60000,
         resolution: '1280x720',
         access_tier: 'public',
@@ -42,8 +42,8 @@ describe('PlaybackManager.getUrl()', () => {
 
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/abc');
     expect(result).toEqual({
-      playbackUrl: 'https://cdn.siastream.io/v/abc/master.m3u8',
-      posterUrl: 'https://cdn.siastream.io/v/abc/poster.jpg',
+      playbackUrl: 'https://cdn.sluby.app/v/abc/master.m3u8',
+      posterUrl: 'https://cdn.sluby.app/v/abc/poster.jpg',
       durationMs: 60000,
       resolution: '1280x720',
       accessTier: 'public',
@@ -76,7 +76,7 @@ describe('PlaybackManager.getSignedUrl()', () => {
   it('should GET /api/v1/playback/:id/signed without params when no options', async () => {
     mockFetch.mockResolvedValueOnce(
       makeJsonResponse({
-        signed_url: 'https://cdn.siastream.io/v/abc/master.m3u8?token=xyz',
+        signed_url: 'https://cdn.sluby.app/v/abc/master.m3u8?token=xyz',
         expires_at: '2025-06-01T00:00:00Z',
       }),
     );
@@ -86,7 +86,7 @@ describe('PlaybackManager.getSignedUrl()', () => {
 
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/abc/signed');
     expect(result).toEqual({
-      signedUrl: 'https://cdn.siastream.io/v/abc/master.m3u8?token=xyz',
+      signedUrl: 'https://cdn.sluby.app/v/abc/master.m3u8?token=xyz',
       expiresAt: '2025-06-01T00:00:00Z',
     });
   });
@@ -94,7 +94,7 @@ describe('PlaybackManager.getSignedUrl()', () => {
   it('should include expires_in query param when provided', async () => {
     mockFetch.mockResolvedValueOnce(
       makeJsonResponse({
-        signed_url: 'https://cdn.siastream.io/v/abc/master.m3u8?token=xyz',
+        signed_url: 'https://cdn.sluby.app/v/abc/master.m3u8?token=xyz',
         expires_at: '2025-06-01T01:00:00Z',
       }),
     );

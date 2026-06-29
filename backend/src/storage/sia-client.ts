@@ -1,48 +1,117 @@
 /**
- * Sia storage client — talks directly to a `renterd` HTTP API.
+ * Sia storage client — talks to an `indexd` instance via the official
+ * `sia-storage` SDK (NAPI bindings around `sia-sdk-rs`).
  *
  * Why this shape:
- *   - `renterd` is the official Sia renter daemon. It is a Go binary
- *     that runs natively on every OS the Go toolchain targets. It
- *     handles contract management, slab formation, erasure coding,
- *     encryption and host selection internally.
- *   - Its HTTP API is documented at https://api.sia.tech/renterd and
- *     is the same API `renterd`'s own Web UI speaks.
- *   - Two endpoints we care about:
- *       `PUT /api/worker/object/<key>?bucket=<b>`     — upload bytes
- *       `GET /api/worker/object/<key>?bucket=<b>`     — download bytes (Range OK)
- *       `HEAD /api/worker/object/<key>?bucket=<b>`    — size / etag
- *       `DELETE /api/bus/object/<key>?bucket=<b>`     — delete
- *       `GET /api/bus/object/<key>?bucket=<b>`        — slab / shard metadata
+ *   - `indexd` is the Sia Foundation's indexer daemon. It manages
+ *     contracts, accounts, and erasure-coded slabs across hosts.
+ *   - `sia-storage` is the official SDK (npm `sia-storage`). It signs
+ *     all requests with an AppKey, talks to indexd's app API, and
+ *     uploads shards directly to hosts via siamux/QUIC.
  *
- * Authentication is HTTP Basic with an empty username and the
- * `RENTERD_API_PASSWORD` env var as the password.
+ *   - Onboarding flow (run once per indexd instance):
+ *       1. mint a connect key:   POST /api/apps/connect/keys (admin)
+ *       2. open Builder.requestConnection() in the SDK
+ *       3. approve via POST <responseUrl> with the connect key
+ *       4. Builder.register(phrase) returns the SDK; export AppKey
+ *       5. set SIA_APP_ID + SIA_APP_KEY in .env so the backend can
+ *          re-attach via Builder.connected(appKey) at startup.
  *
- * Object ids in this codebase have always been opaque hex strings.
- * We generate each id as a random 32-byte hex (64 chars) so the shape
- * of `video_assets.manifest_object_id` and friends is unchanged — the
- * database column, JSON API, and frontend code all keep working
- * without migration.
+ *   - Object IDs are returned by the SDK (32-byte hex strings).
+ *     `video_assets.manifest_object_id` and friends store whatever
+ *     the SDK gives us — no DB migration needed since the shape is
+ *     unchanged from the previous renterd path.
+ *
+ *   - Per-sector contract IDs are not exposed by the SDK (it returns
+ *     {root, hostKey} per sector). We pull the {host → contractIDs}
+ *     map from indexd's admin API once and cache it in-process.
  */
 
-import crypto from 'node:crypto';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
+import {
+  initSia,
+  AppKey,
+  Builder,
+  setLogger,
+} from 'sia-storage';
+
+// sia-storage 0.0.8 has a packaging quirk: its `exports` map puts the
+// `types` key at the root of the conditional fork instead of inside the
+// "node" branch, so TypeScript reads the WASM-shaped declarations even
+// though Node loads the NAPI binary. The runtime contract is the one
+// in `dist/index.node.d.ts`. We declare the subset we use locally.
+type Buf = Buffer;
+interface NapiAppMetadata {
+  id: Buf;
+  name: string;
+  description: string;
+  serviceUrl: string;
+  logoUrl?: string;
+  callbackUrl?: string;
+}
+interface NapiPinnedSector {
+  root: string;
+  hostKey: string;
+}
+interface NapiSlab {
+  encryptionKey: Buf;
+  minShards: number;
+  sectors: NapiPinnedSector[];
+  offset: number;
+  length: number;
+}
+interface NapiPinnedObject {
+  id(): string;
+  size(): bigint;
+  slabs(): NapiSlab[];
+  createdAt(): Date;
+  updatedAt(): Date;
+}
+interface NapiPackedUpload {
+  add(stream: ReadableStream<Uint8Array>): Promise<bigint>;
+  finalize(): Promise<NapiPinnedObject[]>;
+}
+interface NapiUploadOptions {
+  dataShards?: number;
+  parityShards?: number;
+}
+interface NapiDownloadOptions {
+  offset?: bigint;
+  length?: bigint;
+}
+interface NapiAccount {
+  accountKey: string;
+  ready: boolean;
+  remainingStorage: bigint;
+}
+interface NapiSdk {
+  uploadPacked(options?: NapiUploadOptions): NapiPackedUpload;
+  pinObject(object: NapiPinnedObject): Promise<void>;
+  object(key: string): Promise<NapiPinnedObject>;
+  download(object: NapiPinnedObject, options?: NapiDownloadOptions): ReadableStream<Uint8Array>;
+  deleteObject(key: string): Promise<void>;
+  pruneSlabs(): Promise<void>;
+  account(): Promise<NapiAccount>;
+}
+interface NapiBuilder {
+  connected(appKey: NapiAppKey): Promise<NapiSdk | null>;
+}
+interface NapiAppKey {
+  publicKey(): string;
+  export(): Buf;
+}
+
+// Casts here, not at every call site downstream. Constructors come from
+// the package; we just retype the surface to the NAPI shape.
+const NapiAppKeyCtor = AppKey as unknown as new (key: Buf) => NapiAppKey;
+const NapiBuilderCtor = Builder as unknown as new (
+  indexerUrl: string,
+  appMeta: NapiAppMetadata,
+) => NapiBuilder;
 
 // ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
-
-/** Renterd HTTP base URL, e.g. http://127.0.0.1:9880 (no trailing slash). */
-const BASE_URL = env.RENTERD_API_URL.replace(/\/$/, '');
-/** Bucket all SiaStream objects live in. Created on demand at startup. */
-const BUCKET = env.RENTERD_BUCKET;
-/** Base64(":password") for the HTTP Basic header. */
-const AUTH_HEADER =
-  'Basic ' + Buffer.from(':' + env.RENTERD_API_PASSWORD).toString('base64');
-
-// ---------------------------------------------------------------------------
-// Public types (kept identical to the previous SDK shape so the rest of
+// Public types (kept identical to the previous shape so the rest of
 // the codebase — uploader, aggregator, sia-info — compiles unchanged).
 // ---------------------------------------------------------------------------
 
@@ -53,9 +122,7 @@ export interface UploadResult {
 
 /**
  * A lightweight "PinnedObject" stand-in. Upstream callers only use
- * `.id()`, `.size()`, `.slabs()`, `.createdAt()`, `.updatedAt()`. The
- * richer sia-storage type isn't needed now that we drive renterd
- * directly.
+ * `.id()`, `.size()`, `.slabs()`, `.createdAt()`, `.updatedAt()`.
  */
 export interface PinnedObject {
   id(): string;
@@ -71,190 +138,233 @@ export interface RawSlab {
   sectors: Array<{
     root: string;
     hostKey: string;
-    /** Sia file-contract id that commits this host to storing this
-     *  sector. Empty string if renterd didn't return one (shouldn't
-     *  happen for healthy shards). */
+    /** Sia file-contract id committing this host to storing the sector.
+     *  Pulled from the indexd contracts list and joined on hostKey;
+     *  empty string when no active contract is on file for the host. */
     contractId: string;
   }>;
 }
 
 // ---------------------------------------------------------------------------
-// Internals
+// SDK init (singleton)
 // ---------------------------------------------------------------------------
 
-function newObjectId(): string {
-  return crypto.randomBytes(32).toString('hex');
-}
+const APP_META = {
+  // 32-byte unique app identifier. Same value across restarts so indexd
+  // associates uploads with the same registered application row.
+  id: Buffer.from(env.SIA_APP_ID, 'hex'),
+  name: 'Sluby',
+  description: 'Decentralised video streaming on the Sia network',
+  serviceUrl: env.PUBLIC_URL,
+};
 
-/** URL-encode an object key while leaving slashes intact (renterd allows them). */
-function encKey(key: string): string {
-  return key
-    .split('/')
-    .map((s) => encodeURIComponent(s))
-    .join('/');
-}
+let sdkPromise: Promise<NapiSdk> | null = null;
 
-function qs(params: Record<string, string | number | undefined>): string {
-  const out = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined) out.append(k, String(v));
-  }
-  const s = out.toString();
-  return s ? `?${s}` : '';
-}
-
-async function renterdFetch(
-  path: string,
-  init: RequestInit = {},
-): Promise<Response> {
-  const headers = new Headers(init.headers ?? {});
-  headers.set('Authorization', AUTH_HEADER);
-  const res = await fetch(`${BASE_URL}${path}`, { ...init, headers });
-  return res;
-}
-
-async function renterdJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await renterdFetch(path, init);
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(
-      `renterd ${init?.method ?? 'GET'} ${path} → ${res.status}: ${body.slice(0, 200)}`,
-    );
-  }
-  return (await res.json()) as T;
-}
-
-// ---------------------------------------------------------------------------
-// renterd response shapes (documented at api.sia.tech/renterd)
-// ---------------------------------------------------------------------------
-
-interface BusObjectResponse {
-  bucket: string;
-  key: string;
-  size: number;
-  eTag?: string;
-  modTime: string;
-  mimeType?: string;
-  encryptionKey?: string;
-  slabs?: Array<{
-    slab: {
-      health: number;
-      encryptionKey: string;
-      minShards: number;
-      shards?: Array<{
-        root: string;
-        contracts?: Record<string, string[]>;
-      }>;
-    };
-    offset: number;
-    length: number;
-  }>;
-}
-
-// ---------------------------------------------------------------------------
-// Client init / readiness
-// ---------------------------------------------------------------------------
-
-let ensureReadyPromise: Promise<void> | null = null;
-
-export function getClient(): Promise<void> {
-  if (!ensureReadyPromise) {
-    ensureReadyPromise = (async () => {
+/** Initialises sia-storage + connects to indexd. Idempotent. */
+export function getClient(): Promise<NapiSdk> {
+  if (!sdkPromise) {
+    sdkPromise = (async () => {
       logger.info(
-        { url: BASE_URL, bucket: BUCKET },
-        'Connecting to renterd',
+        { indexer: env.SIA_INDEXER_URL },
+        'Connecting to indexd via sia-storage SDK',
       );
+      await initSia();
+      // Forward SDK debug logs into pino at the matching level so
+      // upload/download progress shows up in the same stream as the
+      // rest of the backend.
+      setLogger((msg) => logger.debug({ src: 'sia-storage' }, msg), 'debug');
 
-      // Probe the API.
-      const state = await renterdJson<{ network: string; version: string }>(
-        '/api/bus/state',
-      );
-      logger.info(
-        { network: state.network, version: state.version },
-        'renterd reachable',
-      );
-
-      // Ensure our bucket exists. renterd 409s when it already does;
-      // swallow that.
-      const res = await renterdFetch('/api/bus/buckets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: BUCKET }),
-      });
-      if (!res.ok && res.status !== 409) {
-        const body = await res.text().catch(() => '');
+      const appKey = new NapiAppKeyCtor(Buffer.from(env.SIA_APP_KEY, 'hex'));
+      const builder = new NapiBuilderCtor(env.SIA_INDEXER_URL, APP_META);
+      const sdk = await builder.connected(appKey);
+      if (!sdk) {
         throw new Error(
-          `Failed to create bucket ${BUCKET}: ${res.status} ${body}`,
+          'sia-storage Builder.connected() returned null — the AppKey is not registered with the configured indexd. ' +
+            'Mint a connect key (POST /api/apps/connect/keys), call Builder.requestConnection(), approve via ' +
+            'POST <responseUrl> with the connect key, then Builder.register(phrase) and persist the resulting AppKey.',
         );
       }
-      logger.info({ bucket: BUCKET }, 'renterd bucket ready');
+
+      const account = await sdk.account();
+      logger.info(
+        {
+          accountKey: account.accountKey,
+          ready: account.ready,
+          remainingStorage: account.remainingStorage.toString(),
+        },
+        'sia-storage SDK ready',
+      );
+      return sdk;
     })().catch((err) => {
-      ensureReadyPromise = null;
+      sdkPromise = null;
       throw err;
     });
   }
-  return ensureReadyPromise;
+  return sdkPromise;
+}
+
+// ---------------------------------------------------------------------------
+// Host → contract index (cached, refreshed lazily)
+// ---------------------------------------------------------------------------
+
+interface HostContractMap {
+  /** map of host pubkey → list of file-contract IDs covering shards on that host. */
+  contracts: Map<string, string[]>;
+  fetchedAt: number;
+}
+
+const HOST_CONTRACT_TTL_MS = 60_000;
+let hostContractCache: HostContractMap | null = null;
+
+const ADMIN_AUTH = `Basic ${Buffer.from(`:${env.SIA_ADMIN_PASSWORD}`).toString('base64')}`;
+
+interface AdminContractResponse {
+  id: string;
+  hostKey: string;
+  state: string;
+  good: boolean;
+}
+
+interface AdminWalletResponse {
+  address: string;
+}
+
+async function refreshHostContracts(): Promise<HostContractMap> {
+  if (
+    hostContractCache &&
+    Date.now() - hostContractCache.fetchedAt < HOST_CONTRACT_TTL_MS
+  ) {
+    return hostContractCache;
+  }
+  try {
+    const url = `${env.SIA_ADMIN_URL.replace(/\/$/, '')}/api/contracts`;
+    const res = await fetch(url, { headers: { Authorization: ADMIN_AUTH } });
+    if (!res.ok) {
+      throw new Error(`indexd admin /api/contracts → ${res.status}`);
+    }
+    const list = (await res.json()) as AdminContractResponse[];
+    const contracts = new Map<string, string[]>();
+    for (const c of list) {
+      if (c.state !== 'active' || !c.good) continue;
+      const arr = contracts.get(c.hostKey);
+      if (arr) arr.push(c.id);
+      else contracts.set(c.hostKey, [c.id]);
+    }
+    hostContractCache = { contracts, fetchedAt: Date.now() };
+    logger.debug(
+      { hosts: contracts.size, contractCount: list.length },
+      'Refreshed indexd host→contract map',
+    );
+    return hostContractCache;
+  } catch (err) {
+    logger.warn({ err }, 'Failed to refresh host→contract map');
+    return hostContractCache ?? { contracts: new Map(), fetchedAt: Date.now() };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Slab/object adapters
+// ---------------------------------------------------------------------------
+
+function adaptSlabs(slabs: NapiSlab[], hostContracts: Map<string, string[]>): RawSlab[] {
+  return slabs.map((slab) => ({
+    minShards: slab.minShards,
+    sectors: slab.sectors.map((sec) => {
+      const contractId = hostContracts.get(sec.hostKey)?.[0] ?? '';
+      return { root: sec.root, hostKey: sec.hostKey, contractId };
+    }),
+  }));
+}
+
+function adaptObject(
+  obj: NapiPinnedObject,
+  hostContracts: Map<string, string[]>,
+): PinnedObject {
+  // Snapshot the SDK fields once — calling them across an async boundary
+  // re-acquires the inner mutex on every call.
+  const id = obj.id();
+  const size = obj.size();
+  const slabs = adaptSlabs(obj.slabs(), hostContracts);
+  const createdAt = obj.createdAt();
+  const updatedAt = obj.updatedAt();
+  return {
+    id: () => id,
+    size: () => size,
+    slabs: () => slabs,
+    createdAt: () => createdAt,
+    updatedAt: () => updatedAt,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Upload
 // ---------------------------------------------------------------------------
 
-/**
- * Upload a Uint8Array to renterd and return an object handle. renterd
- * does the slab formation, encryption and host placement internally.
- */
-export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
-  await getClient();
-
-  const objectId = newObjectId();
-  logger.debug({ size: data.length, objectId }, 'Uploading object to renterd');
-
-  const res = await renterdFetch(
-    `/api/worker/object/${encKey(objectId)}${qs({ bucket: BUCKET })}`,
-    {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: Buffer.from(data),
+function bytesToStream(data: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
     },
-  );
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
+  });
+}
+
+/** Upload a single Uint8Array as one packed object. */
+export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
+  const sdk = await getClient();
+  const packed = sdk.uploadPacked({
+    dataShards: env.SIA_DATA_SHARDS,
+    parityShards: env.SIA_PARITY_SHARDS,
+  });
+  await packed.add(bytesToStream(data));
+  const objects = await packed.finalize();
+  if (objects.length !== 1) {
     throw new Error(
-      `renterd upload failed: ${res.status} ${body.slice(0, 200)}`,
+      `uploadAndPin expected 1 packed object, got ${objects.length}`,
     );
   }
-
-  logger.info({ objectId, size: data.length }, 'Object uploaded to renterd');
+  const obj = objects[0];
+  await sdk.pinObject(obj);
+  const objectId = obj.id();
+  logger.info(
+    { objectId, size: data.length },
+    'Object uploaded + pinned to Sia',
+  );
   return { objectId, size: data.length };
 }
 
 /**
- * Upload N Uint8Arrays. renterd has no "packed batch" primitive — each
- * upload is its own PUT — but renterd packs slabs server-side when the
- * data is small, so the on-disk overhead is essentially the same as
- * the old packed-upload path. We fire them in parallel with a bounded
- * concurrency window.
+ * Upload N Uint8Arrays in a single packed batch. Each item shares slabs
+ * with its neighbours, which is materially cheaper than N independent
+ * uploads when the items are small (e.g. HLS playlist + thumbnails).
  */
 export async function uploadAndPinPacked(
   items: Uint8Array[],
 ): Promise<UploadResult[]> {
   if (items.length === 0) return [];
-  await getClient();
-
-  const concurrency = Math.min(items.length, 4);
-  const results: UploadResult[] = new Array(items.length);
-  let next = 0;
-
-  async function worker() {
-    while (true) {
-      const i = next++;
-      if (i >= items.length) return;
-      results[i] = await uploadAndPin(items[i]);
-    }
+  const sdk = await getClient();
+  const packed = sdk.uploadPacked({
+    dataShards: env.SIA_DATA_SHARDS,
+    parityShards: env.SIA_PARITY_SHARDS,
+  });
+  for (const data of items) {
+    await packed.add(bytesToStream(data));
   }
-  await Promise.all(
-    Array.from({ length: concurrency }, () => worker()),
+  const objects = await packed.finalize();
+  if (objects.length !== items.length) {
+    throw new Error(
+      `uploadAndPinPacked expected ${items.length} objects, got ${objects.length}`,
+    );
+  }
+  // Pin in parallel — each pin is an indexd HTTP call, no host round-trip.
+  await Promise.all(objects.map((obj) => sdk.pinObject(obj)));
+  const results = objects.map((obj, i) => ({
+    objectId: obj.id(),
+    size: items[i].length,
+  }));
+  logger.info(
+    { count: results.length, totalBytes: items.reduce((n, b) => n + b.length, 0) },
+    'Packed batch uploaded + pinned to Sia',
   );
   return results;
 }
@@ -267,71 +377,43 @@ export async function downloadObject(
   objectId: string,
   options?: { offset?: number; length?: number },
 ): Promise<Uint8Array> {
-  await getClient();
-
-  const headers: Record<string, string> = {};
-  if (options?.offset !== undefined || options?.length !== undefined) {
-    const start = options.offset ?? 0;
-    const end =
-      options.length !== undefined ? start + options.length - 1 : '';
-    headers['Range'] = `bytes=${start}-${end}`;
+  const sdk = await getClient();
+  const obj = await sdk.object(objectId);
+  const stream = sdk.download(obj, {
+    offset: options?.offset !== undefined ? BigInt(options.offset) : undefined,
+    length: options?.length !== undefined ? BigInt(options.length) : undefined,
+  });
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.length;
   }
-
-  const res = await renterdFetch(
-    `/api/worker/object/${encKey(objectId)}${qs({ bucket: BUCKET })}`,
-    { method: 'GET', headers },
-  );
-  if (!res.ok && res.status !== 206) {
-    const body = await res.text().catch(() => '');
-    throw new Error(
-      `renterd download failed: ${res.status} ${body.slice(0, 200)}`,
-    );
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
   }
-  const buf = new Uint8Array(await res.arrayBuffer());
   logger.debug(
-    { objectId, size: buf.length, range: headers['Range'] ?? 'full' },
-    'Object downloaded from renterd',
+    { objectId, size: out.length, range: options ? `${options.offset ?? 0}+${options.length ?? '∞'}` : 'full' },
+    'Object downloaded from Sia',
   );
-  return buf;
+  return out;
 }
 
 // ---------------------------------------------------------------------------
 // Metadata / object handle (used by aggregator + sia-info)
 // ---------------------------------------------------------------------------
 
-/**
- * Returns a PinnedObject-shaped handle. Only the fields upstream
- * callers need are populated — `.id()`, `.size()`, `.slabs()`,
- * `.createdAt()`, `.updatedAt()`.
- */
 export async function getObject(objectId: string): Promise<PinnedObject> {
-  await getClient();
-
-  const res = await renterdJson<BusObjectResponse>(
-    `/api/bus/object/${encKey(objectId)}${qs({ bucket: BUCKET })}`,
-  );
-
-  const slabs: RawSlab[] = (res.slabs ?? []).map((ss) => {
-    const sectors = (ss.slab.shards ?? []).map((sh) => {
-      const contracts = sh.contracts ?? {};
-      const hostKey = Object.keys(contracts)[0] ?? '';
-      const contractId = hostKey ? (contracts[hostKey]?.[0] ?? '') : '';
-      return { root: sh.root, hostKey, contractId };
-    });
-    return { minShards: ss.slab.minShards, sectors };
-  });
-
-  const modTime = res.modTime ? new Date(res.modTime) : null;
-  const size = BigInt(res.size);
-  const id = res.key;
-
-  return {
-    id: () => id,
-    size: () => size,
-    slabs: () => slabs,
-    createdAt: () => modTime,
-    updatedAt: () => modTime,
-  };
+  const sdk = await getClient();
+  const obj = await sdk.object(objectId);
+  const { contracts } = await refreshHostContracts();
+  return adaptObject(obj, contracts);
 }
 
 // ---------------------------------------------------------------------------
@@ -339,52 +421,49 @@ export async function getObject(objectId: string): Promise<PinnedObject> {
 // ---------------------------------------------------------------------------
 
 export async function deleteObject(objectId: string): Promise<void> {
-  await getClient();
-  const res = await renterdFetch(
-    `/api/bus/object/${encKey(objectId)}${qs({ bucket: BUCKET })}`,
-    { method: 'DELETE' },
-  );
-  if (!res.ok && res.status !== 404) {
-    const body = await res.text().catch(() => '');
-    throw new Error(
-      `renterd delete failed: ${res.status} ${body.slice(0, 200)}`,
-    );
-  }
-  logger.info({ objectId }, 'Object deleted on renterd');
+  const sdk = await getClient();
+  await sdk.deleteObject(objectId);
+  logger.info({ objectId }, 'Object deleted from indexd');
 }
 
 /**
- * renterd prunes unreferenced slabs automatically via its autopilot
- * loop. Kept as a no-op so the queue processor can still call it.
+ * Unpin slabs that aren't referenced by any object on this account.
+ * indexd's autopilot also runs this in the background, but giving it a
+ * push from the queue worker means freed storage shows up in dashboard
+ * metrics promptly.
  */
 export async function pruneSlabs(): Promise<void> {
-  logger.debug('pruneSlabs is a no-op with renterd (handled by autopilot)');
+  const sdk = await getClient();
+  await sdk.pruneSlabs();
+  logger.debug('pruneSlabs() executed against indexd');
 }
 
 /**
- * Fetch the renterd wallet address. Cached — the seed doesn't change
- * after boot, so one lookup per process lifetime is fine. Returns
- * null if renterd isn't reachable.
+ * Fetch the indexd wallet address. Cached — the seed doesn't change
+ * after boot, so one lookup per process lifetime is fine.
  */
 let walletAddressCache: string | null = null;
 export async function getWalletAddress(): Promise<string | null> {
   if (walletAddressCache) return walletAddressCache;
   try {
-    const res = await renterdJson<{ address: string }>('/api/bus/wallet');
-    walletAddressCache = res.address ?? null;
+    const url = `${env.SIA_ADMIN_URL.replace(/\/$/, '')}/api/wallet`;
+    const res = await fetch(url, { headers: { Authorization: ADMIN_AUTH } });
+    if (!res.ok) {
+      throw new Error(`indexd admin /api/wallet → ${res.status}`);
+    }
+    const body = (await res.json()) as AdminWalletResponse;
+    walletAddressCache = body.address ?? null;
     return walletAddressCache;
   } catch (err) {
-    logger.warn({ err }, 'Failed to fetch renterd wallet address');
+    logger.warn({ err }, 'Failed to fetch indexd wallet address');
     return null;
   }
 }
 
 /**
- * Generate a signed URL that lets a caller fetch this object
- * directly. The previous SDK returned a share URL that talked to a
- * hosted gateway; with renterd we return a URL into our own delivery
- * gateway (the aggregator proxies the actual bytes back out of
- * renterd under our auth).
+ * Build a public URL the browser can use to fetch this object back from
+ * us. The bytes flow through our delivery gateway (which proxies into
+ * the SDK), so callers always hit the same host they already trust.
  */
 export async function shareObject(
   objectId: string,

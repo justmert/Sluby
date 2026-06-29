@@ -30,11 +30,11 @@ describe('UploadManager.create()', () => {
     mockFetch.mockResolvedValueOnce(
       makeJsonResponse({
         video_asset_id: 'vid_123',
-        upload_url: 'https://tus.siastream.io/upload/abc',
+        upload_url: 'https://tus.sluby.app/upload/abc',
       }),
     );
 
-    const manager = new UploadManager(mockFetch, 'wss_key');
+    const manager = new UploadManager(mockFetch, 'sluby_key');
     const result = await manager.create({
       title: 'My Video',
       description: 'A test video',
@@ -55,7 +55,7 @@ describe('UploadManager.create()', () => {
     // Verify snake_case -> camelCase mapping
     expect(result).toEqual({
       videoAssetId: 'vid_123',
-      uploadUrl: 'https://tus.siastream.io/upload/abc',
+      uploadUrl: 'https://tus.sluby.app/upload/abc',
     });
   });
 
@@ -63,11 +63,11 @@ describe('UploadManager.create()', () => {
     mockFetch.mockResolvedValueOnce(
       makeJsonResponse({
         video_asset_id: 'vid_456',
-        upload_url: 'https://tus.siastream.io/upload/def',
+        upload_url: 'https://tus.sluby.app/upload/def',
       }),
     );
 
-    const manager = new UploadManager(mockFetch, 'wss_key');
+    const manager = new UploadManager(mockFetch, 'sluby_key');
     await manager.create({
       title: 'Public Video',
       description: 'Public',
@@ -98,7 +98,7 @@ describe('UploadManager.getStatus()', () => {
       }),
     );
 
-    const manager = new UploadManager(mockFetch, 'wss_key');
+    const manager = new UploadManager(mockFetch, 'sluby_key');
     const result = await manager.getStatus('upload_1');
 
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/upload_1');
@@ -127,7 +127,7 @@ describe('UploadManager.getStatus()', () => {
       }),
     );
 
-    const manager = new UploadManager(mockFetch, 'wss_key');
+    const manager = new UploadManager(mockFetch, 'sluby_key');
     await manager.getStatus('a/b');
 
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/a%2Fb');
@@ -138,7 +138,7 @@ describe('UploadManager.cancel()', () => {
   it('should DELETE /api/v1/uploads/:id', async () => {
     mockFetch.mockResolvedValueOnce(makeJsonResponse({}));
 
-    const manager = new UploadManager(mockFetch, 'wss_key');
+    const manager = new UploadManager(mockFetch, 'sluby_key');
     await manager.cancel('upload_1');
 
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/upload_1', {
@@ -149,7 +149,7 @@ describe('UploadManager.cancel()', () => {
   it('should encode the upload ID', async () => {
     mockFetch.mockResolvedValueOnce(makeJsonResponse({}));
 
-    const manager = new UploadManager(mockFetch, 'wss_key');
+    const manager = new UploadManager(mockFetch, 'sluby_key');
     await manager.cancel('id with spaces');
 
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/id%20with%20spaces', {

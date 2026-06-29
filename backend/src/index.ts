@@ -64,7 +64,7 @@ import { WebhookDispatcher } from './webhooks/dispatcher.js';
 // ──────────────────────────────────────────
 
 export const logger = pino({
-  name: 'siastream',
+  name: 'sluby',
   level: process.env.LOG_LEVEL ?? 'info',
   transport:
     process.env.NODE_ENV !== 'production'
@@ -701,7 +701,7 @@ bootstrapApiKey().catch((err) => {
 const server = app.listen(env.PORT, env.HOST, () => {
   logger.info(
     { host: env.HOST, port: env.PORT },
-    'SiaStream backend is running',
+    'Sluby backend is running',
   );
 });
 

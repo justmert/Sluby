@@ -5,6 +5,6 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || 'postgresql://siastream:siastream@localhost:5432/siastream',
+    url: process.env.DATABASE_URL || 'postgresql://sluby:sluby@localhost:5432/sluby',
   },
 });

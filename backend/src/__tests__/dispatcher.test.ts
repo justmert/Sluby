@@ -81,8 +81,8 @@ describe('WebhookDispatcher', () => {
     expect(options?.headers).toEqual(
       expect.objectContaining({
         'Content-Type': 'application/json',
-        'X-SiaStream-Event': 'upload.completed',
-        'X-SiaStream-Signature': expect.any(String),
+        'X-Sluby-Event': 'upload.completed',
+        'X-Sluby-Signature': expect.any(String),
       }),
     );
 

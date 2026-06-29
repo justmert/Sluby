@@ -1,31 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import {
-  SiaStreamError,
+  SlubyError,
   AuthenticationError,
   NotFoundError,
   RateLimitError,
   TimeoutError,
 } from './errors.js';
 
-describe('SiaStreamError', () => {
+describe('SlubyError', () => {
   it('should create an instance with message and default statusCode', () => {
-    const error = new SiaStreamError('something went wrong');
+    const error = new SlubyError('something went wrong');
     expect(error.message).toBe('something went wrong');
     expect(error.statusCode).toBe(0);
     expect(error.responseBody).toBeUndefined();
-    expect(error.name).toBe('SiaStreamError');
+    expect(error.name).toBe('SlubyError');
   });
 
   it('should accept statusCode and responseBody', () => {
-    const error = new SiaStreamError('server error', 500, '{"error":"bad"}');
+    const error = new SlubyError('server error', 500, '{"error":"bad"}');
     expect(error.statusCode).toBe(500);
     expect(error.responseBody).toBe('{"error":"bad"}');
   });
 
   it('should be an instance of Error', () => {
-    const error = new SiaStreamError('test');
+    const error = new SlubyError('test');
     expect(error).toBeInstanceOf(Error);
-    expect(error).toBeInstanceOf(SiaStreamError);
+    expect(error).toBeInstanceOf(SlubyError);
   });
 });
 
@@ -38,10 +38,10 @@ describe('AuthenticationError', () => {
     expect(error.responseBody).toBe('{}');
   });
 
-  it('should be instanceof SiaStreamError and Error', () => {
+  it('should be instanceof SlubyError and Error', () => {
     const error = new AuthenticationError('forbidden', 403);
     expect(error).toBeInstanceOf(AuthenticationError);
-    expect(error).toBeInstanceOf(SiaStreamError);
+    expect(error).toBeInstanceOf(SlubyError);
     expect(error).toBeInstanceOf(Error);
   });
 
@@ -64,10 +64,10 @@ describe('NotFoundError', () => {
     expect(error.responseBody).toBe('{"detail":"no such asset"}');
   });
 
-  it('should be instanceof SiaStreamError and Error', () => {
+  it('should be instanceof SlubyError and Error', () => {
     const error = new NotFoundError('nope');
     expect(error).toBeInstanceOf(NotFoundError);
-    expect(error).toBeInstanceOf(SiaStreamError);
+    expect(error).toBeInstanceOf(SlubyError);
     expect(error).toBeInstanceOf(Error);
   });
 });
@@ -95,10 +95,10 @@ describe('RateLimitError', () => {
     expect(error.retryAfter).toBeUndefined();
   });
 
-  it('should be instanceof SiaStreamError and Error', () => {
+  it('should be instanceof SlubyError and Error', () => {
     const error = new RateLimitError('too many requests');
     expect(error).toBeInstanceOf(RateLimitError);
-    expect(error).toBeInstanceOf(SiaStreamError);
+    expect(error).toBeInstanceOf(SlubyError);
     expect(error).toBeInstanceOf(Error);
   });
 });
@@ -111,10 +111,10 @@ describe('TimeoutError', () => {
     expect(error.message).toBe('operation timed out');
   });
 
-  it('should be instanceof SiaStreamError and Error', () => {
+  it('should be instanceof SlubyError and Error', () => {
     const error = new TimeoutError('timeout');
     expect(error).toBeInstanceOf(TimeoutError);
-    expect(error).toBeInstanceOf(SiaStreamError);
+    expect(error).toBeInstanceOf(SlubyError);
     expect(error).toBeInstanceOf(Error);
   });
 
@@ -146,10 +146,10 @@ describe('Error class hierarchy', () => {
     expect(timeoutErr).toBeInstanceOf(TimeoutError);
     expect(timeoutErr).not.toBeInstanceOf(RateLimitError);
 
-    // All are SiaStreamError
-    expect(authErr).toBeInstanceOf(SiaStreamError);
-    expect(notFoundErr).toBeInstanceOf(SiaStreamError);
-    expect(rateLimitErr).toBeInstanceOf(SiaStreamError);
-    expect(timeoutErr).toBeInstanceOf(SiaStreamError);
+    // All are SlubyError
+    expect(authErr).toBeInstanceOf(SlubyError);
+    expect(notFoundErr).toBeInstanceOf(SlubyError);
+    expect(rateLimitErr).toBeInstanceOf(SlubyError);
+    expect(timeoutErr).toBeInstanceOf(SlubyError);
   });
 });

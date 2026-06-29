@@ -288,7 +288,7 @@ function WebhooksTab() {
         <div className="space-y-4">
           <div>
             <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Endpoint URL</label>
-            <Input placeholder="https://your-app.com/webhooks/siastream" value={url} onChange={(e) => setUrl(e.target.value)} className="font-mono text-xs h-10" />
+            <Input placeholder="https://your-app.com/webhooks/sluby" value={url} onChange={(e) => setUrl(e.target.value)} className="font-mono text-xs h-10" />
           </div>
           <div>
             <label className="text-xs text-zinc-400 font-medium mb-2 block">Events</label>

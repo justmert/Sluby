@@ -98,10 +98,10 @@ export function formatAddress(address: string, chars: number = 4): string {
 
 /**
  * Mask an API key for display.
- * e.g. "wss_abc123def456" -> "wss_****...f456"
+ * e.g. "sluby_abc123def456" -> "sluby_****...f456"
  */
 export function maskApiKey(key: string): string {
   if (!key || key.length < 8) return key;
   const last4 = key.slice(-4);
-  return `wss_****...${last4}`;
+  return `sluby_****...${last4}`;
 }

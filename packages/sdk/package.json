@@ -1,5 +1,5 @@
 {
-  "name": "@siastream/sdk",
+  "name": "@sluby/sdk",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -23,6 +23,7 @@
     "tus-js-client": "^4.2.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "vitest": "^4.0.18"
   }

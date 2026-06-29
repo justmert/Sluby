@@ -1,4 +1,4 @@
-# Contributing to SiaStream
+# Contributing to Sluby
 
 Thanks for your interest in contributing! This guide covers the day-to-day
 mechanics of working on the repo.
@@ -27,8 +27,8 @@ mechanics of working on the repo.
 1. Fork and clone:
 
    ```bash
-   git clone https://github.com/<your-username>/sia-stream.git
-   cd sia-stream
+   git clone https://github.com/<your-username>/sluby.git
+   cd sluby
    ```
 
 2. Copy the env template and adjust it for your environment:
@@ -114,8 +114,8 @@ Tests live per-package. From the repo root:
 
 ```bash
 npm test --workspace=backend
-npm test --workspace=@siastream/sdk
-npm test --workspace=@siastream/react
+npm test --workspace=@sluby/sdk
+npm test --workspace=@sluby/react
 ```
 
 Or run all tests where present:

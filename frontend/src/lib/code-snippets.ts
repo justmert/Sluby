@@ -12,9 +12,9 @@ export function createApiKey() {
     "scopes": ["upload", "read", "manage"],
     "rate_limit": 100
   }'`,
-    sdk: `import { SiaStreamClient } from '@siastream/sdk';
+    sdk: `import { SlubyClient } from '@sluby/sdk';
 
-const client = new SiaStreamClient({
+const client = new SlubyClient({
   apiKey: 'YOUR_API_KEY',
   baseUrl: 'http://localhost:3000',
 });
@@ -34,7 +34,7 @@ export function webhook() {
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "url": "https://your-app.com/webhooks/siastream",
+    "url": "https://your-app.com/webhooks/sluby",
     "events": [
       "upload.completed",
       "processing.progress",
@@ -43,7 +43,7 @@ export function webhook() {
     ]
   }'`,
     sdk: `const webhook = await client.createWebhook({
-  url: 'https://your-app.com/webhooks/siastream',
+  url: 'https://your-app.com/webhooks/sluby',
   events: [
     'upload.completed',
     'processing.progress',
@@ -75,8 +75,8 @@ function verifyWebhookSignature(
 }
 
 // In your Express handler:
-app.post('/webhooks/siastream', (req, res) => {
-  const signature = req.headers['x-siastream-signature'];
+app.post('/webhooks/sluby', (req, res) => {
+  const signature = req.headers['x-sluby-signature'];
   const isValid = verifyWebhookSignature(
     JSON.stringify(req.body),
     signature,

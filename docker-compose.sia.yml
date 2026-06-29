@@ -1,11 +1,11 @@
-# Local Sia indexer stack for SiaStream.
+# Local Sia indexer stack for Sluby.
 #
 # Runs:
 #   - indexd   (Sia Foundation's indexer; admin UI :9980, app API :9982)
 #   - postgres (dedicated DB for indexd; NOT the app database)
 #
 # Why a separate compose file?
-#   Keeps the Sia infrastructure decoupled from the SiaStream app's own
+#   Keeps the Sia infrastructure decoupled from the Sluby app's own
 #   postgres/redis stack. Bring this up/down independently.
 #
 # First-time setup (run these commands in order in your terminal):
