@@ -4,6 +4,7 @@ import {
   rewriteMasterPlaylist,
   parseVariantPlaylist,
   parseMasterPlaylist,
+  parseMasterVariants,
   type SegmentBlobMapping,
 } from '../transcode/manifest-rewriter.js';
 
@@ -277,5 +278,35 @@ describe('manifest-rewriter (single_file byte-range mode)', () => {
       expect(result).toContain(`${BASE_URL}/v1/objects/sia-1080p`);
       expect(result).toContain('720p/playlist.m3u8');
     });
+  });
+});
+
+describe('parseMasterVariants', () => {
+  it('pairs each STREAM-INF with its variant path, resolution and bitrate', () => {
+    const master = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:7',
+      '#EXT-X-STREAM-INF:BANDWIDTH=6420000,AVERAGE-BANDWIDTH=6000000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"',
+      '1080p/playlist.m3u8',
+      '#EXT-X-STREAM-INF:BANDWIDTH=856000,RESOLUTION=640x360,CODECS="avc1.42c015"',
+      '360p/playlist.m3u8',
+    ].join('\n');
+
+    expect(parseMasterVariants(master)).toEqual([
+      { path: '1080p/playlist.m3u8', width: 1920, height: 1080, bandwidthKbps: 6420 },
+      { path: '360p/playlist.m3u8', width: 640, height: 360, bandwidthKbps: 856 },
+    ]);
+  });
+
+  it('returns null dimensions when a STREAM-INF has no RESOLUTION', () => {
+    const master = [
+      '#EXTM3U',
+      '#EXT-X-STREAM-INF:BANDWIDTH=128000,CODECS="mp4a.40.2"',
+      'audio/playlist.m3u8',
+    ].join('\n');
+
+    expect(parseMasterVariants(master)).toEqual([
+      { path: 'audio/playlist.m3u8', width: null, height: null, bandwidthKbps: 128 },
+    ]);
   });
 });

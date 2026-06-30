@@ -43,6 +43,14 @@ export const jobStatusEnum = pgEnum('job_status', [
   'retrying',
 ]);
 
+/** Role of a stored Sia object within an asset's HLS output. */
+export const artifactRoleEnum = pgEnum('artifact_role', [
+  'master_manifest',
+  'variant_playlist',
+  'rendition_data',
+  'thumbnail',
+]);
+
 // ──────────────────────────────────────────
 // Tables
 // ──────────────────────────────────────────
@@ -137,6 +145,51 @@ export const processingJobs = pgTable('processing_jobs', {
 });
 
 /**
+ * renditions stores one row per quality level produced for an asset
+ * (e.g. 1080p, 720p). Each rendition maps to its own Sia data object
+ * (the single_file `data.m4s`) and its rewritten variant playlist.
+ */
+export const renditions = pgTable('renditions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  videoAssetId: uuid('video_asset_id')
+    .notNull()
+    .references(() => videoAssets.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  width: integer('width'),
+  height: integer('height'),
+  videoBitrateKbps: integer('video_bitrate_kbps'),
+  segmentCount: integer('segment_count').notNull().default(0),
+  byteSize: bigint('byte_size', { mode: 'number' }).notNull().default(0),
+  dataObjectId: text('data_object_id').notNull(),
+  playlistObjectId: text('playlist_object_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * artifacts is the authoritative mapping between every stored Sia Object
+ * ID and its parent asset, rendition (when applicable), and role. This is
+ * what lets the platform reconcile against the indexer, render a per-asset
+ * storage breakdown, and unpin precisely on delete.
+ */
+export const artifacts = pgTable('artifacts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  videoAssetId: uuid('video_asset_id')
+    .notNull()
+    .references(() => videoAssets.id, { onDelete: 'cascade' }),
+  renditionId: uuid('rendition_id').references(() => renditions.id, {
+    onDelete: 'cascade',
+  }),
+  role: artifactRoleEnum('role').notNull(),
+  objectId: text('object_id').notNull(),
+  byteSize: bigint('byte_size', { mode: 'number' }).notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
  * api_keys stores hashed developer API keys.
  * The raw key is shown only once at creation time; we store SHA-256
  * hashes for lookup.
@@ -210,6 +263,27 @@ export const uploadSessionsRelations = relations(
 export const videoAssetsRelations = relations(videoAssets, ({ many }) => ({
   uploadSessions: many(uploadSessions),
   processingJobs: many(processingJobs),
+  renditions: many(renditions),
+  artifacts: many(artifacts),
+}));
+
+export const renditionsRelations = relations(renditions, ({ one, many }) => ({
+  videoAsset: one(videoAssets, {
+    fields: [renditions.videoAssetId],
+    references: [videoAssets.id],
+  }),
+  artifacts: many(artifacts),
+}));
+
+export const artifactsRelations = relations(artifacts, ({ one }) => ({
+  videoAsset: one(videoAssets, {
+    fields: [artifacts.videoAssetId],
+    references: [videoAssets.id],
+  }),
+  rendition: one(renditions, {
+    fields: [artifacts.renditionId],
+    references: [renditions.id],
+  }),
 }));
 
 export const processingJobsRelations = relations(
@@ -263,6 +337,12 @@ export type NewVideoAsset = typeof videoAssets.$inferInsert;
 
 export type ProcessingJob = typeof processingJobs.$inferSelect;
 export type NewProcessingJob = typeof processingJobs.$inferInsert;
+
+export type Rendition = typeof renditions.$inferSelect;
+export type NewRendition = typeof renditions.$inferInsert;
+
+export type Artifact = typeof artifacts.$inferSelect;
+export type NewArtifact = typeof artifacts.$inferInsert;
 
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type NewApiKey = typeof apiKeys.$inferInsert;

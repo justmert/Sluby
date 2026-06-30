@@ -17,6 +17,7 @@ import { transcode } from '../transcode/ffmpeg-runner.js';
 import { extractThumbnails } from '../transcode/thumbnail-extractor.js';
 import { uploadSegments } from '../storage/segment-uploader.js';
 import { updateVideoAsset, getVideoAssetById } from '../db/queries/assets.js';
+import { persistStorageRecords } from '../db/queries/storage-records.js';
 import {
   updateProcessingJobStatus,
   updateProcessingJobProgress,
@@ -263,6 +264,7 @@ export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
       resolution,
       segmentCount: totalSegments,
       totalStorageBytes,
+      storageRecords: result.storageRecords,
       ...(result.allObjectIds ? { siaObjectIds: result.allObjectIds } : {}),
     });
 
@@ -329,6 +331,7 @@ export const finalizeWorker = new Worker<FinalizeJobData>(
       resolution,
       segmentCount,
       totalStorageBytes,
+      storageRecords,
     } = job.data;
     logger.info({ videoAssetId, jobId: job.id }, 'Starting finalize job');
 
@@ -338,6 +341,21 @@ export const finalizeWorker = new Worker<FinalizeJobData>(
     if (processingJob) {
       await updateProcessingJobProgress(processingJob.id, 90);
       await appendProcessingLog(processingJob.id, 'finalize', 'Finalizing video asset');
+    }
+
+    // Persist the normalized rendition + artifact mapping (each Sia
+    // Object ID → asset + rendition + role) before the asset is marked
+    // ready, so anything reacting to "ready" sees the full storage graph.
+    // Idempotent, so a finalize retry re-persists cleanly.
+    if (storageRecords) {
+      await persistStorageRecords(videoAssetId, storageRecords);
+      if (processingJob) {
+        await appendProcessingLog(
+          processingJob.id,
+          'finalize',
+          `Persisted ${storageRecords.renditions.length} renditions and ${storageRecords.artifacts.length} artifacts`,
+        );
+      }
     }
 
     // Update local DB with final metadata

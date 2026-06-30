@@ -133,6 +133,49 @@ export function parseMasterPlaylist(content: string): string[] {
   return variantPaths;
 }
 
+/** One variant entry parsed from the master playlist's STREAM-INF lines. */
+export interface MasterVariant {
+  /** The variant playlist path as written in the master (e.g. "1080p/playlist.m3u8"). */
+  path: string;
+  width: number | null;
+  height: number | null;
+  bandwidthKbps: number | null;
+}
+
+/**
+ * Parse the (un-rewritten) master playlist into per-variant metadata:
+ * each `#EXT-X-STREAM-INF` line's RESOLUTION + BANDWIDTH paired with the
+ * variant path on the following line. Used to populate `renditions` rows
+ * with real dimensions and bitrate.
+ */
+export function parseMasterVariants(content: string): MasterVariant[] {
+  const lines = content.split('\n');
+  const out: MasterVariant[] = [];
+  let pending: { width: number | null; height: number | null; bandwidthKbps: number | null } | null =
+    null;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line.startsWith('#EXT-X-STREAM-INF')) {
+      const bw = line.match(/BANDWIDTH=(\d+)/);
+      const res = line.match(/RESOLUTION=(\d+)x(\d+)/);
+      pending = {
+        width: res ? parseInt(res[1], 10) : null,
+        height: res ? parseInt(res[2], 10) : null,
+        bandwidthKbps: bw ? Math.round(parseInt(bw[1], 10) / 1000) : null,
+      };
+      continue;
+    }
+    if (!line || line.startsWith('#')) continue;
+    if (pending) {
+      out.push({ path: line, ...pending });
+      pending = null;
+    }
+  }
+
+  return out;
+}
+
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

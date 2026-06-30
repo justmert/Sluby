@@ -1,5 +1,6 @@
 import { Queue, type ConnectionOptions } from 'bullmq';
 import { env } from '../config/env.js';
+import type { StorageRecords } from '../storage/artifact-records.js';
 
 /**
  * Parse the REDIS_URL into an ioredis-compatible connection object.
@@ -50,6 +51,8 @@ export interface FinalizeJobData {
   resolution: string;
   segmentCount: number;
   totalStorageBytes: number;
+  /** Normalized rendition + artifact mapping to persist for this asset. */
+  storageRecords?: StorageRecords;
 }
 
 export type VideoProcessingJobData =

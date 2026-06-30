@@ -6,8 +6,14 @@ import {
   rewriteMasterPlaylist,
   parseVariantPlaylist,
   parseMasterPlaylist,
+  parseMasterVariants,
   type SegmentBlobMapping,
 } from '../transcode/manifest-rewriter.js';
+import {
+  buildStorageRecords,
+  type StorageRecords,
+  type VariantUpload,
+} from './artifact-records.js';
 import { logger } from '../config/logger.js';
 
 export interface UploadSegmentsResult {
@@ -16,6 +22,11 @@ export interface UploadSegmentsResult {
   totalSegments: number;
   totalBytes: number;
   allObjectIds: string[];
+  /**
+   * Normalized rendition + artifact mapping (each Sia Object ID tied to
+   * its asset, rendition, and role). Persisted by the finalize worker.
+   */
+  storageRecords: StorageRecords;
 }
 
 export interface UploadSegmentsOptions {
@@ -236,11 +247,40 @@ export async function uploadSegments(
     'Master manifest uploaded to Sia',
   );
 
+  // ── Assemble the normalized rendition + artifact mapping ────────────
+  // Each Sia Object ID is tied to its asset, rendition, and role. The
+  // per-variant resolution/bitrate comes from the master's STREAM-INF
+  // lines; everything else was captured during upload above.
+  const variantMetaByPath = new Map(
+    parseMasterVariants(masterContent).map((v) => [v.path, v]),
+  );
+  const variantUploads: VariantUpload[] = variantInfos.map((info, i) => {
+    const meta = variantMetaByPath.get(info.variantPath);
+    return {
+      name: path.dirname(info.variantPath),
+      width: meta?.width ?? null,
+      height: meta?.height ?? null,
+      videoBitrateKbps: meta?.bandwidthKbps ?? null,
+      segmentCount: info.segmentCount,
+      dataObjectId: info.dataObjectId,
+      dataByteSize: info.bytesUploaded,
+      playlistObjectId: playlistResults[i].objectId,
+      playlistByteSize: playlistResults[i].size,
+    };
+  });
+
+  const storageRecords = buildStorageRecords({
+    variants: variantUploads,
+    thumbnails: thumbnailResults.map((r) => ({ objectId: r.objectId, byteSize: r.size })),
+    master: { objectId: masterResult.objectId, byteSize: masterResult.size },
+  });
+
   return {
     masterManifestObjectId: masterResult.objectId,
     thumbnailObjectIds,
     totalSegments,
     totalBytes,
     allObjectIds,
+    storageRecords,
   };
 }
