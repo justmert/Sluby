@@ -10,14 +10,14 @@ in front.
 ## What's in the box
 
 - **Resumable uploads** via the TUS protocol.
-- **Adaptive HLS transcode** — FFmpeg produces 1080p/720p/540p/360p fMP4
+- **Adaptive HLS transcode**: FFmpeg produces 1080p/720p/540p/360p fMP4
   renditions with CMAF-style init segments and ~6s media segments.
-- **Sia-backed object store** — every segment, init fragment, and playlist is
+- **Sia-backed object store**: every segment, init fragment, and playlist is
   an individual object on Sia, addressed by its storage key.
-- **Delivery gateway** — an aggregator route fetches objects from Sia, caches
+- **Delivery gateway**: an aggregator route fetches objects from Sia, caches
   them locally, and streams byte-range responses suitable for `<video>` and
   hls.js playback.
-- **API + SDK** — a REST backend plus first-party TypeScript (`@sluby/sdk`)
+- **API + SDK**: a REST backend plus first-party TypeScript (`@sluby/sdk`)
   and React (`@sluby/react`) packages.
 
 ## Quick start
@@ -38,20 +38,17 @@ backend is exposed on `http://localhost:4500`; the proxy on
 
 ### Sia onboarding
 
-Before the first upload, the backend needs a Sia `APP_ID` / `APP_KEY` pair.
-The repo ships a helper script that walks the registration flow against a Sia
-indexer:
+Before the first upload, the backend needs a `SIA_APP_ID` / `SIA_APP_KEY`
+pair that registers the platform with your `indexd` instance. You produce
+these once through the `sia-storage` connect/register flow: mint a connect
+key on indexd's admin API (`POST /api/apps/connect/keys`), approve the
+connection request, and export the resulting AppKey. Put both values in
+`.env` and restart the backend, which re-attaches to indexd on startup.
 
 ```bash
-# Optional: run a local indexer + walletd + miner stack for Zen testnet
+# Optional: run a local indexer + walletd + miner stack for the Zen testnet
 docker compose -f docker-compose.sia.yml up -d
-
-# One-time onboarding against whichever indexer SIA_INDEXER_URL points at
-cd backend && npm run sia:onboard
 ```
-
-The script prints an `SIA_APP_ID` and `SIA_APP_KEY` — paste them into `.env`
-and restart the backend.
 
 ### Local development
 
@@ -131,8 +128,8 @@ ranges through), and caches them on local disk so repeat plays stay hot.
 ```
 backend/       Node.js backend (Express + BullMQ + Drizzle + sia-storage SDK)
 frontend/      Vite + React studio app
-packages/sdk/  @sluby/sdk       — TypeScript API client
-packages/react/@sluby/react     — SlubyPlayer + hooks
+packages/sdk/  @sluby/sdk       TypeScript API client
+packages/react/@sluby/react     SlubyPlayer + hooks
 nginx/         Aggregator/gateway config
 docker-compose.yml      App stack (backend, postgres, redis, nginx)
 docker-compose.sia.yml  Optional local Sia indexer / walletd / miner stack
@@ -153,4 +150,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-Apache License 2.0 — see [LICENSE](./LICENSE).
+Apache License 2.0. See [LICENSE](./LICENSE).
