@@ -1,13 +1,27 @@
+# dependencies
 node_modules/
+
+# builds
 dist/
 build/
+*.tsbuildinfo
+
+# env
 .env
-.env.local
+.env.*
+!.env.example
+
+# logs
 *.log
+
+# runtime data / local state
 uploads/
 transcode-output/
+cache/
+pgdata/
+redis-data/
 
-# IDE
+# IDE / editor
 .idea/
 .vscode/
 *.swp
@@ -17,24 +31,24 @@ transcode-output/
 .DS_Store
 Thumbs.db
 
-# Docker volumes
-pgdata/
-redis-data/
+# turborepo cache
+.turbo/
 
-# Build artifacts
-*.tsbuildinfo
-
-# Test media
+# media & test fixtures
 *.mp4
+*.pdf
+test/
+test-output/
 
-# Unused apps
+# vendored binaries
+backend/vendor/
+
+# unused apps
 demo-app/
 reference-app/
 
-# Internal docs
-plan.md
-rfp.md
-proposal.md
-
-# Turborepo / cache
-.turbo/
+# local reference docs / notes / research / reports (keep README + CONTRIBUTING)
+*.md
+!README.md
+!CONTRIBUTING.md
+sia/
