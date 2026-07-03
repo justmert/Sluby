@@ -51,6 +51,22 @@ export const artifactRoleEnum = pgEnum('artifact_role', [
   'thumbnail',
 ]);
 
+/**
+ * How a playback ID grants access. `public` streams openly; `signed`
+ * requires a time-limited signed URL. Lets a creator revoke or rotate a
+ * public handle without touching the underlying asset.
+ */
+export const playbackPolicyEnum = pgEnum('playback_policy', [
+  'public',
+  'signed',
+]);
+
+/** Outcome of a reconciliation run: matched, or drift was detected. */
+export const reconcileStatusEnum = pgEnum('reconcile_status', [
+  'ok',
+  'drift',
+]);
+
 // ──────────────────────────────────────────
 // Tables
 // ──────────────────────────────────────────
@@ -190,6 +206,48 @@ export const artifacts = pgTable('artifacts', {
 });
 
 /**
+ * playback_ids are public, rotatable handles that map to a video asset.
+ * A creator can hand out a `pb_...` id (or several) for embedding and
+ * revoke or rotate it without exposing or changing the internal asset
+ * UUID — the same indirection Mux and other platforms use.
+ */
+export const playbackIds = pgTable('playback_ids', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  playbackId: text('playback_id').unique().notNull(),
+  videoAssetId: uuid('video_asset_id')
+    .notNull()
+    .references(() => videoAssets.id, { onDelete: 'cascade' }),
+  policy: playbackPolicyEnum('policy').notNull().default('public'),
+  name: text('name').notNull().default(''),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * reconciliation_runs records each pass of the background worker that
+ * compares PostgreSQL's tracked object ids against the indexer's pinned
+ * inventory. Orphaned/missing ids are captured for operator review; the
+ * worker never deletes automatically.
+ */
+export const reconciliationRuns = pgTable('reconciliation_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }).notNull(),
+  status: reconcileStatusEnum('status').notNull(),
+  dbObjectCount: integer('db_object_count').notNull().default(0),
+  indexerObjectCount: integer('indexer_object_count').notNull().default(0),
+  inSyncCount: integer('in_sync_count').notNull().default(0),
+  orphanCount: integer('orphan_count').notNull().default(0),
+  missingCount: integer('missing_count').notNull().default(0),
+  orphanedIds: jsonb('orphaned_ids').$type<string[]>().notNull().default([]),
+  missingIds: jsonb('missing_ids').$type<string[]>().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
  * api_keys stores hashed developer API keys.
  * The raw key is shown only once at creation time; we store SHA-256
  * hashes for lookup.
@@ -265,6 +323,14 @@ export const videoAssetsRelations = relations(videoAssets, ({ many }) => ({
   processingJobs: many(processingJobs),
   renditions: many(renditions),
   artifacts: many(artifacts),
+  playbackIds: many(playbackIds),
+}));
+
+export const playbackIdsRelations = relations(playbackIds, ({ one }) => ({
+  videoAsset: one(videoAssets, {
+    fields: [playbackIds.videoAssetId],
+    references: [videoAssets.id],
+  }),
 }));
 
 export const renditionsRelations = relations(renditions, ({ one, many }) => ({
@@ -352,4 +418,10 @@ export type NewWebhookEndpoint = typeof webhookEndpoints.$inferInsert;
 
 export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
 export type NewWebhookDelivery = typeof webhookDeliveries.$inferInsert;
+
+export type PlaybackId = typeof playbackIds.$inferSelect;
+export type NewPlaybackId = typeof playbackIds.$inferInsert;
+
+export type ReconciliationRun = typeof reconciliationRuns.$inferSelect;
+export type NewReconciliationRun = typeof reconciliationRuns.$inferInsert;
 
