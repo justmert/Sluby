@@ -5,6 +5,7 @@ import {
   type VideoAsset,
   type NewVideoAsset,
 } from '../schema.js';
+import { decodeCursor, paginateRows } from '../../api/pagination.js';
 
 /**
  * Create a new video asset record.
@@ -29,7 +30,18 @@ export async function getVideoAssetById(
 
 /**
  * Paginated listing of video assets with optional filters.
- * Returns both the data page and total count.
+ *
+ * Supports two paging styles over the same stable total order
+ * (`createdAt` then `id`, both descending):
+ *  - **Cursor (keyset)**: pass `cursor`; rows strictly after that key are
+ *    returned and a `nextCursor` is issued. Correct under concurrent
+ *    inserts/deletes, and the documented mechanism.
+ *  - **Offset**: pass `offset` (page-based); kept so existing callers and
+ *    the Studio keep working.
+ *
+ * `total` is always the full filtered count, independent of the cursor.
+ * Timestamps are compared truncated to milliseconds so the JS-side cursor
+ * (millisecond precision) and the SQL ordering agree exactly.
  */
 export async function listVideoAssets(opts?: {
   status?: VideoAsset['status'];
@@ -37,34 +49,58 @@ export async function listVideoAssets(opts?: {
   creatorAddress?: string;
   limit?: number;
   offset?: number;
-}): Promise<{ data: VideoAsset[]; total: number }> {
-  const { status, accessTier, creatorAddress, limit = 20, offset = 0 } =
+  cursor?: string;
+}): Promise<{
+  data: VideoAsset[];
+  total: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+}> {
+  const { status, accessTier, creatorAddress, limit = 20, offset = 0, cursor } =
     opts ?? {};
 
-  const conditions: SQL[] = [];
-  if (status) conditions.push(eq(videoAssets.status, status));
-  if (accessTier) conditions.push(eq(videoAssets.accessTier, accessTier));
+  // Filters apply to both the data page and the total count.
+  const filters: SQL[] = [];
+  if (status) filters.push(eq(videoAssets.status, status));
+  if (accessTier) filters.push(eq(videoAssets.accessTier, accessTier));
   if (creatorAddress)
-    conditions.push(eq(videoAssets.creatorAddress, creatorAddress));
+    filters.push(eq(videoAssets.creatorAddress, creatorAddress));
+  const filterWhere = filters.length > 0 ? and(...filters) : undefined;
 
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  // The cursor keyset narrows only the data page, never the count.
+  const dataConditions: SQL[] = [...filters];
+  const cursorKey = cursor ? decodeCursor(cursor) : null;
+  if (cursorKey) {
+    dataConditions.push(
+      sql`(date_trunc('milliseconds', ${videoAssets.createdAt}), ${videoAssets.id}) < (${cursorKey.createdAt.toISOString()}::timestamptz, ${cursorKey.id}::uuid)`,
+    );
+  }
+  const dataWhere =
+    dataConditions.length > 0 ? and(...dataConditions) : undefined;
 
-  const [data, countResult] = await Promise.all([
+  const orderCreatedAt = sql`date_trunc('milliseconds', ${videoAssets.createdAt})`;
+
+  const [rows, countResult] = await Promise.all([
     db.query.videoAssets.findMany({
-      where,
-      limit,
-      offset,
-      orderBy: [desc(videoAssets.createdAt)],
+      where: dataWhere,
+      // Over-fetch by one so paginateRows can detect a next page.
+      limit: limit + 1,
+      // Offset only makes sense without a cursor.
+      offset: cursorKey ? 0 : offset,
+      orderBy: [desc(orderCreatedAt), desc(videoAssets.id)],
     }),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(videoAssets)
-      .where(where),
+      .where(filterWhere),
   ]);
 
+  const page = paginateRows(rows, limit);
   return {
-    data,
+    data: page.data,
     total: countResult[0]?.count ?? 0,
+    nextCursor: page.nextCursor,
+    hasMore: page.hasMore,
   };
 }
 

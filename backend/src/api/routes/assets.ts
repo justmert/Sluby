@@ -17,10 +17,16 @@ export interface AssetRouteDeps {
   listAssets: (params: {
     page: number;
     limit: number;
+    cursor?: string;
     status?: string;
     accessTier?: string;
     creatorAddress?: string;
-  }) => Promise<{ data: VideoAssetRecord[]; total: number }>;
+  }) => Promise<{
+    data: VideoAssetRecord[];
+    total: number;
+    nextCursor?: string | null;
+    hasMore?: boolean;
+  }>;
   getAsset: (id: string) => Promise<VideoAssetRecord | null>;
   updateAsset: (id: string, data: {
     title?: string;
@@ -59,12 +65,14 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
   router.get('/', requireScope('read'), async (req: Request, res: Response) => {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const cursor = (req.query.cursor as string | undefined) || undefined;
     const status = req.query.status as string | undefined;
     const accessTier = req.query.access_tier as string | undefined;
 
     const result = await deps.listAssets({
       page,
       limit,
+      cursor,
       status,
       accessTier,
       creatorAddress: req.apiKey!.creatorAddress === '0x0000000000000000000000000000000000000000000000000000000000000000'
@@ -77,6 +85,10 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
       total: result.total,
       page,
       limit,
+      // Cursor pagination: pass `next_cursor` back as `?cursor=` to page
+      // forward. `page`/`limit`/`total` remain for offset-style callers.
+      next_cursor: result.nextCursor ?? null,
+      has_more: result.hasMore ?? false,
     });
   });
 

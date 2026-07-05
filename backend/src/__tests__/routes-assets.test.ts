@@ -134,6 +134,40 @@ describe('asset routes', () => {
 
       expect(res.status).toBe(403);
     });
+
+    it('should pass the cursor query param through to listAssets', async () => {
+      vi.mocked(deps.listAssets).mockResolvedValue({ data: [], total: 0 });
+
+      await request(createApp()).get('/?cursor=abc123&limit=10');
+
+      expect(deps.listAssets).toHaveBeenCalledWith(
+        expect.objectContaining({ cursor: 'abc123', limit: 10 }),
+      );
+    });
+
+    it('should surface next_cursor and has_more from the dep result', async () => {
+      vi.mocked(deps.listAssets).mockResolvedValue({
+        data: [createMockAsset()],
+        total: 5,
+        nextCursor: 'next-token',
+        hasMore: true,
+      });
+
+      const res = await request(createApp()).get('/?limit=1');
+
+      expect(res.status).toBe(200);
+      expect(res.body.next_cursor).toBe('next-token');
+      expect(res.body.has_more).toBe(true);
+    });
+
+    it('should default has_more to false and next_cursor to null when absent', async () => {
+      vi.mocked(deps.listAssets).mockResolvedValue({ data: [], total: 0 });
+
+      const res = await request(createApp()).get('/');
+
+      expect(res.body.has_more).toBe(false);
+      expect(res.body.next_cursor).toBeNull();
+    });
   });
 
   describe('GET /:id', () => {
