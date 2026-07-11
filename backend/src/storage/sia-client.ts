@@ -85,11 +85,23 @@ interface NapiAccount {
   ready: boolean;
   remainingStorage: bigint;
 }
+/** A single entry from the indexer's object change feed. */
+interface NapiObjectEvent {
+  readonly id: string;
+  readonly deleted: boolean;
+  readonly updatedAt: Date;
+}
+/** Cursor to resume the object change feed after a given event. */
+interface NapiObjectsCursor {
+  id: string;
+  after: Date;
+}
 interface NapiSdk {
   uploadPacked(options?: NapiUploadOptions): NapiPackedUpload;
   pinObject(object: NapiPinnedObject): Promise<void>;
   object(key: string): Promise<NapiPinnedObject>;
   download(object: NapiPinnedObject, options?: NapiDownloadOptions): ReadableStream<Uint8Array>;
+  objectEvents(cursor: NapiObjectsCursor | null, limit: number): Promise<NapiObjectEvent[]>;
   deleteObject(key: string): Promise<void>;
   pruneSlabs(): Promise<void>;
   account(): Promise<NapiAccount>;
@@ -403,6 +415,35 @@ export async function downloadObject(
     'Object downloaded from Sia',
   );
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Object change feed (used by the reconciliation worker)
+// ---------------------------------------------------------------------------
+
+/** A single object-change event, flattened out of the SDK's getters. */
+export interface ObjectEventPage {
+  id: string;
+  deleted: boolean;
+  updatedAt: Date;
+}
+
+/**
+ * Fetch one page of the indexer's object change feed. The SDK exposes no
+ * "list all objects" call, so reconciliation replays this cursor feed to
+ * reconstruct the current inventory (see reconcile/collect-inventory.ts).
+ */
+export async function listObjectEventsPage(
+  cursor: { id: string; after: Date } | null,
+  limit: number,
+): Promise<ObjectEventPage[]> {
+  const sdk = await getClient();
+  const events = await sdk.objectEvents(cursor, limit);
+  return events.map((e) => ({
+    id: e.id,
+    deleted: e.deleted,
+    updatedAt: e.updatedAt,
+  }));
 }
 
 // ---------------------------------------------------------------------------

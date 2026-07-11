@@ -55,6 +55,11 @@ export interface FinalizeJobData {
   storageRecords?: StorageRecords;
 }
 
+export interface ReconcileJobData {
+  /** How the run was initiated — a scheduled sweep or a manual trigger. */
+  trigger: 'scheduled' | 'manual';
+}
+
 export type VideoProcessingJobData =
   | TranscodeJobData
   | UploadSegmentsJobData
@@ -120,6 +125,20 @@ export const finalizeQueue = new Queue<FinalizeJobData>('finalize', {
 });
 
 /**
+ * Queue for background reconciliation runs comparing the DB's tracked
+ * objects against the indexer's pinned inventory. Fed by a repeatable
+ * scheduled job and by on-demand API triggers.
+ */
+export const reconcileQueue = new Queue<ReconcileJobData>('reconcile', {
+  connection: redisConnection,
+  defaultJobOptions: {
+    attempts: 1,
+    removeOnComplete: { count: 100 },
+    removeOnFail: { count: 100 },
+  },
+});
+
+/**
  * Gracefully close all queue connections.
  * Call during server shutdown.
  */
@@ -128,5 +147,6 @@ export async function closeQueues(): Promise<void> {
     transcodeQueue.close(),
     uploadSegmentsQueue.close(),
     finalizeQueue.close(),
+    reconcileQueue.close(),
   ]);
 }

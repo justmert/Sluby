@@ -96,6 +96,26 @@ const envSchema = z.object({
   /** API rate limit: max requests per minute per key */
   API_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(100),
 
+  /** Whether the background reconciliation worker runs on a schedule.
+   *  Set to 'false' to disable the periodic sweep (on-demand runs via the
+   *  API still work). */
+  RECONCILE_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+
+  /** How often the reconciliation worker compares the DB against the
+   *  indexer inventory, in milliseconds. Defaults to hourly. */
+  RECONCILE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 60 * 1000),
+
+  /** Page size when replaying the indexer's object change feed during
+   *  reconciliation. */
+  RECONCILE_PAGE_SIZE: z.coerce.number().int().positive().default(500),
+
   /** Optional bootstrap API key (raw sluby_ value).
    *  If set and no API keys exist in the DB, this key is auto-seeded on startup
    *  with full scopes (upload, read, manage). Solves the bootstrap problem. */
