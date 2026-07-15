@@ -4,6 +4,7 @@ import {
   downloadObject,
   getObject,
 } from '../storage/sia-client.js';
+import { contentTypeForHint } from './content-type.js';
 import { logger } from '../config/logger.js';
 
 export const deliveryRouter = Router();
@@ -140,6 +141,8 @@ async function serveRange(
   objectId: string,
   rangeHeader: string,
 ): Promise<void> {
+  const hint = req.query.type as string | undefined;
+
   // Cheap metadata-only lookup for size.
   const obj = await getObject(objectId);
   const totalSize = Number(obj.size());
@@ -147,7 +150,7 @@ async function serveRange(
   const parsed = parseRange(rangeHeader, totalSize);
   if (parsed === null) {
     // Malformed header — fall back to full GET behaviour.
-    return serveFull(res, objectId);
+    return serveFull(res, objectId, hint);
   }
   if (parsed === 'unsatisfiable') {
     res.status(416).set({
@@ -168,11 +171,15 @@ async function serveRange(
   });
 
   res.status(206).set({
-    'Content-Type': 'video/mp4',
+    // Ranged reads are almost always fMP4 media; honour an explicit hint
+    // otherwise fall back to video/mp4.
+    'Content-Type': contentTypeForHint(hint) ?? 'video/mp4',
     'Content-Length': bytes.length.toString(),
     'Content-Range': `bytes ${parsed.start}-${parsed.end}/${totalSize}`,
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'public, max-age=86400',
+    // Ranged reads deliberately bypass the object cache.
+    'X-Cache-Status': 'BYPASS',
     ...COMMON_CORS,
   });
   res.send(Buffer.from(bytes));
@@ -184,16 +191,24 @@ async function serveRange(
  * always send Range — if they don't, this still works but holds the
  * full file in RAM until LRU eviction.
  */
-async function serveFull(res: Response, objectId: string): Promise<void> {
-  const data = await getCachedObject(objectId, /*isManifest*/ false);
+async function serveFull(
+  res: Response,
+  objectId: string,
+  hint?: string,
+): Promise<void> {
+  const { data, status } = await getCachedObject(objectId, {
+    isManifest: false,
+  });
+  const hinted = contentTypeForHint(hint);
 
-  if (isManifestContent(data)) {
+  if (hinted === 'application/vnd.apple.mpegurl' || isManifestContent(data)) {
     const body = Buffer.from(data);
     res.set({
       'Content-Type': 'application/vnd.apple.mpegurl',
       'Content-Length': body.length.toString(),
       'Cache-Control': 'public, max-age=60',
       'Accept-Ranges': 'bytes',
+      'X-Cache-Status': status,
       ...COMMON_CORS,
     });
     res.send(body);
@@ -201,10 +216,11 @@ async function serveFull(res: Response, objectId: string): Promise<void> {
   }
 
   res.set({
-    'Content-Type': detectBinaryContentType(data),
+    'Content-Type': hinted ?? detectBinaryContentType(data),
     'Content-Length': data.length.toString(),
     'Cache-Control': 'public, max-age=86400',
     'Accept-Ranges': 'bytes',
+    'X-Cache-Status': status,
     ...COMMON_CORS,
   });
   res.send(Buffer.from(data));
@@ -216,12 +232,13 @@ async function serveFull(res: Response, objectId: string): Promise<void> {
 deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) => {
   const objectId = String(req.params.objectId);
   const rangeHeader = req.headers.range as string | undefined;
+  const hint = req.query.type as string | undefined;
 
   try {
     if (rangeHeader) {
       await serveRange(req, res, objectId, rangeHeader);
     } else {
-      await serveFull(res, objectId);
+      await serveFull(res, objectId, hint);
     }
   } catch (err) {
     logger.error({ objectId, err }, 'Failed to serve object');
@@ -238,25 +255,36 @@ deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) 
  * serve it. Always uses the cache path (manifests are tiny).
  */
 deliveryRouter.get('/v1/stream/:videoAssetId/master.m3u8', async (req: Request, res: Response) => {
-  const videoAssetId = String(req.params.videoAssetId);
+  const param = String(req.params.videoAssetId);
   try {
+    // Accept either an internal asset UUID or a public pb_... playback id.
+    const { resolveAssetId } = await import('../db/queries/playback-ids.js');
+    const assetId = await resolveAssetId(param);
+    if (!assetId) {
+      res.status(404).json({ error: 'Video asset not found or not ready' });
+      return;
+    }
+
     const { getVideoAssetById } = await import('../db/queries/assets.js');
-    const asset = await getVideoAssetById(videoAssetId);
+    const asset = await getVideoAssetById(assetId);
     if (!asset?.manifestObjectId) {
       res.status(404).json({ error: 'Video asset not found or not ready' });
       return;
     }
 
-    const data = await getCachedObject(asset.manifestObjectId, true);
+    const { data, status } = await getCachedObject(asset.manifestObjectId, {
+      isManifest: true,
+    });
     res.set({
       'Content-Type': 'application/vnd.apple.mpegurl',
       'Content-Length': data.length.toString(),
       'Cache-Control': 'public, max-age=60',
+      'X-Cache-Status': status,
       ...COMMON_CORS,
     });
     res.send(Buffer.from(data));
   } catch (err) {
-    logger.error({ videoAssetId, err }, 'Failed to serve manifest');
+    logger.error({ param, err }, 'Failed to serve manifest');
     res.status(500).json({ error: 'Failed to serve manifest' });
   }
 });

@@ -16,6 +16,7 @@ import pino from 'pino';
 import { transcode } from '../transcode/ffmpeg-runner.js';
 import { extractThumbnails } from '../transcode/thumbnail-extractor.js';
 import { uploadSegments } from '../storage/segment-uploader.js';
+import { warmObjects } from '../storage/blob-manager.js';
 import { updateVideoAsset, getVideoAssetById } from '../db/queries/assets.js';
 import { persistStorageRecords } from '../db/queries/storage-records.js';
 import {
@@ -377,6 +378,33 @@ export const finalizeWorker = new Worker<FinalizeJobData>(
         status: 'completed',
         progressPercent: 100,
       });
+    }
+
+    // Cache warming: prefetch the small, hot objects (master manifest,
+    // variant playlists, thumbnails) so the first playback after a
+    // transcode is served from RAM instead of a cold Sia read. The big
+    // rendition data files are intentionally not warmed — they are served
+    // by byte-range and would blow the cache budget. Best-effort.
+    try {
+      const playlistIds =
+        storageRecords?.renditions.map((r) => r.playlistObjectId) ?? [];
+      const warmIds = [
+        ...new Set(
+          [manifestObjectId, ...playlistIds, ...thumbnailObjectIds].filter(
+            Boolean,
+          ),
+        ),
+      ];
+      await warmObjects(warmIds);
+      if (processingJob) {
+        await appendProcessingLog(
+          processingJob.id,
+          'finalize',
+          `Warmed ${warmIds.length} manifest/thumbnail objects into cache`,
+        );
+      }
+    } catch (err) {
+      logger.warn({ videoAssetId, err }, 'Cache warming failed (non-fatal)');
     }
 
     // Dispatch "asset.ready" webhook
