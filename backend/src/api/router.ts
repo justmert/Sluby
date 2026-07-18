@@ -3,6 +3,8 @@ import { createUploadRoutes, type UploadRouteDeps } from './routes/uploads.js';
 import { createAssetRoutes, type AssetRouteDeps } from './routes/assets.js';
 import { createSiaInfoRoutes, type SiaInfoRouteDeps } from './routes/sia-info.js';
 import { createPlaybackRoutes, type PlaybackRouteDeps } from './routes/playback.js';
+import { createPlaybackIdRoutes, type PlaybackIdRouteDeps } from './routes/playback-ids.js';
+import { createReconciliationRoutes, type ReconciliationRouteDeps } from './routes/reconciliation.js';
 import { createWebhookRoutes, type WebhookRouteDeps } from './routes/webhooks.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createApiKeyMiddleware, type ApiKeyMiddlewareDeps } from './middleware/api-key.js';
@@ -10,9 +12,25 @@ import { rateLimiter } from './rate-limiter.js';
 import { generateApiKey } from './auth.js';
 import { requireScope } from './middleware/api-key.js';
 import { getMetricsJson } from '../metrics/collector.js';
+import { openapiDocument } from './openapi.js';
 import type { Request, Response } from 'express';
 
-export interface ApiRouterDeps extends UploadRouteDeps, AssetRouteDeps, SiaInfoRouteDeps, PlaybackRouteDeps, WebhookRouteDeps, ApiKeyMiddlewareDeps {
+/** Redoc docs page rendering the served OpenAPI document. */
+const DOCS_HTML = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Sluby API Reference</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>body { margin: 0; }</style>
+  </head>
+  <body>
+    <redoc spec-url="/api/v1/openapi.json"></redoc>
+    <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+  </body>
+</html>`;
+
+export interface ApiRouterDeps extends UploadRouteDeps, AssetRouteDeps, SiaInfoRouteDeps, PlaybackRouteDeps, PlaybackIdRouteDeps, ReconciliationRouteDeps, WebhookRouteDeps, ApiKeyMiddlewareDeps {
   createApiKey: (data: {
     keyHash: string;
     name: string;
@@ -40,6 +58,15 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   // show the sign-in screen.
   router.use('/auth', createAuthRoutes());
 
+  // The API spec and its docs page are public (no key required) so tools
+  // and humans can discover the contract before authenticating.
+  router.get('/openapi.json', (_req: Request, res: Response) => {
+    res.json(openapiDocument);
+  });
+  router.get('/docs', (_req: Request, res: Response) => {
+    res.type('html').send(DOCS_HTML);
+  });
+
   // Apply middleware
   const apiKeyMiddleware = createApiKeyMiddleware(deps);
   router.use(rateLimiter());
@@ -51,6 +78,11 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   router.use('/assets', createSiaInfoRoutes(deps));
   router.use('/playback', createPlaybackRoutes(deps));
   router.use('/webhooks', createWebhookRoutes(deps));
+  // Playback-id and reconciliation routers own absolute paths
+  // (/assets/:id/playback-ids, /playback-ids/:id, /reconciliation), so
+  // they mount at the router root rather than a fixed prefix.
+  router.use('/', createPlaybackIdRoutes(deps));
+  router.use('/', createReconciliationRoutes(deps));
 
   // API key management routes
   router.post('/keys', requireScope('manage'), async (req: Request, res: Response) => {
