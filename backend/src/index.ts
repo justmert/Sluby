@@ -14,6 +14,7 @@ import { closeWorkers } from './queue/processors.js';
 
 import { createApiRouter, type ApiRouterDeps } from './api/router.js';
 import { createTusServer, type TusServerDeps } from './upload/tus-server.js';
+import { isTusRequest } from './upload/tus-dispatch.js';
 import { deliveryRouter } from './delivery/aggregator.js';
 import { registry, getMetrics } from './metrics/collector.js';
 
@@ -54,6 +55,21 @@ import {
   findEndpointsForEvent,
   createWebhookDelivery,
 } from './db/queries/webhooks.js';
+
+import {
+  createPlaybackIdForAsset,
+  listPlaybackIdsByAsset,
+  deletePlaybackIdByPublicId,
+  resolveAssetId,
+} from './db/queries/playback-ids.js';
+
+import { getLatestReconciliationRun } from './db/queries/reconciliation.js';
+
+import {
+  scheduleReconciliation,
+  triggerReconciliation,
+  closeReconcileWorker,
+} from './reconcile/worker.js';
 
 // Other imports
 import { SessionManager } from './upload/session-manager.js';
@@ -306,9 +322,21 @@ const tusServerDeps: TusServerDeps = {
 
 const tusServer = createTusServer(tusServerDeps);
 
-// Mount TUS server handler — single middleware to avoid double-firing hooks
-app.use('/api/v1/uploads', (req, res) => {
-  tusServer.handle(req, res);
+// Mount TUS server handler — single middleware to avoid double-firing hooks.
+//
+// TUS and the REST upload routes share the `/api/v1/uploads` path, so we
+// dispatch by request shape: genuine TUS protocol traffic (any request
+// carrying `Tus-Resumable`, plus TUS's HEAD/PATCH/OPTIONS verbs) goes to
+// the TUS server; everything else (JSON `POST /uploads` session creation,
+// `GET /uploads/:id` status, `DELETE /uploads/:id` cancel) falls through to
+// the REST router mounted below. Without this, TUS would shadow the REST
+// upload endpoints entirely.
+app.use('/api/v1/uploads', (req, res, next) => {
+  if (isTusRequest(req)) {
+    tusServer.handle(req, res);
+  } else {
+    next();
+  }
 });
 
 // ──────────────────────────────────────────
@@ -361,9 +389,12 @@ const apiRouterDeps: ApiRouterDeps = {
       creatorAddress: params.creatorAddress,
       limit: params.limit,
       offset: (params.page - 1) * params.limit,
+      cursor: params.cursor,
     });
 
     return {
+      nextCursor: result.nextCursor,
+      hasMore: result.hasMore,
       data: result.data.map((asset) => ({
         id: asset.id,
         title: asset.title,
@@ -500,7 +531,10 @@ const apiRouterDeps: ApiRouterDeps = {
 
   // ── PlaybackRouteDeps ──
   getPlaybackAsset: async (id) => {
-    const asset = await getVideoAssetById(id);
+    // Accept either an internal asset UUID or a public pb_... playback id.
+    const assetId = await resolveAssetId(id);
+    if (!assetId) return null;
+    const asset = await getVideoAssetById(assetId);
     if (!asset) return null;
     return {
       id: asset.id,
@@ -511,6 +545,61 @@ const apiRouterDeps: ApiRouterDeps = {
       accessTier: asset.accessTier,
       status: asset.status,
     };
+  },
+
+  // ── PlaybackIdRouteDeps ──
+  createPlaybackId: async (assetId, opts) => {
+    const row = await createPlaybackIdForAsset(assetId, {
+      policy: opts.policy as 'public' | 'signed' | undefined,
+      name: opts.name,
+    });
+    if (!row) return null;
+    return {
+      id: row.id,
+      playbackId: row.playbackId,
+      policy: row.policy,
+      name: row.name,
+      createdAt: row.createdAt,
+    };
+  },
+
+  listPlaybackIds: async (assetId) => {
+    const rows = await listPlaybackIdsByAsset(assetId);
+    return rows.map((r) => ({
+      id: r.id,
+      playbackId: r.playbackId,
+      policy: r.policy,
+      name: r.name,
+      createdAt: r.createdAt,
+    }));
+  },
+
+  deletePlaybackId: async (playbackId) => {
+    return deletePlaybackIdByPublicId(playbackId);
+  },
+
+  // ── ReconciliationRouteDeps ──
+  getLatestRun: async () => {
+    const run = await getLatestReconciliationRun();
+    if (!run) return null;
+    return {
+      id: run.id,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+      status: run.status,
+      dbObjectCount: run.dbObjectCount,
+      indexerObjectCount: run.indexerObjectCount,
+      inSyncCount: run.inSyncCount,
+      orphanCount: run.orphanCount,
+      missingCount: run.missingCount,
+      orphanedIds: run.orphanedIds,
+      missingIds: run.missingIds,
+      createdAt: run.createdAt,
+    };
+  },
+
+  triggerRun: async () => {
+    await triggerReconciliation();
   },
 
   generateSignedUrl: async (manifestObjectId, expiresIn) => {
@@ -634,6 +723,16 @@ app.use((_req: Request, res: Response) => {
 // ── Error Handling Middleware ──
 
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  // A malformed path param that reaches a `uuid`/typed column makes Postgres
+  // raise SQLSTATE 22P02 (invalid_text_representation). That is a bad request,
+  // not a server fault — map it to 400 with a clean message instead of leaking
+  // a 500 + driver error. Applies uniformly to every id route.
+  const pgCode = (err as unknown as { code?: string }).code;
+  if (pgCode === '22P02') {
+    res.status(400).json({ error: 'Invalid identifier format' });
+    return;
+  }
+
   const statusCode = (err as unknown as { statusCode?: number }).statusCode ?? 500;
   const isProduction = process.env.NODE_ENV === 'production';
 
@@ -698,6 +797,11 @@ bootstrapApiKey().catch((err) => {
   logger.warn({ err }, 'Failed to seed bootstrap API key (non-fatal)');
 });
 
+// Register the periodic reconciliation sweep (non-fatal if Redis is down).
+scheduleReconciliation().catch((err) => {
+  logger.warn({ err }, 'Failed to schedule reconciliation sweep (non-fatal)');
+});
+
 const server = app.listen(env.PORT, env.HOST, () => {
   logger.info(
     { host: env.HOST, port: env.PORT },
@@ -720,7 +824,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   try {
     // Close workers first (stop processing new jobs)
     logger.info('Closing queue workers...');
-    await closeWorkers();
+    await Promise.all([closeWorkers(), closeReconcileWorker()]);
 
     // Close queue connections
     logger.info('Closing queue connections...');
