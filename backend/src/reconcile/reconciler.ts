@@ -25,7 +25,9 @@ export interface ReconciliationSummary {
   orphanedIds: string[];
   /** Ids tracked in the DB but absent from the indexer. */
   missingIds: string[];
-  status: 'ok' | 'drift';
+  status: 'ok' | 'drift' | 'failed';
+  /** Set when status is 'failed': why the run could not complete. */
+  errorMessage?: string;
 }
 
 export interface ReconcileDeps {
@@ -44,6 +46,38 @@ export async function runReconciliation(
 ): Promise<ReconciliationSummary> {
   const startedAt = deps.now();
 
+  try {
+    return await reconcileOnce(deps, startedAt);
+  } catch (err) {
+    // Persist the failure. Without this, an ongoing indexer or database
+    // outage leaves no row at all in reconciliation_runs, so the drift
+    // report looks merely stale rather than broken.
+    const failure: ReconciliationSummary = {
+      startedAt,
+      finishedAt: deps.now(),
+      dbObjectCount: 0,
+      indexerObjectCount: 0,
+      inSyncCount: 0,
+      orphanCount: 0,
+      missingCount: 0,
+      orphanedIds: [],
+      missingIds: [],
+      status: 'failed',
+      errorMessage: err instanceof Error ? err.message : String(err),
+    };
+    try {
+      await deps.recordRun(failure);
+    } catch {
+      // Bookkeeping must never mask the original cause.
+    }
+    throw err;
+  }
+}
+
+async function reconcileOnce(
+  deps: ReconcileDeps,
+  startedAt: Date,
+): Promise<ReconciliationSummary> {
   const [dbIds, indexerIds] = await Promise.all([
     deps.getDbObjectIds(),
     deps.getIndexerObjectIds(),

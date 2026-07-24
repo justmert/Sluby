@@ -54,6 +54,32 @@ describe('runReconciliation', () => {
     expect(deps.recordRun).toHaveBeenCalledWith(summary);
   });
 
+  it('records a failed run when the indexer is unreachable, then rethrows', async () => {
+    const boom = new Error('indexd unreachable');
+    const deps = makeDeps({
+      getIndexerObjectIds: vi.fn().mockRejectedValue(boom),
+    });
+
+    await expect(runReconciliation(deps)).rejects.toThrow('indexd unreachable');
+
+    // The failure must be persisted, otherwise an ongoing outage is invisible
+    // in reconciliation_runs and only shows up in ephemeral logs.
+    expect(deps.recordRun).toHaveBeenCalledTimes(1);
+    const recorded = vi.mocked(deps.recordRun).mock.calls[0][0];
+    expect(recorded.status).toBe('failed');
+    expect(recorded.errorMessage).toBe('indexd unreachable');
+  });
+
+  it('still rethrows if persisting the failed run also fails', async () => {
+    const deps = makeDeps({
+      getIndexerObjectIds: vi.fn().mockRejectedValue(new Error('indexer down')),
+      recordRun: vi.fn().mockRejectedValue(new Error('db down')),
+    });
+
+    // The original cause must survive, not be masked by the bookkeeping error.
+    await expect(runReconciliation(deps)).rejects.toThrow('indexer down');
+  });
+
   it('accepts an array from getIndexerObjectIds as well as a Set', async () => {
     const deps = makeDeps({
       getIndexerObjectIds: vi.fn().mockResolvedValue(['a', 'b', 'c']),

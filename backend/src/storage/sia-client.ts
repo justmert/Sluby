@@ -501,20 +501,8 @@ export async function getWalletAddress(): Promise<string | null> {
   }
 }
 
-/**
- * Build a public URL the browser can use to fetch this object back from
- * us. The bytes flow through our delivery gateway (which proxies into
- * the SDK), so callers always hit the same host they already trust.
- */
-export async function shareObject(
-  objectId: string,
-  expiresAt: Date,
-): Promise<string> {
-  const base = env.PUBLIC_URL.replace(/\/$/, '');
-  const url = `${base}/v1/objects/${encodeURIComponent(objectId)}?expires=${Math.floor(expiresAt.getTime() / 1000)}`;
-  logger.info(
-    { objectId, expiresAt: expiresAt.toISOString() },
-    'Object share URL generated',
-  );
-  return url;
-}
+// NOTE: signed playback URLs are built in delivery/signed-url.ts, which
+// HMACs the object id together with its expiry so the gateway can verify
+// them. An earlier helper here produced an `?expires=` URL with no
+// signature and nothing enforcing the expiry, which only looked like access
+// control; it was removed rather than left as a false guarantee.

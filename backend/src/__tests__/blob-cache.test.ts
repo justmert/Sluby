@@ -1,3 +1,19 @@
+/**
+ * blob-manager.ts holds its two LRU caches and its hit/miss counters as
+ * module-level singletons, and deliberately exposes no reset API. That means
+ * cache state LEAKS ACROSS EVERY TEST IN THIS FILE (and would leak across
+ * files if another one imported the module).
+ *
+ * Consequences you must respect when adding cases here:
+ *   1. Every object id used below must be GLOBALLY UNIQUE within its cache
+ *      namespace, or a "first access" will unexpectedly be a HIT. The one
+ *      intentional exception is the namespace-separation test, which reuses
+ *      an id precisely because the object and manifest caches are distinct.
+ *   2. `getCacheStats().hits` / `.misses` are cumulative and monotonic for
+ *      the whole run, so assert on the DELTA around an action, never on an
+ *      absolute value.
+ * Do not "fix" this by adding a reset export to the source.
+ */
 import { describe, it, expect, vi } from 'vitest';
 import {
   getCachedObject,
@@ -76,9 +92,54 @@ describe('warmObjects', () => {
 });
 
 describe('getCacheStats', () => {
-  it('exposes cumulative hit and miss counters', async () => {
-    const stats = getCacheStats();
-    expect(typeof stats.hits).toBe('number');
-    expect(typeof stats.misses).toBe('number');
+  it('increments misses by exactly 1 on a MISS and hits by exactly 1 on a HIT', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Uint8Array([4, 2]));
+    const before = getCacheStats();
+
+    // Exactly one MISS on an id no other test in this file uses.
+    const miss = await getCachedObject('stats-delta-1', { fetch });
+    expect(miss.status).toBe('MISS');
+
+    const afterMiss = getCacheStats();
+    expect(afterMiss.misses).toBe(before.misses + 1);
+    expect(afterMiss.hits).toBe(before.hits);
+
+    // ...followed by exactly one HIT on the same id.
+    const hit = await getCachedObject('stats-delta-1', { fetch });
+    expect(hit.status).toBe('HIT');
+
+    const afterHit = getCacheStats();
+    expect(afterHit.hits).toBe(before.hits + 1);
+    expect(afterHit.misses).toBe(before.misses + 1);
+
+    // The HIT must have been served from RAM, not re-fetched.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts a manifest-namespace read against the same counters', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Uint8Array([1]));
+    const before = getCacheStats();
+
+    await getCachedObject('stats-delta-manifest-1', { isManifest: true, fetch });
+    await getCachedObject('stats-delta-manifest-1', { isManifest: true, fetch });
+
+    const after = getCacheStats();
+    expect(after.misses).toBe(before.misses + 1);
+    expect(after.hits).toBe(before.hits + 1);
+  });
+
+  it('reports per-namespace item counts and the configured max size', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4, 5]));
+    const before = getCacheStats();
+
+    await getCachedObject('stats-items-obj-1', { fetch });
+    await getCachedObject('stats-items-man-1', { isManifest: true, fetch });
+
+    const after = getCacheStats();
+    expect(after.object.items).toBe(before.object.items + 1);
+    expect(after.manifest.items).toBe(before.manifest.items + 1);
+    // The object cache is byte-bounded and tracks the size it has admitted.
+    expect(after.object.size).toBe((before.object.size ?? 0) + 5);
+    expect(after.object.maxSize).toBeGreaterThan(0);
   });
 });

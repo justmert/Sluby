@@ -139,7 +139,9 @@ const envSchema = z.object({
   GITHUB_CLIENT_SECRET: z.string().optional(),
 
   /** Comma-separated list of GitHub usernames allowed into the Studio.
-   *  Empty/unset means no one (locks the UI entirely). Case-insensitive. */
+   *  When empty, Studio sign-in is OPEN to any GitHub account (each signer
+   *  gets their own isolated tenant); the server logs a warning at startup
+   *  in that case. Set it to lock the Studio down. Case-insensitive. */
   GITHUB_ALLOWED_USERS: z.string().default(''),
 
   /** HMAC secret for signing session cookies. Must be set in production;

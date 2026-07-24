@@ -182,7 +182,12 @@ export async function transcode(
           const centiseconds = parseInt(timeMatch[4], 10);
           const currentMs = (hours * 3600 + minutes * 60 + seconds) * 1000 + centiseconds * 10;
           const percent = Math.min(100, Math.round((currentMs / probe.durationMs) * 100));
-          options.onProgress(percent);
+          // onProgress is async (it writes job progress to the DB). Without a
+          // catch, a rejected update becomes an unhandled rejection on every
+          // ffmpeg progress tick; progress reporting must never kill the job.
+          void Promise.resolve(options.onProgress(percent)).catch((err) => {
+            logger.warn({ err }, 'Progress callback failed');
+          });
         }
       }
     });

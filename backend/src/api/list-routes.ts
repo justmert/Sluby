@@ -13,6 +13,8 @@ export interface RouteInfo {
   method: string;
   /** Path with params normalized to `:param`, e.g. `/assets/:param`. */
   path: string;
+  /** The scope enforced by this route's `requireScope` guard, if any. */
+  requiredScope?: string;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,11 +47,17 @@ export function listRoutes(router: AnyLayer, base = ''): RouteInfo[] {
     if (layer.route) {
       const routePath: string = layer.route.path ?? '';
       const methods: Record<string, boolean> = layer.route.methods ?? {};
+      // requireScope tags its middleware, so the enforced scope can be read
+      // straight off the route's handler chain.
+      const handlers: AnyLayer[] = layer.route.stack ?? [];
+      const scoped = handlers.find((h: AnyLayer) => h?.handle?.requiredScope);
+      const requiredScope: string | undefined = scoped?.handle?.requiredScope;
       for (const method of Object.keys(methods)) {
         if (!methods[method] || method === '_all') continue;
         out.push({
           method: method.toUpperCase(),
           path: canonicalPath(base + routePath),
+          ...(requiredScope ? { requiredScope } : {}),
         });
       }
     } else if (layer.name === 'router' && layer.handle?.stack) {

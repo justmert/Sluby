@@ -67,6 +67,33 @@ describe('OpenAPI drift guard', () => {
     ).toEqual([]);
   });
 
+  it("documents each route's required scope exactly as the code enforces it", () => {
+    const api = createApiRouter(stub);
+    const routes = listRoutes(api, '/api/v1');
+
+    const mismatches: string[] = [];
+    for (const route of routes) {
+      const pathItem = Object.entries(openapiDocument.paths).find(
+        ([p]) => canonicalPath(p) === route.path,
+      )?.[1] as Record<string, { 'x-required-scope'?: string }> | undefined;
+      const op = pathItem?.[route.method.toLowerCase()];
+      if (!op) continue;
+
+      const documented = op['x-required-scope'];
+      const enforced = route.requiredScope;
+      if (documented !== enforced) {
+        mismatches.push(
+          `${route.method} ${route.path}: spec says ${documented ?? '(none)'}, code enforces ${enforced ?? '(none)'}`,
+        );
+      }
+    }
+
+    expect(
+      mismatches,
+      `openapi x-required-scope disagrees with requireScope():\n${mismatches.join('\n')}`,
+    ).toEqual([]);
+  });
+
   it('has no phantom paths (every documented route exists)', () => {
     const mounted = mountedRouteKeys();
     const spec = specRouteKeys();

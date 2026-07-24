@@ -93,16 +93,30 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   router.post('/keys', requireScope('manage'), async (req: Request, res: Response) => {
     const { name, scopes, rate_limit } = req.body;
 
-    if (!name) {
+    if (!name || typeof name !== 'string') {
       res.status(400).json({ error: 'Name is required' });
       return;
     }
 
     const validScopes = ['upload', 'read', 'manage'];
     const requestedScopes = scopes ?? ['upload', 'read'];
+    // Guard the type before filtering: a non-array `scopes` (e.g. a bare
+    // string) would otherwise throw on .filter and surface as a 500.
+    if (!Array.isArray(requestedScopes)) {
+      res.status(400).json({ error: 'scopes must be an array of strings' });
+      return;
+    }
     const invalidScopes = requestedScopes.filter((s: string) => !validScopes.includes(s));
     if (invalidScopes.length > 0) {
       res.status(400).json({ error: `Invalid scopes: ${invalidScopes.join(', ')}` });
+      return;
+    }
+
+    // rate_limit reaches an integer DB column, so reject junk up front
+    // rather than letting Postgres raise a 500.
+    const rateLimit = rate_limit ?? 100;
+    if (!Number.isInteger(rateLimit) || rateLimit <= 0) {
+      res.status(400).json({ error: 'rate_limit must be a positive integer' });
       return;
     }
 
@@ -112,7 +126,7 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       keyHash: hash,
       name,
       scopes: requestedScopes,
-      rateLimit: rate_limit ?? 100,
+      rateLimit,
       creatorAddress: req.apiKey!.creatorAddress,
     });
 

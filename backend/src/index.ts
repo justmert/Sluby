@@ -15,6 +15,7 @@ import { closeWorkers } from './queue/processors.js';
 import { createApiRouter, type ApiRouterDeps } from './api/router.js';
 import { createTusServer, type TusServerDeps } from './upload/tus-server.js';
 import { isTusRequest } from './upload/tus-dispatch.js';
+import { buildSignedObjectQuery } from './delivery/signed-url.js';
 import { deliveryRouter } from './delivery/aggregator.js';
 import { registry, getMetrics } from './metrics/collector.js';
 
@@ -281,7 +282,10 @@ const tusServerDeps: TusServerDeps = {
       fileSize: data.fileSize,
       metadata: data.metadata,
       videoAssetId: videoAsset.id,
-      uploadBaseUrl: `http://${env.HOST === '0.0.0.0' ? 'localhost' : env.HOST}:${env.PORT}`,
+      // The upload URL is handed to a browser, so it must be the public
+      // origin. Deriving it from HOST/PORT hardcodes http:// and the
+      // internal port, which breaks behind TLS or a reverse proxy.
+      uploadBaseUrl: env.PUBLIC_URL.replace(/\/$/, ''),
     });
 
     return {
@@ -393,7 +397,10 @@ const apiRouterDeps: ApiRouterDeps = {
         accessTier: params.accessTier,
       },
       videoAssetId: videoAsset.id,
-      uploadBaseUrl: `http://${env.HOST === '0.0.0.0' ? 'localhost' : env.HOST}:${env.PORT}`,
+      // The upload URL is handed to a browser, so it must be the public
+      // origin. Deriving it from HOST/PORT hardcodes http:// and the
+      // internal port, which breaks behind TLS or a reverse proxy.
+      uploadBaseUrl: env.PUBLIC_URL.replace(/\/$/, ''),
     });
 
     return {
@@ -587,6 +594,7 @@ const apiRouterDeps: ApiRouterDeps = {
       missingCount: run.missingCount,
       orphanedIds: run.orphanedIds,
       missingIds: run.missingIds,
+      errorMessage: run.errorMessage,
       createdAt: run.createdAt,
     };
   },
@@ -596,10 +604,17 @@ const apiRouterDeps: ApiRouterDeps = {
   },
 
   generateSignedUrl: async (manifestObjectId, expiresIn) => {
-    const { shareObject } = await import('./storage/sia-client.js');
-    const expiresAt = new Date(Date.now() + expiresIn * 1000);
-    const signedUrl = await shareObject(manifestObjectId, expiresAt);
-    return { signedUrl, expiresAt: expiresAt.toISOString() };
+    // A real capability URL: HMAC over (objectId, expiry) that the delivery
+    // gateway verifies before serving a private object's bytes.
+    const expiresAtSec = Math.floor(Date.now() / 1000) + expiresIn;
+    const query = buildSignedObjectQuery(
+      manifestObjectId,
+      expiresAtSec,
+      env.SESSION_SECRET,
+    );
+    const base = env.PUBLIC_URL.replace(/\/$/, '');
+    const signedUrl = `${base}/v1/objects/${encodeURIComponent(manifestObjectId)}?type=manifest&${query}`;
+    return { signedUrl, expiresAt: new Date(expiresAtSec * 1000).toISOString() };
   },
 
   // ── WebhookRouteDeps ──
@@ -791,6 +806,14 @@ async function bootstrapApiKey(): Promise<void> {
 bootstrapApiKey().catch((err) => {
   logger.warn({ err }, 'Failed to seed bootstrap API key (non-fatal)');
 });
+
+// Make an open Studio explicit rather than a silent default.
+if (!env.AUTH_DISABLED && env.GITHUB_ALLOWED_USERS.trim() === '') {
+  logger.warn(
+    'GITHUB_ALLOWED_USERS is empty: Studio sign-in is open to any GitHub account. ' +
+      'Set GITHUB_ALLOWED_USERS to restrict it.',
+  );
+}
 
 // Register the periodic reconciliation sweep (non-fatal if Redis is down).
 scheduleReconciliation().catch((err) => {

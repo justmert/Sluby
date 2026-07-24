@@ -24,7 +24,6 @@
     "drizzle-orm": "^0.39.0",
     "express": "^4.21.0",
     "express-async-errors": "^3.1.1",
-    "ioredis": "^5.4.0",
     "lru-cache": "^11.0.0",
     "nanoid": "^5.0.0",
     "pino": "^9.6.0",

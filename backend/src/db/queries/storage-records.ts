@@ -1,11 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import {
-  renditions,
-  artifacts,
-  type Rendition,
-  type Artifact,
-} from '../schema.js';
+import { renditions, artifacts } from '../schema.js';
 import {
   resolveArtifactRows,
   type StorageRecords,
@@ -58,23 +53,5 @@ export async function persistStorageRecords(
     if (rows.length > 0) {
       await tx.insert(artifacts).values(rows);
     }
-  });
-}
-
-/** All renditions for an asset (quality-level metadata + object ids). */
-export async function getRenditionsByVideoAssetId(
-  videoAssetId: string,
-): Promise<Rendition[]> {
-  return db.query.renditions.findMany({
-    where: eq(renditions.videoAssetId, videoAssetId),
-  });
-}
-
-/** Every stored Sia object for an asset, with its role and rendition link. */
-export async function getArtifactsByVideoAssetId(
-  videoAssetId: string,
-): Promise<Artifact[]> {
-  return db.query.artifacts.findMany({
-    where: eq(artifacts.videoAssetId, videoAssetId),
   });
 }

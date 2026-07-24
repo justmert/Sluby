@@ -8,6 +8,7 @@ import {
   timestamp,
   jsonb,
   pgEnum,
+  index,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -65,6 +66,7 @@ export const playbackPolicyEnum = pgEnum('playback_policy', [
 export const reconcileStatusEnum = pgEnum('reconcile_status', [
   'ok',
   'drift',
+  'failed',
 ]);
 
 // ──────────────────────────────────────────
@@ -129,7 +131,13 @@ export const videoAssets = pgTable('video_assets', {
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => [
+  // Every by-id API lookup is now owner-scoped, and listing filters on it.
+  index('video_assets_creator_address_idx').on(t.creatorAddress),
+  index('video_assets_status_idx').on(t.status),
+  // Matches the listing's stable sort key (createdAt desc, id desc).
+  index('video_assets_created_at_id_idx').on(t.createdAt, t.id),
+]);
 
 /**
  * processing_jobs represents transcoding/upload/finalization jobs.
@@ -158,7 +166,10 @@ export const processingJobs = pgTable('processing_jobs', {
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => [
+  index('processing_jobs_video_asset_id_idx').on(t.videoAssetId),
+  index('processing_jobs_upload_session_id_idx').on(t.uploadSessionId),
+]);
 
 /**
  * renditions stores one row per quality level produced for an asset
@@ -181,7 +192,7 @@ export const renditions = pgTable('renditions', {
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => [index('renditions_video_asset_id_idx').on(t.videoAssetId)]);
 
 /**
  * artifacts is the authoritative mapping between every stored Sia Object
@@ -203,7 +214,12 @@ export const artifacts = pgTable('artifacts', {
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => [
+  index('artifacts_video_asset_id_idx').on(t.videoAssetId),
+  index('artifacts_rendition_id_idx').on(t.renditionId),
+  // The delivery gateway resolves an object's access tier by object id.
+  index('artifacts_object_id_idx').on(t.objectId),
+]);
 
 /**
  * playback_ids are public, rotatable handles that map to a video asset.
@@ -222,7 +238,7 @@ export const playbackIds = pgTable('playback_ids', {
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => [index('playback_ids_video_asset_id_idx').on(t.videoAssetId)]);
 
 /**
  * reconciliation_runs records each pass of the background worker that
@@ -242,6 +258,8 @@ export const reconciliationRuns = pgTable('reconciliation_runs', {
   missingCount: integer('missing_count').notNull().default(0),
   orphanedIds: jsonb('orphaned_ids').$type<string[]>().notNull().default([]),
   missingIds: jsonb('missing_ids').$type<string[]>().notNull().default([]),
+  /** Populated when status is 'failed' so outages are visible, not just logged. */
+  errorMessage: text('error_message'),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -264,7 +282,7 @@ export const apiKeys = pgTable('api_keys', {
     .notNull()
     .defaultNow(),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
-});
+}, (t) => [index('api_keys_creator_address_idx').on(t.creatorAddress)]);
 
 /**
  * webhook_endpoints stores registered webhook URLs for a given API key.
@@ -282,7 +300,7 @@ export const webhookEndpoints = pgTable('webhook_endpoints', {
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => [index('webhook_endpoints_api_key_id_idx').on(t.apiKeyId)]);
 
 /**
  * webhook_deliveries logs every webhook delivery attempt.

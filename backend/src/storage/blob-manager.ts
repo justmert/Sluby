@@ -115,8 +115,3 @@ export function getCacheStats() {
     misses,
   };
 }
-
-export function invalidateObject(objectId: string): void {
-  objectCache.delete(objectId);
-  manifestCache.delete(objectId);
-}

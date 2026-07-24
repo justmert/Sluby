@@ -189,18 +189,19 @@ export function createAuthRoutes(): Router {
       const accessToken = await exchangeCodeForToken(code);
       const user = await fetchGithubUser(accessToken);
 
-      // Studio sign-in is OPEN to any authenticated GitHub account while
-      // the project is being reviewed. To re-enable the allowlist, set
-      // GITHUB_ALLOWED_USERS in .env and uncomment the block below.
-      //
-      // const allowed = getAllowedUsers();
-      // if (allowed.size === 0 || !allowed.has(user.login.toLowerCase())) {
-      //   logger.warn({ login: user.login }, 'GitHub user not in allowlist');
-      //   res.status(403).send(
-      //     `Access denied: GitHub user "${user.login}" is not on the Studio allowlist.`,
-      //   );
-      //   return;
-      // }
+      // Allowlist enforcement is a runtime setting rather than commented-out
+      // code: when GITHUB_ALLOWED_USERS lists any logins, only those may sign
+      // in. Leaving it empty keeps sign-in open, which is what the public
+      // review deployment wants; startup logs a warning in that case so an
+      // open Studio is never a silent surprise.
+      const allowed = getAllowedUsers();
+      if (allowed.size > 0 && !allowed.has(user.login.toLowerCase())) {
+        logger.warn({ login: user.login }, 'GitHub user not in allowlist');
+        res.status(403).send(
+          `Access denied: GitHub user "${user.login}" is not on the Studio allowlist.`,
+        );
+        return;
+      }
 
       const token = signSession(user.login, env.SESSION_SECRET);
       const setCookies = [

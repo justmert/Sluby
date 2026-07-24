@@ -5,6 +5,9 @@ import {
   getObject,
 } from '../storage/sia-client.js';
 import { contentTypeForHint } from './content-type.js';
+import { getObjectAccessTier } from './access-control.js';
+import { verifyObjectAccess } from './signed-url.js';
+import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 
 export const deliveryRouter = Router();
@@ -44,7 +47,7 @@ const COMMON_CORS = {
   'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
 } as const;
 
-function isManifestContent(data: Uint8Array): boolean {
+export function isManifestContent(data: Uint8Array): boolean {
   return data.length > 7 && data[0] === 0x23 && data[1] === 0x45;
 }
 
@@ -53,7 +56,7 @@ function isManifestContent(data: Uint8Array): boolean {
  * Covers the image formats we produce for thumbnails (JPEG, PNG, WebP,
  * GIF). Returns `application/octet-stream` as a safe fallback.
  */
-function detectBinaryContentType(data: Uint8Array): string {
+export function detectBinaryContentType(data: Uint8Array): string {
   if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
     return 'image/jpeg';
   }
@@ -102,21 +105,57 @@ interface ParsedRange {
 }
 
 /**
- * Parse `Range: bytes=start-end` (end optional). Returns null for
- * absent/unparseable headers; returns `'unsatisfiable'` if the range
- * lies outside [0, totalLength).
+ * Parse a single-range `Range` header against a known object size.
+ *
+ * Supported forms (RFC 7233 byte-range-spec):
+ *   bytes=N-M   explicit window
+ *   bytes=N-    from N to the end
+ *   bytes=-N    the LAST N bytes (suffix range)
+ *
+ * Returns `null` when the header is absent or must be ignored (an invalid
+ * spec such as first-byte-pos > last-byte-pos, or a multi-range request we
+ * do not serve), in which case the caller falls back to a normal 200.
+ * Returns `'unsatisfiable'` when the range starts beyond the object, which
+ * must be answered with 416.
+ *
+ * Exported for testing: this arithmetic decides exactly which bytes a
+ * player receives, so it is worth pinning down directly.
  */
-function parseRange(
+export function parseRange(
   header: string | undefined,
   totalLength: number,
 ): ParsedRange | 'unsatisfiable' | null {
   if (!header) return null;
+
+  // Suffix range: the final N bytes. Previously unhandled, which silently
+  // downgraded such requests to a full-object read.
+  const suffix = header.match(/^bytes=-(\d+)$/);
+  if (suffix) {
+    const wanted = parseInt(suffix[1], 10);
+    if (!Number.isFinite(wanted) || wanted <= 0) return null;
+    if (totalLength === 0) return 'unsatisfiable';
+    const start = Math.max(0, totalLength - wanted);
+    const end = totalLength - 1;
+    return { start, end, chunkLength: end - start + 1 };
+  }
+
   const m = header.match(/^bytes=(\d+)-(\d*)$/);
-  if (!m) return null;
+  if (!m) return null; // multi-range or malformed: ignore the header
   const start = parseInt(m[1], 10);
   const end = m[2] === '' ? totalLength - 1 : parseInt(m[2], 10);
   if (Number.isNaN(start) || Number.isNaN(end)) return null;
-  if (start >= totalLength || start > end) return 'unsatisfiable';
+
+  // Order matters. An open-ended `bytes=N-` synthesizes end = totalLength-1
+  // above, so for a start at or past EOF the inverted-spec check below would
+  // also be true. Classify out-of-range FIRST, otherwise a seek past the end
+  // degrades into "ignore the header" and serves the whole object with 200
+  // instead of a cheap 416.
+  if (start >= totalLength) return 'unsatisfiable';
+
+  // A genuinely inverted spec (e.g. bytes=50-10) is an invalid header, which
+  // RFC 7233 says to ignore rather than reject, so this is null.
+  if (start > end) return null;
+
   const cappedEnd = Math.min(end, totalLength - 1);
   return { start, end: cappedEnd, chunkLength: cappedEnd - start + 1 };
 }
@@ -235,6 +274,27 @@ deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) 
   const hint = req.query.type as string | undefined;
 
   try {
+    // Objects belonging to a private asset require a valid, unexpired signed
+    // URL. Public objects stay open so plain hls.js playback works.
+    const tier = await getObjectAccessTier(objectId);
+    if (tier === 'private') {
+      const check = verifyObjectAccess(
+        objectId,
+        req.query.expires as string | undefined,
+        req.query.sig as string | undefined,
+        env.SESSION_SECRET,
+        Math.floor(Date.now() / 1000),
+      );
+      if (!check.ok) {
+        logger.warn({ objectId, reason: check.reason }, 'Rejected private object request');
+        res.status(403).set(COMMON_CORS).json({
+          error: 'This object requires a valid signed URL',
+          reason: check.reason,
+        });
+        return;
+      }
+    }
+
     if (rangeHeader) {
       await serveRange(req, res, objectId, rangeHeader);
     } else {

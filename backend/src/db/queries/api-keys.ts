@@ -39,17 +39,6 @@ export async function createApiKey(
 }
 
 /**
- * Find an API key by its primary key UUID.
- */
-export async function getApiKeyById(
-  id: string,
-): Promise<ApiKey | undefined> {
-  return db.query.apiKeys.findFirst({
-    where: eq(apiKeys.id, id),
-  });
-}
-
-/**
  * Look up an API key by its SHA-256 hash.
  * This is the primary lookup path for authentication middleware.
  */
@@ -123,37 +112,6 @@ export async function listApiKeys(opts?: {
 }
 
 /**
- * Update an API key (name, scopes, rate limit, active status).
- */
-export async function updateApiKey(
-  id: string,
-  data: Partial<
-    Pick<ApiKey, 'name' | 'scopes' | 'rateLimit' | 'isActive' | 'expiresAt'>
-  >,
-): Promise<ApiKey | undefined> {
-  const [updated] = await db
-    .update(apiKeys)
-    .set(data)
-    .where(eq(apiKeys.id, id))
-    .returning();
-  return updated;
-}
-
-/**
- * Deactivate (soft-delete) an API key.
- */
-export async function deactivateApiKey(
-  id: string,
-): Promise<ApiKey | undefined> {
-  const [updated] = await db
-    .update(apiKeys)
-    .set({ isActive: false })
-    .where(eq(apiKeys.id, id))
-    .returning();
-  return updated;
-}
-
-/**
  * Permanently delete an API key.
  *
  * `owner` constrains the delete to the caller's `creatorAddress` so one
@@ -173,11 +131,4 @@ export async function deleteApiKey(
     )
     .returning();
   return deleted;
-}
-
-/**
- * Check whether a given scope is included in the key's scopes array.
- */
-export function hasScope(apiKey: ApiKey, scope: string): boolean {
-  return apiKey.scopes.includes(scope) || apiKey.scopes.includes('*');
 }

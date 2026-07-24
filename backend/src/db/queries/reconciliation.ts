@@ -23,6 +23,7 @@ export async function recordReconciliationRun(
     missingCount: summary.missingCount,
     orphanedIds: summary.orphanedIds,
     missingIds: summary.missingIds,
+    errorMessage: summary.errorMessage ?? null,
   });
 }
 

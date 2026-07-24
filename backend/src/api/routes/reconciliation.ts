@@ -14,6 +14,7 @@ export interface ReconciliationRunRecord {
   missingCount: number;
   orphanedIds: string[];
   missingIds: string[];
+  errorMessage?: string | null;
   createdAt: Date;
 }
 
@@ -36,6 +37,7 @@ function formatRun(r: ReconciliationRunRecord) {
     missing_count: r.missingCount,
     orphaned_ids: r.orphanedIds,
     missing_ids: r.missingIds,
+    error_message: r.errorMessage ?? null,
     created_at: r.createdAt.toISOString(),
   };
 }

@@ -200,7 +200,7 @@ export const openapiDocument = {
           id: { type: 'string', format: 'uuid' },
           started_at: { type: 'string', format: 'date-time' },
           finished_at: { type: 'string', format: 'date-time' },
-          status: { type: 'string', enum: ['ok', 'drift'] },
+          status: { type: 'string', enum: ['ok', 'drift', 'failed'] },
           db_object_count: { type: 'integer' },
           indexer_object_count: { type: 'integer' },
           in_sync_count: { type: 'integer' },
@@ -208,6 +208,7 @@ export const openapiDocument = {
           missing_count: { type: 'integer' },
           orphaned_ids: { type: 'array', items: { type: 'string' } },
           missing_ids: { type: 'array', items: { type: 'string' } },
+          error_message: { type: ['string', 'null'] },
           created_at: { type: 'string', format: 'date-time' },
         },
       },
@@ -367,7 +368,7 @@ export const openapiDocument = {
     // ── Webhooks ──
     '/api/v1/webhooks': {
       post: { tags: ['Webhooks'], summary: 'Register a webhook endpoint.', 'x-required-scope': 'manage', requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { url: { type: 'string' }, events: { type: 'array', items: { type: 'string' } } }, required: ['url'] } } } }, responses: { '201': { description: 'Created.' }, '400': errorResponse } },
-      get: { tags: ['Webhooks'], summary: 'List webhook endpoints.', 'x-required-scope': 'manage', responses: { '200': { description: 'Endpoints.' } } },
+      get: { tags: ['Webhooks'], summary: 'List webhook endpoints.', 'x-required-scope': 'read', responses: { '200': { description: 'Endpoints.' } } },
     },
     '/api/v1/webhooks/{id}': {
       delete: { tags: ['Webhooks'], summary: 'Delete a webhook endpoint.', 'x-required-scope': 'manage', parameters: [idParam('id', 'Endpoint id.')], responses: { '200': { description: 'Deleted.' } } },

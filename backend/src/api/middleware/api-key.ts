@@ -116,11 +116,19 @@ export function createApiKeyMiddleware(deps: ApiKeyMiddlewareDeps) {
   };
 }
 
+/** A scope-guard middleware, tagged with the scope it enforces. */
+export interface ScopedMiddleware {
+  (req: Request, res: Response, next: NextFunction): void;
+  /** The scope this guard requires. Read by the OpenAPI drift test so the
+   *  spec's `x-required-scope` cannot silently disagree with the code. */
+  requiredScope?: string;
+}
+
 /**
  * Middleware that checks if the API key has the required scope.
  */
-export function requireScope(scope: string) {
-  return (req: Request, res: Response, next: NextFunction) => {
+export function requireScope(scope: string): ScopedMiddleware {
+  const middleware: ScopedMiddleware = (req: Request, res: Response, next: NextFunction) => {
     if (!req.apiKey) {
       res.status(401).json({ error: 'Authentication required' });
       return;
@@ -133,4 +141,7 @@ export function requireScope(scope: string) {
 
     next();
   };
+
+  middleware.requiredScope = scope;
+  return middleware;
 }
