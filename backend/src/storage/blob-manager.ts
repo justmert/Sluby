@@ -1,8 +1,12 @@
 import { downloadObject } from './sia-client.js';
 import { LRUCache } from 'lru-cache';
 import { logger } from '../config/logger.js';
+import { env } from '../config/env.js';
 
-const CACHE_MAX_SIZE = parseInt(process.env.CACHE_MAX_SIZE_MB ?? '1024', 10) * 1024 * 1024;
+// Bound the object cache to the validated config value, so this stays a
+// single source of truth with env.ts and .env.example (default 10240 MB)
+// instead of re-reading process.env with a second, divergent default.
+const CACHE_MAX_SIZE = env.CACHE_MAX_SIZE_MB * 1024 * 1024;
 
 /** In-memory LRU cache for hot objects */
 const objectCache = new LRUCache<string, Uint8Array>({
