@@ -49,7 +49,7 @@ describe('asset routes', () => {
       listAssets: vi.fn().mockResolvedValue({ data: [], total: 0 }),
       getAsset: vi.fn().mockResolvedValue(null),
       updateAsset: vi.fn().mockResolvedValue(null),
-      deleteAsset: vi.fn().mockResolvedValue(undefined),
+      deleteAsset: vi.fn().mockResolvedValue(true),
       getProcessingJob: vi.fn().mockResolvedValue(undefined),
       retryAsset: vi.fn().mockResolvedValue({ stage: 'upload-segments' }),
     };
@@ -189,6 +189,34 @@ describe('asset routes', () => {
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Video asset not found');
     });
+
+    it("should scope the lookup to the caller's creator address", async () => {
+      vi.mocked(deps.getAsset).mockResolvedValue(createMockAsset());
+
+      await request(createApp()).get('/asset-1');
+
+      expect(deps.getAsset).toHaveBeenCalledWith('asset-1', '0xabc123');
+    });
+
+    it('should not scope the lookup for a platform (all-zero address) key', async () => {
+      vi.mocked(deps.getAsset).mockResolvedValue(createMockAsset());
+      const platform = { ...defaultApiKey, creatorAddress: `0x${'0'.repeat(64)}` };
+      const app = withApiKey(createTestApp(createAssetRoutes(deps)), platform);
+
+      await request(app).get('/asset-1');
+
+      // undefined owner => cross-tenant access, reserved for the platform key.
+      expect(deps.getAsset).toHaveBeenCalledWith('asset-1', undefined);
+    });
+
+    it('should hide another tenant\'s asset behind a 404', async () => {
+      // Owner-scoped lookup finds nothing because the asset belongs elsewhere.
+      vi.mocked(deps.getAsset).mockResolvedValue(null);
+
+      const res = await request(createApp()).get('/someone-elses-asset');
+
+      expect(res.status).toBe(404);
+    });
   });
 
   describe('PATCH /:id', () => {
@@ -201,11 +229,12 @@ describe('asset routes', () => {
         .send({ title: 'Updated Title', description: 'New desc' });
 
       expect(res.status).toBe(200);
-      expect(deps.updateAsset).toHaveBeenCalledWith('asset-1', {
-        title: 'Updated Title',
-        description: 'New desc',
-        accessTier: undefined,
-      });
+      // Third argument is the owner scope, derived from the caller's key.
+      expect(deps.updateAsset).toHaveBeenCalledWith(
+        'asset-1',
+        { title: 'Updated Title', description: 'New desc', accessTier: undefined },
+        '0xabc123',
+      );
     });
 
     it('should return 404 when asset not found', async () => {
@@ -237,9 +266,11 @@ describe('asset routes', () => {
         .patch('/asset-1')
         .send({ access_tier: 'private' });
 
-      expect(deps.updateAsset).toHaveBeenCalledWith('asset-1', expect.objectContaining({
-        accessTier: 'private',
-      }));
+      expect(deps.updateAsset).toHaveBeenCalledWith(
+        'asset-1',
+        expect.objectContaining({ accessTier: 'private' }),
+        '0xabc123',
+      );
     });
   });
 
@@ -249,7 +280,16 @@ describe('asset routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true });
-      expect(deps.deleteAsset).toHaveBeenCalledWith('asset-1');
+      expect(deps.deleteAsset).toHaveBeenCalledWith('asset-1', '0xabc123');
+    });
+
+    it('should return 404 when the asset is not owned by the caller', async () => {
+      // The owner-scoped delete matched no row (someone else's asset).
+      vi.mocked(deps.deleteAsset).mockResolvedValue(false);
+
+      const res = await request(createApp()).delete('/asset-1');
+
+      expect(res.status).toBe(404);
     });
 
     it('should require manage scope', async () => {

@@ -9,6 +9,7 @@ import { createWebhookRoutes, type WebhookRouteDeps } from './routes/webhooks.js
 import { createAuthRoutes } from './routes/auth.js';
 import { createApiKeyMiddleware, type ApiKeyMiddlewareDeps } from './middleware/api-key.js';
 import { rateLimiter } from './rate-limiter.js';
+import { ownerFilter } from './ownership.js';
 import { generateApiKey } from './auth.js';
 import { requireScope } from './middleware/api-key.js';
 import { getMetricsJson } from '../metrics/collector.js';
@@ -46,7 +47,8 @@ export interface ApiRouterDeps extends UploadRouteDeps, AssetRouteDeps, SiaInfoR
     isActive: boolean;
     createdAt: Date;
   }>>;
-  deleteApiKey: (id: string) => Promise<void>;
+  /** Deletes only if the key belongs to `owner`; false when it does not. */
+  deleteApiKey: (id: string, owner?: string) => Promise<boolean>;
 }
 
 export function createApiRouter(deps: ApiRouterDeps): Router {
@@ -67,10 +69,13 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     res.type('html').send(DOCS_HTML);
   });
 
-  // Apply middleware
+  // Apply middleware. Auth MUST run before the rate limiter: the limiter
+  // buckets on req.apiKey.id and honours the key's own rateLimit, so if it
+  // ran first every caller would fall back to the IP bucket and the generic
+  // default limit, silently ignoring per-key limits.
   const apiKeyMiddleware = createApiKeyMiddleware(deps);
-  router.use(rateLimiter());
   router.use(apiKeyMiddleware);
+  router.use(rateLimiter());
 
   // Mount route modules
   router.use('/uploads', createUploadRoutes(deps));
@@ -135,7 +140,15 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   });
 
   router.delete('/keys/:id', requireScope('manage'), async (req: Request, res: Response) => {
-    await deps.deleteApiKey(String(req.params.id));
+    // Scoped to the caller's tenant so one creator cannot revoke another's key.
+    const deleted = await deps.deleteApiKey(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
+    if (!deleted) {
+      res.status(404).json({ error: 'API key not found' });
+      return;
+    }
     res.json({ success: true });
   });
 

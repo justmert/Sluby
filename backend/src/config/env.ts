@@ -21,6 +21,13 @@ for (const envPath of envPaths) {
   }
 }
 
+/**
+ * Placeholder session secret used for local development only. Sessions
+ * signed with it grant full `manage` scope, so booting production with this
+ * value would let anyone forge an admin cookie. loadEnv() hard-fails on it.
+ */
+const DEV_SESSION_SECRET = 'dev-only-do-not-use-in-production-change-me';
+
 const envSchema = z.object({
   /** PostgreSQL connection string */
   DATABASE_URL: z
@@ -135,10 +142,11 @@ const envSchema = z.object({
    *  Empty/unset means no one (locks the UI entirely). Case-insensitive. */
   GITHUB_ALLOWED_USERS: z.string().default(''),
 
-  /** HMAC secret for signing session cookies. Must be set in production. */
+  /** HMAC secret for signing session cookies. Must be set in production;
+   *  loadEnv() refuses to boot with the dev default when NODE_ENV=production. */
   SESSION_SECRET: z
     .string()
-    .default('dev-only-do-not-use-in-production-change-me'),
+    .default(DEV_SESSION_SECRET),
 
   /** When set to 'true', bypasses the GitHub auth gate entirely (dev only). */
   AUTH_DISABLED: z
@@ -165,6 +173,33 @@ function loadEnv(): Env {
     console.error(messages.join('\n'));
     process.exit(1);
   }
+
+  // Refuse to run production auth on a weak or publicly-known secret. Session
+  // cookies signed with it map to a full upload+read+manage identity, so a
+  // guessable secret makes admin sessions trivially forgeable.
+  //
+  // The empty-string case matters in Docker: compose expands an unset
+  // `${SESSION_SECRET}` to "", which is NOT undefined, so zod's .default()
+  // never fires and the value would silently be the empty string.
+  const sessionSecret = result.data.SESSION_SECRET;
+  if (
+    process.env.NODE_ENV === 'production' &&
+    (sessionSecret === DEV_SESSION_SECRET || sessionSecret.trim().length < 32)
+  ) {
+    const why =
+      sessionSecret === DEV_SESSION_SECRET
+        ? 'it is still the development default'
+        : sessionSecret.trim().length === 0
+          ? 'it is empty (an unset ${SESSION_SECRET} expands to "" in docker compose)'
+          : `it is only ${sessionSecret.trim().length} characters (minimum 32)`;
+    console.error(
+      `Refusing to start: SESSION_SECRET is unsafe because ${why}, while NODE_ENV=production.\n` +
+        '  Set a strong SESSION_SECRET, e.g.\n' +
+        "  node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\"",
+    );
+    process.exit(1);
+  }
+
   return result.data;
 }
 

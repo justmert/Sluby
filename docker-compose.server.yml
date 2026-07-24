@@ -6,7 +6,7 @@
 #       runs in its own compose project. Manages contracts, accounts,
 #       and slabs across Zen-testnet hosts. Backend talks to it via
 #       the indexd application API on port 9982 and the admin API on
-#       port 9980 — both are bound to 127.0.0.1 only.
+#       port 9980. Both are bound to 127.0.0.1 only.
 #   - sluby-backend  : Node.js service. Loads sia-storage NAPI,
 #                          signs requests with a stored AppKey, and
 #                          uploads/downloads through indexd. Bound to
@@ -18,7 +18,7 @@
 # The backend container uses host networking to reach indexd on the
 # host's loopback interface (where docker-compose.sia.yml publishes
 # its ports). Postgres and Redis stay on this compose project's own
-# network — their hostnames resolve via the Docker network.
+# network, so their hostnames resolve via the Docker network.
 #
 services:
   backend:
@@ -45,6 +45,11 @@ services:
       - SIA_DATA_SHARDS=${SIA_DATA_SHARDS:-2}
       - SIA_PARITY_SHARDS=${SIA_PARITY_SHARDS:-4}
       - SIA_NETWORK=${SIA_NETWORK:-zen}
+      # backend/src/config/env.ts refuses to boot when SESSION_SECRET is still
+      # the development default and NODE_ENV=production, so this flag is what
+      # arms that check. It also switches the logger to JSON and stops error
+      # responses from leaking stack details.
+      - NODE_ENV=production
       - PORT=3000
       - HOST=0.0.0.0
       - UPLOAD_DIR=/app/uploads

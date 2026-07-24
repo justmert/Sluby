@@ -17,7 +17,8 @@ export interface WebhookRouteDeps {
     isActive: boolean;
     createdAt: Date;
   }>>;
-  deleteWebhook: (id: string) => Promise<void>;
+  /** Deletes only if the endpoint belongs to `apiKeyId`; false when it does not. */
+  deleteWebhook: (id: string, apiKeyId: string) => Promise<boolean>;
 }
 
 const VALID_EVENTS = [
@@ -93,7 +94,11 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
    * Remove a webhook endpoint.
    */
   router.delete('/:id', requireScope('manage'), async (req: Request, res: Response) => {
-    await deps.deleteWebhook(String(req.params.id));
+    // Scoped to the calling key so one caller cannot delete another's webhook.
+    const deleted = await deps.deleteWebhook(String(req.params.id), req.apiKey!.id);
+    if (!deleted) {
+      throw new AppError(404, 'Webhook endpoint not found');
+    }
     res.json({ success: true });
   });
 

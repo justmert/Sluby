@@ -182,6 +182,11 @@ const sessionManager = new SessionManager({
 
 const app = express();
 
+// The shipped stack puts nginx in front of the backend (docker-compose), so
+// trust exactly one proxy hop. Without this, req.ip is the proxy's address
+// rather than the client's, which skews request logs.
+app.set('trust proxy', 1);
+
 // ── Global Middleware ──
 
 app.use(
@@ -424,31 +429,36 @@ const apiRouterDeps: ApiRouterDeps = {
     };
   },
 
-  getAsset: async (id) => {
-    const asset = await getVideoAssetById(id);
+  getAsset: async (id, owner) => {
+    const asset = await getVideoAssetById(id, owner);
     if (!asset) return null;
     return toAssetRecord(asset);
   },
 
-  updateAsset: async (id, data) => {
-    const updated = await updateVideoAsset(id, {
-      ...(data.title !== undefined ? { title: data.title } : {}),
-      ...(data.description !== undefined ? { description: data.description } : {}),
-      ...(data.accessTier !== undefined
-        ? { accessTier: data.accessTier as 'public' | 'private' }
-        : {}),
-    });
+  updateAsset: async (id, data, owner) => {
+    const updated = await updateVideoAsset(
+      id,
+      {
+        ...(data.title !== undefined ? { title: data.title } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.accessTier !== undefined
+          ? { accessTier: data.accessTier as 'public' | 'private' }
+          : {}),
+      },
+      owner,
+    );
     if (!updated) return null;
     return toAssetRecord(updated);
   },
 
-  deleteAsset: async (id) => {
-    await deleteVideoAsset(id);
+  deleteAsset: async (id, owner) => {
+    const deleted = await deleteVideoAsset(id, owner);
+    return Boolean(deleted);
   },
 
   // ── SiaInfoRouteDeps ──
-  getAssetWithSiaIds: async (id) => {
-    const asset = await getVideoAssetById(id);
+  getAssetWithSiaIds: async (id, owner) => {
+    const asset = await getVideoAssetById(id, owner);
     if (!asset) return null;
     return {
       id: asset.id,
@@ -460,12 +470,16 @@ const apiRouterDeps: ApiRouterDeps = {
     };
   },
 
-  getProcessingJob: async (videoAssetId) => {
+  getProcessingJob: async (videoAssetId, owner) => {
+    // Confirm the asset belongs to the caller before exposing its job, so a
+    // processing record cannot be read across tenants.
+    const asset = await getVideoAssetById(videoAssetId, owner);
+    if (!asset) return undefined;
     return getProcessingJobByVideoAssetId(videoAssetId);
   },
 
-  retryAsset: async (id) => {
-    const asset = await getVideoAssetById(id);
+  retryAsset: async (id, owner) => {
+    const asset = await getVideoAssetById(id, owner);
     if (!asset) throw Object.assign(new Error('Video asset not found'), { statusCode: 404 });
     if (asset.status !== 'failed') throw Object.assign(new Error('Asset is not in failed state'), { statusCode: 400 });
 
@@ -610,8 +624,9 @@ const apiRouterDeps: ApiRouterDeps = {
     }));
   },
 
-  deleteWebhook: async (id) => {
-    await deleteWebhookEndpoint(id);
+  deleteWebhook: async (id, apiKeyId) => {
+    const deleted = await deleteWebhookEndpoint(id, apiKeyId);
+    return Boolean(deleted);
   },
 
   // ── ApiKeyMiddlewareDeps ──
@@ -654,8 +669,9 @@ const apiRouterDeps: ApiRouterDeps = {
     }));
   },
 
-  deleteApiKey: async (id) => {
-    await dbDeleteApiKey(id);
+  deleteApiKey: async (id, owner) => {
+    const deleted = await dbDeleteApiKey(id, owner);
+    return Boolean(deleted);
   },
 };
 

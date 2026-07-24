@@ -4,8 +4,8 @@
 
 Sluby takes a source video, transcodes it into adaptive HLS, stores every
 segment on the [Sia network](https://sia.tech) via the `sia-storage` SDK, and
-serves playback through a byte-range aware HTTP gateway with an on-disk cache
-in front.
+serves playback through a byte-range aware HTTP gateway with an Nginx on-disk
+proxy cache in front.
 
 ## What's in the box
 
@@ -40,8 +40,9 @@ docker compose up -d
 ```
 
 This starts the backend, PostgreSQL, Redis, and an Nginx caching proxy. The
-backend is exposed on `http://localhost:4500`; the proxy on
-`http://localhost:80`.
+backend container listens on port 3000 and `docker-compose.yml` publishes it
+as `4500:3000`, so from the host it is `http://localhost:4500`. The Nginx
+proxy is on `http://localhost:80`.
 
 ### Sia onboarding
 
@@ -71,6 +72,20 @@ Open the frontend at the URL Vite prints (defaults to
 `http://localhost:5173`). Use the studio UI to create an API key, upload a
 video, and copy its playback URL into the player page.
 
+#### Which backend port?
+
+The backend listens on a different host port depending on how you start it:
+
+| How you start it            | Backend URL on the host  | Where that comes from                                     |
+| --------------------------- | ------------------------ | --------------------------------------------------------- |
+| `docker compose up -d`      | `http://localhost:4500`  | the `4500:3000` port mapping in `docker-compose.yml`       |
+| `cd backend && npm run dev` | `http://localhost:3000`  | the `PORT` default in `backend/src/config/env.ts`, which `.env.example` also sets to 3000 |
+
+The studio frontend and the SDK snippets below default to
+`http://localhost:4500`, the Docker port. If you run the backend with
+`npm run dev` instead, either set `PORT=4500` in `.env` or point the frontend
+at the backend with `VITE_API_BASE_URL=http://localhost:3000`.
+
 ### Using the SDK
 
 ```ts
@@ -78,6 +93,8 @@ import { SlubyClient } from "@sluby/sdk";
 
 const client = new SlubyClient({
   apiKey: "sluby_your_api_key",
+  // Docker publishes the backend on 4500. A local `npm run dev` backend
+  // listens on 3000 unless you override PORT.
   baseUrl: "http://localhost:4500",
 });
 
@@ -104,7 +121,9 @@ import { SlubyPlayer } from "@sluby/react";
 
 ## API reference
 
-The REST API is described by an OpenAPI 3.1 document, served by the backend:
+The REST API is described by an OpenAPI 3.1 document, served by the backend
+(the URLs below use the Docker port 4500, so swap in 3000 for a local
+`npm run dev` backend):
 
 - Spec (JSON): `http://localhost:4500/api/v1/openapi.json`
 - Interactive docs: `http://localhost:4500/api/v1/docs`
@@ -139,7 +158,9 @@ the transcode queue.
 
 Playback path: the aggregator resolves a video asset's manifest and segment
 references from Postgres, pulls the bytes from Sia on demand (streaming byte
-ranges through), and caches them on local disk so repeat plays stay hot.
+ranges through), and keeps hot manifests and small objects in an in-memory
+LRU cache so repeat plays stay hot. The only on-disk cache is Nginx's
+`proxy_cache`, which sits in front of the aggregator.
 
 ## Project layout
 

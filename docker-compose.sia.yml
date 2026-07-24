@@ -21,7 +21,7 @@
 #
 #      Prompts and the answers for this setup:
 #        * Data directory: keep default (/data)
-#        * Admin API password: pick one (write it down — you'll use it in the UI)
+#        * Admin API password: pick one (write it down, you'll use it in the UI)
 #        * advertiseURL: http://localhost:9982
 #        * Network: zen  (free testnet; `mainnet` requires real Siacoin)
 #        * Advanced DB settings:

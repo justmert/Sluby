@@ -155,13 +155,22 @@ export async function deactivateApiKey(
 
 /**
  * Permanently delete an API key.
+ *
+ * `owner` constrains the delete to the caller's `creatorAddress` so one
+ * tenant cannot revoke another tenant's key by guessing its UUID. Omit it
+ * only for platform/internal callers.
  */
 export async function deleteApiKey(
   id: string,
+  owner?: string,
 ): Promise<ApiKey | undefined> {
   const [deleted] = await db
     .delete(apiKeys)
-    .where(eq(apiKeys.id, id))
+    .where(
+      owner
+        ? and(eq(apiKeys.id, id), eq(apiKeys.creatorAddress, owner))
+        : eq(apiKeys.id, id),
+    )
     .returning();
   return deleted;
 }

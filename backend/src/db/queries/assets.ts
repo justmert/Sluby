@@ -19,12 +19,20 @@ export async function createVideoAsset(
 
 /**
  * Find a video asset by its primary key.
+ *
+ * `owner` scopes the lookup to a tenant's `creatorAddress`. API request
+ * paths MUST pass it, otherwise any authenticated caller could read another
+ * tenant's asset by guessing its UUID. Internal callers (queue workers, the
+ * delivery gateway) intentionally omit it to operate across tenants.
  */
 export async function getVideoAssetById(
   id: string,
+  owner?: string,
 ): Promise<VideoAsset | undefined> {
   return db.query.videoAssets.findFirst({
-    where: eq(videoAssets.id, id),
+    where: owner
+      ? and(eq(videoAssets.id, id), eq(videoAssets.creatorAddress, owner))
+      : eq(videoAssets.id, id),
   });
 }
 
@@ -125,6 +133,7 @@ export async function updateVideoAsset(
       | 'siaObjectIds'
     >
   >,
+  owner?: string,
 ): Promise<VideoAsset | undefined> {
   const [updated] = await db
     .update(videoAssets)
@@ -132,60 +141,29 @@ export async function updateVideoAsset(
       ...data,
       updatedAt: new Date(),
     })
-    .where(eq(videoAssets.id, id))
+    .where(
+      owner
+        ? and(eq(videoAssets.id, id), eq(videoAssets.creatorAddress, owner))
+        : eq(videoAssets.id, id),
+    )
     .returning();
   return updated;
 }
 
 /**
- * Update the processing status of a video asset.
- */
-export async function updateVideoAssetStatus(
-  id: string,
-  status: VideoAsset['status'],
-): Promise<VideoAsset | undefined> {
-  const [updated] = await db
-    .update(videoAssets)
-    .set({
-      status,
-      updatedAt: new Date(),
-    })
-    .where(eq(videoAssets.id, id))
-    .returning();
-  return updated;
-}
-
-/**
- * Delete a video asset by ID.
+ * Delete a video asset by ID, optionally constrained to its owner.
  */
 export async function deleteVideoAsset(
   id: string,
+  owner?: string,
 ): Promise<VideoAsset | undefined> {
   const [deleted] = await db
     .delete(videoAssets)
-    .where(eq(videoAssets.id, id))
+    .where(
+      owner
+        ? and(eq(videoAssets.id, id), eq(videoAssets.creatorAddress, owner))
+        : eq(videoAssets.id, id),
+    )
     .returning();
   return deleted;
-}
-
-/**
- * Count video assets grouped by status.
- * Useful for dashboard metrics.
- */
-export async function countVideoAssetsByStatus(): Promise<
-  Record<string, number>
-> {
-  const rows = await db
-    .select({
-      status: videoAssets.status,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(videoAssets)
-    .groupBy(videoAssets.status);
-
-  const result: Record<string, number> = {};
-  for (const row of rows) {
-    result[row.status] = row.count;
-  }
-  return result;
 }

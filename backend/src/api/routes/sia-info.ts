@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
+import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
 import {
   getObject,
@@ -28,7 +29,8 @@ export interface SiaInfoRouteDeps {
    * Fetch the DB record for a video asset including the full list of
    * Sia object IDs. Returns `null` when the asset does not exist.
    */
-  getAssetWithSiaIds: (id: string) => Promise<SiaInfoAssetRecord | null>;
+  /** `owner` scopes the lookup to the caller's tenant (undefined = platform key). */
+  getAssetWithSiaIds: (id: string, owner?: string) => Promise<SiaInfoAssetRecord | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -558,7 +560,10 @@ export function createSiaInfoRoutes(deps: SiaInfoRouteDeps): Router {
       return;
     }
 
-    const asset = await deps.getAssetWithSiaIds(id);
+    const asset = await deps.getAssetWithSiaIds(
+      id,
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
     if (!asset) {
       throw new AppError(404, 'Video asset not found');
     }

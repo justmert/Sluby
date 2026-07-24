@@ -12,14 +12,36 @@ services:
     environment:
       - DATABASE_URL=postgresql://sluby:sluby@postgres:5432/sluby
       - REDIS_URL=redis://redis:6379
-      - SIA_INDEXER_URL=${SIA_INDEXER_URL:-http://localhost:9980}
+      # indexd is brought up by docker-compose.sia.yml. Both files live in the
+      # same directory, so both compose projects share the same default
+      # network and the container hostname `sia-indexd` resolves from here.
+      # 9982 is the application API the backend SDK talks to. 9980 is the
+      # password-protected admin API (wallet address, contract list).
+      # `localhost` would resolve to the backend container itself, not indexd.
+      - SIA_INDEXER_URL=${SIA_INDEXER_URL:-http://sia-indexd:9982}
+      - SIA_ADMIN_URL=${SIA_ADMIN_URL:-http://sia-indexd:9980}
+      - SIA_ADMIN_PASSWORD=${SIA_ADMIN_PASSWORD}
       - SIA_APP_ID=${SIA_APP_ID}
       - SIA_APP_KEY=${SIA_APP_KEY}
+      - SIA_DATA_SHARDS=${SIA_DATA_SHARDS:-2}
+      - SIA_PARITY_SHARDS=${SIA_PARITY_SHARDS:-4}
+      - SIA_NETWORK=${SIA_NETWORK:-zen}
       - PORT=3000
       - HOST=0.0.0.0
       - UPLOAD_DIR=/app/uploads
       - TRANSCODE_OUTPUT_DIR=/app/transcode-output
       - CACHE_DIR=/app/cache
+      # Auth. SESSION_SECRET signs session cookies, so it must come from the
+      # environment rather than falling back to the dev default baked into
+      # backend/src/config/env.ts. `cp .env.example .env` populates it.
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:4500}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - GITHUB_ALLOWED_USERS=${GITHUB_ALLOWED_USERS:-}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
+      - BOOTSTRAP_API_KEY=${BOOTSTRAP_API_KEY:-}
+      - AUTH_DISABLED=${AUTH_DISABLED:-false}
     volumes:
       - uploads:/app/uploads
       - transcode-output:/app/transcode-output

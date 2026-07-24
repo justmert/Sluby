@@ -216,11 +216,22 @@ describe('webhook routes', () => {
 
   describe('DELETE /:id', () => {
     it('should delete a webhook and return success', async () => {
+      vi.mocked(deps.deleteWebhook).mockResolvedValue(true);
+
       const res = await request(createApp()).delete('/wh-1');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true });
-      expect(deps.deleteWebhook).toHaveBeenCalledWith('wh-1');
+      // Scoped to the calling key so one caller cannot delete another's webhook.
+      expect(deps.deleteWebhook).toHaveBeenCalledWith('wh-1', 'key-1');
+    });
+
+    it("should return 404 when the webhook belongs to another key", async () => {
+      vi.mocked(deps.deleteWebhook).mockResolvedValue(false);
+
+      const res = await request(createApp()).delete('/wh-not-mine');
+
+      expect(res.status).toBe(404);
     });
 
     it('should require manage scope', async () => {

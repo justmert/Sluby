@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
+import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
 
 export interface ProcessingJobRecord {
@@ -27,15 +28,18 @@ export interface AssetRouteDeps {
     nextCursor?: string | null;
     hasMore?: boolean;
   }>;
-  getAsset: (id: string) => Promise<VideoAssetRecord | null>;
+  // `owner` is the caller's creatorAddress, or undefined for a platform key.
+  // Every by-id operation is scoped by it so one tenant cannot reach
+  // another's asset by guessing a UUID.
+  getAsset: (id: string, owner?: string) => Promise<VideoAssetRecord | null>;
   updateAsset: (id: string, data: {
     title?: string;
     description?: string;
     accessTier?: string;
-  }) => Promise<VideoAssetRecord | null>;
-  deleteAsset: (id: string) => Promise<void>;
-  getProcessingJob: (videoAssetId: string) => Promise<ProcessingJobRecord | undefined>;
-  retryAsset: (id: string) => Promise<{ stage: string }>;
+  }, owner?: string) => Promise<VideoAssetRecord | null>;
+  deleteAsset: (id: string, owner?: string) => Promise<boolean>;
+  getProcessingJob: (videoAssetId: string, owner?: string) => Promise<ProcessingJobRecord | undefined>;
+  retryAsset: (id: string, owner?: string) => Promise<{ stage: string }>;
 }
 
 interface VideoAssetRecord {
@@ -54,6 +58,9 @@ interface VideoAssetRecord {
   createdAt: Date;
   updatedAt: Date;
 }
+
+/** Mirrors the `access_tier` enum in the database schema. */
+const VALID_ACCESS_TIERS = ['public', 'private'];
 
 export function createAssetRoutes(deps: AssetRouteDeps): Router {
   const router = Router();
@@ -75,9 +82,7 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
       cursor,
       status,
       accessTier,
-      creatorAddress: req.apiKey!.creatorAddress === '0x0000000000000000000000000000000000000000000000000000000000000000'
-        ? undefined
-        : req.apiKey!.creatorAddress,
+      creatorAddress: ownerFilter(req.apiKey!.creatorAddress),
     });
 
     res.json({
@@ -97,8 +102,13 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
    * Get a single video asset by ID.
    */
   router.get('/:id', requireScope('read'), async (req: Request, res: Response) => {
-    const asset = await deps.getAsset(String(req.params.id));
+    const asset = await deps.getAsset(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
 
+    // A miss here can mean "no such asset" or "not yours"; both answer 404 so
+    // the endpoint does not leak the existence of another tenant's asset.
     if (!asset) {
       throw new AppError(404, 'Video asset not found');
     }
@@ -113,11 +123,18 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
   router.patch('/:id', requireScope('manage'), async (req: Request, res: Response) => {
     const { title, description, access_tier } = req.body;
 
-    const updated = await deps.updateAsset(String(req.params.id), {
-      title,
-      description,
-      accessTier: access_tier,
-    });
+    if (access_tier !== undefined && !VALID_ACCESS_TIERS.includes(access_tier)) {
+      throw new AppError(
+        400,
+        `Invalid access_tier '${access_tier}'. Must be one of: ${VALID_ACCESS_TIERS.join(', ')}`,
+      );
+    }
+
+    const updated = await deps.updateAsset(
+      String(req.params.id),
+      { title, description, accessTier: access_tier },
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
 
     if (!updated) {
       throw new AppError(404, 'Video asset not found');
@@ -131,7 +148,15 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
    * Delete a video asset.
    */
   router.delete('/:id', requireScope('manage'), async (req: Request, res: Response) => {
-    await deps.deleteAsset(String(req.params.id));
+    const deleted = await deps.deleteAsset(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
+
+    if (!deleted) {
+      throw new AppError(404, 'Video asset not found');
+    }
+
     res.json({ success: true });
   });
 
@@ -140,7 +165,10 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
    * Get the processing job progress for a video asset.
    */
   router.get('/:id/processing', requireScope('read'), async (req: Request, res: Response) => {
-    const job = await deps.getProcessingJob(String(req.params.id));
+    const job = await deps.getProcessingJob(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
 
     if (!job) {
       throw new AppError(404, 'No processing job found for this asset');
@@ -163,7 +191,10 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
    * Retry processing a failed video asset.
    */
   router.post('/:id/retry', requireScope('manage'), async (req: Request, res: Response) => {
-    const result = await deps.retryAsset(String(req.params.id));
+    const result = await deps.retryAsset(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
     res.json({ success: true, stage: result.stage });
   });
 

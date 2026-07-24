@@ -1,9 +1,8 @@
 import { Server } from '@tus/server';
 import { FileStore } from '@tus/file-store';
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
+import { computeFileHash } from './chunk-verifier.js';
 import {
   SESSION_COOKIE_NAME,
   parseCookieHeader,
@@ -109,12 +108,11 @@ export function createTusServer(deps: TusServerDeps): Server {
         throw { status_code: 415, body: 'Only video files are accepted' };
       }
 
-      // Use creator address from TUS metadata (frontend Settings) if provided,
-      // otherwise fall back to the API key's creator address
-      const creatorAddress =
-        (metadata.creatorAddress && metadata.creatorAddress !== '' && !metadata.creatorAddress.match(/^0x0+$/))
-          ? metadata.creatorAddress
-          : apiKey.creatorAddress;
+      // Ownership always comes from the authenticated API key, never from
+      // client-supplied TUS metadata. Honouring a client-provided
+      // creatorAddress would let any caller stamp another tenant's address on
+      // an asset, which defeats the ownership checks on every /assets route.
+      const creatorAddress = apiKey.creatorAddress;
 
       // Create upload session in database
       const session = await deps.createUploadSession({
@@ -163,10 +161,12 @@ export function createTusServer(deps: TusServerDeps): Server {
         return {};
       }
 
-      // Compute SHA-256 hash of the completed file
+      // Compute SHA-256 of the completed file by streaming it. Reading the
+      // whole upload into a Buffer would use memory proportional to the file
+      // and throws outright past Node's max Buffer length, which uploads up
+      // to MAX_UPLOAD_SIZE (10 GB by default) can easily exceed.
       const filePath = `${env.UPLOAD_DIR}/${upload.id}`;
-      const fileData = await readFile(filePath);
-      const sha256 = createHash('sha256').update(fileData).digest('hex');
+      const sha256 = await computeFileHash(filePath);
 
       // Mark upload as complete
       await deps.completeUpload(sessionId, filePath, sha256);

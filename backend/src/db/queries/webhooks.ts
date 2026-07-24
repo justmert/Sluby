@@ -108,13 +108,21 @@ export async function deactivateWebhookEndpoint(
 
 /**
  * Permanently delete a webhook endpoint and all its delivery records.
+ *
+ * `apiKeyId` constrains the delete to the endpoint's owning key so one
+ * caller cannot remove another's webhook by guessing its UUID.
  */
 export async function deleteWebhookEndpoint(
   id: string,
+  apiKeyId?: string,
 ): Promise<WebhookEndpoint | undefined> {
   const [deleted] = await db
     .delete(webhookEndpoints)
-    .where(eq(webhookEndpoints.id, id))
+    .where(
+      apiKeyId
+        ? and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.apiKeyId, apiKeyId))
+        : eq(webhookEndpoints.id, id),
+    )
     .returning();
   return deleted;
 }
