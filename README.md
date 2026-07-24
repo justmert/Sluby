@@ -15,10 +15,17 @@ in front.
 - **Sia-backed object store**: every segment, init fragment, and playlist is
   an individual object on Sia, addressed by its storage key.
 - **Delivery gateway**: an aggregator route fetches objects from Sia, caches
-  them locally, and streams byte-range responses suitable for `<video>` and
-  hls.js playback.
-- **API + SDK**: a REST backend plus first-party TypeScript (`@sluby/sdk`)
-  and React (`@sluby/react`) packages.
+  them in an in-memory LRU (with `X-Cache-Status` headers and cache warming
+  after a transcode), and streams byte-range responses suitable for
+  `<video>` and hls.js playback.
+- **REST API**: spec-first with a served OpenAPI 3.1 document. Scoped API
+  keys (`upload`/`read`/`manage`), cursor-based asset pagination, playback
+  ID management, and a per-asset Sia storage breakdown.
+- **Reconciliation worker**: a background sweep that compares the database
+  against the indexer's pinned inventory and flags drift (orphaned or
+  missing objects).
+- **SDK**: first-party TypeScript (`@sluby/sdk`) and React (`@sluby/react`)
+  packages.
 
 ## Quick start
 
@@ -94,6 +101,17 @@ import { SlubyPlayer } from "@sluby/react";
   controls
 />
 ```
+
+## API reference
+
+The REST API is described by an OpenAPI 3.1 document, served by the backend:
+
+- Spec (JSON): `http://localhost:4500/api/v1/openapi.json`
+- Interactive docs: `http://localhost:4500/api/v1/docs`
+
+Programmatic calls authenticate with a `Bearer` API key; each key carries
+`upload`, `read`, and `manage` scopes. Asset listing uses cursor pagination
+(pass the `next_cursor` from one page back as `?cursor=` for the next).
 
 ## Architecture
 
