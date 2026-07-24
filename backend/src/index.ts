@@ -46,7 +46,7 @@ import {
   deleteApiKey as dbDeleteApiKey,
 } from './db/queries/api-keys.js';
 
-import { apiKeys as apiKeysTable } from './db/schema.js';
+import { apiKeys as apiKeysTable, type VideoAsset } from './db/schema.js';
 
 import {
   createWebhookEndpoint,
@@ -343,6 +343,30 @@ app.use('/api/v1/uploads', (req, res, next) => {
 // API Router
 // ──────────────────────────────────────────
 
+/**
+ * Map a stored video asset row to the snake_case-agnostic record shape the
+ * REST asset routes expect. Single place so the field list does not drift
+ * across the list/get/update adapters.
+ */
+function toAssetRecord(asset: VideoAsset) {
+  return {
+    id: asset.id,
+    title: asset.title,
+    description: asset.description,
+    manifestObjectId: asset.manifestObjectId,
+    thumbnailObjectIds: asset.thumbnailObjectIds,
+    durationMs: asset.durationMs ?? 0,
+    resolution: asset.resolution ?? '',
+    status: asset.status,
+    accessTier: asset.accessTier,
+    creatorAddress: asset.creatorAddress,
+    segmentCount: asset.segmentCount,
+    totalStorageBytes: asset.totalStorageBytes,
+    createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt,
+  };
+}
+
 const apiRouterDeps: ApiRouterDeps = {
   // ── UploadRouteDeps ──
   createUploadSession: async (params) => {
@@ -395,22 +419,7 @@ const apiRouterDeps: ApiRouterDeps = {
     return {
       nextCursor: result.nextCursor,
       hasMore: result.hasMore,
-      data: result.data.map((asset) => ({
-        id: asset.id,
-        title: asset.title,
-        description: asset.description,
-        manifestObjectId: asset.manifestObjectId,
-        thumbnailObjectIds: asset.thumbnailObjectIds,
-        durationMs: asset.durationMs ?? 0,
-        resolution: asset.resolution ?? '',
-        status: asset.status,
-        accessTier: asset.accessTier,
-        creatorAddress: asset.creatorAddress,
-        segmentCount: asset.segmentCount,
-        totalStorageBytes: asset.totalStorageBytes,
-        createdAt: asset.createdAt,
-        updatedAt: asset.updatedAt,
-      })),
+      data: result.data.map(toAssetRecord),
       total: result.total,
     };
   },
@@ -418,22 +427,7 @@ const apiRouterDeps: ApiRouterDeps = {
   getAsset: async (id) => {
     const asset = await getVideoAssetById(id);
     if (!asset) return null;
-    return {
-      id: asset.id,
-      title: asset.title,
-      description: asset.description,
-      manifestObjectId: asset.manifestObjectId,
-      thumbnailObjectIds: asset.thumbnailObjectIds,
-      durationMs: asset.durationMs ?? 0,
-      resolution: asset.resolution ?? '',
-      status: asset.status,
-      accessTier: asset.accessTier,
-      creatorAddress: asset.creatorAddress,
-      segmentCount: asset.segmentCount,
-      totalStorageBytes: asset.totalStorageBytes,
-      createdAt: asset.createdAt,
-      updatedAt: asset.updatedAt,
-    };
+    return toAssetRecord(asset);
   },
 
   updateAsset: async (id, data) => {
@@ -445,22 +439,7 @@ const apiRouterDeps: ApiRouterDeps = {
         : {}),
     });
     if (!updated) return null;
-    return {
-      id: updated.id,
-      title: updated.title,
-      description: updated.description,
-      manifestObjectId: updated.manifestObjectId,
-      thumbnailObjectIds: updated.thumbnailObjectIds,
-      durationMs: updated.durationMs ?? 0,
-      resolution: updated.resolution ?? '',
-      status: updated.status,
-      accessTier: updated.accessTier,
-      creatorAddress: updated.creatorAddress,
-      segmentCount: updated.segmentCount,
-      totalStorageBytes: updated.totalStorageBytes,
-      createdAt: updated.createdAt,
-      updatedAt: updated.updatedAt,
-    };
+    return toAssetRecord(updated);
   },
 
   deleteAsset: async (id) => {
