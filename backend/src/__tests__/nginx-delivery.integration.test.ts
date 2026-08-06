@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFile, execFileSync } from 'node:child_process';
-import { createServer, type Server } from 'node:http';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,10 +8,15 @@ import { fileURLToPath } from 'node:url';
 /**
  * End-to-end delivery test through the REAL nginx config the project ships
  * (`nginx/nginx.conf` + `nginx/conf.d/sia-aggregator.conf`), run in a
- * container in front of a tiny upstream that mimics the aggregator's object
- * gateway. This is the test the milestone-2 review asked for: it proves that
- * many byte ranges of ONE object URI come back with their own bytes rather
- * than a wrongly-cached 206, and that whole-object responses are still cached.
+ * container in front of a second "origin" container. This is the test the
+ * milestone-2 review asked for: it proves that many byte ranges of ONE object
+ * URI come back with their own bytes rather than a wrongly-cached 206, and
+ * that whole-object responses are still cached.
+ *
+ * Both nginx instances run in a user-defined Docker network and talk by
+ * container name, so there is no host-networking dependency (which is flaky on
+ * CI runners). The origin is a plain nginx serving static files, which handles
+ * Range requests natively, so it is a faithful stand-in for the object gateway.
  *
  * It runs wherever Docker is available (local dev and the CI ubuntu runner).
  * Without Docker it logs a loud warning and skips, so `npm test` still passes
@@ -22,11 +26,20 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../../..');
 const NGINX_IMAGE = 'nginx:alpine';
-const CONTAINER = 'sluby-nginx-itest';
+const NET = 'sluby-itest-net';
+const ORIGIN = 'sluby-itest-origin';
+const PROXY = 'sluby-itest-proxy';
+
+function docker(args: string[], opts: { capture?: boolean } = {}): string {
+  const out = execFileSync('docker', args, {
+    stdio: opts.capture ? ['ignore', 'pipe', 'ignore'] : 'ignore',
+  });
+  return out ? out.toString() : '';
+}
 
 function dockerAvailable(): boolean {
   try {
-    execFileSync('docker', ['info'], { stdio: 'ignore' });
+    docker(['info']);
     return true;
   } catch {
     return false;
@@ -52,74 +65,50 @@ const VARIANT =
   '#EXTM3U\n#EXT-X-MAP:URI="/v1/objects/data",BYTERANGE="16@0"\n' +
   '#EXTINF:1.0,\n#EXT-X-BYTERANGE:16@16\n/v1/objects/data\n#EXT-X-ENDLIST\n';
 
-/** Upstream that models the object gateway for master/variant/data. */
-function startUpstream(): Promise<{ server: Server; port: number }> {
-  const server = createServer((req, res) => {
-    const url = req.url ?? '';
-    if (url.startsWith('/v1/objects/master')) {
-      res.writeHead(200, {
-        'Content-Type': 'application/vnd.apple.mpegurl',
-        'Cache-Control': 'public, max-age=60',
-      });
-      res.end(MASTER);
-      return;
-    }
-    if (url.startsWith('/v1/objects/variant')) {
-      res.writeHead(200, {
-        'Content-Type': 'application/vnd.apple.mpegurl',
-        'Cache-Control': 'public, max-age=60',
-      });
-      res.end(VARIANT);
-      return;
-    }
-    if (url.startsWith('/v1/objects/data')) {
-      const range = req.headers.range;
-      if (range) {
-        const m = /^bytes=(\d+)-(\d+)$/.exec(range);
-        if (m) {
-          const start = Number(m[1]);
-          const end = Number(m[2]);
-          const slice = DATA.subarray(start, end + 1);
-          res.writeHead(206, {
-            'Content-Type': 'video/mp4',
-            'Content-Range': `bytes ${start}-${end}/${DATA.length}`,
-            'Content-Length': String(slice.length),
-            'Accept-Ranges': 'bytes',
-            'Cache-Control': 'public, max-age=86400',
-          });
-          res.end(slice);
-          return;
-        }
-      }
-      res.writeHead(200, {
-        'Content-Type': 'video/mp4',
-        'Content-Length': String(DATA.length),
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': 'public, max-age=86400',
-      });
-      res.end(DATA);
-      return;
-    }
-    res.writeHead(404).end();
-  });
-  return new Promise((res) => {
-    server.listen(0, '0.0.0.0', () => {
-      res({ server, port: (server.address() as { port: number }).port });
-    });
-  });
+/** Minimal nginx that serves the origin files with native Range support. */
+const ORIGIN_CONF = `events { worker_connections 128; }
+http {
+  server {
+    listen 80;
+    location / { root /origin; }
+  }
 }
+`;
 
-/** Build a container-ready copy of the repo nginx config. */
-function writeNginxConfig(upstreamPort: number): string {
+/** Write the origin file tree and the container configs to a temp dir. */
+function writeFixtures(): string {
   const dir = mkdtempSync(join(tmpdir(), 'sluby-nginx-'));
+  const objects = join(dir, 'origin', 'v1', 'objects');
+  mkdirSync(objects, { recursive: true });
+  writeFileSync(join(objects, 'master'), MASTER);
+  writeFileSync(join(objects, 'variant'), VARIANT);
+  writeFileSync(join(objects, 'data'), DATA);
+  writeFileSync(join(dir, 'origin.conf'), ORIGIN_CONF);
+
+  // The real proxy config, with its upstream pointed at the origin container.
   const mainConf = readFileSync(join(repoRoot, 'nginx/nginx.conf'), 'utf8');
   const siteConf = readFileSync(join(repoRoot, 'nginx/conf.d/sia-aggregator.conf'), 'utf8').replace(
     'server backend:3000;',
-    `server host.docker.internal:${upstreamPort};`,
+    `server ${ORIGIN}:80;`,
   );
   writeFileSync(join(dir, 'nginx.conf'), mainConf);
-  writeFileSync(join(dir, 'sia-aggregator.conf'), siteConf);
+  writeFileSync(join(dir, 'proxy.conf'), siteConf);
   return dir;
+}
+
+function cleanup(): void {
+  for (const name of [PROXY, ORIGIN]) {
+    try {
+      docker(['rm', '-f', name]);
+    } catch {
+      /* not running */
+    }
+  }
+  try {
+    docker(['network', 'rm', NET]);
+  } catch {
+    /* not present */
+  }
 }
 
 async function fetchThroughNginx(
@@ -127,61 +116,76 @@ async function fetchThroughNginx(
   path: string,
   headers: Record<string, string> = {},
 ): Promise<{ status: number; buf: Buffer; headers: Headers }> {
-  const r = await fetch(base + path, { headers });
+  const r = await fetch(base + path, {
+    headers,
+    signal: AbortSignal.timeout(4000),
+  });
   const buf = Buffer.from(await r.arrayBuffer());
   return { status: r.status, buf, headers: r.headers };
 }
 
 describe.skipIf(!HAS_DOCKER)('HLS delivery through nginx', () => {
-  let upstream: Server;
   let base: string;
-  let confDir: string;
 
   beforeAll(async () => {
-    try {
-      execFileSync('docker', ['rm', '-f', CONTAINER], { stdio: 'ignore' });
-    } catch {
-      /* not running */
-    }
-    execFileSync('docker', ['pull', NGINX_IMAGE], { stdio: 'ignore' });
+    cleanup();
+    docker(['pull', NGINX_IMAGE]);
+    docker(['network', 'create', NET]);
 
-    const started = await startUpstream();
-    upstream = started.server;
-    confDir = writeNginxConfig(started.port);
+    const dir = writeFixtures();
 
-    // Mount the site config OVER the stock default.conf so ours is the only
-    // server on port 80; otherwise the image's default server answers first
-    // and serves its welcome root for /v1/objects/*.
-    execFileSync('docker', [
+    // Origin: static nginx, reachable by name on the network.
+    docker([
       'run',
       '-d',
       '--name',
-      CONTAINER,
-      '--add-host=host.docker.internal:host-gateway',
-      '-p',
-      '127.0.0.1:0:80',
+      ORIGIN,
+      '--network',
+      NET,
       '-v',
-      `${confDir}/nginx.conf:/etc/nginx/nginx.conf:ro`,
+      `${dir}/origin.conf:/etc/nginx/nginx.conf:ro`,
       '-v',
-      `${confDir}/sia-aggregator.conf:/etc/nginx/conf.d/default.conf:ro`,
+      `${dir}/origin:/origin:ro`,
       NGINX_IMAGE,
     ]);
 
-    const hostPort = execFileSync('docker', [
-      'inspect',
-      '--format',
-      '{{(index (index .NetworkSettings.Ports "80/tcp") 0).HostPort}}',
-      CONTAINER,
-    ])
-      .toString()
-      .trim();
+    // Proxy: the real repo config, mounted over the stock default.conf so it
+    // is the only server, with a published port on the host.
+    docker([
+      'run',
+      '-d',
+      '--name',
+      PROXY,
+      '--network',
+      NET,
+      '-p',
+      '127.0.0.1:0:80',
+      '-v',
+      `${dir}/nginx.conf:/etc/nginx/nginx.conf:ro`,
+      '-v',
+      `${dir}/proxy.conf:/etc/nginx/conf.d/default.conf:ro`,
+      NGINX_IMAGE,
+    ]);
+
+    const hostPort = docker(
+      [
+        'inspect',
+        '--format',
+        '{{(index (index .NetworkSettings.Ports "80/tcp") 0).HostPort}}',
+        PROXY,
+      ],
+      { capture: true },
+    ).trim();
     base = `http://127.0.0.1:${hostPort}`;
 
-    // Wait for nginx + upstream to be ready.
-    const deadline = Date.now() + 20000;
+    // Wait for the proxy + origin to be ready. Per-request timeouts keep a
+    // stuck connection from hanging the whole hook.
+    const deadline = Date.now() + 25000;
     for (;;) {
       try {
-        const r = await fetch(`${base}/v1/objects/master`);
+        const r = await fetch(`${base}/v1/objects/master`, {
+          signal: AbortSignal.timeout(2000),
+        });
         if (r.status === 200) break;
       } catch {
         /* not up yet */
@@ -189,23 +193,10 @@ describe.skipIf(!HAS_DOCKER)('HLS delivery through nginx', () => {
       if (Date.now() > deadline) throw new Error('nginx did not become ready');
       await new Promise((r) => setTimeout(r, 300));
     }
-  }, 90000);
+  }, 120000);
 
-  afterAll(async () => {
-    try {
-      const logs = execFileSync('docker', ['logs', CONTAINER], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      void logs;
-    } catch {
-      /* ignore */
-    }
-    try {
-      execFileSync('docker', ['rm', '-f', CONTAINER], { stdio: 'ignore' });
-    } catch {
-      /* ignore */
-    }
-    await new Promise<void>((r) => upstream?.close(() => r()));
+  afterAll(() => {
+    cleanup();
   });
 
   it('serves the master and variant manifests', async () => {
