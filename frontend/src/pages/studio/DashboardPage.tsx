@@ -22,7 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useHealthCheck } from '@/hooks/useHealthCheck';
-import { useMetrics, type MetricsWithHistory } from '@/hooks/useMetrics';
+import { useMetrics } from '@/hooks/useMetrics';
 import { useAssets, type VideoAsset } from '@/hooks/useAssets';
 import { formatBytes, formatRelativeTime } from '@/lib/formatters';
 import { cn } from '@/lib/cn';
@@ -48,7 +48,10 @@ function LiveDot({ className }: { className?: string }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const config: Record<string, { label: string; variant: 'success' | 'warning' | 'destructive' | 'secondary' | 'default' }> = {
+  const config: Record<
+    string,
+    { label: string; variant: 'success' | 'warning' | 'destructive' | 'secondary' | 'default' }
+  > = {
     created: { label: 'Created', variant: 'secondary' },
     uploading: { label: 'Uploading', variant: 'warning' },
     processing: { label: 'Processing', variant: 'warning' },
@@ -81,9 +84,7 @@ function MetricCard({
           {loading ? (
             <Skeleton className="h-7 w-16 mt-0.5" />
           ) : (
-            <p className="text-2xl font-bold text-[#f0f0f0] tabular-nums truncate">
-              {value}
-            </p>
+            <p className="text-2xl font-bold text-[#f0f0f0] tabular-nums truncate">{value}</p>
           )}
         </div>
       </div>
@@ -98,12 +99,6 @@ function MetricCard({
 function assetLink(asset: VideoAsset): string {
   if (asset.status === 'ready') return `/studio/player?asset=${asset.id}`;
   return `/studio/assets/${asset.id}`;
-}
-
-function formatCacheHitRate(metrics: MetricsWithHistory['current']): string {
-  const total = metrics.cacheHits + metrics.cacheMisses;
-  if (total === 0) return '0%';
-  return `${((metrics.cacheHits / total) * 100).toFixed(1)}%`;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,9 +179,7 @@ export default function DashboardPage() {
               <h1 className="text-2xl font-semibold tracking-tight text-[#f0f0f0] font-heading">
                 Sluby
               </h1>
-              <p className="text-sm text-zinc-400">
-                Decentralized video infrastructure on Sia
-              </p>
+              <p className="text-sm text-zinc-400">Decentralized video infrastructure on Sia</p>
             </div>
           </div>
         </div>
@@ -210,12 +203,13 @@ export default function DashboardPage() {
                 {isHealthy && <LiveDot className="h-1.5 w-1.5" />}
                 {isHealthy ? 'All Systems Operational' : 'Service Degraded'}
               </Badge>
-              <span className="text-xs text-zinc-500">
-                v{health.data.version}
-              </span>
+              <span className="text-xs text-zinc-500">v{health.data.version}</span>
             </>
           )}
-          <Badge variant="secondary" className="gap-1.5 bg-teal-500/10 text-teal-400 border-teal-500/20">
+          <Badge
+            variant="secondary"
+            className="gap-1.5 bg-teal-500/10 text-teal-400 border-teal-500/20"
+          >
             <Database className="w-3 h-3" />
             {IS_TESTNET_EXPLORER ? 'Zen Testnet' : 'Sia Mainnet'}
           </Badge>
@@ -239,19 +233,30 @@ export default function DashboardPage() {
         className="mb-8"
       >
         <div className="flex items-center gap-3">
-          <Button asChild className="bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 border-0 text-white rounded-lg shadow-lg shadow-teal-500/20">
+          <Button
+            asChild
+            className="bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 border-0 text-white rounded-lg shadow-lg shadow-teal-500/20"
+          >
             <Link to="/studio/upload" className="gap-2">
               <Upload className="w-4 h-4" />
               Upload Video
             </Link>
           </Button>
-          <Button variant="ghost" asChild className="bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 rounded-lg border-0">
+          <Button
+            variant="ghost"
+            asChild
+            className="bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 rounded-lg border-0"
+          >
             <Link to="/studio/developer" className="gap-2">
               <Key className="w-4 h-4" />
               Create API Key
             </Link>
           </Button>
-          <Button variant="ghost" asChild className="bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 rounded-lg border-0">
+          <Button
+            variant="ghost"
+            asChild
+            className="bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 rounded-lg border-0"
+          >
             <Link to="/studio/analytics" className="gap-2">
               <BarChart3 className="w-4 h-4" />
               View Analytics
@@ -287,34 +292,60 @@ export default function DashboardPage() {
 
         {allAssets.isLoading ? (
           <MetricsSkeleton />
-        ) : (() => {
-          const assets = allAssets.data?.data ?? [];
-          const totalAssets = allAssets.data?.total ?? 0;
-          const readyCount = assets.filter(a => a.status === 'ready').length;
-          const processingCount = assets.filter(a => a.status === 'processing' || a.status === 'uploading').length;
-          const totalStorageBytes = assets.reduce((sum, a) => sum + (a.total_storage_bytes ?? 0), 0);
-          const totalDurationMs = assets.reduce((sum, a) => sum + (a.duration_ms ?? 0), 0);
-          const avgDurationMs = totalAssets > 0 ? totalDurationMs / totalAssets : 0;
-          const uptimeSeconds = metrics.data?.current?.uptime ?? 0;
-          const uptimeStr = uptimeSeconds > 3600
-            ? `${(uptimeSeconds / 3600).toFixed(1)}h`
-            : uptimeSeconds > 60
-              ? `${Math.floor(uptimeSeconds / 60)}m`
-              : `${Math.floor(uptimeSeconds)}s`;
+        ) : (
+          (() => {
+            const assets = allAssets.data?.data ?? [];
+            const totalAssets = allAssets.data?.total ?? 0;
+            const readyCount = assets.filter((a) => a.status === 'ready').length;
+            const processingCount = assets.filter(
+              (a) => a.status === 'processing' || a.status === 'uploading',
+            ).length;
+            const totalStorageBytes = assets.reduce(
+              (sum, a) => sum + (a.total_storage_bytes ?? 0),
+              0,
+            );
+            const totalDurationMs = assets.reduce((sum, a) => sum + (a.duration_ms ?? 0), 0);
+            const avgDurationMs = totalAssets > 0 ? totalDurationMs / totalAssets : 0;
+            const uptimeSeconds = metrics.data?.current?.uptime ?? 0;
+            const uptimeStr =
+              uptimeSeconds > 3600
+                ? `${(uptimeSeconds / 3600).toFixed(1)}h`
+                : uptimeSeconds > 60
+                  ? `${Math.floor(uptimeSeconds / 60)}m`
+                  : `${Math.floor(uptimeSeconds)}s`;
 
-          return (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <MetricCard icon={Database} label="Total Assets" value={totalAssets} />
-              <MetricCard icon={Globe} label="Ready to Stream" value={readyCount} />
-              <MetricCard icon={Activity} label="Processing" value={processingCount} />
-              <MetricCard icon={Server} label="Storage Used" value={formatBytes(totalStorageBytes)} />
-              <MetricCard icon={Clock} label="Avg Duration" value={avgDurationMs > 0 ? `${(avgDurationMs / 1000).toFixed(0)}s` : '\u2014'} />
-              <MetricCard icon={Upload} label="Total Uploads" value={totalAssets} />
-              <MetricCard icon={Zap} label="Uptime" value={uptimeSeconds > 0 ? uptimeStr : '\u2014'} loading={metrics.isLoading} />
-              <MetricCard icon={BarChart3} label="Bandwidth" value={formatBytes(metrics.data?.current?.bandwidthBytes ?? 0)} loading={metrics.isLoading} />
-            </div>
-          );
-        })()}
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <MetricCard icon={Database} label="Total Assets" value={totalAssets} />
+                <MetricCard icon={Globe} label="Ready to Stream" value={readyCount} />
+                <MetricCard icon={Activity} label="Processing" value={processingCount} />
+                <MetricCard
+                  icon={Server}
+                  label="Storage Used"
+                  value={formatBytes(totalStorageBytes)}
+                />
+                <MetricCard
+                  icon={Clock}
+                  label="Avg Duration"
+                  value={avgDurationMs > 0 ? `${(avgDurationMs / 1000).toFixed(0)}s` : '\u2014'}
+                />
+                <MetricCard icon={Upload} label="Total Uploads" value={totalAssets} />
+                <MetricCard
+                  icon={Zap}
+                  label="Uptime"
+                  value={uptimeSeconds > 0 ? uptimeStr : '\u2014'}
+                  loading={metrics.isLoading}
+                />
+                <MetricCard
+                  icon={BarChart3}
+                  label="Bandwidth"
+                  value={formatBytes(metrics.data?.current?.bandwidthBytes ?? 0)}
+                  loading={metrics.isLoading}
+                />
+              </div>
+            );
+          })()
+        )}
       </motion.section>
 
       {/* Recent Activity */}
@@ -344,20 +375,13 @@ export default function DashboardPage() {
                       <FileVideo className="w-4 h-4 text-zinc-400 group-hover:text-teal-400 transition-colors duration-150" />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-zinc-200 truncate">
-                        {asset.title}
-                      </p>
-                      <p className="text-xs text-zinc-500 mt-0.5 font-mono truncate">
-                        {asset.id}
-                      </p>
+                      <p className="text-sm font-medium text-zinc-200 truncate">{asset.title}</p>
+                      <p className="text-xs text-zinc-500 mt-0.5 font-mono truncate">{asset.id}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4 ml-4 shrink-0">
                     {asset.manifest_object_id && (
-                      <div
-                        className="hidden md:inline-flex"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <div className="hidden md:inline-flex" onClick={(e) => e.stopPropagation()}>
                         <ObjectIdBadge
                           value={asset.manifest_object_id}
                           truncate={6}
@@ -389,7 +413,10 @@ export default function DashboardPage() {
             </div>
             <p className="text-sm text-zinc-400">No assets yet</p>
             <p className="text-xs text-zinc-500 mt-1">
-              <Link to="/studio/upload" className="text-teal-400 hover:text-teal-300 transition-colors">
+              <Link
+                to="/studio/upload"
+                className="text-teal-400 hover:text-teal-300 transition-colors"
+              >
                 Upload your first video
               </Link>{' '}
               to get started.

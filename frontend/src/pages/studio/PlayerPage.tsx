@@ -2,13 +2,31 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Hls, { type HlsConfig } from 'hls.js';
 import {
-  Play, Gauge, AlertTriangle, Download, Wifi, Clock,
-  ArrowUpDown, Database, Radio, X, Maximize,
-  ChevronDown, ChevronUp, Activity, Film, ArrowLeft,
+  Play,
+  Gauge,
+  AlertTriangle,
+  Download,
+  Wifi,
+  Clock,
+  ArrowUpDown,
+  Database,
+  Radio,
+  X,
+  Maximize,
+  ChevronDown,
+  ChevronUp,
+  Activity,
+  Film,
+  ArrowLeft,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Button } from '@/components/ui/button';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
 import type { VideoAsset } from '@/hooks/useAssets';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -101,10 +119,7 @@ function renderDetailWithObjectId(detail: string) {
   return (
     <>
       {before}
-      <span
-        title={objectId}
-        className="font-mono text-zinc-300"
-      >
+      <span title={objectId} className="font-mono text-zinc-300">
         {objectId.slice(0, 8)}&hellip;{objectId.slice(-4)}
       </span>
       {after}
@@ -116,13 +131,25 @@ function renderDetailWithObjectId(detail: string) {
 // Stat pill
 // ---------------------------------------------------------------------------
 
-function StatPill({ icon: Icon, label, value, color }: { icon: typeof Wifi; label: string; value: string; color?: string }) {
+function StatPill({
+  icon: Icon,
+  label,
+  value,
+  color,
+}: {
+  icon: typeof Wifi;
+  label: string;
+  value: string;
+  color?: string;
+}) {
   return (
     <div className="flex items-center gap-3 px-3.5 py-3 rounded-lg bg-white/[0.03] border border-white/[0.08]">
       <Icon className={cn('w-4 h-4', color ?? 'text-zinc-500')} />
       <div className="min-w-0">
         <p className="text-[11px] text-zinc-500 leading-none">{label}</p>
-        <p className="text-sm font-mono font-semibold text-zinc-200 tabular-nums leading-tight mt-1">{value}</p>
+        <p className="text-sm font-mono font-semibold text-zinc-200 tabular-nums leading-tight mt-1">
+          {value}
+        </p>
       </div>
     </div>
   );
@@ -172,7 +199,9 @@ function AssetCard({ asset, onSelect }: { asset: VideoAsset; onSelect: (id: stri
           {asset.duration_ms > 0 && <span>{formatDuration(asset.duration_ms)}</span>}
         </div>
         {asset.total_storage_bytes > 0 && (
-          <p className="text-[10px] text-zinc-600 mt-1.5">{formatBytes(asset.total_storage_bytes)}</p>
+          <p className="text-[10px] text-zinc-600 mt-1.5">
+            {formatBytes(asset.total_storage_bytes)}
+          </p>
         )}
       </div>
     </button>
@@ -193,12 +222,19 @@ export default function PlayerPage() {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [stats, setStats] = useState<PlayerStats>({
-    bandwidth: 0, bufferLength: 0, currentLevel: -1,
-    autoLevel: true, latency: 0, segmentsLoaded: 0, totalBytesLoaded: 0,
+    bandwidth: 0,
+    bufferLength: 0,
+    currentLevel: -1,
+    autoLevel: true,
+    latency: 0,
+    segmentsLoaded: 0,
+    totalBytesLoaded: 0,
   });
 
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
-  const videoRef = useCallback((el: HTMLVideoElement | null) => { setVideoEl(el); }, []);
+  const videoRef = useCallback((el: HTMLVideoElement | null) => {
+    setVideoEl(el);
+  }, []);
   const hlsRef = useRef<Hls | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -231,7 +267,10 @@ export default function PlayerPage() {
   // Cleanup
   useEffect(() => {
     return () => {
-      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
       if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
     };
   }, []);
@@ -249,11 +288,25 @@ export default function PlayerPage() {
     setSelectedQuality('-1');
     setQualityLabel('Auto');
     setHlsError(null);
-    setStats({ bandwidth: 0, bufferLength: 0, currentLevel: -1, autoLevel: true, latency: 0, segmentsLoaded: 0, totalBytesLoaded: 0 });
+    setStats({
+      bandwidth: 0,
+      bufferLength: 0,
+      currentLevel: -1,
+      autoLevel: true,
+      latency: 0,
+      segmentsLoaded: 0,
+      totalBytesLoaded: 0,
+    });
     eventIdCounter = 0;
 
-    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-    if (statsIntervalRef.current) { clearInterval(statsIntervalRef.current); statsIntervalRef.current = null; }
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    if (statsIntervalRef.current) {
+      clearInterval(statsIntervalRef.current);
+      statsIntervalRef.current = null;
+    }
 
     addEvent('manifest', 'Loading master playlist', hlsUrl);
 
@@ -299,7 +352,9 @@ export default function PlayerPage() {
           if (buffered.length > 0) {
             bufferLen = buffered.end(buffered.length - 1) - video.currentTime;
           }
-        } catch { /* buffered not available */ }
+        } catch {
+          /* buffered not available */
+        }
 
         setStats((prev) => ({
           ...prev,
@@ -308,16 +363,26 @@ export default function PlayerPage() {
           currentLevel: h.currentLevel,
           autoLevel: h.autoLevelEnabled,
         }));
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }, 500);
 
     hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
       const levels: QualityLevel[] = data.levels.map((level, index) => ({
-        index, name: `${level.height}p`, bitrate: level.bitrate, width: level.width, height: level.height,
+        index,
+        name: `${level.height}p`,
+        bitrate: level.bitrate,
+        width: level.width,
+        height: level.height,
       }));
       setQualityLevels(levels);
       setQualityLabel('Auto');
-      addEvent('manifest', `Parsed ${data.levels.length} quality levels`, levels.map((l) => `${l.name} @ ${formatBitrate(l.bitrate)}`).join(', '));
+      addEvent(
+        'manifest',
+        `Parsed ${data.levels.length} quality levels`,
+        levels.map((l) => `${l.name} @ ${formatBitrate(l.bitrate)}`).join(', '),
+      );
     });
 
     hls.on(Hls.Events.LEVEL_LOADING, (_event, data) => {
@@ -327,25 +392,34 @@ export default function PlayerPage() {
     hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
       const level = hls.levels[data.level];
       const segCount = data.details.fragments.length;
-      addEvent('level', `Level ${data.level} loaded: ${segCount} segments`, level ? `${level.height}p -- target duration ${data.details.targetduration}s` : undefined);
+      addEvent(
+        'level',
+        `Level ${data.level} loaded: ${segCount} segments`,
+        level ? `${level.height}p -- target duration ${data.details.targetduration}s` : undefined,
+      );
     });
 
     hls.on(Hls.Events.FRAG_LOADING, (_event, data) => {
       const frag = data.frag;
       const filename = frag.url.split('/').pop() ?? frag.url;
-      addEvent('segment', `Fetching segment #${frag.sn}`, `${filename} -- ${frag.duration.toFixed(2)}s duration`);
+      addEvent(
+        'segment',
+        `Fetching segment #${frag.sn}`,
+        `${filename} -- ${frag.duration.toFixed(2)}s duration`,
+      );
     });
 
     hls.on(Hls.Events.FRAG_LOADED, (_event, data) => {
       const frag = data.frag;
       const fragStats = frag.stats as unknown as Record<string, unknown> | undefined;
-      const loading = (fragStats?.loading ?? fragStats) as { start?: number; end?: number } | undefined;
+      const loading = (fragStats?.loading ?? fragStats) as
+        { start?: number; end?: number } | undefined;
       const loadStart = loading?.start ?? 0;
       const loadEnd = loading?.end ?? 0;
       const loadTime = loadEnd > loadStart ? loadEnd - loadStart : 0;
       const size = (fragStats?.total as number) ?? 0;
       const filename = frag.url.split('/').pop() ?? frag.url;
-      const speed = loadTime > 0 ? (size / (loadTime / 1000)) : 0;
+      const speed = loadTime > 0 ? size / (loadTime / 1000) : 0;
 
       setStats((prev) => ({
         ...prev,
@@ -354,7 +428,11 @@ export default function PlayerPage() {
         latency: loadTime,
       }));
 
-      addEvent('segment', `Loaded ${filename}`, `${formatBytes(size)} in ${loadTime.toFixed(0)}ms${speed > 0 ? ` (${formatBytes(speed)}/s)` : ''} -- level ${frag.level}`);
+      addEvent(
+        'segment',
+        `Loaded ${filename}`,
+        `${formatBytes(size)} in ${loadTime.toFixed(0)}ms${speed > 0 ? ` (${formatBytes(speed)}/s)` : ''} -- level ${frag.level}`,
+      );
     });
 
     hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
@@ -364,7 +442,11 @@ export default function PlayerPage() {
           ? `Auto (${level.height}p)`
           : `${level.height}p (${formatBitrate(level.bitrate)})`;
         setQualityLabel(label);
-        addEvent('switch', `Quality switched to level ${data.level}`, `${level.height}p @ ${formatBitrate(level.bitrate)} -- ${hls.autoLevelEnabled ? 'ABR auto' : 'manual'}`);
+        addEvent(
+          'switch',
+          `Quality switched to level ${data.level}`,
+          `${level.height}p @ ${formatBitrate(level.bitrate)} -- ${hls.autoLevelEnabled ? 'ABR auto' : 'manual'}`,
+        );
       }
     });
 
@@ -373,7 +455,11 @@ export default function PlayerPage() {
     });
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
-      addEvent('error', `${data.type}: ${data.details}`, data.fatal ? 'FATAL -- attempting recovery' : 'Non-fatal, continuing');
+      addEvent(
+        'error',
+        `${data.type}: ${data.details}`,
+        data.fatal ? 'FATAL -- attempting recovery' : 'Non-fatal, continuing',
+      );
       if (data.fatal) {
         switch (data.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
@@ -396,7 +482,10 @@ export default function PlayerPage() {
     return () => {
       hls.destroy();
       hlsRef.current = null;
-      if (statsIntervalRef.current) { clearInterval(statsIntervalRef.current); statsIntervalRef.current = null; }
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current);
+        statsIntervalRef.current = null;
+      }
     };
   }, [videoEl, hlsUrl, addEvent]);
 
@@ -416,14 +505,17 @@ export default function PlayerPage() {
     }
   }, []);
 
-  const handleAssetChange = useCallback((id: string) => {
-    setSelectedId(id);
-    if (id) {
-      setSearchParams({ asset: id }, { replace: true });
-    } else {
-      setSearchParams({}, { replace: true });
-    }
-  }, [setSearchParams]);
+  const handleAssetChange = useCallback(
+    (id: string) => {
+      setSelectedId(id);
+      if (id) {
+        setSearchParams({ asset: id }, { replace: true });
+      } else {
+        setSearchParams({}, { replace: true });
+      }
+    },
+    [setSearchParams],
+  );
 
   const handleFullscreen = useCallback(() => {
     videoEl?.requestFullscreen?.();
@@ -445,7 +537,11 @@ export default function PlayerPage() {
 
   return (
     <PageContainer>
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+      >
         {!selectedId ? (
           /* ── ASSET LIST VIEW ── Grid of ready-to-play assets */
           <div>
@@ -464,7 +560,9 @@ export default function PlayerPage() {
               <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl flex flex-col items-center justify-center py-20 text-center">
                 <Film className="w-8 h-8 text-zinc-500 mb-3" aria-hidden="true" />
                 <p className="text-sm font-medium text-zinc-300">No ready assets</p>
-                <p className="text-xs text-zinc-500 mt-1">Upload and process a video first, then come back to preview playback</p>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Upload and process a video first, then come back to preview playback
+                </p>
               </div>
             )}
           </div>
@@ -484,7 +582,9 @@ export default function PlayerPage() {
               {selectedAsset && (
                 <>
                   <span className="text-zinc-600">/</span>
-                  <h1 className="text-sm font-medium text-zinc-200 truncate">{selectedAsset.title}</h1>
+                  <h1 className="text-sm font-medium text-zinc-200 truncate">
+                    {selectedAsset.title}
+                  </h1>
                 </>
               )}
             </div>
@@ -521,24 +621,66 @@ export default function PlayerPage() {
 
                   {/* Stats sidebar — stretches to match video height */}
                   <div className="flex flex-col gap-2 bg-white/[0.03] border border-white/[0.08] rounded-2xl p-3">
-                    <StatPill icon={Gauge} label="Quality" value={qualityLabel} color="text-teal-400" />
-                    <StatPill icon={Wifi} label="Bandwidth" value={stats.bandwidth > 0 ? formatBitrate(stats.bandwidth) : '\u2014'} color="text-emerald-400" />
-                    <StatPill icon={Clock} label="Latency" value={stats.latency > 0 ? `${stats.latency.toFixed(0)}ms` : '\u2014'} color="text-amber-400" />
-                    <StatPill icon={Download} label="Downloaded" value={stats.totalBytesLoaded > 0 ? formatBytes(stats.totalBytesLoaded) : '\u2014'} color="text-violet-400" />
-                    <StatPill icon={ArrowUpDown} label="Segments" value={String(stats.segmentsLoaded)} color="text-cyan-400" />
+                    <StatPill
+                      icon={Gauge}
+                      label="Quality"
+                      value={qualityLabel}
+                      color="text-teal-400"
+                    />
+                    <StatPill
+                      icon={Wifi}
+                      label="Bandwidth"
+                      value={stats.bandwidth > 0 ? formatBitrate(stats.bandwidth) : '\u2014'}
+                      color="text-emerald-400"
+                    />
+                    <StatPill
+                      icon={Clock}
+                      label="Latency"
+                      value={stats.latency > 0 ? `${stats.latency.toFixed(0)}ms` : '\u2014'}
+                      color="text-amber-400"
+                    />
+                    <StatPill
+                      icon={Download}
+                      label="Downloaded"
+                      value={
+                        stats.totalBytesLoaded > 0 ? formatBytes(stats.totalBytesLoaded) : '\u2014'
+                      }
+                      color="text-violet-400"
+                    />
+                    <StatPill
+                      icon={ArrowUpDown}
+                      label="Segments"
+                      value={String(stats.segmentsLoaded)}
+                      color="text-cyan-400"
+                    />
                     {/* Buffer with progress */}
                     <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08]">
-                      <Database className={cn('w-3.5 h-3.5', bufferPct < 20 ? 'text-red-400' : bufferPct < 50 ? 'text-amber-400' : 'text-emerald-400')} />
+                      <Database
+                        className={cn(
+                          'w-3.5 h-3.5',
+                          bufferPct < 20
+                            ? 'text-red-400'
+                            : bufferPct < 50
+                              ? 'text-amber-400'
+                              : 'text-emerald-400',
+                        )}
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between">
                           <p className="text-[10px] text-zinc-500 leading-none">Buffer</p>
-                          <p className="text-[10px] font-mono text-zinc-400 tabular-nums">{stats.bufferLength.toFixed(1)}s</p>
+                          <p className="text-[10px] font-mono text-zinc-400 tabular-nums">
+                            {stats.bufferLength.toFixed(1)}s
+                          </p>
                         </div>
                         <Progress
                           value={bufferPct}
                           className={cn(
                             'h-1 mt-1',
-                            bufferPct < 20 ? '[&>div]:bg-red-500' : bufferPct < 50 ? '[&>div]:bg-amber-500' : '[&>div]:bg-emerald-500',
+                            bufferPct < 20
+                              ? '[&>div]:bg-red-500'
+                              : bufferPct < 50
+                                ? '[&>div]:bg-amber-500'
+                                : '[&>div]:bg-emerald-500',
                           )}
                         />
                       </div>
@@ -566,7 +708,9 @@ export default function PlayerPage() {
                       <Play className="w-3 h-3" />
                       <span>{playback.data.resolution}</span>
                       <span>&middot;</span>
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{playback.data.access_tier}</Badge>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        {playback.data.access_tier}
+                      </Badge>
                     </div>
                   </div>
                 </div>
@@ -581,24 +725,35 @@ export default function PlayerPage() {
                   >
                     <div className="flex items-center gap-2">
                       <Radio className="w-4 h-4 text-teal-400" />
-                      <span className="text-sm font-semibold text-[#f0f0f0] font-heading">Pipeline Inspector</span>
+                      <span className="text-sm font-semibold text-[#f0f0f0] font-heading">
+                        Pipeline Inspector
+                      </span>
                       <span className="relative flex h-2 w-2">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                       </span>
-                      <Badge variant="secondary" className="text-[10px] ml-1">{events.length} events</Badge>
+                      <Badge variant="secondary" className="text-[10px] ml-1">
+                        {events.length} events
+                      </Badge>
                     </div>
                     <div className="flex items-center gap-2">
                       {events.length > 0 && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); clearEvents(); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            clearEvents();
+                          }}
                           className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors px-2 py-1 rounded-md hover:bg-white/[0.05]"
                         >
                           <X className="w-3 h-3" />
                           Clear
                         </button>
                       )}
-                      {inspectorOpen ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
+                      {inspectorOpen ? (
+                        <ChevronUp className="w-4 h-4 text-zinc-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-zinc-400" />
+                      )}
                     </div>
                   </button>
 
@@ -621,13 +776,21 @@ export default function PlayerPage() {
                               <div className="px-4 py-8 text-zinc-500 text-center text-xs flex flex-col items-center gap-2">
                                 {!selectedId ? (
                                   <>
-                                    <Activity className="w-5 h-5 text-zinc-600" aria-hidden="true" />
+                                    <Activity
+                                      className="w-5 h-5 text-zinc-600"
+                                      aria-hidden="true"
+                                    />
                                     <span>Select a video to inspect its HLS pipeline</span>
                                   </>
                                 ) : (
                                   <>
-                                    <Gauge className="w-5 h-5 text-teal-400 animate-spin" aria-hidden="true" />
-                                    <span className="text-zinc-400">Initializing HLS stream&hellip;</span>
+                                    <Gauge
+                                      className="w-5 h-5 text-teal-400 animate-spin"
+                                      aria-hidden="true"
+                                    />
+                                    <span className="text-zinc-400">
+                                      Initializing HLS stream&hellip;
+                                    </span>
                                   </>
                                 )}
                               </div>
@@ -641,7 +804,9 @@ export default function PlayerPage() {
                                       idx % 2 === 0 && 'bg-white/[0.01]',
                                     )}
                                   >
-                                    <span className="text-[10px] text-zinc-600 shrink-0 tabular-nums w-[7ch] pt-0.5">{evt.time}</span>
+                                    <span className="text-[10px] text-zinc-600 shrink-0 tabular-nums w-[7ch] pt-0.5">
+                                      {evt.time}
+                                    </span>
                                     <span
                                       className={cn(
                                         'shrink-0 text-center text-[9px] font-bold uppercase rounded px-1.5 py-0.5 w-[56px]',
@@ -655,7 +820,9 @@ export default function PlayerPage() {
                                       <span className="text-zinc-300">{evt.message}</span>
                                       {evt.detail && (
                                         <div className="text-zinc-500 text-[10px] truncate mt-0.5">
-                                          {evt.kind === 'segment' ? renderDetailWithObjectId(evt.detail) : evt.detail}
+                                          {evt.kind === 'segment'
+                                            ? renderDetailWithObjectId(evt.detail)
+                                            : evt.detail}
                                         </div>
                                       )}
                                     </div>
