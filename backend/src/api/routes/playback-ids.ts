@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
+import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
 
 export interface PlaybackIdRecord {
@@ -10,15 +11,23 @@ export interface PlaybackIdRecord {
   createdAt: Date;
 }
 
+// `owner` is the caller's creatorAddress (undefined for a platform key).
+// Every operation is scoped to the asset's owner so a caller cannot create,
+// list, or revoke playback ids on another tenant's asset.
 export interface PlaybackIdRouteDeps {
-  /** Create a playback id for an asset; resolves null if the asset is unknown. */
+  /** Create a playback id for an asset the caller owns; resolves null if the
+   *  asset is unknown or not owned by the caller. */
   createPlaybackId: (
     assetId: string,
     opts: { policy?: string; name?: string },
+    owner?: string,
   ) => Promise<PlaybackIdRecord | null>;
-  listPlaybackIds: (assetId: string) => Promise<PlaybackIdRecord[]>;
-  /** Delete by public playback id; resolves false if nothing was deleted. */
-  deletePlaybackId: (playbackId: string) => Promise<boolean>;
+  /** List playback ids for an asset the caller owns; resolves null if the
+   *  asset is unknown or not owned by the caller. */
+  listPlaybackIds: (assetId: string, owner?: string) => Promise<PlaybackIdRecord[] | null>;
+  /** Delete by public playback id, only when the caller owns the underlying
+   *  asset; resolves false if nothing was deleted. */
+  deletePlaybackId: (playbackId: string, owner?: string) => Promise<boolean>;
 }
 
 const VALID_POLICIES = ['public', 'signed'];
@@ -55,10 +64,11 @@ export function createPlaybackIdRoutes(deps: PlaybackIdRouteDeps): Router {
         );
       }
 
-      const created = await deps.createPlaybackId(String(req.params.assetId), {
-        policy,
-        name,
-      });
+      const created = await deps.createPlaybackId(
+        String(req.params.assetId),
+        { policy, name },
+        ownerFilter(req.apiKey!.creatorAddress),
+      );
 
       if (!created) {
         throw new AppError(404, 'Video asset not found');
@@ -73,7 +83,15 @@ export function createPlaybackIdRoutes(deps: PlaybackIdRouteDeps): Router {
     '/assets/:assetId/playback-ids',
     requireScope('read'),
     async (req: Request, res: Response) => {
-      const rows = await deps.listPlaybackIds(String(req.params.assetId));
+      const rows = await deps.listPlaybackIds(
+        String(req.params.assetId),
+        ownerFilter(req.apiKey!.creatorAddress),
+      );
+      // null means the asset is unknown or not the caller's; a 404 keeps the
+      // existence of another tenant's asset hidden.
+      if (rows === null) {
+        throw new AppError(404, 'Video asset not found');
+      }
       res.json({ data: rows.map(formatPlaybackId) });
     },
   );
@@ -83,7 +101,10 @@ export function createPlaybackIdRoutes(deps: PlaybackIdRouteDeps): Router {
     '/playback-ids/:playbackId',
     requireScope('manage'),
     async (req: Request, res: Response) => {
-      const deleted = await deps.deletePlaybackId(String(req.params.playbackId));
+      const deleted = await deps.deletePlaybackId(
+        String(req.params.playbackId),
+        ownerFilter(req.apiKey!.creatorAddress),
+      );
       if (!deleted) {
         throw new AppError(404, 'Playback ID not found');
       }
