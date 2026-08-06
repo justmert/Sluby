@@ -6,7 +6,7 @@ import {
 } from '../storage/sia-client.js';
 import { contentTypeForHint } from './content-type.js';
 import { getObjectAccessTier } from './access-control.js';
-import { verifyObjectAccess } from './signed-url.js';
+import { verifyObjectAccess, signManifestObjectUrls } from './signed-url.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 
@@ -179,6 +179,7 @@ async function serveRange(
   res: Response,
   objectId: string,
   rangeHeader: string,
+  isPrivate = false,
 ): Promise<void> {
   const hint = req.query.type as string | undefined;
 
@@ -189,7 +190,7 @@ async function serveRange(
   const parsed = parseRange(rangeHeader, totalSize);
   if (parsed === null) {
     // Malformed header — fall back to full GET behaviour.
-    return serveFull(res, objectId, hint);
+    return serveFull(res, objectId, hint, { isPrivate });
   }
   if (parsed === 'unsatisfiable') {
     res.status(416).set({
@@ -216,7 +217,9 @@ async function serveRange(
     'Content-Length': bytes.length.toString(),
     'Content-Range': `bytes ${parsed.start}-${parsed.end}/${totalSize}`,
     'Accept-Ranges': 'bytes',
-    'Cache-Control': 'public, max-age=86400',
+    // Private bytes must never be retained by a shared cache (nginx, CDN,
+    // browser proxy); public media stays cacheable for a day.
+    'Cache-Control': isPrivate ? 'no-store' : 'public, max-age=86400',
     // Ranged reads deliberately bypass the object cache.
     'X-Cache-Status': 'BYPASS',
     ...COMMON_CORS,
@@ -230,22 +233,37 @@ async function serveRange(
  * always send Range — if they don't, this still works but holds the
  * full file in RAM until LRU eviction.
  */
+interface ServeFullOpts {
+  /** Private objects are marked no-store and never cached by a shared proxy. */
+  isPrivate?: boolean;
+  /** Applied to a manifest body before sending, e.g. to sign child URLs. */
+  signManifest?: (text: string) => string;
+}
+
 async function serveFull(
   res: Response,
   objectId: string,
   hint?: string,
+  opts: ServeFullOpts = {},
 ): Promise<void> {
   const { data, status } = await getCachedObject(objectId, {
     isManifest: false,
   });
   const hinted = contentTypeForHint(hint);
+  const { isPrivate = false, signManifest } = opts;
 
   if (hinted === 'application/vnd.apple.mpegurl' || isManifestContent(data)) {
-    const body = Buffer.from(data);
+    // For a private manifest, sign every child object URL so a single signed
+    // link authorizes the whole graph. The body changes per request, so it is
+    // never cached by a shared proxy.
+    const text = signManifest
+      ? signManifest(new TextDecoder().decode(data))
+      : null;
+    const body = text !== null ? Buffer.from(text) : Buffer.from(data);
     res.set({
       'Content-Type': 'application/vnd.apple.mpegurl',
       'Content-Length': body.length.toString(),
-      'Cache-Control': 'public, max-age=60',
+      'Cache-Control': isPrivate ? 'no-store' : 'public, max-age=60',
       'Accept-Ranges': 'bytes',
       'X-Cache-Status': status,
       ...COMMON_CORS,
@@ -257,7 +275,7 @@ async function serveFull(
   res.set({
     'Content-Type': hinted ?? detectBinaryContentType(data),
     'Content-Length': data.length.toString(),
-    'Cache-Control': 'public, max-age=86400',
+    'Cache-Control': isPrivate ? 'no-store' : 'public, max-age=86400',
     'Accept-Ranges': 'bytes',
     'X-Cache-Status': status,
     ...COMMON_CORS,
@@ -277,7 +295,10 @@ deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) 
     // Objects belonging to a private asset require a valid, unexpired signed
     // URL. Public objects stay open so plain hls.js playback works.
     const tier = await getObjectAccessTier(objectId);
-    if (tier === 'private') {
+    const isPrivate = tier === 'private';
+    let signManifest: ((text: string) => string) | undefined;
+
+    if (isPrivate) {
       const check = verifyObjectAccess(
         objectId,
         req.query.expires as string | undefined,
@@ -293,12 +314,18 @@ deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) 
         });
         return;
       }
+      // The caller proved a valid capability at this expiry. When this object
+      // is a manifest, re-use that same expiry to sign its child object URLs
+      // so the variants and media segments are reachable too.
+      const expiresAtSec = Number(req.query.expires);
+      signManifest = (text: string) =>
+        signManifestObjectUrls(text, expiresAtSec, env.SESSION_SECRET);
     }
 
     if (rangeHeader) {
-      await serveRange(req, res, objectId, rangeHeader);
+      await serveRange(req, res, objectId, rangeHeader, isPrivate);
     } else {
-      await serveFull(res, objectId, hint);
+      await serveFull(res, objectId, hint, { isPrivate, signManifest });
     }
   } catch (err) {
     logger.error({ objectId, err }, 'Failed to serve object');
@@ -318,11 +345,21 @@ deliveryRouter.get('/v1/stream/:videoAssetId/master.m3u8', async (req: Request, 
   const param = String(req.params.videoAssetId);
   try {
     // Accept either an internal asset UUID or a public pb_... playback id.
-    const { resolveAssetId } = await import('../db/queries/playback-ids.js');
-    const assetId = await resolveAssetId(param);
-    if (!assetId) {
-      res.status(404).json({ error: 'Video asset not found or not ready' });
-      return;
+    // A playback id also carries a policy ('public' | 'signed'); a signed
+    // policy requires a signed URL even when the asset tier is public.
+    const { getPlaybackIdByPublicId } = await import('../db/queries/playback-ids.js');
+    const { isPlaybackId } = await import('../api/playback-id.js');
+
+    let assetId = param;
+    let policy = 'public';
+    if (isPlaybackId(param)) {
+      const pb = await getPlaybackIdByPublicId(param);
+      if (!pb) {
+        res.status(404).json({ error: 'Video asset not found or not ready' });
+        return;
+      }
+      assetId = pb.videoAssetId;
+      policy = pb.policy;
     }
 
     const { getVideoAssetById } = await import('../db/queries/assets.js');
@@ -332,17 +369,50 @@ deliveryRouter.get('/v1/stream/:videoAssetId/master.m3u8', async (req: Request, 
       return;
     }
 
+    // Gate the entry point: a private asset, or a signed-policy playback id,
+    // must present a valid signed URL over the master manifest object. This is
+    // the same capability the object gateway checks, so /v1/stream cannot be
+    // used to hand out a private manifest unsigned.
+    const requiresSigning = asset.accessTier === 'private' || policy === 'signed';
+    let signManifest: ((text: string) => string) | undefined;
+
+    if (requiresSigning) {
+      const check = verifyObjectAccess(
+        asset.manifestObjectId,
+        req.query.expires as string | undefined,
+        req.query.sig as string | undefined,
+        env.SESSION_SECRET,
+        Math.floor(Date.now() / 1000),
+      );
+      if (!check.ok) {
+        logger.warn({ param, reason: check.reason }, 'Rejected unsigned stream request');
+        res.status(403).set(COMMON_CORS).json({
+          error: 'This stream requires a valid signed URL',
+          reason: check.reason,
+        });
+        return;
+      }
+      const expiresAtSec = Number(req.query.expires);
+      signManifest = (text: string) =>
+        signManifestObjectUrls(text, expiresAtSec, env.SESSION_SECRET);
+    }
+
     const { data, status } = await getCachedObject(asset.manifestObjectId, {
       isManifest: true,
     });
+    const body = signManifest
+      ? Buffer.from(signManifest(new TextDecoder().decode(data)))
+      : Buffer.from(data);
     res.set({
       'Content-Type': 'application/vnd.apple.mpegurl',
-      'Content-Length': data.length.toString(),
-      'Cache-Control': 'public, max-age=60',
+      'Content-Length': body.length.toString(),
+      // A signed manifest is per-request and must never be cached by a shared
+      // proxy; a public one is fine to cache briefly.
+      'Cache-Control': requiresSigning ? 'no-store' : 'public, max-age=60',
       'X-Cache-Status': status,
       ...COMMON_CORS,
     });
-    res.send(Buffer.from(data));
+    res.send(body);
   } catch (err) {
     logger.error({ param, err }, 'Failed to serve manifest');
     res.status(500).json({ error: 'Failed to serve manifest' });
