@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme {
   /* ── Base surfaces ── */
@@ -53,15 +53,15 @@
 
   /* ── Glow effects ── */
   --color-glow-teal: rgba(255, 121, 26, 0.12);
-  --color-glow-orange: rgba(249, 115, 22, 0.10);
+  --color-glow-orange: rgba(249, 115, 22, 0.1);
   --color-glow-emerald: rgba(16, 185, 129, 0.12);
   --color-glow-red: rgba(239, 68, 68, 0.12);
   --color-glow-violet: rgba(139, 92, 246, 0.12);
 
   /* ── Typography ── */
-  --font-heading: "Sora", system-ui, sans-serif;
-  --font-sans: "DM Sans", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-heading: 'Sora', system-ui, sans-serif;
+  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
   /* ── Animations ── */
   --animate-fade-in: fade-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -73,53 +73,102 @@
   --animate-shimmer: shimmer 2s ease-in-out infinite;
 
   @keyframes fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   @keyframes slide-up {
-    from { opacity: 0; transform: translateY(12px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 
   @keyframes slide-down {
-    from { opacity: 0; transform: translateY(-12px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from {
+      opacity: 0;
+      transform: translateY(-12px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 
   @keyframes scale-in {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   @keyframes glow-pulse {
-    0%, 100% { opacity: 0.6; }
-    50% { opacity: 1; }
+    0%,
+    100% {
+      opacity: 0.6;
+    }
+    50% {
+      opacity: 1;
+    }
   }
 
   @keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
   }
 
   @keyframes progress-shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
   }
 
   @keyframes skeleton-pulse {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 0.7; }
+    0%,
+    100% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 0.7;
+    }
   }
 
   @keyframes spin-slow {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-6px); }
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
   }
 }
 
@@ -150,7 +199,10 @@ body {
     radial-gradient(circle at 15% 15%, rgba(255, 121, 26, 0.04) 0%, transparent 50%),
     radial-gradient(circle at 85% 80%, rgba(249, 115, 22, 0.03) 0%, transparent 50%),
     radial-gradient(circle 1px at center, rgba(255, 255, 255, 0.03) 0%, transparent 1px);
-  background-size: 100% 100%, 100% 100%, 24px 24px;
+  background-size:
+    100% 100%,
+    100% 100%,
+    24px 24px;
 }
 
 /* Noise texture overlay */
@@ -201,21 +253,27 @@ body {
 }
 
 .focus-ring:focus-visible {
-  box-shadow: 0 0 0 2px #0a0a0f, 0 0 0 4px rgba(255, 121, 26, 0.5);
+  box-shadow:
+    0 0 0 2px #0a0a0f,
+    0 0 0 4px rgba(255, 121, 26, 0.5);
 }
 
 /* ── Heading font utility ── */
 .font-heading {
-  font-family: "Sora", system-ui, sans-serif;
+  font-family: 'Sora', system-ui, sans-serif;
 }
 
 /* ── Card glow effect on hover ── */
 .card-glow {
-  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+  transition:
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
 }
 
 .card-glow:hover {
-  box-shadow: 0 0 40px rgba(255, 121, 26, 0.05), 0 0 80px rgba(255, 121, 26, 0.02);
+  box-shadow:
+    0 0 40px rgba(255, 121, 26, 0.05),
+    0 0 80px rgba(255, 121, 26, 0.02);
   border-color: rgba(255, 255, 255, 0.12);
 }
 
@@ -236,7 +294,9 @@ body {
 
 /* Respect user motion preferences */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

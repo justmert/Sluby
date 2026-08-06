@@ -1,18 +1,12 @@
 import { eq, and, desc, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import {
-  videoAssets,
-  type VideoAsset,
-  type NewVideoAsset,
-} from '../schema.js';
+import { videoAssets, type VideoAsset, type NewVideoAsset } from '../schema.js';
 import { decodeCursor, paginateRows } from '../../api/pagination.js';
 
 /**
  * Create a new video asset record.
  */
-export async function createVideoAsset(
-  data: NewVideoAsset,
-): Promise<VideoAsset> {
+export async function createVideoAsset(data: NewVideoAsset): Promise<VideoAsset> {
   const [asset] = await db.insert(videoAssets).values(data).returning();
   return asset;
 }
@@ -64,15 +58,13 @@ export async function listVideoAssets(opts?: {
   nextCursor: string | null;
   hasMore: boolean;
 }> {
-  const { status, accessTier, creatorAddress, limit = 20, offset = 0, cursor } =
-    opts ?? {};
+  const { status, accessTier, creatorAddress, limit = 20, offset = 0, cursor } = opts ?? {};
 
   // Filters apply to both the data page and the total count.
   const filters: SQL[] = [];
   if (status) filters.push(eq(videoAssets.status, status));
   if (accessTier) filters.push(eq(videoAssets.accessTier, accessTier));
-  if (creatorAddress)
-    filters.push(eq(videoAssets.creatorAddress, creatorAddress));
+  if (creatorAddress) filters.push(eq(videoAssets.creatorAddress, creatorAddress));
   const filterWhere = filters.length > 0 ? and(...filters) : undefined;
 
   // The cursor keyset narrows only the data page, never the count.
@@ -83,8 +75,7 @@ export async function listVideoAssets(opts?: {
       sql`(date_trunc('milliseconds', ${videoAssets.createdAt}), ${videoAssets.id}) < (${cursorKey.createdAt.toISOString()}::timestamptz, ${cursorKey.id}::uuid)`,
     );
   }
-  const dataWhere =
-    dataConditions.length > 0 ? and(...dataConditions) : undefined;
+  const dataWhere = dataConditions.length > 0 ? and(...dataConditions) : undefined;
 
   const orderCreatedAt = sql`date_trunc('milliseconds', ${videoAssets.createdAt})`;
 

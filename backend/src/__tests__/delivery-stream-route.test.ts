@@ -30,9 +30,7 @@ const { deliveryRouter } = await import('../delivery/aggregator.js');
 const { getCachedObject } = await import('../storage/blob-manager.js');
 const { getVideoAssetById } = await import('../db/queries/assets.js');
 const { getPlaybackIdByPublicId } = await import('../db/queries/playback-ids.js');
-const { verifyObjectAccess, buildSignedObjectQuery } = await import(
-  '../delivery/signed-url.js'
-);
+const { verifyObjectAccess, buildSignedObjectQuery } = await import('../delivery/signed-url.js');
 const { env } = await import('../config/env.js');
 
 const SECRET = env.SESSION_SECRET;

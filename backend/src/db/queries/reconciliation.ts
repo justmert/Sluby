@@ -1,17 +1,10 @@
 import { desc } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import {
-  reconciliationRuns,
-  artifacts,
-  videoAssets,
-  type ReconciliationRun,
-} from '../schema.js';
+import { reconciliationRuns, artifacts, videoAssets, type ReconciliationRun } from '../schema.js';
 import type { ReconciliationSummary } from '../../reconcile/reconciler.js';
 
 /** Persist a completed reconciliation run. */
-export async function recordReconciliationRun(
-  summary: ReconciliationSummary,
-): Promise<void> {
+export async function recordReconciliationRun(summary: ReconciliationSummary): Promise<void> {
   await db.insert(reconciliationRuns).values({
     startedAt: summary.startedAt,
     finishedAt: summary.finishedAt,
@@ -27,9 +20,7 @@ export async function recordReconciliationRun(
   });
 }
 
-export async function getLatestReconciliationRun(): Promise<
-  ReconciliationRun | undefined
-> {
+export async function getLatestReconciliationRun(): Promise<ReconciliationRun | undefined> {
   return db.query.reconciliationRuns.findFirst({
     orderBy: [desc(reconciliationRuns.finishedAt)],
   });

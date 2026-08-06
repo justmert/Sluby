@@ -87,11 +87,7 @@ describe('manifest-rewriter (single_file byte-range mode)', () => {
       ].join('\n');
 
       const paths = parseMasterPlaylist(content);
-      expect(paths).toEqual([
-        '1080p/playlist.m3u8',
-        '720p/playlist.m3u8',
-        '540p/playlist.m3u8',
-      ]);
+      expect(paths).toEqual(['1080p/playlist.m3u8', '720p/playlist.m3u8', '540p/playlist.m3u8']);
     });
 
     it('returns empty for empty input', () => {
@@ -109,11 +105,7 @@ describe('manifest-rewriter (single_file byte-range mode)', () => {
     });
 
     it('handles only comment lines', () => {
-      const content = [
-        '#EXTM3U',
-        '#EXT-X-VERSION:7',
-        '# comment line',
-      ].join('\n');
+      const content = ['#EXTM3U', '#EXT-X-VERSION:7', '# comment line'].join('\n');
       expect(parseMasterPlaylist(content)).toEqual([]);
     });
   });
@@ -141,9 +133,7 @@ describe('manifest-rewriter (single_file byte-range mode)', () => {
       const result = rewriteVariantPlaylist(content, mapping, BASE_URL);
 
       // EXT-X-MAP URI is rewritten; BYTERANGE attribute is preserved
-      expect(result).toContain(
-        `#EXT-X-MAP:URI="${BASE_URL}/v1/objects/sia-data-id-123"`,
-      );
+      expect(result).toContain(`#EXT-X-MAP:URI="${BASE_URL}/v1/objects/sia-data-id-123"`);
       // BYTERANGE attr was on the original EXT-X-MAP line → still present
       expect(result).toContain('BYTERANGE="806@0"');
       // Bare filename lines now point at the gateway URL
@@ -220,9 +210,7 @@ describe('manifest-rewriter (single_file byte-range mode)', () => {
       };
       const result = rewriteVariantPlaylist(content, mapping, BASE_URL);
 
-      expect(result).toContain(
-        `#EXT-X-MAP:URI="${BASE_URL}/v1/objects/special-id"`,
-      );
+      expect(result).toContain(`#EXT-X-MAP:URI="${BASE_URL}/v1/objects/special-id"`);
       expect(result).toContain(`${BASE_URL}/v1/objects/special-id`);
     });
   });
@@ -259,9 +247,7 @@ describe('manifest-rewriter (single_file byte-range mode)', () => {
 
       const map = new Map([['1080p/playlist.m3u8', 'sia-1080p']]);
       const result = rewriteMasterPlaylist(content, map, BASE_URL);
-      expect(result).toContain(
-        '#EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080',
-      );
+      expect(result).toContain('#EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080');
     });
 
     it('leaves unmapped paths unchanged', () => {

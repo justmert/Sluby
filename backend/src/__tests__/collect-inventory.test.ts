@@ -11,11 +11,13 @@ function ev(id: string, deleted: boolean, isoTime: string): ObjectEventLite {
 
 describe('collectObjectIds', () => {
   it('returns the ids from a single short page, excluding deleted ones', async () => {
-    const fetchPage = vi.fn().mockResolvedValueOnce([
-      ev('a', false, '2026-01-01T00:00:00Z'),
-      ev('b', false, '2026-01-01T00:00:01Z'),
-      ev('c', true, '2026-01-01T00:00:02Z'),
-    ]);
+    const fetchPage = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ev('a', false, '2026-01-01T00:00:00Z'),
+        ev('b', false, '2026-01-01T00:00:01Z'),
+        ev('c', true, '2026-01-01T00:00:02Z'),
+      ]);
 
     const ids = await collectObjectIds(fetchPage, { pageSize: 100 });
 
@@ -25,15 +27,9 @@ describe('collectObjectIds', () => {
   });
 
   it('paginates until a page shorter than the page size, advancing the cursor', async () => {
-    const page1 = [
-      ev('a', false, '2026-01-01T00:00:00Z'),
-      ev('b', false, '2026-01-01T00:00:01Z'),
-    ];
+    const page1 = [ev('a', false, '2026-01-01T00:00:00Z'), ev('b', false, '2026-01-01T00:00:01Z')];
     const page2 = [ev('c', false, '2026-01-01T00:00:02Z')];
-    const fetchPage = vi
-      .fn()
-      .mockResolvedValueOnce(page1)
-      .mockResolvedValueOnce(page2);
+    const fetchPage = vi.fn().mockResolvedValueOnce(page1).mockResolvedValueOnce(page2);
 
     const ids = await collectObjectIds(fetchPage, { pageSize: 2 });
 
@@ -46,12 +42,14 @@ describe('collectObjectIds', () => {
   });
 
   it('applies last-write-wins so a later delete removes an earlier add', async () => {
-    const fetchPage = vi.fn().mockResolvedValueOnce([
-      ev('a', false, '2026-01-01T00:00:00Z'),
-      ev('a', true, '2026-01-01T00:00:05Z'),
-      ev('b', true, '2026-01-01T00:00:00Z'),
-      ev('b', false, '2026-01-01T00:00:05Z'),
-    ]);
+    const fetchPage = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ev('a', false, '2026-01-01T00:00:00Z'),
+        ev('a', true, '2026-01-01T00:00:05Z'),
+        ev('b', true, '2026-01-01T00:00:00Z'),
+        ev('b', false, '2026-01-01T00:00:05Z'),
+      ]);
 
     const ids = await collectObjectIds(fetchPage, { pageSize: 100 });
 
@@ -68,10 +66,12 @@ describe('collectObjectIds', () => {
 
   it('stops if the cursor fails to advance (defensive against a stuck feed)', async () => {
     // Every page returns the same full-size page — a misbehaving feed.
-    const fetchPage = vi.fn().mockResolvedValue([
-      ev('a', false, '2026-01-01T00:00:00Z'),
-      ev('a', false, '2026-01-01T00:00:00Z'),
-    ]);
+    const fetchPage = vi
+      .fn()
+      .mockResolvedValue([
+        ev('a', false, '2026-01-01T00:00:00Z'),
+        ev('a', false, '2026-01-01T00:00:00Z'),
+      ]);
 
     const ids = await collectObjectIds(fetchPage, { pageSize: 2 });
 

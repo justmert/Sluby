@@ -55,13 +55,11 @@ describe('upload routes', () => {
     });
 
     it('should pass correct parameters to createUploadSession', async () => {
-      await request(createApp())
-        .post('/')
-        .send({
-          title: 'My Video',
-          description: 'desc',
-          access_tier: 'private',
-        });
+      await request(createApp()).post('/').send({
+        title: 'My Video',
+        description: 'desc',
+        access_tier: 'private',
+      });
 
       expect(deps.createUploadSession).toHaveBeenCalledWith({
         apiKeyId: 'key-1',
@@ -73,9 +71,7 @@ describe('upload routes', () => {
     });
 
     it('should default description to empty string', async () => {
-      await request(createApp())
-        .post('/')
-        .send({ title: 'My Video' });
+      await request(createApp()).post('/').send({ title: 'My Video' });
 
       expect(deps.createUploadSession).toHaveBeenCalledWith(
         expect.objectContaining({ description: '' }),
@@ -83,9 +79,7 @@ describe('upload routes', () => {
     });
 
     it('should default accessTier to public', async () => {
-      await request(createApp())
-        .post('/')
-        .send({ title: 'My Video' });
+      await request(createApp()).post('/').send({ title: 'My Video' });
 
       expect(deps.createUploadSession).toHaveBeenCalledWith(
         expect.objectContaining({ accessTier: 'public' }),
@@ -93,9 +87,7 @@ describe('upload routes', () => {
     });
 
     it('should return 400 when title is missing', async () => {
-      const res = await request(createApp())
-        .post('/')
-        .send({ description: 'no title' });
+      const res = await request(createApp()).post('/').send({ description: 'no title' });
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Title is required');
@@ -104,9 +96,7 @@ describe('upload routes', () => {
     it('should return 500 when createUploadSession throws', async () => {
       vi.mocked(deps.createUploadSession).mockRejectedValue(new Error('Upload creation failed'));
 
-      const res = await request(createApp())
-        .post('/')
-        .send({ title: 'My Video' });
+      const res = await request(createApp()).post('/').send({ title: 'My Video' });
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBe('Failed to create upload session');
@@ -117,9 +107,7 @@ describe('upload routes', () => {
       const app = createTestApp(router);
       const readOnlyApp = withApiKey(app, { ...defaultApiKey, scopes: ['read'] });
 
-      const res = await request(readOnlyApp)
-        .post('/')
-        .send({ title: 'My Video' });
+      const res = await request(readOnlyApp).post('/').send({ title: 'My Video' });
 
       expect(res.status).toBe(403);
     });

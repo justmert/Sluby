@@ -32,25 +32,16 @@ export function signSession(
     exp: Math.floor(Date.now() / 1000) + ttlSec,
   };
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = crypto
-    .createHmac('sha256', secret)
-    .update(encoded)
-    .digest('base64url');
+  const sig = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
   return `${encoded}.${sig}`;
 }
 
-export function verifySession(
-  token: string | undefined,
-  secret: string,
-): SessionPayload | null {
+export function verifySession(token: string | undefined, secret: string): SessionPayload | null {
   if (!token) return null;
   const [encoded, sig] = token.split('.');
   if (!encoded || !sig) return null;
 
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(encoded)
-    .digest('base64url');
+  const expected = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
 
   const sigBuf = Buffer.from(sig);
   const expBuf = Buffer.from(expected);
@@ -79,9 +70,7 @@ export function verifySession(
  * subset we need — no quoted values, no cookie attributes (those are
  * response-only).
  */
-export function parseCookieHeader(
-  header: string | undefined,
-): Record<string, string> {
+export function parseCookieHeader(header: string | undefined): Record<string, string> {
   if (!header) return {};
   const out: Record<string, string> = {};
   for (const pair of header.split(';')) {
@@ -124,13 +113,7 @@ export function buildSessionCookie(
 }
 
 export function buildClearCookie(secure: boolean): string {
-  const parts = [
-    `${SESSION_COOKIE_NAME}=`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Lax',
-    'Max-Age=0',
-  ];
+  const parts = [`${SESSION_COOKIE_NAME}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
   if (secure) parts.push('Secure');
   return parts.join('; ');
 }

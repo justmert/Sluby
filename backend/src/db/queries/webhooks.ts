@@ -16,22 +16,15 @@ import {
 /**
  * Register a new webhook endpoint.
  */
-export async function createWebhookEndpoint(
-  data: NewWebhookEndpoint,
-): Promise<WebhookEndpoint> {
-  const [endpoint] = await db
-    .insert(webhookEndpoints)
-    .values(data)
-    .returning();
+export async function createWebhookEndpoint(data: NewWebhookEndpoint): Promise<WebhookEndpoint> {
+  const [endpoint] = await db.insert(webhookEndpoints).values(data).returning();
   return endpoint;
 }
 
 /**
  * Find a webhook endpoint by its primary key.
  */
-export async function getWebhookEndpointById(
-  id: string,
-): Promise<WebhookEndpoint | undefined> {
+export async function getWebhookEndpointById(id: string): Promise<WebhookEndpoint | undefined> {
   return db.query.webhookEndpoints.findFirst({
     where: eq(webhookEndpoints.id, id),
   });
@@ -59,9 +52,7 @@ export async function listWebhookEndpointsByApiKeyId(
  * Find all active webhook endpoints subscribed to a given event type.
  * Used by the webhook dispatcher to determine delivery targets.
  */
-export async function findEndpointsForEvent(
-  eventType: string,
-): Promise<WebhookEndpoint[]> {
+export async function findEndpointsForEvent(eventType: string): Promise<WebhookEndpoint[]> {
   // SQL array containment: events @> ARRAY[eventType]
   const result = await db
     .select()
@@ -80,9 +71,7 @@ export async function findEndpointsForEvent(
  */
 export async function updateWebhookEndpoint(
   id: string,
-  data: Partial<
-    Pick<WebhookEndpoint, 'url' | 'events' | 'secret' | 'isActive'>
-  >,
+  data: Partial<Pick<WebhookEndpoint, 'url' | 'events' | 'secret' | 'isActive'>>,
 ): Promise<WebhookEndpoint | undefined> {
   const [updated] = await db
     .update(webhookEndpoints)
@@ -95,9 +84,7 @@ export async function updateWebhookEndpoint(
 /**
  * Deactivate a webhook endpoint (soft-delete).
  */
-export async function deactivateWebhookEndpoint(
-  id: string,
-): Promise<WebhookEndpoint | undefined> {
+export async function deactivateWebhookEndpoint(id: string): Promise<WebhookEndpoint | undefined> {
   const [updated] = await db
     .update(webhookEndpoints)
     .set({ isActive: false })
@@ -134,22 +121,15 @@ export async function deleteWebhookEndpoint(
 /**
  * Log a new webhook delivery attempt.
  */
-export async function createWebhookDelivery(
-  data: NewWebhookDelivery,
-): Promise<WebhookDelivery> {
-  const [delivery] = await db
-    .insert(webhookDeliveries)
-    .values(data)
-    .returning();
+export async function createWebhookDelivery(data: NewWebhookDelivery): Promise<WebhookDelivery> {
+  const [delivery] = await db.insert(webhookDeliveries).values(data).returning();
   return delivery;
 }
 
 /**
  * Find a webhook delivery by its primary key.
  */
-export async function getWebhookDeliveryById(
-  id: string,
-): Promise<WebhookDelivery | undefined> {
+export async function getWebhookDeliveryById(id: string): Promise<WebhookDelivery | undefined> {
   return db.query.webhookDeliveries.findFirst({
     where: eq(webhookDeliveries.id, id),
   });
@@ -215,9 +195,7 @@ export async function incrementDeliveryRetryCount(
 /**
  * Delete a webhook delivery record by ID.
  */
-export async function deleteWebhookDelivery(
-  id: string,
-): Promise<WebhookDelivery | undefined> {
+export async function deleteWebhookDelivery(id: string): Promise<WebhookDelivery | undefined> {
   const [deleted] = await db
     .delete(webhookDeliveries)
     .where(eq(webhookDeliveries.id, id))

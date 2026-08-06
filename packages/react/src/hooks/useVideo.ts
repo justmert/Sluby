@@ -19,9 +19,7 @@ export function useVideo(
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolumeState] = useState(1);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
-  const [currentQuality, setCurrentQuality] = useState<QualityLevel | null>(
-    null,
-  );
+  const [currentQuality, setCurrentQuality] = useState<QualityLevel | null>(null);
 
   // Use a ref for the RAF id so we can cancel it on cleanup.
   const rafIdRef = useRef<number | null>(null);
@@ -98,15 +96,13 @@ export function useVideo(
     if (!HlsEvents) return;
 
     const onManifestParsed = () => {
-      const levels = hls.levels.map(
-        (level, index): QualityLevel => ({
-          index,
-          width: level.width,
-          height: level.height,
-          bitrate: level.bitrate,
-          name: `${level.height}p`,
-        }),
-      );
+      const levels = hls.levels.map((level, index): QualityLevel => ({
+        index,
+        width: level.width,
+        height: level.height,
+        bitrate: level.bitrate,
+        name: `${level.height}p`,
+      }));
       setQualities(levels);
 
       if (hls.currentLevel >= 0 && hls.currentLevel < levels.length) {

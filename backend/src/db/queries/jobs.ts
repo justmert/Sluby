@@ -1,10 +1,6 @@
 import { eq, desc, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import {
-  processingJobs,
-  type ProcessingJob,
-  type NewProcessingJob,
-} from '../schema.js';
+import { processingJobs, type ProcessingJob, type NewProcessingJob } from '../schema.js';
 
 /**
  * Append a log entry to a processing job's logs array.
@@ -24,9 +20,7 @@ export async function appendProcessingLog(
 /**
  * Create a new processing job record.
  */
-export async function createProcessingJob(
-  data: NewProcessingJob,
-): Promise<ProcessingJob> {
+export async function createProcessingJob(data: NewProcessingJob): Promise<ProcessingJob> {
   const [job] = await db.insert(processingJobs).values(data).returning();
   return job;
 }
@@ -112,4 +106,3 @@ export async function updateProcessingJobProgress(
     .returning();
   return updated;
 }
-

@@ -1,9 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { getCachedObject, getCacheStats } from '../storage/blob-manager.js';
-import {
-  downloadObject,
-  getObject,
-} from '../storage/sia-client.js';
+import { downloadObject, getObject } from '../storage/sia-client.js';
 import { contentTypeForHint } from './content-type.js';
 import { getObjectAccessTier } from './access-control.js';
 import { verifyObjectAccess, signManifestObjectUrls } from './signed-url.js';
@@ -193,10 +190,13 @@ async function serveRange(
     return serveFull(res, objectId, hint, { isPrivate });
   }
   if (parsed === 'unsatisfiable') {
-    res.status(416).set({
-      'Content-Range': `bytes */${totalSize}`,
-      ...COMMON_CORS,
-    }).end();
+    res
+      .status(416)
+      .set({
+        'Content-Range': `bytes */${totalSize}`,
+        ...COMMON_CORS,
+      })
+      .end();
     return;
   }
 
@@ -256,9 +256,7 @@ async function serveFull(
     // For a private manifest, sign every child object URL so a single signed
     // link authorizes the whole graph. The body changes per request, so it is
     // never cached by a shared proxy.
-    const text = signManifest
-      ? signManifest(new TextDecoder().decode(data))
-      : null;
+    const text = signManifest ? signManifest(new TextDecoder().decode(data)) : null;
     const body = text !== null ? Buffer.from(text) : Buffer.from(data);
     res.set({
       'Content-Type': 'application/vnd.apple.mpegurl',

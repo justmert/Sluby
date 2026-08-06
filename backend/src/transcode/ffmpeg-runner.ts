@@ -26,8 +26,10 @@ interface ProbeResult {
 async function probeVideo(inputPath: string): Promise<ProbeResult> {
   return new Promise((resolve, reject) => {
     const proc = spawn('ffprobe', [
-      '-v', 'quiet',
-      '-print_format', 'json',
+      '-v',
+      'quiet',
+      '-print_format',
+      'json',
       '-show_format',
       '-show_streams',
       inputPath,
@@ -36,8 +38,12 @@ async function probeVideo(inputPath: string): Promise<ProbeResult> {
     let stdout = '';
     let stderr = '';
 
-    proc.stdout.on('data', (data) => { stdout += data.toString(); });
-    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
 
     proc.on('close', (code) => {
       if (code !== 0) {
@@ -47,7 +53,9 @@ async function probeVideo(inputPath: string): Promise<ProbeResult> {
 
       try {
         const info = JSON.parse(stdout);
-        const videoStream = info.streams?.find((s: { codec_type: string }) => s.codec_type === 'video');
+        const videoStream = info.streams?.find(
+          (s: { codec_type: string }) => s.codec_type === 'video',
+        );
         if (!videoStream) {
           reject(new Error('No video stream found'));
           return;
@@ -59,7 +67,8 @@ async function probeVideo(inputPath: string): Promise<ProbeResult> {
         const fpsRatio = videoStream.r_frame_rate ?? '24/1';
         const [fpsNum, fpsDen] = fpsRatio.split('/').map(Number);
         const fps = fpsDen ? fpsNum / fpsDen : 24;
-        const hasAudio = info.streams?.some((s: { codec_type: string }) => s.codec_type === 'audio') ?? false;
+        const hasAudio =
+          info.streams?.some((s: { codec_type: string }) => s.codec_type === 'audio') ?? false;
 
         resolve({ durationMs, width, height, fps, hasAudio });
       } catch (e) {
@@ -84,10 +93,42 @@ export async function transcode(
   const keyframeInterval = 2;
 
   const variants = [
-    { name: '1080p', width: 1920, height: 1080, videoBitrate: '6000k', maxRate: '6420k', bufSize: '9000k', audioBitrate: '192k' },
-    { name: '720p', width: 1280, height: 720, videoBitrate: '3500k', maxRate: '3745k', bufSize: '5250k', audioBitrate: '128k' },
-    { name: '540p', width: 960, height: 540, videoBitrate: '1800k', maxRate: '1926k', bufSize: '2700k', audioBitrate: '128k' },
-    { name: '360p', width: 640, height: 360, videoBitrate: '800k', maxRate: '856k', bufSize: '1200k', audioBitrate: '96k' },
+    {
+      name: '1080p',
+      width: 1920,
+      height: 1080,
+      videoBitrate: '6000k',
+      maxRate: '6420k',
+      bufSize: '9000k',
+      audioBitrate: '192k',
+    },
+    {
+      name: '720p',
+      width: 1280,
+      height: 720,
+      videoBitrate: '3500k',
+      maxRate: '3745k',
+      bufSize: '5250k',
+      audioBitrate: '128k',
+    },
+    {
+      name: '540p',
+      width: 960,
+      height: 540,
+      videoBitrate: '1800k',
+      maxRate: '1926k',
+      bufSize: '2700k',
+      audioBitrate: '128k',
+    },
+    {
+      name: '360p',
+      width: 640,
+      height: 360,
+      videoBitrate: '800k',
+      maxRate: '856k',
+      bufSize: '1200k',
+      audioBitrate: '96k',
+    },
   ];
 
   // Create variant directories
@@ -98,16 +139,13 @@ export async function transcode(
   // Build filter_complex for scaling
   const splitFilter = `[0:v]split=${variants.length}${variants.map((_, i) => `[v${i}]`).join('')}`;
   const scaleFilters = variants.map(
-    (v, i) => `[v${i}]scale=w=${v.width}:h=${v.height}:force_original_aspect_ratio=decrease,pad=${v.width}:${v.height}:(ow-iw)/2:(oh-ih)/2[v${i}out]`,
+    (v, i) =>
+      `[v${i}]scale=w=${v.width}:h=${v.height}:force_original_aspect_ratio=decrease,pad=${v.width}:${v.height}:(ow-iw)/2:(oh-ih)/2[v${i}out]`,
   );
   const filterComplex = [splitFilter, ...scaleFilters].join(';');
 
   // Build FFmpeg args
-  const args: string[] = [
-    '-hide_banner', '-y',
-    '-i', inputPath,
-    '-filter_complex', filterComplex,
-  ];
+  const args: string[] = ['-hide_banner', '-y', '-i', inputPath, '-filter_complex', filterComplex];
 
   // Add map and codec settings for each variant
   for (let i = 0; i < variants.length; i++) {
@@ -115,10 +153,14 @@ export async function transcode(
     args.push('-map', `[v${i}out]`);
     if (probe.hasAudio) args.push('-map', '0:a');
     args.push(
-      `-c:v:${i}`, 'libx264',
-      `-b:v:${i}`, v.videoBitrate,
-      `-maxrate:v:${i}`, v.maxRate,
-      `-bufsize:v:${i}`, v.bufSize,
+      `-c:v:${i}`,
+      'libx264',
+      `-b:v:${i}`,
+      v.videoBitrate,
+      `-maxrate:v:${i}`,
+      v.maxRate,
+      `-bufsize:v:${i}`,
+      v.bufSize,
     );
   }
 
@@ -132,19 +174,28 @@ export async function transcode(
 
   // var_stream_map: include audio index only when audio exists
   const varStreamMap = variants
-    .map((v, i) => probe.hasAudio ? `v:${i},a:${i},name:${v.name}` : `v:${i},name:${v.name}`)
+    .map((v, i) => (probe.hasAudio ? `v:${i},a:${i},name:${v.name}` : `v:${i},name:${v.name}`))
     .join(' ');
 
   args.push(
-    '-profile:v', 'main',
-    '-preset', 'ultrafast',
-    '-threads', '0',
-    '-force_key_frames', `expr:gte(t,n_forced*${keyframeInterval})`,
-    '-sc_threshold', '0',
-    '-f', 'hls',
-    '-hls_time', '6',
-    '-hls_playlist_type', 'vod',
-    '-hls_segment_type', 'fmp4',
+    '-profile:v',
+    'main',
+    '-preset',
+    'ultrafast',
+    '-threads',
+    '0',
+    '-force_key_frames',
+    `expr:gte(t,n_forced*${keyframeInterval})`,
+    '-sc_threshold',
+    '0',
+    '-f',
+    'hls',
+    '-hls_time',
+    '6',
+    '-hls_playlist_type',
+    'vod',
+    '-hls_segment_type',
+    'fmp4',
     // single_file: produce ONE big .m4s per variant containing init + all
     // segments concatenated. The playlist references segments via
     // EXT-X-BYTERANGE. This pairs perfectly with Sia's native byte-range
@@ -153,12 +204,16 @@ export async function transcode(
     // Reduces ~128 Sia uploads per video to ~9 (4 data + 4 playlists +
     // 1 master) and keeps caching efficient (one warm download serves
     // every segment range).
-    '-hls_flags', 'independent_segments+single_file',
-    '-master_pl_name', 'master.m3u8',
+    '-hls_flags',
+    'independent_segments+single_file',
+    '-master_pl_name',
+    'master.m3u8',
     // With single_file, the segment filename becomes the single output
     // file per variant rather than a numbered template.
-    '-hls_segment_filename', path.join(outputDir, '%v/data.m4s'),
-    '-var_stream_map', varStreamMap,
+    '-hls_segment_filename',
+    path.join(outputDir, '%v/data.m4s'),
+    '-var_stream_map',
+    varStreamMap,
     path.join(outputDir, '%v/playlist.m3u8'),
   );
 

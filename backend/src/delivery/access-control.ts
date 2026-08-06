@@ -31,9 +31,7 @@ const tierCache = new LRUCache<string, AccessTier | 'unknown'>({
  * claims it. Callers decide how to treat 'unknown'; the gateway treats it as
  * public because an unclaimed object carries no private asset's data.
  */
-export async function getObjectAccessTier(
-  objectId: string,
-): Promise<AccessTier | 'unknown'> {
+export async function getObjectAccessTier(objectId: string): Promise<AccessTier | 'unknown'> {
   const cached = tierCache.get(objectId);
   if (cached) return cached;
 

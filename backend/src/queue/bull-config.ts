@@ -60,10 +60,7 @@ export interface ReconcileJobData {
   trigger: 'scheduled' | 'manual';
 }
 
-export type VideoProcessingJobData =
-  | TranscodeJobData
-  | UploadSegmentsJobData
-  | FinalizeJobData;
+export type VideoProcessingJobData = TranscodeJobData | UploadSegmentsJobData | FinalizeJobData;
 
 // ──────────────────────────────────────────
 // Queue definitions
@@ -90,21 +87,18 @@ export const transcodeQueue = new Queue<TranscodeJobData>('transcode', {
  * Queue for uploading HLS segments to Sia.
  * Jobs: { videoAssetId, outputDir, accessTier }
  */
-export const uploadSegmentsQueue = new Queue<UploadSegmentsJobData>(
-  'upload-segments',
-  {
-    connection: redisConnection,
-    defaultJobOptions: {
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 30_000,
-      },
-      removeOnComplete: { count: 1000 },
-      removeOnFail: { count: 5000 },
+export const uploadSegmentsQueue = new Queue<UploadSegmentsJobData>('upload-segments', {
+  connection: redisConnection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 30_000,
     },
+    removeOnComplete: { count: 1000 },
+    removeOnFail: { count: 5000 },
   },
-);
+});
 
 /**
  * Queue for finalizing processed videos.

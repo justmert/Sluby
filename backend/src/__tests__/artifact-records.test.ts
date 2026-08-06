@@ -77,7 +77,11 @@ describe('buildStorageRecords', () => {
     });
 
     // Rendition data + playlist link back to their rendition by name.
-    expect(byId.get('data-1080')).toMatchObject({ role: 'rendition_data', renditionName: '1080p', byteSize: 5_000_000 });
+    expect(byId.get('data-1080')).toMatchObject({
+      role: 'rendition_data',
+      renditionName: '1080p',
+      byteSize: 5_000_000,
+    });
     expect(byId.get('pl-1080')).toMatchObject({ role: 'variant_playlist', renditionName: '1080p' });
     expect(byId.get('data-360')).toMatchObject({ role: 'rendition_data', renditionName: '360p' });
     expect(byId.get('pl-360')).toMatchObject({ role: 'variant_playlist', renditionName: '360p' });
@@ -92,9 +96,13 @@ describe('buildStorageRecords', () => {
     const ids = artifacts.map((a) => a.objectId);
     const expected = [
       'master-1',
-      'data-1080', 'pl-1080',
-      'data-360', 'pl-360',
-      'thumb-1', 'thumb-2', 'thumb-3',
+      'data-1080',
+      'pl-1080',
+      'data-360',
+      'pl-360',
+      'thumb-1',
+      'thumb-2',
+      'thumb-3',
     ];
     expect(new Set(ids).size).toBe(ids.length); // no duplicates
     expect(ids.sort()).toEqual(expected.sort()); // exact coverage
@@ -118,10 +126,34 @@ describe('resolveArtifactRows', () => {
     const rows = resolveArtifactRows('asset-1', inserted, artifacts);
 
     expect(rows).toEqual([
-      { videoAssetId: 'asset-1', renditionId: null, role: 'master_manifest', objectId: 'master-1', byteSize: 500 },
-      { videoAssetId: 'asset-1', renditionId: 'rend-uuid-1080', role: 'rendition_data', objectId: 'data-1080', byteSize: 5_000_000 },
-      { videoAssetId: 'asset-1', renditionId: 'rend-uuid-360', role: 'variant_playlist', objectId: 'pl-360', byteSize: 780 },
-      { videoAssetId: 'asset-1', renditionId: null, role: 'thumbnail', objectId: 'thumb-1', byteSize: 10_000 },
+      {
+        videoAssetId: 'asset-1',
+        renditionId: null,
+        role: 'master_manifest',
+        objectId: 'master-1',
+        byteSize: 500,
+      },
+      {
+        videoAssetId: 'asset-1',
+        renditionId: 'rend-uuid-1080',
+        role: 'rendition_data',
+        objectId: 'data-1080',
+        byteSize: 5_000_000,
+      },
+      {
+        videoAssetId: 'asset-1',
+        renditionId: 'rend-uuid-360',
+        role: 'variant_playlist',
+        objectId: 'pl-360',
+        byteSize: 780,
+      },
+      {
+        videoAssetId: 'asset-1',
+        renditionId: null,
+        role: 'thumbnail',
+        objectId: 'thumb-1',
+        byteSize: 10_000,
+      },
     ]);
   });
 

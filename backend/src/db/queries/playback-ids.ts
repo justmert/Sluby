@@ -61,9 +61,7 @@ export async function listPlaybackIdsByAsset(
 }
 
 /** Resolve a public `pb_...` handle to its playback id row. */
-export async function getPlaybackIdByPublicId(
-  publicId: string,
-): Promise<PlaybackId | undefined> {
+export async function getPlaybackIdByPublicId(publicId: string): Promise<PlaybackId | undefined> {
   return db.query.playbackIds.findFirst({
     where: eq(playbackIds.playbackId, publicId),
   });
@@ -90,10 +88,7 @@ export async function deletePlaybackIdByPublicId(
     const deleted = await db
       .delete(playbackIds)
       .where(
-        and(
-          eq(playbackIds.playbackId, publicId),
-          inArray(playbackIds.videoAssetId, ownedAssetIds),
-        ),
+        and(eq(playbackIds.playbackId, publicId), inArray(playbackIds.videoAssetId, ownedAssetIds)),
       )
       .returning({ id: playbackIds.id });
     return deleted.length > 0;

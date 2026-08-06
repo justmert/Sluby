@@ -65,16 +65,11 @@ export function useCreateApiKey(): UseMutationResult<
   });
 }
 
-export function useDeleteApiKey(): UseMutationResult<
-  { success: boolean },
-  Error,
-  string
-> {
+export function useDeleteApiKey(): UseMutationResult<{ success: boolean }, Error, string> {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.delete<{ success: boolean }>(`/keys/${id}`),
+    mutationFn: (id: string) => apiClient.delete<{ success: boolean }>(`/keys/${id}`),
     onMutate: async (id) => {
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
       await queryClient.cancelQueries({ queryKey: ['api-keys'] });

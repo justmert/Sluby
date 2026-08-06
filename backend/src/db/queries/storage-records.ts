@@ -1,10 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { renditions, artifacts } from '../schema.js';
-import {
-  resolveArtifactRows,
-  type StorageRecords,
-} from '../../storage/artifact-records.js';
+import { resolveArtifactRows, type StorageRecords } from '../../storage/artifact-records.js';
 
 /**
  * Persist the normalized rendition + artifact mapping for an asset.
@@ -45,11 +42,7 @@ export async function persistStorageRecords(
         .returning({ id: renditions.id, name: renditions.name });
     }
 
-    const rows = resolveArtifactRows(
-      videoAssetId,
-      insertedRenditions,
-      records.artifacts,
-    );
+    const rows = resolveArtifactRows(videoAssetId, insertedRenditions, records.artifacts);
     if (rows.length > 0) {
       await tx.insert(artifacts).values(rows);
     }

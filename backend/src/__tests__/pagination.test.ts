@@ -39,9 +39,7 @@ describe('cursor pagination helpers', () => {
     });
 
     it('returns null for a token with an invalid date', () => {
-      const bad = Buffer.from(JSON.stringify({ c: 'not-a-date', i: 'x' })).toString(
-        'base64url',
-      );
+      const bad = Buffer.from(JSON.stringify({ c: 'not-a-date', i: 'x' })).toString('base64url');
       expect(decodeCursor(bad)).toBeNull();
     });
 

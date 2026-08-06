@@ -2,11 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
-import {
-  SESSION_COOKIE_NAME,
-  parseCookieHeader,
-  verifySession,
-} from '../auth/session.js';
+import { SESSION_COOKIE_NAME, parseCookieHeader, verifySession } from '../auth/session.js';
 
 export interface ApiKeyInfo {
   id: string;

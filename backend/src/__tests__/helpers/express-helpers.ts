@@ -3,7 +3,13 @@
  * Creates a minimal Express app with error handling for route tests.
  */
 import 'express-async-errors';
-import express, { type Express, type Router, type Request, type Response, type NextFunction } from 'express';
+import express, {
+  type Express,
+  type Router,
+  type Request,
+  type Response,
+  type NextFunction,
+} from 'express';
 import { AppError } from '../../api/middleware/error-handler.js';
 
 /**

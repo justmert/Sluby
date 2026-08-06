@@ -9,9 +9,7 @@ import {
   deleteObject,
 } from '../dist/storage/sia-client.js';
 
-const payload = new TextEncoder().encode(
-  'Sluby renterd round-trip ' + Date.now(),
-);
+const payload = new TextEncoder().encode('Sluby renterd round-trip ' + Date.now());
 console.log('upload size:', payload.length);
 const { objectId, size } = await uploadAndPin(payload);
 console.log('uploaded:', objectId, 'size:', size);
@@ -39,7 +37,10 @@ const items = [
   new TextEncoder().encode('c-' + Date.now()),
 ];
 const batch = await uploadAndPinPacked(items);
-console.log('packed ids:', batch.map((r) => r.objectId));
+console.log(
+  'packed ids:',
+  batch.map((r) => r.objectId),
+);
 
 // Cleanup
 await deleteObject(objectId);

@@ -3,12 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { AssetManager } from './assets.js';
-import {
-  AuthenticationError,
-  NotFoundError,
-  RateLimitError,
-  SlubyError,
-} from './errors.js';
+import { AuthenticationError, NotFoundError, RateLimitError, SlubyError } from './errors.js';
 import { PlaybackManager } from './playback.js';
 import type { SlubyConfig } from './types.js';
 import { UploadManager } from './uploads.js';
@@ -97,10 +92,7 @@ export class SlubyClient {
    * - Inspects the response status and throws typed errors for common
    *   failure modes (401/403, 404, 429, 5xx).
    */
-  private async _fetch(
-    path: string,
-    init?: RequestInit,
-  ): Promise<Response> {
+  private async _fetch(path: string, init?: RequestInit): Promise<Response> {
     const url = `${this._config.baseUrl}${path}`;
 
     const headers = new Headers(init?.headers);
@@ -160,10 +152,7 @@ export class SlubyClient {
  * (expecting `{ "error": "..." }` or `{ "message": "..." }`), falling back
  * to the status text.
  */
-function extractErrorMessage(
-  responseBody: string | undefined,
-  statusText: string,
-): string {
+function extractErrorMessage(responseBody: string | undefined, statusText: string): string {
   if (responseBody) {
     try {
       const json = JSON.parse(responseBody);

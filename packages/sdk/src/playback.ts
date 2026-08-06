@@ -24,9 +24,7 @@ export class PlaybackManager {
    * the HLS manifest URL, poster image, duration, and resolution.
    */
   async getUrl(videoAssetId: string): Promise<PlaybackInfo> {
-    const res = await this._fetch(
-      `/api/v1/playback/${encodeURIComponent(videoAssetId)}`,
-    );
+    const res = await this._fetch(`/api/v1/playback/${encodeURIComponent(videoAssetId)}`);
     const body = await res.json();
 
     return {

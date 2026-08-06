@@ -42,9 +42,7 @@ export async function createApiKey(
  * Look up an API key by its SHA-256 hash.
  * This is the primary lookup path for authentication middleware.
  */
-export async function getApiKeyByHash(
-  keyHash: string,
-): Promise<ApiKey | undefined> {
+export async function getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined> {
   return db.query.apiKeys.findFirst({
     where: eq(apiKeys.keyHash, keyHash),
   });
@@ -55,9 +53,7 @@ export async function getApiKeyByHash(
  * Hashes the key, looks it up, and checks it is active and not expired.
  * Returns the API key record if valid, undefined otherwise.
  */
-export async function validateApiKey(
-  rawKey: string,
-): Promise<ApiKey | undefined> {
+export async function validateApiKey(rawKey: string): Promise<ApiKey | undefined> {
   const keyHash = hashApiKey(rawKey);
   const key = await getApiKeyByHash(keyHash);
 
@@ -82,12 +78,7 @@ export async function listApiKeys(opts?: {
   limit?: number;
   offset?: number;
 }): Promise<ApiKey[]> {
-  const {
-    creatorAddress,
-    includeInactive = false,
-    limit = 50,
-    offset = 0,
-  } = opts ?? {};
+  const { creatorAddress, includeInactive = false, limit = 50, offset = 0 } = opts ?? {};
 
   const conditions = [];
   if (creatorAddress) {
@@ -96,9 +87,7 @@ export async function listApiKeys(opts?: {
   if (!includeInactive) {
     conditions.push(eq(apiKeys.isActive, true));
     // Not expired or no expiration set
-    conditions.push(
-      or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
-    );
+    conditions.push(or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -118,17 +107,10 @@ export async function listApiKeys(opts?: {
  * tenant cannot revoke another tenant's key by guessing its UUID. Omit it
  * only for platform/internal callers.
  */
-export async function deleteApiKey(
-  id: string,
-  owner?: string,
-): Promise<ApiKey | undefined> {
+export async function deleteApiKey(id: string, owner?: string): Promise<ApiKey | undefined> {
   const [deleted] = await db
     .delete(apiKeys)
-    .where(
-      owner
-        ? and(eq(apiKeys.id, id), eq(apiKeys.creatorAddress, owner))
-        : eq(apiKeys.id, id),
-    )
+    .where(owner ? and(eq(apiKeys.id, id), eq(apiKeys.creatorAddress, owner)) : eq(apiKeys.id, id))
     .returning();
   return deleted;
 }

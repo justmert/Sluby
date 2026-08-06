@@ -16,9 +16,7 @@ export interface CacheStats {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useCacheStats(
-  refetchInterval: number | false = false,
-): UseQueryResult<CacheStats> {
+export function useCacheStats(refetchInterval: number | false = false): UseQueryResult<CacheStats> {
   return useQuery({
     queryKey: ['cache-stats'],
     queryFn: () => fetchRaw<CacheStats>('/v1/cache/stats'),

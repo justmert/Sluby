@@ -32,13 +32,20 @@ export interface AssetRouteDeps {
   // Every by-id operation is scoped by it so one tenant cannot reach
   // another's asset by guessing a UUID.
   getAsset: (id: string, owner?: string) => Promise<VideoAssetRecord | null>;
-  updateAsset: (id: string, data: {
-    title?: string;
-    description?: string;
-    accessTier?: string;
-  }, owner?: string) => Promise<VideoAssetRecord | null>;
+  updateAsset: (
+    id: string,
+    data: {
+      title?: string;
+      description?: string;
+      accessTier?: string;
+    },
+    owner?: string,
+  ) => Promise<VideoAssetRecord | null>;
   deleteAsset: (id: string, owner?: string) => Promise<boolean>;
-  getProcessingJob: (videoAssetId: string, owner?: string) => Promise<ProcessingJobRecord | undefined>;
+  getProcessingJob: (
+    videoAssetId: string,
+    owner?: string,
+  ) => Promise<ProcessingJobRecord | undefined>;
   retryAsset: (id: string, owner?: string) => Promise<{ stage: string }>;
 }
 

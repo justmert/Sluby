@@ -47,9 +47,7 @@ function formatRun(r: ReconciliationRunRecord) {
  * PostgreSQL's tracked objects against the indexer's inventory, and lets an
  * operator trigger a run on demand. Read/trigger both require `manage`.
  */
-export function createReconciliationRoutes(
-  deps: ReconciliationRouteDeps,
-): Router {
+export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Router {
   const router = Router();
 
   /** GET /api/v1/reconciliation — latest completed run. */

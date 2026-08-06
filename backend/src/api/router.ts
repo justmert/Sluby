@@ -4,7 +4,10 @@ import { createAssetRoutes, type AssetRouteDeps } from './routes/assets.js';
 import { createSiaInfoRoutes, type SiaInfoRouteDeps } from './routes/sia-info.js';
 import { createPlaybackRoutes, type PlaybackRouteDeps } from './routes/playback.js';
 import { createPlaybackIdRoutes, type PlaybackIdRouteDeps } from './routes/playback-ids.js';
-import { createReconciliationRoutes, type ReconciliationRouteDeps } from './routes/reconciliation.js';
+import {
+  createReconciliationRoutes,
+  type ReconciliationRouteDeps,
+} from './routes/reconciliation.js';
 import { createWebhookRoutes, type WebhookRouteDeps } from './routes/webhooks.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createApiKeyMiddleware, type ApiKeyMiddlewareDeps } from './middleware/api-key.js';
@@ -31,7 +34,16 @@ const DOCS_HTML = `<!doctype html>
   </body>
 </html>`;
 
-export interface ApiRouterDeps extends UploadRouteDeps, AssetRouteDeps, SiaInfoRouteDeps, PlaybackRouteDeps, PlaybackIdRouteDeps, ReconciliationRouteDeps, WebhookRouteDeps, ApiKeyMiddlewareDeps {
+export interface ApiRouterDeps
+  extends
+    UploadRouteDeps,
+    AssetRouteDeps,
+    SiaInfoRouteDeps,
+    PlaybackRouteDeps,
+    PlaybackIdRouteDeps,
+    ReconciliationRouteDeps,
+    WebhookRouteDeps,
+    ApiKeyMiddlewareDeps {
   createApiKey: (data: {
     keyHash: string;
     name: string;
@@ -39,14 +51,16 @@ export interface ApiRouterDeps extends UploadRouteDeps, AssetRouteDeps, SiaInfoR
     rateLimit: number;
     creatorAddress: string;
   }) => Promise<{ id: string }>;
-  listApiKeys: (creatorAddress: string) => Promise<Array<{
-    id: string;
-    name: string;
-    scopes: string[];
-    rateLimit: number;
-    isActive: boolean;
-    createdAt: Date;
-  }>>;
+  listApiKeys: (creatorAddress: string) => Promise<
+    Array<{
+      id: string;
+      name: string;
+      scopes: string[];
+      rateLimit: number;
+      isActive: boolean;
+      createdAt: Date;
+    }>
+  >;
   /** Deletes only if the key belongs to `owner`; false when it does not. */
   deleteApiKey: (id: string, owner?: string) => Promise<boolean>;
 }

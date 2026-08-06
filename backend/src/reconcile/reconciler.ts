@@ -41,9 +41,7 @@ export interface ReconcileDeps {
   now: () => Date;
 }
 
-export async function runReconciliation(
-  deps: ReconcileDeps,
-): Promise<ReconciliationSummary> {
+export async function runReconciliation(deps: ReconcileDeps): Promise<ReconciliationSummary> {
   const startedAt = deps.now();
 
   try {
@@ -74,10 +72,7 @@ export async function runReconciliation(
   }
 }
 
-async function reconcileOnce(
-  deps: ReconcileDeps,
-  startedAt: Date,
-): Promise<ReconciliationSummary> {
+async function reconcileOnce(deps: ReconcileDeps, startedAt: Date): Promise<ReconciliationSummary> {
   const [dbIds, indexerIds] = await Promise.all([
     deps.getDbObjectIds(),
     deps.getIndexerObjectIds(),
@@ -99,9 +94,7 @@ async function reconcileOnce(
     orphanedIds: diff.orphanedInIndexer,
     missingIds: diff.missingFromIndexer,
     status:
-      diff.orphanedInIndexer.length === 0 && diff.missingFromIndexer.length === 0
-        ? 'ok'
-        : 'drift',
+      diff.orphanedInIndexer.length === 0 && diff.missingFromIndexer.length === 0 ? 'ok' : 'drift',
   };
 
   await deps.recordRun(summary);

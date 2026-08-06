@@ -52,12 +52,7 @@ export const STUDIO_NAV: NavItem[] = [
 ];
 
 // Processing steps
-export const PROCESSING_STEPS = [
-  'Created',
-  'Uploading',
-  'Processing',
-  'Ready',
-] as const;
+export const PROCESSING_STEPS = ['Created', 'Uploading', 'Processing', 'Ready'] as const;
 
 // Rendition presets
 export const RENDITION_PRESETS = [
@@ -92,4 +87,3 @@ export const WEBHOOK_EVENTS = [
   'asset.ready',
   'asset.errored',
 ] as const;
-

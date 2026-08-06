@@ -113,10 +113,7 @@ function startUpstream(): Promise<{ server: Server; port: number }> {
 function writeNginxConfig(upstreamPort: number): string {
   const dir = mkdtempSync(join(tmpdir(), 'sluby-nginx-'));
   const mainConf = readFileSync(join(repoRoot, 'nginx/nginx.conf'), 'utf8');
-  const siteConf = readFileSync(
-    join(repoRoot, 'nginx/conf.d/sia-aggregator.conf'),
-    'utf8',
-  ).replace(
+  const siteConf = readFileSync(join(repoRoot, 'nginx/conf.d/sia-aggregator.conf'), 'utf8').replace(
     'server backend:3000;',
     `server host.docker.internal:${upstreamPort};`,
   );
@@ -156,19 +153,28 @@ describe.skipIf(!HAS_DOCKER)('HLS delivery through nginx', () => {
     // server on port 80; otherwise the image's default server answers first
     // and serves its welcome root for /v1/objects/*.
     execFileSync('docker', [
-      'run', '-d', '--name', CONTAINER,
+      'run',
+      '-d',
+      '--name',
+      CONTAINER,
       '--add-host=host.docker.internal:host-gateway',
-      '-p', '127.0.0.1:0:80',
-      '-v', `${confDir}/nginx.conf:/etc/nginx/nginx.conf:ro`,
-      '-v', `${confDir}/sia-aggregator.conf:/etc/nginx/conf.d/default.conf:ro`,
+      '-p',
+      '127.0.0.1:0:80',
+      '-v',
+      `${confDir}/nginx.conf:/etc/nginx/nginx.conf:ro`,
+      '-v',
+      `${confDir}/sia-aggregator.conf:/etc/nginx/conf.d/default.conf:ro`,
       NGINX_IMAGE,
     ]);
 
     const hostPort = execFileSync('docker', [
-      'inspect', '--format',
+      'inspect',
+      '--format',
       '{{(index (index .NetworkSettings.Ports "80/tcp") 0).HostPort}}',
       CONTAINER,
-    ]).toString().trim();
+    ])
+      .toString()
+      .trim();
     base = `http://127.0.0.1:${hostPort}`;
 
     // Wait for nginx + upstream to be ready.

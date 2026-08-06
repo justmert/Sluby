@@ -36,13 +36,10 @@ function authHeaders(): Record<string, string> {
   return {};
 }
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     ...authHeaders(),
-    ...(options.headers as Record<string, string> ?? {}),
+    ...((options.headers as Record<string, string>) ?? {}),
   };
 
   if (options.body && typeof options.body === 'string') {
@@ -115,13 +112,10 @@ export const apiClient = {
  * Raw fetch that returns the full Response (useful for inspecting headers,
  * e.g. rate-limit headers in the API explorer).
  */
-export async function apiRawFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<Response> {
+export async function apiRawFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const headers: Record<string, string> = {
     ...authHeaders(),
-    ...(options.headers as Record<string, string> ?? {}),
+    ...((options.headers as Record<string, string>) ?? {}),
   };
 
   if (options.body && typeof options.body === 'string') {

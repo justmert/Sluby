@@ -7,10 +7,7 @@ import { z } from 'zod';
 
 // Reproduce the schema from config/env.ts
 const envSchema = z.object({
-  DATABASE_URL: z
-    .string()
-    .url()
-    .default('postgresql://sluby:sluby@localhost:5432/sluby'),
+  DATABASE_URL: z.string().url().default('postgresql://sluby:sluby@localhost:5432/sluby'),
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
   SIA_INDEXER_URL: z.string().url().default('https://sia.storage'),
   SIA_APP_ID: z.string().length(64),

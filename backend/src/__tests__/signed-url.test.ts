@@ -144,9 +144,7 @@ describe('signManifestObjectUrls', () => {
     expect(urls.map((u) => u.id)).toEqual(['variant360', 'variant720']);
     for (const u of urls) {
       expect(u.expires).toBe(String(EXPIRES));
-      expect(
-        verifyObjectAccess(u.id, u.expires, u.sig, SECRET, EXPIRES - 1),
-      ).toEqual({ ok: true });
+      expect(verifyObjectAccess(u.id, u.expires, u.sig, SECRET, EXPIRES - 1)).toEqual({ ok: true });
     }
   });
 
@@ -163,9 +161,7 @@ describe('signManifestObjectUrls', () => {
     expect(urls).toHaveLength(2);
     for (const u of urls) {
       expect(u.id).toBe('data720');
-      expect(
-        verifyObjectAccess(u.id, u.expires, u.sig, SECRET, EXPIRES - 1),
-      ).toEqual({ ok: true });
+      expect(verifyObjectAccess(u.id, u.expires, u.sig, SECRET, EXPIRES - 1)).toEqual({ ok: true });
     }
   });
 

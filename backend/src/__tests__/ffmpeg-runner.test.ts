@@ -78,10 +78,13 @@ describe('ffmpeg-runner', () => {
           if (opts?.ffmpegStderrChunks) {
             let chain = Promise.resolve();
             for (const chunk of opts.ffmpegStderrChunks) {
-              chain = chain.then(() => new Promise<void>((resolve) => {
-                proc.stderr.emit('data', Buffer.from(chunk));
-                process.nextTick(resolve);
-              }));
+              chain = chain.then(
+                () =>
+                  new Promise<void>((resolve) => {
+                    proc.stderr.emit('data', Buffer.from(chunk));
+                    process.nextTick(resolve);
+                  }),
+              );
             }
             chain.then(() => {
               proc.emit('close', opts?.ffmpegExitCode ?? 0);
@@ -186,10 +189,15 @@ describe('ffmpeg-runner', () => {
       mockSpawn.mockImplementation(() => {
         const proc = createMockProcess();
         process.nextTick(() => {
-          proc.stdout.emit('data', Buffer.from(JSON.stringify({
-            format: { duration: '60.0' },
-            streams: [{ codec_type: 'audio' }],
-          })));
+          proc.stdout.emit(
+            'data',
+            Buffer.from(
+              JSON.stringify({
+                format: { duration: '60.0' },
+                streams: [{ codec_type: 'audio' }],
+              }),
+            ),
+          );
           process.nextTick(() => {
             proc.emit('close', 0);
           });
@@ -211,10 +219,17 @@ describe('ffmpeg-runner', () => {
         if (callCount === 1) {
           // ffprobe succeeds
           process.nextTick(() => {
-            proc.stdout.emit('data', Buffer.from(JSON.stringify({
-              format: { duration: '60.0' },
-              streams: [{ codec_type: 'video', width: 1920, height: 1080, r_frame_rate: '24/1' }],
-            })));
+            proc.stdout.emit(
+              'data',
+              Buffer.from(
+                JSON.stringify({
+                  format: { duration: '60.0' },
+                  streams: [
+                    { codec_type: 'video', width: 1920, height: 1080, r_frame_rate: '24/1' },
+                  ],
+                }),
+              ),
+            );
             process.nextTick(() => {
               proc.emit('close', 0);
             });
@@ -229,9 +244,7 @@ describe('ffmpeg-runner', () => {
         return proc;
       });
 
-      await expect(transcode('/input/video.mp4', '/output')).rejects.toThrow(
-        'FFmpeg spawn error',
-      );
+      await expect(transcode('/input/video.mp4', '/output')).rejects.toThrow('FFmpeg spawn error');
     });
 
     it('should parse progress from stderr when onProgress callback is provided', async () => {

@@ -9,11 +9,7 @@
  * testable and has no Sia/DB coupling.
  */
 
-export type ArtifactRole =
-  | 'master_manifest'
-  | 'variant_playlist'
-  | 'rendition_data'
-  | 'thumbnail';
+export type ArtifactRole = 'master_manifest' | 'variant_playlist' | 'rendition_data' | 'thumbnail';
 
 /** One rendition's upload outcome, as known by the segment uploader. */
 export interface VariantUpload {
@@ -128,7 +124,12 @@ export function buildStorageRecords(input: {
   }));
 
   const artifacts: ArtifactRecord[] = [
-    { role: 'master_manifest', objectId: master.objectId, byteSize: master.byteSize, renditionName: null },
+    {
+      role: 'master_manifest',
+      objectId: master.objectId,
+      byteSize: master.byteSize,
+      renditionName: null,
+    },
   ];
 
   for (const v of variants) {

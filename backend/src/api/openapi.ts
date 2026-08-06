@@ -269,16 +269,36 @@ export const openapiDocument = {
 
     // ── Auth (unauthenticated) ──
     '/api/v1/auth/github/login': {
-      get: { tags: ['Auth'], summary: 'Begin GitHub OAuth login.', security: [], responses: { '302': { description: 'Redirect to GitHub.' } } },
+      get: {
+        tags: ['Auth'],
+        summary: 'Begin GitHub OAuth login.',
+        security: [],
+        responses: { '302': { description: 'Redirect to GitHub.' } },
+      },
     },
     '/api/v1/auth/github/callback': {
-      get: { tags: ['Auth'], summary: 'GitHub OAuth callback.', security: [], responses: { '302': { description: 'Redirect into the Studio.' } } },
+      get: {
+        tags: ['Auth'],
+        summary: 'GitHub OAuth callback.',
+        security: [],
+        responses: { '302': { description: 'Redirect into the Studio.' } },
+      },
     },
     '/api/v1/auth/me': {
-      get: { tags: ['Auth'], summary: 'Current session identity.', security: [{ cookieAuth: [] }], responses: { '200': { description: 'Session info.' }, '401': errorResponse } },
+      get: {
+        tags: ['Auth'],
+        summary: 'Current session identity.',
+        security: [{ cookieAuth: [] }],
+        responses: { '200': { description: 'Session info.' }, '401': errorResponse },
+      },
     },
     '/api/v1/auth/logout': {
-      post: { tags: ['Auth'], summary: 'Clear the session cookie.', security: [{ cookieAuth: [] }], responses: { '200': { description: 'Logged out.' } } },
+      post: {
+        tags: ['Auth'],
+        summary: 'Clear the session cookie.',
+        security: [{ cookieAuth: [] }],
+        responses: { '200': { description: 'Logged out.' } },
+      },
     },
 
     // ── Uploads ──
@@ -302,12 +322,27 @@ export const openapiDocument = {
             },
           },
         },
-        responses: { '201': jsonResponse('UploadSession', 'Session created.'), '400': errorResponse },
+        responses: {
+          '201': jsonResponse('UploadSession', 'Session created.'),
+          '400': errorResponse,
+        },
       },
     },
     '/api/v1/uploads/{id}': {
-      get: { tags: ['Uploads'], summary: 'Upload session status.', 'x-required-scope': 'read', parameters: [idParam('id', 'Upload session id.')], responses: { '200': { description: 'Session status.' }, '404': errorResponse } },
-      delete: { tags: ['Uploads'], summary: 'Cancel an upload session.', 'x-required-scope': 'upload', parameters: [idParam('id', 'Upload session id.')], responses: { '200': { description: 'Cancelled.' } } },
+      get: {
+        tags: ['Uploads'],
+        summary: 'Upload session status.',
+        'x-required-scope': 'read',
+        parameters: [idParam('id', 'Upload session id.')],
+        responses: { '200': { description: 'Session status.' }, '404': errorResponse },
+      },
+      delete: {
+        tags: ['Uploads'],
+        summary: 'Cancel an upload session.',
+        'x-required-scope': 'upload',
+        parameters: [idParam('id', 'Upload session id.')],
+        responses: { '200': { description: 'Cancelled.' } },
+      },
     },
 
     // ── Assets ──
@@ -320,71 +355,278 @@ export const openapiDocument = {
           { $ref: '#/components/parameters/limit' },
           { $ref: '#/components/parameters/cursor' },
           { $ref: '#/components/parameters/page' },
-          { name: 'status', in: 'query', schema: { type: 'string' }, description: 'Filter by status.' },
-          { name: 'access_tier', in: 'query', schema: { type: 'string', enum: ['public', 'private'] } },
+          {
+            name: 'status',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Filter by status.',
+          },
+          {
+            name: 'access_tier',
+            in: 'query',
+            schema: { type: 'string', enum: ['public', 'private'] },
+          },
         ],
         responses: { '200': jsonResponse('AssetList', 'A page of assets.'), '403': errorResponse },
       },
     },
     '/api/v1/assets/{id}': {
-      get: { tags: ['Assets'], summary: 'Get an asset.', 'x-required-scope': 'read', parameters: [idParam('id', 'Asset id.')], responses: { '200': jsonResponse('Asset', 'The asset.'), '404': errorResponse } },
-      patch: { tags: ['Assets'], summary: 'Update asset metadata.', 'x-required-scope': 'manage', parameters: [idParam('id', 'Asset id.')], requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { title: { type: 'string' }, description: { type: 'string' }, access_tier: { type: 'string' } } } } } }, responses: { '200': jsonResponse('Asset', 'Updated.'), '404': errorResponse } },
-      delete: { tags: ['Assets'], summary: 'Delete an asset.', 'x-required-scope': 'manage', parameters: [idParam('id', 'Asset id.')], responses: { '200': { description: 'Deleted.' } } },
+      get: {
+        tags: ['Assets'],
+        summary: 'Get an asset.',
+        'x-required-scope': 'read',
+        parameters: [idParam('id', 'Asset id.')],
+        responses: { '200': jsonResponse('Asset', 'The asset.'), '404': errorResponse },
+      },
+      patch: {
+        tags: ['Assets'],
+        summary: 'Update asset metadata.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Asset id.')],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string' },
+                  description: { type: 'string' },
+                  access_tier: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        responses: { '200': jsonResponse('Asset', 'Updated.'), '404': errorResponse },
+      },
+      delete: {
+        tags: ['Assets'],
+        summary: 'Delete an asset.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Asset id.')],
+        responses: { '200': { description: 'Deleted.' } },
+      },
     },
     '/api/v1/assets/{id}/processing': {
-      get: { tags: ['Assets'], summary: 'Processing status for an asset.', 'x-required-scope': 'read', parameters: [idParam('id', 'Asset id.')], responses: { '200': jsonResponse('ProcessingStatus', 'Processing status.'), '404': errorResponse } },
+      get: {
+        tags: ['Assets'],
+        summary: 'Processing status for an asset.',
+        'x-required-scope': 'read',
+        parameters: [idParam('id', 'Asset id.')],
+        responses: {
+          '200': jsonResponse('ProcessingStatus', 'Processing status.'),
+          '404': errorResponse,
+        },
+      },
     },
     '/api/v1/assets/{id}/retry': {
-      post: { tags: ['Assets'], summary: 'Retry a failed asset.', 'x-required-scope': 'manage', parameters: [idParam('id', 'Asset id.')], responses: { '200': { description: 'Retry enqueued.' }, '400': errorResponse } },
+      post: {
+        tags: ['Assets'],
+        summary: 'Retry a failed asset.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Asset id.')],
+        responses: { '200': { description: 'Retry enqueued.' }, '400': errorResponse },
+      },
     },
     '/api/v1/assets/{id}/sia': {
-      get: { tags: ['Storage'], summary: 'Per-asset Sia storage breakdown.', 'x-required-scope': 'read', parameters: [idParam('id', 'Asset id.')], responses: { '200': jsonResponse('SiaStorageInfo', 'Storage breakdown.'), '404': errorResponse } },
+      get: {
+        tags: ['Storage'],
+        summary: 'Per-asset Sia storage breakdown.',
+        'x-required-scope': 'read',
+        parameters: [idParam('id', 'Asset id.')],
+        responses: {
+          '200': jsonResponse('SiaStorageInfo', 'Storage breakdown.'),
+          '404': errorResponse,
+        },
+      },
     },
     '/api/v1/assets/{id}/playback-ids': {
-      post: { tags: ['Playback'], summary: 'Create a playback ID.', 'x-required-scope': 'manage', parameters: [idParam('id', 'Asset id.')], requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { policy: { type: 'string', enum: ['public', 'signed'] }, name: { type: 'string' } } } } } }, responses: { '201': jsonResponse('PlaybackId', 'Created.'), '400': errorResponse, '404': errorResponse } },
-      get: { tags: ['Playback'], summary: 'List playback IDs for an asset.', 'x-required-scope': 'read', parameters: [idParam('id', 'Asset id.')], responses: { '200': jsonResponse('PlaybackIdList', 'Playback IDs.') } },
+      post: {
+        tags: ['Playback'],
+        summary: 'Create a playback ID.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Asset id.')],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  policy: { type: 'string', enum: ['public', 'signed'] },
+                  name: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '201': jsonResponse('PlaybackId', 'Created.'),
+          '400': errorResponse,
+          '404': errorResponse,
+        },
+      },
+      get: {
+        tags: ['Playback'],
+        summary: 'List playback IDs for an asset.',
+        'x-required-scope': 'read',
+        parameters: [idParam('id', 'Asset id.')],
+        responses: { '200': jsonResponse('PlaybackIdList', 'Playback IDs.') },
+      },
     },
     '/api/v1/playback-ids/{playbackId}': {
-      delete: { tags: ['Playback'], summary: 'Delete a playback ID.', 'x-required-scope': 'manage', parameters: [idParam('playbackId', 'Public pb_ handle.')], responses: { '200': { description: 'Deleted.' }, '404': errorResponse } },
+      delete: {
+        tags: ['Playback'],
+        summary: 'Delete a playback ID.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('playbackId', 'Public pb_ handle.')],
+        responses: { '200': { description: 'Deleted.' }, '404': errorResponse },
+      },
     },
 
     // ── Playback ──
     '/api/v1/playback/{id}': {
-      get: { tags: ['Playback'], summary: 'Playback info + URL for an asset or playback ID.', 'x-required-scope': 'read', parameters: [idParam('id', 'Asset UUID or pb_ playback ID.')], responses: { '200': jsonResponse('PlaybackInfo', 'Playback info.'), '404': errorResponse, '409': errorResponse } },
+      get: {
+        tags: ['Playback'],
+        summary: 'Playback info + URL for an asset or playback ID.',
+        'x-required-scope': 'read',
+        parameters: [idParam('id', 'Asset UUID or pb_ playback ID.')],
+        responses: {
+          '200': jsonResponse('PlaybackInfo', 'Playback info.'),
+          '404': errorResponse,
+          '409': errorResponse,
+        },
+      },
     },
     '/api/v1/playback/{id}/signed': {
-      get: { tags: ['Playback'], summary: 'Time-limited signed playback URL.', 'x-required-scope': 'read', parameters: [idParam('id', 'Asset UUID or pb_ playback ID.'), { name: 'expires_in', in: 'query', schema: { type: 'integer', default: 3600 } }], responses: { '200': jsonResponse('SignedUrl', 'Signed URL.'), '404': errorResponse, '409': errorResponse } },
+      get: {
+        tags: ['Playback'],
+        summary: 'Time-limited signed playback URL.',
+        'x-required-scope': 'read',
+        parameters: [
+          idParam('id', 'Asset UUID or pb_ playback ID.'),
+          { name: 'expires_in', in: 'query', schema: { type: 'integer', default: 3600 } },
+        ],
+        responses: {
+          '200': jsonResponse('SignedUrl', 'Signed URL.'),
+          '404': errorResponse,
+          '409': errorResponse,
+        },
+      },
     },
 
     // ── Keys ──
     '/api/v1/keys': {
-      post: { tags: ['Keys'], summary: 'Create an API key.', 'x-required-scope': 'manage', requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { name: { type: 'string' }, scopes: { type: 'array', items: { type: 'string', enum: ['upload', 'read', 'manage'] } }, rate_limit: { type: 'integer' } }, required: ['name'] } } } }, responses: { '201': jsonResponse('ApiKey', 'Created (raw key shown once).'), '400': errorResponse } },
-      get: { tags: ['Keys'], summary: 'List API keys.', 'x-required-scope': 'manage', responses: { '200': { description: 'Keys.' } } },
+      post: {
+        tags: ['Keys'],
+        summary: 'Create an API key.',
+        'x-required-scope': 'manage',
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  scopes: {
+                    type: 'array',
+                    items: { type: 'string', enum: ['upload', 'read', 'manage'] },
+                  },
+                  rate_limit: { type: 'integer' },
+                },
+                required: ['name'],
+              },
+            },
+          },
+        },
+        responses: {
+          '201': jsonResponse('ApiKey', 'Created (raw key shown once).'),
+          '400': errorResponse,
+        },
+      },
+      get: {
+        tags: ['Keys'],
+        summary: 'List API keys.',
+        'x-required-scope': 'manage',
+        responses: { '200': { description: 'Keys.' } },
+      },
     },
     '/api/v1/keys/{id}': {
-      delete: { tags: ['Keys'], summary: 'Delete an API key.', 'x-required-scope': 'manage', parameters: [idParam('id', 'Key id.')], responses: { '200': { description: 'Deleted.' } } },
+      delete: {
+        tags: ['Keys'],
+        summary: 'Delete an API key.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Key id.')],
+        responses: { '200': { description: 'Deleted.' } },
+      },
     },
 
     // ── Webhooks ──
     '/api/v1/webhooks': {
-      post: { tags: ['Webhooks'], summary: 'Register a webhook endpoint.', 'x-required-scope': 'manage', requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { url: { type: 'string' }, events: { type: 'array', items: { type: 'string' } } }, required: ['url'] } } } }, responses: { '201': { description: 'Created.' }, '400': errorResponse } },
-      get: { tags: ['Webhooks'], summary: 'List webhook endpoints.', 'x-required-scope': 'read', responses: { '200': { description: 'Endpoints.' } } },
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Register a webhook endpoint.',
+        'x-required-scope': 'manage',
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  url: { type: 'string' },
+                  events: { type: 'array', items: { type: 'string' } },
+                },
+                required: ['url'],
+              },
+            },
+          },
+        },
+        responses: { '201': { description: 'Created.' }, '400': errorResponse },
+      },
+      get: {
+        tags: ['Webhooks'],
+        summary: 'List webhook endpoints.',
+        'x-required-scope': 'read',
+        responses: { '200': { description: 'Endpoints.' } },
+      },
     },
     '/api/v1/webhooks/{id}': {
-      delete: { tags: ['Webhooks'], summary: 'Delete a webhook endpoint.', 'x-required-scope': 'manage', parameters: [idParam('id', 'Endpoint id.')], responses: { '200': { description: 'Deleted.' } } },
+      delete: {
+        tags: ['Webhooks'],
+        summary: 'Delete a webhook endpoint.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Endpoint id.')],
+        responses: { '200': { description: 'Deleted.' } },
+      },
     },
 
     // ── Reconciliation ──
     '/api/v1/reconciliation': {
-      get: { tags: ['Reconciliation'], summary: 'Latest reconciliation run.', 'x-required-scope': 'manage', responses: { '200': jsonResponse('ReconciliationRun', 'Latest run.'), '404': errorResponse } },
+      get: {
+        tags: ['Reconciliation'],
+        summary: 'Latest reconciliation run.',
+        'x-required-scope': 'manage',
+        responses: {
+          '200': jsonResponse('ReconciliationRun', 'Latest run.'),
+          '404': errorResponse,
+        },
+      },
     },
     '/api/v1/reconciliation/run': {
-      post: { tags: ['Reconciliation'], summary: 'Trigger a reconciliation run.', 'x-required-scope': 'manage', responses: { '202': { description: 'Enqueued.' } } },
+      post: {
+        tags: ['Reconciliation'],
+        summary: 'Trigger a reconciliation run.',
+        'x-required-scope': 'manage',
+        responses: { '202': { description: 'Enqueued.' } },
+      },
     },
 
     // ── Ops ──
     '/api/v1/metrics': {
-      get: { tags: ['Ops'], summary: 'Platform metrics (JSON).', responses: { '200': { description: 'Metrics.' } } },
+      get: {
+        tags: ['Ops'],
+        summary: 'Platform metrics (JSON).',
+        responses: { '200': { description: 'Metrics.' } },
+      },
     },
 
     // ── Delivery gateway ──
@@ -395,8 +637,21 @@ export const openapiDocument = {
         security: [],
         parameters: [
           idParam('objectId', 'Sia object ID.'),
-          { name: 'type', in: 'query', schema: { type: 'string', enum: ['manifest', 'playlist', 'thumbnail', 'video', 'segment', 'data'] }, description: 'Content-type hint.' },
-          { name: 'Range', in: 'header', schema: { type: 'string' }, description: 'Byte range, e.g. `bytes=0-1023`.' },
+          {
+            name: 'type',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['manifest', 'playlist', 'thumbnail', 'video', 'segment', 'data'],
+            },
+            description: 'Content-type hint.',
+          },
+          {
+            name: 'Range',
+            in: 'header',
+            schema: { type: 'string' },
+            description: 'Byte range, e.g. `bytes=0-1023`.',
+          },
         ],
         responses: {
           '200': { description: 'Full object.' },
@@ -407,10 +662,24 @@ export const openapiDocument = {
       },
     },
     '/v1/stream/{videoAssetId}/master.m3u8': {
-      get: { tags: ['Delivery'], summary: 'Master HLS manifest for an asset or playback ID.', security: [], parameters: [idParam('videoAssetId', 'Asset UUID or pb_ playback ID.')], responses: { '200': { description: 'HLS manifest.', content: { 'application/vnd.apple.mpegurl': {} } }, '404': errorResponse } },
+      get: {
+        tags: ['Delivery'],
+        summary: 'Master HLS manifest for an asset or playback ID.',
+        security: [],
+        parameters: [idParam('videoAssetId', 'Asset UUID or pb_ playback ID.')],
+        responses: {
+          '200': { description: 'HLS manifest.', content: { 'application/vnd.apple.mpegurl': {} } },
+          '404': errorResponse,
+        },
+      },
     },
     '/v1/cache/stats': {
-      get: { tags: ['Ops'], summary: 'Delivery cache statistics.', security: [], responses: { '200': jsonResponse('CacheStats', 'Cache stats.') } },
+      get: {
+        tags: ['Ops'],
+        summary: 'Delivery cache statistics.',
+        security: [],
+        responses: { '200': jsonResponse('CacheStats', 'Cache stats.') },
+      },
     },
   },
 } as const;

@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-import {
-  createPlaybackIdRoutes,
-  type PlaybackIdRouteDeps,
-} from '../api/routes/playback-ids.js';
+import { createPlaybackIdRoutes, type PlaybackIdRouteDeps } from '../api/routes/playback-ids.js';
 import { createTestApp, withApiKey } from './helpers/express-helpers.js';
 
 vi.mock('../config/logger.js', () => ({
@@ -116,10 +113,7 @@ describe('playback id routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true });
-      expect(deps.deletePlaybackId).toHaveBeenCalledWith(
-        'pb_abcdefghijklmnopqrstu',
-        '0xabc123',
-      );
+      expect(deps.deletePlaybackId).toHaveBeenCalledWith('pb_abcdefghijklmnopqrstu', '0xabc123');
     });
 
     it('returns 404 when the playback id was not found', async () => {

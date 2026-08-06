@@ -74,7 +74,6 @@ export const siaUploadDurationSeconds = new Histogram({
   registers: [registry],
 });
 
-
 /**
  * Get metrics in Prometheus text format.
  */

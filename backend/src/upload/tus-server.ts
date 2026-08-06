@@ -3,14 +3,12 @@ import { FileStore } from '@tus/file-store';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { computeFileHash } from './chunk-verifier.js';
-import {
-  SESSION_COOKIE_NAME,
-  parseCookieHeader,
-  verifySession,
-} from '../api/auth/session.js';
+import { SESSION_COOKIE_NAME, parseCookieHeader, verifySession } from '../api/auth/session.js';
 
 export interface TusServerDeps {
-  validateApiKey: (token: string) => Promise<{ id: string; creatorAddress: string; scopes: string[] } | null>;
+  validateApiKey: (
+    token: string,
+  ) => Promise<{ id: string; creatorAddress: string; scopes: string[] } | null>;
   createUploadSession: (data: {
     apiKeyId: string;
     fileSize: number;
@@ -51,10 +49,7 @@ export function createTusServer(deps: TusServerDeps): Server {
       // identity with full upload scope that downstream hooks can treat
       // identically to an API-key caller.
       const cookies = parseCookieHeader(req.headers.get('cookie') ?? undefined);
-      const session = verifySession(
-        cookies[SESSION_COOKIE_NAME],
-        env.SESSION_SECRET,
-      );
+      const session = verifySession(cookies[SESSION_COOKIE_NAME], env.SESSION_SECRET);
       if (session) {
         (req as unknown as Record<string, unknown>).__apiKey = {
           id: `session:${session.login}`,
@@ -119,18 +114,21 @@ export function createTusServer(deps: TusServerDeps): Server {
         apiKeyId: apiKey.id,
         fileSize: upload.size ?? 0,
         metadata: {
-          ...metadata as Record<string, string>,
+          ...(metadata as Record<string, string>),
           creatorAddress,
         },
       });
 
-      logger.info({
-        uploadId: upload.id,
-        sessionId: session.id,
-        fileSize: upload.size,
-        creatorAddress,
-        metadata,
-      }, 'Upload session created');
+      logger.info(
+        {
+          uploadId: upload.id,
+          sessionId: session.id,
+          fileSize: upload.size,
+          creatorAddress,
+          metadata,
+        },
+        'Upload session created',
+      );
 
       // Store session ID in upload metadata for later retrieval
       const updatedMetadata = {
@@ -171,12 +169,15 @@ export function createTusServer(deps: TusServerDeps): Server {
       // Mark upload as complete
       await deps.completeUpload(sessionId, filePath, sha256);
 
-      logger.info({
-        uploadId: upload.id,
-        sessionId,
-        sha256,
-        fileSize: upload.size,
-      }, 'Upload completed, enqueueing transcoding');
+      logger.info(
+        {
+          uploadId: upload.id,
+          sessionId,
+          sha256,
+          fileSize: upload.size,
+        },
+        'Upload completed, enqueueing transcoding',
+      );
 
       // Enqueue transcoding job
       if (videoAssetId) {

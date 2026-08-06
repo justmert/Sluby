@@ -41,12 +41,15 @@ export function useProcessingJob(
     queryKey: ['processing-job', assetId],
     queryFn: async () => {
       try {
-        return await apiClient.get<ProcessingJob>(
-          `/assets/${assetId}/processing`,
-        );
+        return await apiClient.get<ProcessingJob>(`/assets/${assetId}/processing`);
       } catch (err) {
         // 404 means no processing job exists yet — return null instead of throwing
-        if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 404) {
+        if (
+          err &&
+          typeof err === 'object' &&
+          'status' in err &&
+          (err as { status: number }).status === 404
+        ) {
           return null;
         }
         throw err;

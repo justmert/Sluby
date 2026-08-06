@@ -83,9 +83,7 @@ describe('AssetManager.list()', () => {
   });
 
   it('should add query params for page and limit', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({ data: [], total: 0, page: 2, limit: 10 }),
-    );
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ data: [], total: 0, page: 2, limit: 10 }));
 
     const manager = new AssetManager(mockFetch);
     await manager.list({ page: 2, limit: 10 });
@@ -96,9 +94,7 @@ describe('AssetManager.list()', () => {
   });
 
   it('should add status query param', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({ data: [], total: 0, page: 1, limit: 20 }),
-    );
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ data: [], total: 0, page: 1, limit: 20 }));
 
     const manager = new AssetManager(mockFetch);
     await manager.list({ status: 'processing' });
@@ -108,9 +104,7 @@ describe('AssetManager.list()', () => {
   });
 
   it('should map accessTier to access_tier query param', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({ data: [], total: 0, page: 1, limit: 20 }),
-    );
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ data: [], total: 0, page: 1, limit: 20 }));
 
     const manager = new AssetManager(mockFetch);
     await manager.list({ accessTier: 'private' });
@@ -120,9 +114,7 @@ describe('AssetManager.list()', () => {
   });
 
   it('should combine multiple query params', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({ data: [], total: 0, page: 3, limit: 5 }),
-    );
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ data: [], total: 0, page: 3, limit: 5 }));
 
     const manager = new AssetManager(mockFetch);
     await manager.list({ page: 3, limit: 5, status: 'ready', accessTier: 'public' });
@@ -254,9 +246,7 @@ describe('AssetManager.delete()', () => {
 
 describe('AssetManager.waitForReady()', () => {
   it('should return immediately if asset is already ready', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({ ...SAMPLE_RAW_ASSET, status: 'ready' }),
-    );
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ ...SAMPLE_RAW_ASSET, status: 'ready' }));
 
     const manager = new AssetManager(mockFetch);
     const result = await manager.waitForReady('asset_1', { pollInterval: 100, timeout: 1000 });
@@ -266,9 +256,7 @@ describe('AssetManager.waitForReady()', () => {
   });
 
   it('should throw Error when asset enters failed status', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({ ...SAMPLE_RAW_ASSET, status: 'failed' }),
-    );
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ ...SAMPLE_RAW_ASSET, status: 'failed' }));
 
     const manager = new AssetManager(mockFetch);
 
@@ -300,9 +288,9 @@ describe('AssetManager.waitForReady()', () => {
     const manager = new AssetManager(mockFetch);
 
     // Use very short intervals so the test completes quickly with real timers
-    await expect(
-      manager.waitForReady('asset_1', { pollInterval: 5, timeout: 50 }),
-    ).rejects.toThrow(TimeoutError);
+    await expect(manager.waitForReady('asset_1', { pollInterval: 5, timeout: 50 })).rejects.toThrow(
+      TimeoutError,
+    );
   });
 
   it('should include timeout duration in error message', async () => {
@@ -312,15 +300,13 @@ describe('AssetManager.waitForReady()', () => {
 
     const manager = new AssetManager(mockFetch);
 
-    await expect(
-      manager.waitForReady('asset_1', { pollInterval: 5, timeout: 50 }),
-    ).rejects.toThrow('Timed out after 50ms');
+    await expect(manager.waitForReady('asset_1', { pollInterval: 5, timeout: 50 })).rejects.toThrow(
+      'Timed out after 50ms',
+    );
   });
 
   it('should use default pollInterval and timeout when not specified', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({ ...SAMPLE_RAW_ASSET, status: 'ready' }),
-    );
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ ...SAMPLE_RAW_ASSET, status: 'ready' }));
 
     const manager = new AssetManager(mockFetch);
     const result = await manager.waitForReady('asset_1');

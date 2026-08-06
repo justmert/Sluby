@@ -1,11 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SlubyClient } from './client.js';
-import {
-  AuthenticationError,
-  NotFoundError,
-  RateLimitError,
-  SlubyError,
-} from './errors.js';
+import { AuthenticationError, NotFoundError, RateLimitError, SlubyError } from './errors.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,13 +36,15 @@ function getStatusText(status: number): string {
 
 describe('SlubyClient constructor', () => {
   it('should throw if apiKey is empty', () => {
-    expect(() => new SlubyClient({ apiKey: '', baseUrl: 'https://api.example.com' }))
-      .toThrow('SlubyClient requires a non-empty apiKey.');
+    expect(() => new SlubyClient({ apiKey: '', baseUrl: 'https://api.example.com' })).toThrow(
+      'SlubyClient requires a non-empty apiKey.',
+    );
   });
 
   it('should throw if baseUrl is empty', () => {
-    expect(() => new SlubyClient({ apiKey: 'sluby_test', baseUrl: '' }))
-      .toThrow('SlubyClient requires a non-empty baseUrl.');
+    expect(() => new SlubyClient({ apiKey: 'sluby_test', baseUrl: '' })).toThrow(
+      'SlubyClient requires a non-empty baseUrl.',
+    );
   });
 
   it('should create an instance with valid config', () => {
@@ -63,7 +60,9 @@ describe('SlubyClient constructor', () => {
   });
 
   it('should strip trailing slash from baseUrl', () => {
-    const mockFetch = vi.fn().mockResolvedValueOnce(makeResponse(200, { data: [], total: 0, page: 1, limit: 20 }));
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(makeResponse(200, { data: [], total: 0, page: 1, limit: 20 }));
     vi.stubGlobal('fetch', mockFetch);
 
     const client = new SlubyClient({
@@ -81,7 +80,9 @@ describe('SlubyClient constructor', () => {
   });
 
   it('should strip multiple trailing slashes', () => {
-    const mockFetch = vi.fn().mockResolvedValueOnce(makeResponse(200, { data: [], total: 0, page: 1, limit: 20 }));
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(makeResponse(200, { data: [], total: 0, page: 1, limit: 20 }));
     vi.stubGlobal('fetch', mockFetch);
 
     const client = new SlubyClient({
@@ -166,25 +167,19 @@ describe('SlubyClient._fetch', () => {
   // ── Error mapping ────────────────────────────────────────────────────────
 
   it('should throw AuthenticationError on 401', async () => {
-    fetchMock.mockResolvedValueOnce(
-      makeResponse(401, { error: 'Invalid API key' }),
-    );
+    fetchMock.mockResolvedValueOnce(makeResponse(401, { error: 'Invalid API key' }));
 
     await expect(client.assets.get('x')).rejects.toThrow(AuthenticationError);
   });
 
   it('should throw AuthenticationError on 403', async () => {
-    fetchMock.mockResolvedValueOnce(
-      makeResponse(403, { error: 'Forbidden' }),
-    );
+    fetchMock.mockResolvedValueOnce(makeResponse(403, { error: 'Forbidden' }));
 
     await expect(client.assets.get('x')).rejects.toThrow(AuthenticationError);
   });
 
   it('should throw NotFoundError on 404', async () => {
-    fetchMock.mockResolvedValueOnce(
-      makeResponse(404, { error: 'Asset not found' }),
-    );
+    fetchMock.mockResolvedValueOnce(makeResponse(404, { error: 'Asset not found' }));
 
     await expect(client.assets.get('x')).rejects.toThrow(NotFoundError);
   });
@@ -204,9 +199,7 @@ describe('SlubyClient._fetch', () => {
   });
 
   it('should throw RateLimitError without retryAfter when header is absent', async () => {
-    fetchMock.mockResolvedValueOnce(
-      makeResponse(429, { error: 'Rate limit exceeded' }),
-    );
+    fetchMock.mockResolvedValueOnce(makeResponse(429, { error: 'Rate limit exceeded' }));
 
     try {
       await client.assets.get('x');
@@ -218,9 +211,7 @@ describe('SlubyClient._fetch', () => {
   });
 
   it('should throw SlubyError on 500', async () => {
-    fetchMock.mockResolvedValueOnce(
-      makeResponse(500, { error: 'Internal server error' }),
-    );
+    fetchMock.mockResolvedValueOnce(makeResponse(500, { error: 'Internal server error' }));
 
     try {
       await client.assets.get('x');
@@ -234,17 +225,13 @@ describe('SlubyClient._fetch', () => {
   // ── Error message extraction ─────────────────────────────────────────────
 
   it('should extract error message from JSON "error" field', async () => {
-    fetchMock.mockResolvedValueOnce(
-      makeResponse(500, { error: 'Something broke' }),
-    );
+    fetchMock.mockResolvedValueOnce(makeResponse(500, { error: 'Something broke' }));
 
     await expect(client.assets.get('x')).rejects.toThrow('Something broke');
   });
 
   it('should extract error message from JSON "message" field', async () => {
-    fetchMock.mockResolvedValueOnce(
-      makeResponse(500, { message: 'Server unavailable' }),
-    );
+    fetchMock.mockResolvedValueOnce(makeResponse(500, { message: 'Server unavailable' }));
 
     await expect(client.assets.get('x')).rejects.toThrow('Server unavailable');
   });
@@ -278,9 +265,7 @@ describe('SlubyClient._fetch', () => {
   });
 
   it('should preserve statusCode and responseBody on error', async () => {
-    fetchMock.mockResolvedValueOnce(
-      makeResponse(404, { error: 'not found' }),
-    );
+    fetchMock.mockResolvedValueOnce(makeResponse(404, { error: 'not found' }));
 
     try {
       await client.assets.get('x');

@@ -9,10 +9,7 @@
  * TUS uses on this path (PATCH to append bytes, HEAD to read the offset,
  * OPTIONS for protocol discovery). Everything else is a plain REST call.
  */
-export function isTusRequest(req: {
-  method: string;
-  headers: Record<string, unknown>;
-}): boolean {
+export function isTusRequest(req: { method: string; headers: Record<string, unknown> }): boolean {
   if (req.headers['tus-resumable'] !== undefined) return true;
   return req.method === 'PATCH' || req.method === 'HEAD' || req.method === 'OPTIONS';
 }

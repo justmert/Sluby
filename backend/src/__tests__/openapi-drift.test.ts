@@ -99,9 +99,8 @@ describe('OpenAPI drift guard', () => {
     const spec = specRouteKeys();
 
     const phantom = [...spec].filter((k) => !mounted.has(k)).sort();
-    expect(
-      phantom,
-      `these paths are documented but not mounted:\n${phantom.join('\n')}`,
-    ).toEqual([]);
+    expect(phantom, `these paths are documented but not mounted:\n${phantom.join('\n')}`).toEqual(
+      [],
+    );
   });
 });

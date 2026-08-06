@@ -47,8 +47,6 @@ export function useSignedPlayback(): UseMutationResult<
 > {
   return useMutation({
     mutationFn: ({ assetId, expiresIn = 3600 }) =>
-      apiClient.get<SignedPlaybackInfo>(
-        `/playback/${assetId}/signed?expires_in=${expiresIn}`,
-      ),
+      apiClient.get<SignedPlaybackInfo>(`/playback/${assetId}/signed?expires_in=${expiresIn}`),
   });
 }

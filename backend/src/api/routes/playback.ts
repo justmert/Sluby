@@ -7,7 +7,10 @@ export interface PlaybackRouteDeps {
   // `owner` is the caller's creatorAddress (undefined for a platform key).
   // Scoping the lookup by it stops a caller reading another tenant's asset
   // by guessing its id or playback id.
-  getPlaybackAsset: (id: string, owner?: string) => Promise<{
+  getPlaybackAsset: (
+    id: string,
+    owner?: string,
+  ) => Promise<{
     id: string;
     manifestObjectId: string | null;
     thumbnailObjectIds: string[];
@@ -16,7 +19,10 @@ export interface PlaybackRouteDeps {
     accessTier: string;
     status: string;
   } | null>;
-  generateSignedUrl: (manifestObjectId: string, expiresIn: number) => Promise<{
+  generateSignedUrl: (
+    manifestObjectId: string,
+    expiresIn: number,
+  ) => Promise<{
     signedUrl: string;
     expiresAt: string;
   }>;
@@ -48,9 +54,8 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
     }
 
     const playbackUrl = `/v1/objects/${asset.manifestObjectId}?type=manifest`;
-    const posterUrl = asset.thumbnailObjectIds.length > 0
-      ? `/v1/objects/${asset.thumbnailObjectIds[0]}`
-      : null;
+    const posterUrl =
+      asset.thumbnailObjectIds.length > 0 ? `/v1/objects/${asset.thumbnailObjectIds[0]}` : null;
 
     res.json({
       playback_url: playbackUrl,

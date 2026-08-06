@@ -3,12 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { TimeoutError } from './errors.js';
-import type {
-  AccessTier,
-  ListAssetsOptions,
-  PaginatedResponse,
-  VideoAsset,
-} from './types.js';
+import type { AccessTier, ListAssetsOptions, PaginatedResponse, VideoAsset } from './types.js';
 import type { FetchFn } from './uploads.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -135,9 +130,7 @@ export class AssetManager {
       }
 
       if (asset.status === 'failed') {
-        throw new Error(
-          `Video asset ${videoAssetId} entered "failed" status during processing.`,
-        );
+        throw new Error(`Video asset ${videoAssetId} entered "failed" status during processing.`);
       }
 
       // Wait before the next poll, but do not exceed the deadline.

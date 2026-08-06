@@ -114,18 +114,14 @@ describe('SlubyPlayer', () => {
 
   describe('rendering', () => {
     it('should render a video element', () => {
-      const { container } = render(
-        <SlubyPlayer src="https://example.com/video.m3u8" />
-      );
+      const { container } = render(<SlubyPlayer src="https://example.com/video.m3u8" />);
 
       const video = container.querySelector('video');
       expect(video).not.toBeNull();
     });
 
     it('should render with controls by default', () => {
-      const { container } = render(
-        <SlubyPlayer src="https://example.com/video.m3u8" />
-      );
+      const { container } = render(<SlubyPlayer src="https://example.com/video.m3u8" />);
 
       const video = container.querySelector('video');
       expect(video?.hasAttribute('controls')).toBe(true);
@@ -133,7 +129,7 @@ describe('SlubyPlayer', () => {
 
     it('should render without controls when controls=false', () => {
       const { container } = render(
-        <SlubyPlayer src="https://example.com/video.m3u8" controls={false} />
+        <SlubyPlayer src="https://example.com/video.m3u8" controls={false} />,
       );
 
       const video = container.querySelector('video');
@@ -141,9 +137,7 @@ describe('SlubyPlayer', () => {
     });
 
     it('should set playsInline attribute', () => {
-      const { container } = render(
-        <SlubyPlayer src="https://example.com/video.m3u8" />
-      );
+      const { container } = render(<SlubyPlayer src="https://example.com/video.m3u8" />);
 
       const video = container.querySelector('video');
       expect(video?.hasAttribute('playsinline')).toBe(true);
@@ -154,7 +148,7 @@ describe('SlubyPlayer', () => {
         <SlubyPlayer
           src="https://example.com/video.m3u8"
           poster="https://example.com/poster.jpg"
-        />
+        />,
       );
 
       const video = container.querySelector('video');
@@ -163,11 +157,7 @@ describe('SlubyPlayer', () => {
 
     it('should pass through width and height props', () => {
       const { container } = render(
-        <SlubyPlayer
-          src="https://example.com/video.m3u8"
-          width={800}
-          height={450}
-        />
+        <SlubyPlayer src="https://example.com/video.m3u8" width={800} height={450} />,
       );
 
       const video = container.querySelector('video');
@@ -177,10 +167,7 @@ describe('SlubyPlayer', () => {
 
     it('should pass through className prop', () => {
       const { container } = render(
-        <SlubyPlayer
-          src="https://example.com/video.m3u8"
-          className="my-player"
-        />
+        <SlubyPlayer src="https://example.com/video.m3u8" className="my-player" />,
       );
 
       const video = container.querySelector('video');
@@ -189,10 +176,7 @@ describe('SlubyPlayer', () => {
 
     it('should pass through style prop', () => {
       const { container } = render(
-        <SlubyPlayer
-          src="https://example.com/video.m3u8"
-          style={{ borderRadius: '8px' }}
-        />
+        <SlubyPlayer src="https://example.com/video.m3u8" style={{ borderRadius: '8px' }} />,
       );
 
       const video = container.querySelector('video');
@@ -202,30 +186,26 @@ describe('SlubyPlayer', () => {
 
   describe('HLS initialization', () => {
     it('should create an hls.js instance when HLS is supported', () => {
-      render(
-        <SlubyPlayer src="https://example.com/video.m3u8" />
-      );
+      render(<SlubyPlayer src="https://example.com/video.m3u8" />);
 
       expect(hlsInstanceRef.current).not.toBeNull();
-      expect(hlsInstanceRef.current.config).toEqual(expect.objectContaining({
-        enableWorker: true,
-        lowLatencyMode: false,
-      }));
+      expect(hlsInstanceRef.current.config).toEqual(
+        expect.objectContaining({
+          enableWorker: true,
+          lowLatencyMode: false,
+        }),
+      );
     });
 
     it('should attach media and load source', () => {
-      render(
-        <SlubyPlayer src="https://example.com/video.m3u8" />
-      );
+      render(<SlubyPlayer src="https://example.com/video.m3u8" />);
 
       expect(mockAttachMedia).toHaveBeenCalled();
       expect(mockLoadSource).toHaveBeenCalledWith('https://example.com/video.m3u8');
     });
 
     it('should register event listeners for MANIFEST_PARSED, LEVEL_SWITCHED, and ERROR', () => {
-      render(
-        <SlubyPlayer src="https://example.com/video.m3u8" />
-      );
+      render(<SlubyPlayer src="https://example.com/video.m3u8" />);
 
       const registeredEvents = mockOn.mock.calls.map((call: unknown[]) => call[0]);
       expect(registeredEvents).toContain(MockHlsEvents.MANIFEST_PARSED);
@@ -234,25 +214,23 @@ describe('SlubyPlayer', () => {
     });
 
     it('should pass correct HLS config values', () => {
-      render(
-        <SlubyPlayer src="https://example.com/video.m3u8" />
-      );
+      render(<SlubyPlayer src="https://example.com/video.m3u8" />);
 
-      expect(hlsInstanceRef.current.config).toEqual(expect.objectContaining({
-        enableWorker: true,
-        lowLatencyMode: false,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        maxBufferSize: 60 * 1000 * 1000,
-        maxBufferHole: 0.5,
-        startLevel: -1,
-      }));
+      expect(hlsInstanceRef.current.config).toEqual(
+        expect.objectContaining({
+          enableWorker: true,
+          lowLatencyMode: false,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60,
+          maxBufferSize: 60 * 1000 * 1000,
+          maxBufferHole: 0.5,
+          startLevel: -1,
+        }),
+      );
     });
 
     it('should not create hls.js instance when src is empty', () => {
-      render(
-        <SlubyPlayer src="" />
-      );
+      render(<SlubyPlayer src="" />);
 
       expect(hlsInstanceRef.current).toBeNull();
     });
@@ -260,9 +238,7 @@ describe('SlubyPlayer', () => {
 
   describe('cleanup on unmount', () => {
     it('should destroy hls.js instance on unmount', () => {
-      const { unmount } = render(
-        <SlubyPlayer src="https://example.com/video.m3u8" />
-      );
+      const { unmount } = render(<SlubyPlayer src="https://example.com/video.m3u8" />);
 
       unmount();
 
@@ -274,12 +250,7 @@ describe('SlubyPlayer', () => {
     it('should expose getVideoElement via ref', () => {
       const ref = React.createRef<SlubyPlayerHandle>();
 
-      render(
-        <SlubyPlayer
-          ref={ref}
-          src="https://example.com/video.m3u8"
-        />
-      );
+      render(<SlubyPlayer ref={ref} src="https://example.com/video.m3u8" />);
 
       expect(ref.current).not.toBeNull();
       const videoEl = ref.current!.getVideoElement();
@@ -289,12 +260,7 @@ describe('SlubyPlayer', () => {
     it('should expose getHlsInstance via ref', () => {
       const ref = React.createRef<SlubyPlayerHandle>();
 
-      render(
-        <SlubyPlayer
-          ref={ref}
-          src="https://example.com/video.m3u8"
-        />
-      );
+      render(<SlubyPlayer ref={ref} src="https://example.com/video.m3u8" />);
 
       expect(ref.current).not.toBeNull();
       const hlsInstance = ref.current!.getHlsInstance();
@@ -306,7 +272,7 @@ describe('SlubyPlayer', () => {
     it('should call onPlay when video play event fires', () => {
       const onPlay = vi.fn();
       const { container } = render(
-        <SlubyPlayer src="https://example.com/video.m3u8" onPlay={onPlay} />
+        <SlubyPlayer src="https://example.com/video.m3u8" onPlay={onPlay} />,
       );
 
       const video = container.querySelector('video')!;
@@ -318,7 +284,7 @@ describe('SlubyPlayer', () => {
     it('should call onPause when video pause event fires', () => {
       const onPause = vi.fn();
       const { container } = render(
-        <SlubyPlayer src="https://example.com/video.m3u8" onPause={onPause} />
+        <SlubyPlayer src="https://example.com/video.m3u8" onPause={onPause} />,
       );
 
       const video = container.querySelector('video')!;
@@ -330,7 +296,7 @@ describe('SlubyPlayer', () => {
     it('should call onEnd when video ended event fires', () => {
       const onEnd = vi.fn();
       const { container } = render(
-        <SlubyPlayer src="https://example.com/video.m3u8" onEnd={onEnd} />
+        <SlubyPlayer src="https://example.com/video.m3u8" onEnd={onEnd} />,
       );
 
       const video = container.querySelector('video')!;
@@ -345,9 +311,7 @@ describe('SlubyPlayer', () => {
       mockIsSupported.mockReturnValue(false);
       const onError = vi.fn();
 
-      render(
-        <SlubyPlayer src="https://example.com/video.m3u8" onError={onError} />
-      );
+      render(<SlubyPlayer src="https://example.com/video.m3u8" onError={onError} />);
 
       // jsdom does not support HLS natively either, so video.canPlayType returns ''
       expect(onError).toHaveBeenCalledWith(

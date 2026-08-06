@@ -379,7 +379,9 @@ describe('useVideo', () => {
         levels: [],
         on: vi.fn(),
         off: vi.fn(),
-        constructor: { Events: { MANIFEST_PARSED: 'MANIFEST_PARSED', LEVEL_SWITCHED: 'LEVEL_SWITCHED' } },
+        constructor: {
+          Events: { MANIFEST_PARSED: 'MANIFEST_PARSED', LEVEL_SWITCHED: 'LEVEL_SWITCHED' },
+        },
       };
       hlsRef.current = mockHls;
 
@@ -398,7 +400,9 @@ describe('useVideo', () => {
         levels: [],
         on: vi.fn(),
         off: vi.fn(),
-        constructor: { Events: { MANIFEST_PARSED: 'MANIFEST_PARSED', LEVEL_SWITCHED: 'LEVEL_SWITCHED' } },
+        constructor: {
+          Events: { MANIFEST_PARSED: 'MANIFEST_PARSED', LEVEL_SWITCHED: 'LEVEL_SWITCHED' },
+        },
       };
       hlsRef.current = mockHls;
 
@@ -431,9 +435,18 @@ describe('useVideo', () => {
       expect(mockVideo.removeEventListener).toHaveBeenCalledWith('play', expect.any(Function));
       expect(mockVideo.removeEventListener).toHaveBeenCalledWith('pause', expect.any(Function));
       expect(mockVideo.removeEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
-      expect(mockVideo.removeEventListener).toHaveBeenCalledWith('durationchange', expect.any(Function));
-      expect(mockVideo.removeEventListener).toHaveBeenCalledWith('timeupdate', expect.any(Function));
-      expect(mockVideo.removeEventListener).toHaveBeenCalledWith('volumechange', expect.any(Function));
+      expect(mockVideo.removeEventListener).toHaveBeenCalledWith(
+        'durationchange',
+        expect.any(Function),
+      );
+      expect(mockVideo.removeEventListener).toHaveBeenCalledWith(
+        'timeupdate',
+        expect.any(Function),
+      );
+      expect(mockVideo.removeEventListener).toHaveBeenCalledWith(
+        'volumechange',
+        expect.any(Function),
+      );
       expect(mockVideo.removeEventListener).toHaveBeenCalledWith('waiting', expect.any(Function));
       expect(mockVideo.removeEventListener).toHaveBeenCalledWith('playing', expect.any(Function));
       expect(mockVideo.removeEventListener).toHaveBeenCalledWith('canplay', expect.any(Function));

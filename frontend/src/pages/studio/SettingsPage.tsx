@@ -1,8 +1,16 @@
 import { useState } from 'react';
 import {
-  Sun, Moon, Monitor, Key, Globe,
-  Check, ExternalLink, Eye, EyeOff,
-  CheckCircle2, XCircle,
+  Sun,
+  Moon,
+  Monitor,
+  Key,
+  Globe,
+  Check,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -93,7 +101,11 @@ function ApiConfigSection() {
                 {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
             </div>
-            <Button size="sm" onClick={handleSave} className="gap-1.5 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg">
+            <Button
+              size="sm"
+              onClick={handleSave}
+              className="gap-1.5 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg"
+            >
               {saved ? <Check className="w-3.5 h-3.5" /> : <Key className="w-3.5 h-3.5" />}
               {saved ? 'Saved' : 'Save'}
             </Button>
@@ -107,7 +119,9 @@ function ApiConfigSection() {
           </div>
         </div>
         <div>
-          <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Connection Status</label>
+          <label className="text-xs text-zinc-400 font-medium mb-1.5 block">
+            Connection Status
+          </label>
           <div className="flex items-center gap-2">
             {health.isLoading ? (
               <Skeleton className="h-5 w-24" />
@@ -116,7 +130,9 @@ function ApiConfigSection() {
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <span className="text-sm text-emerald-400 font-medium">Connected</span>
                 {health.data.version && (
-                  <Badge variant="secondary" className="text-[10px]">v{health.data.version}</Badge>
+                  <Badge variant="secondary" className="text-[10px]">
+                    v{health.data.version}
+                  </Badge>
                 )}
               </>
             ) : (
@@ -179,7 +195,11 @@ function AboutSection() {
 export default function SettingsPage() {
   return (
     <PageContainer>
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+      >
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-[#f0f0f0] font-heading mb-1">Settings</h1>
           <p className="text-sm text-zinc-400">Configure appearance and API access</p>

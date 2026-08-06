@@ -73,10 +73,7 @@ export async function getCachedObject(
  * are skipped. Individual failures are swallowed — warming is best-effort
  * and must never break the caller. Returns how many were newly warmed.
  */
-export async function warmObjects(
-  objectIds: string[],
-  opts: GetOptions = {},
-): Promise<number> {
+export async function warmObjects(objectIds: string[], opts: GetOptions = {}): Promise<number> {
   const isManifest = opts.isManifest ?? false;
   const fetchFn = opts.fetch ?? ((id: string) => downloadObject(id));
   const cache = isManifest ? manifestCache : objectCache;
