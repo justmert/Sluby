@@ -174,8 +174,8 @@ export const openapiDocument = {
       SignedUrl: {
         type: 'object',
         properties: {
-          signedUrl: { type: 'string' },
-          expiresAt: { type: 'string', format: 'date-time' },
+          signed_url: { type: 'string' },
+          expires_at: { type: 'string', format: 'date-time' },
         },
       },
       PlaybackId: {

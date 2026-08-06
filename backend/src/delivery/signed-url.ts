@@ -42,6 +42,45 @@ export function buildSignedObjectQuery(
 }
 
 /**
+ * Sign every `/v1/objects/{id}` URL embedded in an HLS manifest so a single
+ * signed master link authorizes the whole object graph.
+ *
+ * A private asset's manifests reference their variant playlists and media
+ * file by gateway URL, and the gateway requires a valid signature per private
+ * object. Signing only the master would leave those child URLs unsigned and
+ * playback would 403 right after the master loads. So when the gateway serves
+ * a private manifest it runs this over the body, minting a per-object
+ * signature for each child at the SAME expiry the caller already proved. The
+ * child is then either another manifest (signed the same way on its own
+ * request) or a media object served by byte range, each independently
+ * verifiable.
+ *
+ * Idempotent: a URL that already carries a `sig=` is left as-is, so re-signing
+ * an already-signed manifest is a no-op.
+ */
+export function signManifestObjectUrls(
+  manifestText: string,
+  expiresAtSec: number,
+  secret: string,
+): string {
+  // Match `/v1/objects/{id}` plus any existing query up to a quote or
+  // whitespace. The object id is a single URL path segment (no slashes).
+  return manifestText.replace(
+    /\/v1\/objects\/([^"\s?/]+)(\?[^"\s]*)?/g,
+    (_full, id: string, existingQuery: string | undefined) => {
+      if (existingQuery && /(?:^|[?&])sig=/.test(existingQuery)) {
+        // Already signed; leave it untouched.
+        return `/v1/objects/${id}${existingQuery}`;
+      }
+      const sig = signObjectAccess(id, expiresAtSec, secret);
+      const suffix = existingQuery ?? '';
+      const sep = existingQuery ? '&' : '?';
+      return `/v1/objects/${id}${suffix}${sep}expires=${expiresAtSec}&sig=${sig}`;
+    },
+  );
+}
+
+/**
  * Verify a signed object request. `nowSec` is injected so the check is
  * deterministic in tests.
  */

@@ -133,6 +133,24 @@ describe('playback routes', () => {
 
       expect(res.status).toBe(403);
     });
+
+    it('scopes the lookup to the calling tenant', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue({
+        id: 'asset-1',
+        manifestObjectId: 'manifest-obj-1',
+        thumbnailObjectIds: [],
+        durationMs: 1,
+        resolution: '1280x720',
+        accessTier: 'public',
+        status: 'ready',
+      });
+
+      await request(createApp()).get('/asset-1');
+
+      // The owner (the caller's creatorAddress) must reach the lookup so a
+      // caller cannot read another tenant's asset by guessing its id.
+      expect(deps.getPlaybackAsset).toHaveBeenCalledWith('asset-1', '0xabc123');
+    });
   });
 
   describe('GET /:id/signed', () => {
@@ -150,9 +168,11 @@ describe('playback routes', () => {
       const res = await request(createApp()).get('/asset-1/signed');
 
       expect(res.status).toBe(200);
+      // Wire format is snake_case, matching every other endpoint and what the
+      // SDK reads. Returning camelCase here left the SDK with undefined fields.
       expect(res.body).toEqual({
-        signedUrl: 'https://signed.url/manifest',
-        expiresAt: '2025-06-01T00:00:00Z',
+        signed_url: 'https://signed.url/manifest',
+        expires_at: '2025-06-01T00:00:00Z',
       });
     });
 
@@ -170,6 +190,22 @@ describe('playback routes', () => {
       await request(createApp()).get('/asset-1/signed');
 
       expect(deps.generateSignedUrl).toHaveBeenCalledWith('manifest-obj-1', 3600);
+    });
+
+    it('scopes the signed lookup to the calling tenant', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue({
+        id: 'asset-1',
+        manifestObjectId: 'manifest-obj-1',
+        thumbnailObjectIds: [],
+        durationMs: 1,
+        resolution: '1280x720',
+        accessTier: 'private',
+        status: 'ready',
+      });
+
+      await request(createApp()).get('/asset-1/signed');
+
+      expect(deps.getPlaybackAsset).toHaveBeenCalledWith('asset-1', '0xabc123');
     });
 
     it('should accept custom expires_in query parameter', async () => {
@@ -210,6 +246,47 @@ describe('playback routes', () => {
       const res = await request(createApp()).get('/asset-1/signed');
 
       expect(res.status).toBe(409);
+    });
+  });
+
+  describe('cross-tenant isolation', () => {
+    // Model the real ownership rule: the lookup resolves an asset only for its
+    // owner, so another tenant's key sees a miss.
+    const OWNER = '0xowner';
+    function ownedApp(callerAddress: string) {
+      const scoped: PlaybackRouteDeps = {
+        getPlaybackAsset: vi.fn(async (_id: string, owner?: string) =>
+          owner === OWNER
+            ? {
+                id: 'asset-1',
+                manifestObjectId: 'manifest-obj-1',
+                thumbnailObjectIds: [],
+                durationMs: 1,
+                resolution: '1280x720',
+                accessTier: 'private' as const,
+                status: 'ready',
+              }
+            : null,
+        ),
+        generateSignedUrl: vi.fn().mockResolvedValue({
+          signedUrl: 'https://signed.url/manifest',
+          expiresAt: '2025-06-01T00:00:00Z',
+        }),
+      };
+      return withApiKey(createTestApp(createPlaybackRoutes(scoped)), {
+        ...defaultApiKey,
+        creatorAddress: callerAddress,
+      });
+    }
+
+    it('serves the owner but returns 404 to a different tenant', async () => {
+      expect((await request(ownedApp(OWNER)).get('/asset-1')).status).toBe(200);
+      expect((await request(ownedApp('0xstranger')).get('/asset-1')).status).toBe(404);
+    });
+
+    it('refuses a signed URL for another tenant asset', async () => {
+      const res = await request(ownedApp('0xstranger')).get('/asset-1/signed');
+      expect(res.status).toBe(404);
     });
   });
 });

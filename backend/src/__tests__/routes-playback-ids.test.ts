@@ -51,10 +51,11 @@ describe('playback id routes', () => {
         .send({ policy: 'public', name: 'embed' });
 
       expect(res.status).toBe(201);
-      expect(deps.createPlaybackId).toHaveBeenCalledWith('asset-1', {
-        policy: 'public',
-        name: 'embed',
-      });
+      expect(deps.createPlaybackId).toHaveBeenCalledWith(
+        'asset-1',
+        { policy: 'public', name: 'embed' },
+        '0xabc123',
+      );
       expect(res.body.playback_id).toBe('pb_abcdefghijklmnopqrstu');
       expect(res.body.policy).toBe('public');
       expect(res.body.created_at).toBe('2026-01-01T00:00:00.000Z');
@@ -90,9 +91,15 @@ describe('playback id routes', () => {
       const res = await request(app()).get('/assets/asset-1/playback-ids');
 
       expect(res.status).toBe(200);
-      expect(deps.listPlaybackIds).toHaveBeenCalledWith('asset-1');
+      expect(deps.listPlaybackIds).toHaveBeenCalledWith('asset-1', '0xabc123');
       expect(res.body.data).toHaveLength(1);
       expect(res.body.data[0].playback_id).toBe('pb_abcdefghijklmnopqrstu');
+    });
+
+    it('returns 404 when the asset is unknown or not owned', async () => {
+      vi.mocked(deps.listPlaybackIds).mockResolvedValue(null);
+      const res = await request(app()).get('/assets/other-tenant-asset/playback-ids');
+      expect(res.status).toBe(404);
     });
 
     it('requires the read scope', async () => {
@@ -109,7 +116,10 @@ describe('playback id routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true });
-      expect(deps.deletePlaybackId).toHaveBeenCalledWith('pb_abcdefghijklmnopqrstu');
+      expect(deps.deletePlaybackId).toHaveBeenCalledWith(
+        'pb_abcdefghijklmnopqrstu',
+        '0xabc123',
+      );
     });
 
     it('returns 404 when the playback id was not found', async () => {

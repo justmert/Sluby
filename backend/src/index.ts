@@ -530,11 +530,13 @@ const apiRouterDeps: ApiRouterDeps = {
   },
 
   // ── PlaybackRouteDeps ──
-  getPlaybackAsset: async (id) => {
+  getPlaybackAsset: async (id, owner) => {
     // Accept either an internal asset UUID or a public pb_... playback id.
     const assetId = await resolveAssetId(id);
     if (!assetId) return null;
-    const asset = await getVideoAssetById(assetId);
+    // Scope by owner so a caller cannot fetch (or mint a signed URL for)
+    // another tenant's asset by guessing its id or playback id.
+    const asset = await getVideoAssetById(assetId, owner);
     if (!asset) return null;
     return {
       id: asset.id,
@@ -548,11 +550,15 @@ const apiRouterDeps: ApiRouterDeps = {
   },
 
   // ── PlaybackIdRouteDeps ──
-  createPlaybackId: async (assetId, opts) => {
-    const row = await createPlaybackIdForAsset(assetId, {
-      policy: opts.policy as 'public' | 'signed' | undefined,
-      name: opts.name,
-    });
+  createPlaybackId: async (assetId, opts, owner) => {
+    const row = await createPlaybackIdForAsset(
+      assetId,
+      {
+        policy: opts.policy as 'public' | 'signed' | undefined,
+        name: opts.name,
+      },
+      owner,
+    );
     if (!row) return null;
     return {
       id: row.id,
@@ -563,8 +569,9 @@ const apiRouterDeps: ApiRouterDeps = {
     };
   },
 
-  listPlaybackIds: async (assetId) => {
-    const rows = await listPlaybackIdsByAsset(assetId);
+  listPlaybackIds: async (assetId, owner) => {
+    const rows = await listPlaybackIdsByAsset(assetId, owner);
+    if (rows === null) return null;
     return rows.map((r) => ({
       id: r.id,
       playbackId: r.playbackId,
@@ -574,8 +581,8 @@ const apiRouterDeps: ApiRouterDeps = {
     }));
   },
 
-  deletePlaybackId: async (playbackId) => {
-    return deletePlaybackIdByPublicId(playbackId);
+  deletePlaybackId: async (playbackId, owner) => {
+    return deletePlaybackIdByPublicId(playbackId, owner);
   },
 
   // ── ReconciliationRouteDeps ──

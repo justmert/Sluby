@@ -52,11 +52,13 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install root dependencies
+      # A single root `npm ci` installs every workspace's dependencies
+      # (including typescript and vitest) hoisted into the root node_modules.
+      # A second `npm ci --workspace=<pkg>` used to run here, but it pruned the
+      # hoisted `tsc`, so `npx tsc` fetched an unrelated `tsc` package and every
+      # typecheck job failed before the tests could run.
+      - name: Install dependencies
         run: npm ci
-
-      - name: Install package dependencies
-        run: npm ci --workspace=${{ matrix.workspace }}
 
       - name: Typecheck
         run: npx tsc --noEmit --project ${{ matrix.path }}/tsconfig.json
