@@ -10,19 +10,12 @@ export function generateSignature(payload: string, secret: string): string {
 /**
  * Verify a webhook signature using timing-safe comparison.
  */
-export function verifySignature(
-  payload: string,
-  signature: string,
-  secret: string,
-): boolean {
+export function verifySignature(payload: string, signature: string, secret: string): boolean {
   const expected = generateSignature(payload, secret);
 
   if (signature.length !== expected.length) {
     return false;
   }
 
-  return timingSafeEqual(
-    Buffer.from(signature, 'hex'),
-    Buffer.from(expected, 'hex'),
-  );
+  return timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'));
 }

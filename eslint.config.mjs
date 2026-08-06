@@ -10,6 +10,28 @@ export default tseslint.config(
     ignores: ['**/dist/', '**/node_modules/', '**/drizzle/', '**/build/'],
   },
   {
+    // Plain Node scripts (probes, one-off tooling) run under Node, not the
+    // browser, so give them the Node globals they use.
+    files: ['**/*.mjs', '**/scripts/**'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        Buffer: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+      },
+    },
+  },
+  {
     rules: {
       '@typescript-eslint/no-unused-vars': [
         'error',

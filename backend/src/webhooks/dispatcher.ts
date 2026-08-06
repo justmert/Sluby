@@ -88,12 +88,15 @@ export class WebhookDispatcher {
       });
 
       if (!response.ok && retryCount < this.maxRetries) {
-        logger.warn({
-          endpoint: endpoint.url,
-          event,
-          statusCode: response.status,
-          retryCount,
-        }, 'Webhook delivery failed, scheduling retry');
+        logger.warn(
+          {
+            endpoint: endpoint.url,
+            event,
+            statusCode: response.status,
+            retryCount,
+          },
+          'Webhook delivery failed, scheduling retry',
+        );
 
         await this.scheduleRetry(endpoint, event, payloadStr, payload, retryCount);
       } else if (response.ok) {
@@ -110,7 +113,10 @@ export class WebhookDispatcher {
       });
 
       if (retryCount < this.maxRetries) {
-        logger.warn({ endpoint: endpoint.url, event, err, retryCount }, 'Webhook delivery error, scheduling retry');
+        logger.warn(
+          { endpoint: endpoint.url, event, err, retryCount },
+          'Webhook delivery error, scheduling retry',
+        );
         await this.scheduleRetry(endpoint, event, payloadStr, payload, retryCount);
       } else {
         logger.error({ endpoint: endpoint.url, event, err }, 'Webhook delivery permanently failed');
@@ -128,10 +134,9 @@ export class WebhookDispatcher {
     const delay = this.retryDelays[currentRetry] ?? 300_000;
 
     setTimeout(() => {
-      this.deliverWithRetry(endpoint, event, payloadStr, payload, currentRetry + 1)
-        .catch((err) => {
-          logger.error({ err, endpoint: endpoint.url, event }, 'Webhook retry failed');
-        });
+      this.deliverWithRetry(endpoint, event, payloadStr, payload, currentRetry + 1).catch((err) => {
+        logger.error({ err, endpoint: endpoint.url, event }, 'Webhook retry failed');
+      });
     }, delay);
   }
 }

@@ -66,9 +66,8 @@ export class SessionManager {
     const session = await this.deps.getSession(sessionId);
     if (!session) return null;
 
-    const progressPercent = session.fileSize > 0
-      ? Math.round((session.uploadedBytes / session.fileSize) * 100)
-      : 0;
+    const progressPercent =
+      session.fileSize > 0 ? Math.round((session.uploadedBytes / session.fileSize) * 100) : 0;
 
     return {
       id: session.id,

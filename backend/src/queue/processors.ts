@@ -26,10 +26,7 @@ import {
   appendProcessingLog,
 } from '../db/queries/jobs.js';
 import { WebhookDispatcher } from '../webhooks/dispatcher.js';
-import {
-  findEndpointsForEvent,
-  createWebhookDelivery,
-} from '../db/queries/webhooks.js';
+import { findEndpointsForEvent, createWebhookDelivery } from '../db/queries/webhooks.js';
 
 const logger = pino({ name: 'queue-processors' });
 
@@ -87,7 +84,11 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
     await updateVideoAsset(videoAssetId, { status: 'processing' });
 
     if (processingJob) {
-      await appendProcessingLog(processingJob.id, 'transcode', `Starting transcode for ${path.basename(filePath)}`);
+      await appendProcessingLog(
+        processingJob.id,
+        'transcode',
+        `Starting transcode for ${path.basename(filePath)}`,
+      );
     }
 
     // Run FFmpeg transcode
@@ -104,28 +105,43 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
       },
     });
 
-    logger.info({ videoAssetId, durationMs: result.durationMs, resolution: result.resolution }, 'Transcode complete, extracting thumbnails');
+    logger.info(
+      { videoAssetId, durationMs: result.durationMs, resolution: result.resolution },
+      'Transcode complete, extracting thumbnails',
+    );
 
     if (processingJob) {
-      await appendProcessingLog(processingJob.id, 'transcode', `Probed source video: ${result.resolution} at ${result.durationMs}ms duration`);
-      await appendProcessingLog(processingJob.id, 'transcode', 'FFmpeg transcoding: 4 renditions (1080p, 720p, 540p, 360p)');
-      await appendProcessingLog(processingJob.id, 'transcode', `Transcode complete: ${result.segmentCount} segments`);
+      await appendProcessingLog(
+        processingJob.id,
+        'transcode',
+        `Probed source video: ${result.resolution} at ${result.durationMs}ms duration`,
+      );
+      await appendProcessingLog(
+        processingJob.id,
+        'transcode',
+        'FFmpeg transcoding: 4 renditions (1080p, 720p, 540p, 360p)',
+      );
+      await appendProcessingLog(
+        processingJob.id,
+        'transcode',
+        `Transcode complete: ${result.segmentCount} segments`,
+      );
     }
 
     // Extract thumbnails to disk only — they get uploaded together with
     // the variant playlists in the upload-segments worker (one packed
     // Sia operation instead of N separate uploads).
-    const thumbnailPaths = await extractThumbnails(
-      filePath,
-      result.durationMs,
-      outputDir,
-    );
+    const thumbnailPaths = await extractThumbnails(filePath, result.durationMs, outputDir);
 
     // Update progress to 65% (transcode done, thumbnails extracted)
     await job.updateProgress(65);
     if (processingJob) {
       await updateProcessingJobProgress(processingJob.id, 65);
-      await appendProcessingLog(processingJob.id, 'transcode', `Extracted ${thumbnailPaths.length} thumbnails`);
+      await appendProcessingLog(
+        processingJob.id,
+        'transcode',
+        `Extracted ${thumbnailPaths.length} thumbnails`,
+      );
     }
 
     // Save transcode metadata to DB so downstream workers can access it
@@ -173,10 +189,7 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
 
 transcodeWorker.on('failed', async (job, error) => {
   if (!job) return;
-  logger.error(
-    { jobId: job.id, error: error.message },
-    'Transcode job failed',
-  );
+  logger.error({ jobId: job.id, error: error.message }, 'Transcode job failed');
 
   const processingJob = await getProcessingJobByUploadSessionId(job.data.uploadSessionId);
   if (processingJob) {
@@ -212,10 +225,7 @@ export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
   'upload-segments',
   async (job: Job<UploadSegmentsJobData>) => {
     const { videoAssetId, uploadSessionId, outputDir, accessTier, thumbnailPaths } = job.data;
-    logger.info(
-      { videoAssetId, jobId: job.id, accessTier },
-      'Starting upload-segments job',
-    );
+    logger.info({ videoAssetId, jobId: job.id, accessTier }, 'Starting upload-segments job');
 
     const processingJob = await getProcessingJobByUploadSessionId(uploadSessionId);
 
@@ -247,7 +257,11 @@ export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
     const thumbnailObjectIds = result.thumbnailObjectIds;
 
     if (processingJob) {
-      await appendProcessingLog(processingJob.id, 'upload', `All segments uploaded: ${totalSegments} segments, ${totalStorageBytes} bytes`);
+      await appendProcessingLog(
+        processingJob.id,
+        'upload',
+        `All segments uploaded: ${totalSegments} segments, ${totalStorageBytes} bytes`,
+      );
     }
 
     // Read duration and resolution from the video asset
@@ -270,7 +284,11 @@ export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
     });
 
     if (processingJob) {
-      await appendProcessingLog(processingJob.id, 'upload', `Master manifest uploaded: ${masterManifestObjectId}`);
+      await appendProcessingLog(
+        processingJob.id,
+        'upload',
+        `Master manifest uploaded: ${masterManifestObjectId}`,
+      );
     }
 
     logger.info(
@@ -286,10 +304,7 @@ export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
 
 uploadSegmentsWorker.on('failed', async (job, error) => {
   if (!job) return;
-  logger.error(
-    { jobId: job.id, error: error.message },
-    'Upload-segments job failed',
-  );
+  logger.error({ jobId: job.id, error: error.message }, 'Upload-segments job failed');
 
   const processingJob = await getProcessingJobByUploadSessionId(job.data.uploadSessionId);
   if (processingJob) {
@@ -386,14 +401,9 @@ export const finalizeWorker = new Worker<FinalizeJobData>(
     // rendition data files are intentionally not warmed — they are served
     // by byte-range and would blow the cache budget. Best-effort.
     try {
-      const playlistIds =
-        storageRecords?.renditions.map((r) => r.playlistObjectId) ?? [];
+      const playlistIds = storageRecords?.renditions.map((r) => r.playlistObjectId) ?? [];
       const warmIds = [
-        ...new Set(
-          [manifestObjectId, ...playlistIds, ...thumbnailObjectIds].filter(
-            Boolean,
-          ),
-        ),
+        ...new Set([manifestObjectId, ...playlistIds, ...thumbnailObjectIds].filter(Boolean)),
       ];
       await warmObjects(warmIds);
       if (processingJob) {
@@ -438,10 +448,7 @@ export const finalizeWorker = new Worker<FinalizeJobData>(
 
 finalizeWorker.on('failed', async (job, error) => {
   if (!job) return;
-  logger.error(
-    { jobId: job.id, error: error.message },
-    'Finalize job failed',
-  );
+  logger.error({ jobId: job.id, error: error.message }, 'Finalize job failed');
 
   const processingJob = await getProcessingJobByUploadSessionId(job.data.uploadSessionId);
   if (processingJob) {

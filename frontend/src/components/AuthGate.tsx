@@ -35,8 +35,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         } else {
           setState({
             kind: 'signedOut',
-            reason:
-              err instanceof Error ? err.message : 'Unable to reach the server.',
+            reason: err instanceof Error ? err.message : 'Unable to reach the server.',
           });
         }
       }
@@ -62,12 +61,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <div className="fixed inset-0 flex items-center justify-center bg-black">
       <div className="flex flex-col items-center gap-8 w-full max-w-sm px-6 text-center">
         <div className="flex flex-col items-center gap-2">
-          <h1 className="text-3xl font-semibold text-zinc-100 font-heading">
-            Sluby
-          </h1>
-          <p className="text-sm text-zinc-500">
-            Decentralized video streaming on Sia
-          </p>
+          <h1 className="text-3xl font-semibold text-zinc-100 font-heading">Sluby</h1>
+          <p className="text-sm text-zinc-500">Decentralized video streaming on Sia</p>
         </div>
 
         <button
@@ -79,13 +74,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
           Sign in with GitHub
         </button>
 
-        {state.reason && (
-          <p className="text-xs text-red-400 max-w-xs">{state.reason}</p>
-        )}
+        {state.reason && <p className="text-xs text-red-400 max-w-xs">{state.reason}</p>}
 
         <p className="text-xs text-zinc-600 max-w-xs leading-relaxed">
-          Open to any GitHub account. The backend REST API and SDK still
-          accept API keys for programmatic use.
+          Open to any GitHub account. The backend REST API and SDK still accept API keys for
+          programmatic use.
         </p>
       </div>
     </div>

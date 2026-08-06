@@ -47,7 +47,6 @@ export async function collectObjectIds(
   let cursor: ObjectsCursor | null = null;
   let lastCursorKey: string | null = null;
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const page = await fetchPage(cursor, pageSize);
     for (const event of page) {

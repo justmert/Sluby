@@ -35,15 +35,14 @@ export function CopyButton({ value, className }: CopyButtonProps) {
     <Button
       variant="ghost"
       size="icon"
-      className={cn('h-9 w-9 min-w-[44px] min-h-[44px] text-zinc-500 hover:text-zinc-300 transition-all duration-200', className)}
+      className={cn(
+        'h-9 w-9 min-w-[44px] min-h-[44px] text-zinc-500 hover:text-zinc-300 transition-all duration-200',
+        className,
+      )}
       onClick={handleCopy}
       aria-label={copied ? 'Copied' : 'Copy to clipboard'}
     >
-      {copied ? (
-        <Check className="h-4 w-4 text-emerald-400" />
-      ) : (
-        <Copy className="h-4 w-4" />
-      )}
+      {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
     </Button>
   );
 }

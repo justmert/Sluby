@@ -92,17 +92,13 @@ describe('asset routes', () => {
     it('should clamp page to minimum 1', async () => {
       await request(createApp()).get('/?page=-5');
 
-      expect(deps.listAssets).toHaveBeenCalledWith(
-        expect.objectContaining({ page: 1 }),
-      );
+      expect(deps.listAssets).toHaveBeenCalledWith(expect.objectContaining({ page: 1 }));
     });
 
     it('should clamp limit between 1 and 100', async () => {
       await request(createApp()).get('/?limit=200');
 
-      expect(deps.listAssets).toHaveBeenCalledWith(
-        expect.objectContaining({ limit: 100 }),
-      );
+      expect(deps.listAssets).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
     });
 
     it('should format asset fields as snake_case in response', async () => {
@@ -209,7 +205,7 @@ describe('asset routes', () => {
       expect(deps.getAsset).toHaveBeenCalledWith('asset-1', undefined);
     });
 
-    it('should hide another tenant\'s asset behind a 404', async () => {
+    it("should hide another tenant's asset behind a 404", async () => {
       // Owner-scoped lookup finds nothing because the asset belongs elsewhere.
       vi.mocked(deps.getAsset).mockResolvedValue(null);
 
@@ -240,9 +236,7 @@ describe('asset routes', () => {
     it('should return 404 when asset not found', async () => {
       vi.mocked(deps.updateAsset).mockResolvedValue(null);
 
-      const res = await request(createApp())
-        .patch('/nonexistent')
-        .send({ title: 'New' });
+      const res = await request(createApp()).patch('/nonexistent').send({ title: 'New' });
 
       expect(res.status).toBe(404);
     });
@@ -252,9 +246,7 @@ describe('asset routes', () => {
       const app = createTestApp(router);
       const readOnlyApp = withApiKey(app, { ...defaultApiKey, scopes: ['read'] });
 
-      const res = await request(readOnlyApp)
-        .patch('/asset-1')
-        .send({ title: 'New' });
+      const res = await request(readOnlyApp).patch('/asset-1').send({ title: 'New' });
 
       expect(res.status).toBe(403);
     });
@@ -262,9 +254,7 @@ describe('asset routes', () => {
     it('should map access_tier to accessTier in dep call', async () => {
       vi.mocked(deps.updateAsset).mockResolvedValue(createMockAsset());
 
-      await request(createApp())
-        .patch('/asset-1')
-        .send({ access_tier: 'private' });
+      await request(createApp()).patch('/asset-1').send({ access_tier: 'private' });
 
       expect(deps.updateAsset).toHaveBeenCalledWith(
         'asset-1',

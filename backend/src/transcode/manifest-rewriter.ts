@@ -48,10 +48,7 @@ export function rewriteVariantPlaylist(
 
   // Rewrite bare-filename segment lines (the URI line that follows each
   // EXT-X-BYTERANGE entry).
-  rewritten = rewritten.replace(
-    new RegExp(`^${escFile}$`, 'gm'),
-    dataUrl,
-  );
+  rewritten = rewritten.replace(new RegExp(`^${escFile}$`, 'gm'), dataUrl);
 
   return rewritten;
 }
@@ -151,8 +148,11 @@ export interface MasterVariant {
 export function parseMasterVariants(content: string): MasterVariant[] {
   const lines = content.split('\n');
   const out: MasterVariant[] = [];
-  let pending: { width: number | null; height: number | null; bandwidthKbps: number | null } | null =
-    null;
+  let pending: {
+    width: number | null;
+    height: number | null;
+    bandwidthKbps: number | null;
+  } | null = null;
 
   for (const raw of lines) {
     const line = raw.trim();

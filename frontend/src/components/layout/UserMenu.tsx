@@ -69,13 +69,9 @@ export function UserMenu() {
           <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-zinc-500 border-b border-white/[0.06]">
             GitHub account
           </div>
-          <div className="px-3 py-2 text-xs text-zinc-300 font-mono truncate">
-            {session.login}
-          </div>
+          <div className="px-3 py-2 text-xs text-zinc-300 font-mono truncate">{session.login}</div>
           {session.authDisabled && (
-            <div className="px-3 py-1.5 text-[10px] text-amber-400">
-              Auth bypass (dev)
-            </div>
+            <div className="px-3 py-1.5 text-[10px] text-amber-400">Auth bypass (dev)</div>
           )}
           <button
             type="button"

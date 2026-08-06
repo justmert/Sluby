@@ -27,7 +27,11 @@ function createMockReq(ip: string, apiKey?: Request['apiKey']): Request {
   } as unknown as Request;
 }
 
-function createMockRes(): Response & { _status: number; _json: unknown; _headers: Record<string, string> } {
+function createMockRes(): Response & {
+  _status: number;
+  _json: unknown;
+  _headers: Record<string, string>;
+} {
   const res = {
     _status: 200,
     _json: null as unknown,
@@ -93,9 +97,7 @@ describe('rateLimiter', () => {
 
     expect(blockedNext).not.toHaveBeenCalled();
     expect(res._status).toBe(429);
-    expect(res._json).toEqual(
-      expect.objectContaining({ error: 'Rate limit exceeded' }),
-    );
+    expect(res._json).toEqual(expect.objectContaining({ error: 'Rate limit exceeded' }));
   });
 
   it('should set correct rate limit headers', () => {
@@ -137,13 +139,21 @@ describe('rateLimiter', () => {
 
     // Make requests from two different API keys (apiKey.id is used as key, not IP)
     const req1 = createMockReq(nextTestIp(), {
-      id: `key-${testId}-1`, name: 'test', scopes: [], rateLimit: 2, creatorAddress: '0x1',
+      id: `key-${testId}-1`,
+      name: 'test',
+      scopes: [],
+      rateLimit: 2,
+      creatorAddress: '0x1',
     });
     const res1 = createMockRes();
     middleware(req1, res1 as any, next);
 
     const req2 = createMockReq(nextTestIp(), {
-      id: `key-${testId}-2`, name: 'test', scopes: [], rateLimit: 2, creatorAddress: '0x2',
+      id: `key-${testId}-2`,
+      name: 'test',
+      scopes: [],
+      rateLimit: 2,
+      creatorAddress: '0x2',
     });
     const res2 = createMockRes();
     middleware(req2, res2 as any, next);
@@ -159,7 +169,11 @@ describe('rateLimiter', () => {
     const next = vi.fn();
 
     const req = createMockReq(nextTestIp(), {
-      id: `key-custom-${testId}`, name: 'test', scopes: [], rateLimit: 5, creatorAddress: '0x1',
+      id: `key-custom-${testId}`,
+      name: 'test',
+      scopes: [],
+      rateLimit: 5,
+      creatorAddress: '0x1',
     });
     const res = createMockRes();
     middleware(req, res as any, next);

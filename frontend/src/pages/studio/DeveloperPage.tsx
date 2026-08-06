@@ -1,7 +1,19 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
-  Key, Plus, Trash2, Copy, Check, AlertCircle, Eye, EyeOff,
-  Terminal, Sparkles, Play, Clock, Shield, Webhook,
+  Key,
+  Plus,
+  Trash2,
+  Copy,
+  Check,
+  AlertCircle,
+  Eye,
+  EyeOff,
+  Terminal,
+  Sparkles,
+  Play,
+  Clock,
+  Shield,
+  Webhook,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -9,14 +21,25 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageContainer } from '@/components/layout/PageContainer';
-import { useApiKeys, useCreateApiKey, useDeleteApiKey, type CreateApiKeyParams } from '@/hooks/useApiKeys';
+import { useApiKeys, useCreateApiKey, useDeleteApiKey } from '@/hooks/useApiKeys';
 import { useWebhooks, useCreateWebhook, useDeleteWebhook } from '@/hooks/useWebhooks';
 import { getStoredApiKey } from '@/lib/api-key-store';
 import { sdkTemplates, type SdkTemplate, webhookVerify } from '@/lib/code-snippets';
@@ -48,7 +71,7 @@ function ApiKeysTab() {
 
   const toggleScope = (scope: string) => {
     setScopes((prev) =>
-      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]
+      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope],
     );
   };
 
@@ -85,7 +108,12 @@ function ApiKeysTab() {
         <div className="space-y-4">
           <div>
             <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Key Name</label>
-            <Input placeholder="e.g. production-backend" value={name} onChange={(e) => setName(e.target.value)} className="h-10" />
+            <Input
+              placeholder="e.g. production-backend"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="h-10"
+            />
           </div>
           <div>
             <label className="text-xs text-zinc-400 font-medium mb-2 block">Scopes</label>
@@ -98,7 +126,9 @@ function ApiKeysTab() {
                     className="mt-0.5"
                   />
                   <div>
-                    <span className="text-sm text-zinc-200 font-medium group-hover:text-zinc-100">{scope}</span>
+                    <span className="text-sm text-zinc-200 font-medium group-hover:text-zinc-100">
+                      {scope}
+                    </span>
                     <p className="text-xs text-zinc-400">{desc}</p>
                   </div>
                 </label>
@@ -106,10 +136,21 @@ function ApiKeysTab() {
             </div>
           </div>
           <div>
-            <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Rate Limit (req/min)</label>
-            <Input type="number" value={rateLimit} onChange={(e) => setRateLimit(Number(e.target.value))} className="w-32 h-10" />
+            <label className="text-xs text-zinc-400 font-medium mb-1.5 block">
+              Rate Limit (req/min)
+            </label>
+            <Input
+              type="number"
+              value={rateLimit}
+              onChange={(e) => setRateLimit(Number(e.target.value))}
+              className="w-32 h-10"
+            />
           </div>
-          <Button onClick={handleCreate} disabled={!name || scopes.length === 0 || createApiKey.isPending} className="gap-2">
+          <Button
+            onClick={handleCreate}
+            disabled={!name || scopes.length === 0 || createApiKey.isPending}
+            className="gap-2"
+          >
             <Plus className="w-3.5 h-3.5" />
             {createApiKey.isPending ? 'Creating...' : 'Create API Key'}
           </Button>
@@ -136,11 +177,26 @@ function ApiKeysTab() {
             <code className="flex-1 text-xs font-mono text-emerald-400 bg-[#0a0a0f]/80 border border-white/[0.08] rounded-lg px-2.5 py-2 truncate block overflow-hidden">
               {newKey.key}
             </code>
-            <Button variant="ghost" size="sm" onClick={handleCopyKey} className="shrink-0 h-8 w-8 p-0" aria-label="Copy to clipboard">
-              {copiedKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCopyKey}
+              className="shrink-0 h-8 w-8 p-0"
+              aria-label="Copy to clipboard"
+            >
+              {copiedKey ? (
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
             </Button>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => setNewKey(null)} className="text-xs bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setNewKey(null)}
+            className="text-xs bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300"
+          >
             I've saved this key
           </Button>
         </div>
@@ -149,7 +205,9 @@ function ApiKeysTab() {
       {/* Key list */}
       {apiKeys.isLoading ? (
         <div className="space-y-2">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-14 w-full rounded-xl" />
+          ))}
         </div>
       ) : keys.length > 0 ? (
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
@@ -157,26 +215,45 @@ function ApiKeysTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/[0.08] text-left bg-white/[0.03]">
-                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">Name</th>
-                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">Scopes</th>
-                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">Rate Limit</th>
-                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">Created</th>
-                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider text-right">Actions</th>
+                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                    Scopes
+                  </th>
+                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                    Rate Limit
+                  </th>
+                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                    Created
+                  </th>
+                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider text-right">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {keys.map((k) => (
-                  <tr key={k.id} className="border-b border-white/[0.04] hover:bg-white/[0.05] transition-colors duration-200">
+                  <tr
+                    key={k.id}
+                    className="border-b border-white/[0.04] hover:bg-white/[0.05] transition-colors duration-200"
+                  >
                     <td className="px-4 py-3 text-zinc-200 font-medium">{k.name}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1 flex-wrap">
                         {k.scopes.map((s) => (
-                          <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
+                          <Badge key={s} variant="secondary" className="text-[10px]">
+                            {s}
+                          </Badge>
                         ))}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-xs text-zinc-400 font-mono">{k.rate_limit}/min</td>
-                    <td className="px-4 py-3 text-xs text-zinc-400">{formatRelativeTime(k.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-zinc-400 font-mono">
+                      {k.rate_limit}/min
+                    </td>
+                    <td className="px-4 py-3 text-xs text-zinc-400">
+                      {formatRelativeTime(k.created_at)}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <Button
                         variant="ghost"
@@ -197,7 +274,9 @@ function ApiKeysTab() {
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl flex flex-col items-center justify-center py-12 text-center">
           <Key className="w-6 h-6 text-zinc-500 mb-3" />
           <p className="text-sm font-medium text-zinc-300">No API keys yet</p>
-          <p className="text-xs text-zinc-500 mt-1">Create your first key above to authenticate API requests</p>
+          <p className="text-xs text-zinc-500 mt-1">
+            Create your first key above to authenticate API requests
+          </p>
         </div>
       )}
 
@@ -207,12 +286,23 @@ function ApiKeysTab() {
           <DialogHeader>
             <DialogTitle>Revoke API Key</DialogTitle>
             <DialogDescription>
-              This action cannot be undone. The key will immediately stop working for all API requests.
+              This action cannot be undone. The key will immediately stop working for all API
+              requests.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDeleteConfirm(null)} className="bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300">Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)} className="gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setDeleteConfirm(null)}
+              className="bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
+              className="gap-2"
+            >
               <Trash2 className="w-3.5 h-3.5" /> Revoke Key
             </Button>
           </DialogFooter>
@@ -245,7 +335,7 @@ function WebhooksTab() {
 
   const toggleEvent = (event: string) => {
     setSelectedEvents((prev) =>
-      prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event]
+      prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event],
     );
   };
 
@@ -269,7 +359,8 @@ function WebhooksTab() {
   const toggleRevealSecret = (id: string) => {
     setRevealedSecrets((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -288,14 +379,21 @@ function WebhooksTab() {
         <div className="space-y-4">
           <div>
             <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Endpoint URL</label>
-            <Input placeholder="https://your-app.com/webhooks/sluby" value={url} onChange={(e) => setUrl(e.target.value)} className="font-mono text-xs h-10" />
+            <Input
+              placeholder="https://your-app.com/webhooks/sluby"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="font-mono text-xs h-10"
+            />
           </div>
           <div>
             <label className="text-xs text-zinc-400 font-medium mb-2 block">Events</label>
             <div className="space-y-3">
               {WEBHOOK_EVENT_GROUPS.map((group) => (
                 <div key={group.label}>
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5">{group.label}</p>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5">
+                    {group.label}
+                  </p>
                   <div className="flex flex-wrap gap-2">
                     {group.events.map((event) => (
                       <label key={event} className="flex items-center gap-2 cursor-pointer">
@@ -311,7 +409,11 @@ function WebhooksTab() {
               ))}
             </div>
           </div>
-          <Button onClick={handleCreate} disabled={!url || selectedEvents.length === 0 || createWebhook.isPending} className="gap-2">
+          <Button
+            onClick={handleCreate}
+            disabled={!url || selectedEvents.length === 0 || createWebhook.isPending}
+            className="gap-2"
+          >
             <Plus className="w-3.5 h-3.5" />
             {createWebhook.isPending ? 'Registering...' : 'Register Webhook'}
           </Button>
@@ -327,15 +429,25 @@ function WebhooksTab() {
       {/* Webhook list */}
       {webhooks.isLoading ? (
         <div className="space-y-2">
-          {[1, 2].map((i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
+          {[1, 2].map((i) => (
+            <Skeleton key={i} className="h-24 w-full rounded-xl" />
+          ))}
         </div>
       ) : webhookList.length > 0 ? (
         <div className="space-y-3">
           {webhookList.map((wh) => (
-            <div key={wh.id} className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 space-y-3 hover:bg-white/[0.05] transition-colors duration-200">
+            <div
+              key={wh.id}
+              className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 space-y-3 hover:bg-white/[0.05] transition-colors duration-200"
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className={cn('w-2 h-2 rounded-full shrink-0', wh.is_active ? 'bg-emerald-500' : 'bg-zinc-600')} />
+                  <span
+                    className={cn(
+                      'w-2 h-2 rounded-full shrink-0',
+                      wh.is_active ? 'bg-emerald-500' : 'bg-zinc-600',
+                    )}
+                  />
                   <code className="text-xs font-mono text-zinc-200 truncate">{wh.url}</code>
                 </div>
                 <Button
@@ -349,7 +461,9 @@ function WebhooksTab() {
               </div>
               <div className="flex flex-wrap gap-1">
                 {wh.events.map((evt) => (
-                  <Badge key={evt} variant="secondary" className="text-[10px]">{evt}</Badge>
+                  <Badge key={evt} variant="secondary" className="text-[10px]">
+                    {evt}
+                  </Badge>
                 ))}
               </div>
               {wh.secret && (
@@ -358,11 +472,27 @@ function WebhooksTab() {
                   <code className="text-xs font-mono text-zinc-400">
                     {revealedSecrets.has(wh.id) ? wh.secret : '**********************'}
                   </code>
-                  <button onClick={() => toggleRevealSecret(wh.id)} className="text-zinc-500 hover:text-zinc-300 transition-colors duration-200" aria-label="Toggle secret visibility">
-                    {revealedSecrets.has(wh.id) ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  <button
+                    onClick={() => toggleRevealSecret(wh.id)}
+                    className="text-zinc-500 hover:text-zinc-300 transition-colors duration-200"
+                    aria-label="Toggle secret visibility"
+                  >
+                    {revealedSecrets.has(wh.id) ? (
+                      <EyeOff className="w-3 h-3" />
+                    ) : (
+                      <Eye className="w-3 h-3" />
+                    )}
                   </button>
-                  <button onClick={() => handleCopySecret(wh.secret!, wh.id)} className="text-zinc-500 hover:text-zinc-300 transition-colors duration-200" aria-label="Copy to clipboard">
-                    {copiedSecret === wh.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <button
+                    onClick={() => handleCopySecret(wh.secret!, wh.id)}
+                    className="text-zinc-500 hover:text-zinc-300 transition-colors duration-200"
+                    aria-label="Copy to clipboard"
+                  >
+                    {copiedSecret === wh.id ? (
+                      <Check className="w-3 h-3 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
                   </button>
                 </div>
               )}
@@ -373,7 +503,9 @@ function WebhooksTab() {
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl flex flex-col items-center justify-center py-12 text-center">
           <Webhook className="w-6 h-6 text-zinc-500 mb-3" />
           <p className="text-sm font-medium text-zinc-300">No webhooks registered</p>
-          <p className="text-xs text-zinc-500 mt-1">Register an endpoint to receive real-time event notifications</p>
+          <p className="text-xs text-zinc-500 mt-1">
+            Register an endpoint to receive real-time event notifications
+          </p>
         </div>
       )}
 
@@ -400,8 +532,18 @@ function WebhooksTab() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDeleteConfirm(null)} className="bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300">Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)} className="gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setDeleteConfirm(null)}
+              className="bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
+              className="gap-2"
+            >
               <Trash2 className="w-3.5 h-3.5" /> Delete
             </Button>
           </DialogFooter>
@@ -530,7 +672,12 @@ function ApiExplorerTab() {
                     )}
                   >
                     <div className="flex items-center gap-2">
-                      <span className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold ring-1 ring-inset min-w-[40px] justify-center', METHOD_COLORS[template.method])}>
+                      <span
+                        className={cn(
+                          'inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold ring-1 ring-inset min-w-[40px] justify-center',
+                          METHOD_COLORS[template.method],
+                        )}
+                      >
                         {template.method}
                       </span>
                       <span className="text-xs truncate">{template.label}</span>
@@ -590,9 +737,7 @@ function ApiExplorerTab() {
         {response !== null ? (
           <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-3">
             <div className="flex items-center gap-3">
-              {status !== undefined && (
-                <Badge variant={statusColor(status)}>{status}</Badge>
-              )}
+              {status !== undefined && <Badge variant={statusColor(status)}>{status}</Badge>}
               {duration !== undefined && (
                 <span className="text-xs text-zinc-400 flex items-center gap-1">
                   <Clock className="w-3 h-3" />
@@ -608,7 +753,9 @@ function ApiExplorerTab() {
           <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl flex flex-col items-center justify-center py-12 text-center">
             <Sparkles className="w-5 h-5 text-zinc-500 mb-2" />
             <p className="text-sm text-zinc-400">Run a request to see the response</p>
-            <p className="text-xs text-zinc-500 mt-1">Pick a template or enter a custom endpoint above</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              Pick a template or enter a custom endpoint above
+            </p>
           </div>
         )}
       </div>
@@ -623,21 +770,38 @@ function ApiExplorerTab() {
 export default function DeveloperPage() {
   return (
     <PageContainer>
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+      >
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-[#f0f0f0] font-heading mb-1">Developer Tools</h1>
-          <p className="text-sm text-zinc-400">Manage API keys, configure webhooks, and explore the API</p>
+          <h1 className="text-2xl font-semibold text-[#f0f0f0] font-heading mb-1">
+            Developer Tools
+          </h1>
+          <p className="text-sm text-zinc-400">
+            Manage API keys, configure webhooks, and explore the API
+          </p>
         </div>
 
         <Tabs defaultValue="keys">
           <TabsList className="bg-white/[0.04] rounded-lg p-0.5 mb-6">
-            <TabsTrigger value="keys" className="gap-1.5 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-zinc-100">
+            <TabsTrigger
+              value="keys"
+              className="gap-1.5 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-zinc-100"
+            >
               <Key className="w-3.5 h-3.5" /> API Keys
             </TabsTrigger>
-            <TabsTrigger value="webhooks" className="gap-1.5 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-zinc-100">
+            <TabsTrigger
+              value="webhooks"
+              className="gap-1.5 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-zinc-100"
+            >
               <Webhook className="w-3.5 h-3.5" /> Webhooks
             </TabsTrigger>
-            <TabsTrigger value="explorer" className="gap-1.5 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-zinc-100">
+            <TabsTrigger
+              value="explorer"
+              className="gap-1.5 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-zinc-100"
+            >
               <Terminal className="w-3.5 h-3.5" /> API Explorer
             </TabsTrigger>
           </TabsList>

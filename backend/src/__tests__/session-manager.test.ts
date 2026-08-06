@@ -15,7 +15,11 @@ vi.mock('node:fs/promises', () => ({
   unlink: vi.fn(),
 }));
 
-import { SessionManager, type SessionManagerDeps, type UploadSessionRecord } from '../upload/session-manager.js';
+import {
+  SessionManager,
+  type SessionManagerDeps,
+  type UploadSessionRecord,
+} from '../upload/session-manager.js';
 import { unlink } from 'node:fs/promises';
 
 function createMockSession(overrides: Partial<UploadSessionRecord> = {}): UploadSessionRecord {
@@ -204,9 +208,7 @@ describe('SessionManager', () => {
     });
 
     it('should return null when session is not in uploading status', async () => {
-      vi.mocked(deps.getSession).mockResolvedValue(
-        createMockSession({ status: 'completed' }),
-      );
+      vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ status: 'completed' }));
 
       const result = await manager.resume('session-1');
       expect(result).toBeNull();
@@ -251,9 +253,7 @@ describe('SessionManager', () => {
     });
 
     it('should not attempt to delete if filePath is null', async () => {
-      vi.mocked(deps.getSession).mockResolvedValue(
-        createMockSession({ filePath: null }),
-      );
+      vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ filePath: null }));
 
       await manager.cancel('session-1');
 

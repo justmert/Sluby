@@ -15,7 +15,10 @@ export default function NotFoundPage() {
         <p className="text-sm text-zinc-400 mb-6">
           The page you are looking for does not exist or has been moved.
         </p>
-        <Button asChild className="bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg">
+        <Button
+          asChild
+          className="bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg"
+        >
           <Link to="/studio" className="gap-2">
             Back to Dashboard
           </Link>

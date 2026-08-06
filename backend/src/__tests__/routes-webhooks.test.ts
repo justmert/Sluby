@@ -82,9 +82,7 @@ describe('webhook routes', () => {
     });
 
     it('should return 400 when events is missing', async () => {
-      const res = await request(createApp())
-        .post('/')
-        .send({ url: 'https://example.com/hook' });
+      const res = await request(createApp()).post('/').send({ url: 'https://example.com/hook' });
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('At least one event type is required');
@@ -130,12 +128,10 @@ describe('webhook routes', () => {
         'asset.errored',
       ];
 
-      const res = await request(createApp())
-        .post('/')
-        .send({
-          url: 'https://example.com/hook',
-          events: validEvents,
-        });
+      const res = await request(createApp()).post('/').send({
+        url: 'https://example.com/hook',
+        events: validEvents,
+      });
 
       expect(res.status).toBe(201);
     });
@@ -226,7 +222,7 @@ describe('webhook routes', () => {
       expect(deps.deleteWebhook).toHaveBeenCalledWith('wh-1', 'key-1');
     });
 
-    it("should return 404 when the webhook belongs to another key", async () => {
+    it('should return 404 when the webhook belongs to another key', async () => {
       vi.mocked(deps.deleteWebhook).mockResolvedValue(false);
 
       const res = await request(createApp()).delete('/wh-not-mine');

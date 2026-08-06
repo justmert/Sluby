@@ -30,13 +30,8 @@ export function ObjectIdBadge({
   hideCopy = false,
 }: ObjectIdBadgeProps) {
   return (
-    <span
-      className={cn('inline-flex items-center gap-1', className)}
-      title={value}
-    >
-      <span className="font-mono text-zinc-300 truncate">
-        {truncateMiddle(value, truncate)}
-      </span>
+    <span className={cn('inline-flex items-center gap-1', className)} title={value}>
+      <span className="font-mono text-zinc-300 truncate">{truncateMiddle(value, truncate)}</span>
       {!hideCopy && <CopyButton value={value} className="h-6 w-6 min-w-[24px] min-h-[24px]" />}
     </span>
   );

@@ -2,12 +2,8 @@ import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
 import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
-import {
-  getObject,
-  downloadObject,
-  getWalletAddress,
-} from '../../storage/sia-client.js';
-import { parseMasterPlaylist, parseVariantPlaylist } from '../../transcode/manifest-rewriter.js';
+import { getObject, downloadObject, getWalletAddress } from '../../storage/sia-client.js';
+import { parseVariantPlaylist } from '../../transcode/manifest-rewriter.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 
@@ -345,9 +341,7 @@ function extractDataObjectId(playlistContent: string): string | null {
 // Aggregator
 // ---------------------------------------------------------------------------
 
-async function buildSiaInfo(
-  asset: SiaInfoAssetRecord,
-): Promise<SiaInfoResponse> {
+async function buildSiaInfo(asset: SiaInfoAssetRecord): Promise<SiaInfoResponse> {
   // The "indexer URL" is the indexd application API the SDK signs
   // requests against. Surfaced in the UI so reviewers can see the
   // exact endpoint backing the deployment.
@@ -406,9 +400,7 @@ async function buildSiaInfo(
             segmentCount = parseVariantPlaylist(playlistText).segmentCount;
           }
 
-          const dataSummary = dataObjectId
-            ? await summarizeObject(dataObjectId)
-            : null;
+          const dataSummary = dataObjectId ? await summarizeObject(dataObjectId) : null;
 
           accumulate(playlistSummary);
           accumulate(dataSummary);
@@ -434,8 +426,7 @@ async function buildSiaInfo(
                 : null;
 
           const variantSectorCount =
-            (playlistSummary?.sectorCount ?? 0) +
-            (dataSummary?.sectorCount ?? 0);
+            (playlistSummary?.sectorCount ?? 0) + (dataSummary?.sectorCount ?? 0);
 
           return {
             resolution: info.resolution,
@@ -447,13 +438,9 @@ async function buildSiaInfo(
             hostCount: variantHosts.length,
             hosts: variantHosts,
             contracts: variantContracts,
-            slabCount:
-              (playlistSummary?.slabCount ?? 0) + (dataSummary?.slabCount ?? 0),
+            slabCount: (playlistSummary?.slabCount ?? 0) + (dataSummary?.slabCount ?? 0),
             sectorCount: variantSectorCount,
-            encodedBytes:
-              variantSectorCount > 0
-                ? variantSectorCount * SECTOR_SIZE_BYTES
-                : null,
+            encodedBytes: variantSectorCount > 0 ? variantSectorCount * SECTOR_SIZE_BYTES : null,
             minShards: summaryForShards?.minShards ?? null,
             totalShards: summaryForShards?.totalShards ?? null,
           } satisfies VariantInfo;
@@ -488,8 +475,7 @@ async function buildSiaInfo(
   // Real encoded size = total sectors × 4 MiB. A sector is the physical
   // unit a host stores; total sector count reflects both data + parity
   // shards across every slab.
-  const encodedBytes =
-    totalSectorCount > 0 ? totalSectorCount * SECTOR_SIZE_BYTES : null;
+  const encodedBytes = totalSectorCount > 0 ? totalSectorCount * SECTOR_SIZE_BYTES : null;
 
   // Real data/parity split read from the first slab we observed.
   const dataShards = observedMinShards > 0 ? observedMinShards : null;
@@ -505,9 +491,7 @@ async function buildSiaInfo(
   const objectCount =
     asset.siaObjectIds.length > 0
       ? asset.siaObjectIds.length
-      : (asset.manifestObjectId ? 1 : 0) +
-        asset.thumbnailObjectIds.length +
-        variants.length * 2;
+      : (asset.manifestObjectId ? 1 : 0) + asset.thumbnailObjectIds.length + variants.length * 2;
 
   // Wallet address is fetched out-of-band (cached inside sia-client)
   // so the Studio can link to Siascan for live on-chain activity.
@@ -560,10 +544,7 @@ export function createSiaInfoRoutes(deps: SiaInfoRouteDeps): Router {
       return;
     }
 
-    const asset = await deps.getAssetWithSiaIds(
-      id,
-      ownerFilter(req.apiKey!.creatorAddress),
-    );
+    const asset = await deps.getAssetWithSiaIds(id, ownerFilter(req.apiKey!.creatorAddress));
     if (!asset) {
       throw new AppError(404, 'Video asset not found');
     }

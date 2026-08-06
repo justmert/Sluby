@@ -50,11 +50,7 @@ CardContent.displayName = 'CardContent';
 
 export const CardFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn('flex items-center p-5 pt-0', className)}
-      {...props}
-    />
+    <div ref={ref} className={cn('flex items-center p-5 pt-0', className)} {...props} />
   ),
 );
 CardFooter.displayName = 'CardFooter';

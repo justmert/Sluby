@@ -11,16 +11,9 @@ import { apiClient } from '../lib/api-client';
 // Types (mirror the backend JSON shapes using snake_case from the API)
 // ---------------------------------------------------------------------------
 
-export type VideoAssetStatus =
-  | 'created'
-  | 'uploading'
-  | 'processing'
-  | 'ready'
-  | 'failed';
+export type VideoAssetStatus = 'created' | 'uploading' | 'processing' | 'ready' | 'failed';
 
-export type AccessTier =
-  | 'public'
-  | 'private';
+export type AccessTier = 'public' | 'private';
 
 export interface VideoAsset {
   id: string;
@@ -179,8 +172,7 @@ export function useUpdateAsset(): UseMutationResult<
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }) =>
-      apiClient.patch<VideoAsset>(`/assets/${id}`, data),
+    mutationFn: ({ id, data }) => apiClient.patch<VideoAsset>(`/assets/${id}`, data),
     onMutate: async ({ id, data }) => {
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
       await queryClient.cancelQueries({ queryKey: ['assets', id] });
@@ -212,16 +204,11 @@ export function useUpdateAsset(): UseMutationResult<
   });
 }
 
-export function useDeleteAsset(): UseMutationResult<
-  { success: boolean },
-  Error,
-  string
-> {
+export function useDeleteAsset(): UseMutationResult<{ success: boolean }, Error, string> {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.delete<{ success: boolean }>(`/assets/${id}`),
+    mutationFn: (id: string) => apiClient.delete<{ success: boolean }>(`/assets/${id}`),
     onMutate: async (id) => {
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
       await queryClient.cancelQueries({ queryKey: ['assets'] });
@@ -232,17 +219,14 @@ export function useDeleteAsset(): UseMutationResult<
       });
 
       // Optimistically remove the asset from all list queries
-      queryClient.setQueriesData<PaginatedResponse<VideoAsset>>(
-        { queryKey: ['assets'] },
-        (old) => {
-          if (!old?.data) return old;
-          return {
-            ...old,
-            data: old.data.filter((asset) => asset.id !== id),
-            total: old.total - 1,
-          };
-        },
-      );
+      queryClient.setQueriesData<PaginatedResponse<VideoAsset>>({ queryKey: ['assets'] }, (old) => {
+        if (!old?.data) return old;
+        return {
+          ...old,
+          data: old.data.filter((asset) => asset.id !== id),
+          total: old.total - 1,
+        };
+      });
 
       return { previousQueries };
     },

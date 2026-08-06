@@ -28,7 +28,7 @@ jobs:
         run: npm run lint
 
   typecheck-and-test:
-    name: "${{ matrix.package }} - Typecheck & Test"
+    name: '${{ matrix.package }} - Typecheck & Test'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -38,10 +38,10 @@ jobs:
             workspace: backend
             path: backend
           - package: sdk
-            workspace: "@sluby/sdk"
+            workspace: '@sluby/sdk'
             path: packages/sdk
           - package: react
-            workspace: "@sluby/react"
+            workspace: '@sluby/react'
             path: packages/react
 
     steps:
@@ -65,4 +65,3 @@ jobs:
 
       - name: Test
         run: npm test --workspace=${{ matrix.workspace }} --if-present
-

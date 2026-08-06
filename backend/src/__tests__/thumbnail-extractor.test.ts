@@ -60,11 +60,7 @@ describe('extractThumbnails', () => {
   });
 
   it('returns the local file paths it wrote to', async () => {
-    const paths = await extractThumbnails(
-      '/input/video.mp4',
-      100_000,
-      '/output/thumbs',
-    );
+    const paths = await extractThumbnails('/input/video.mp4', 100_000, '/output/thumbs');
     expect(paths).toEqual([
       '/output/thumbs/thumb_25.jpg',
       '/output/thumbs/thumb_50.jpg',
@@ -82,9 +78,9 @@ describe('extractThumbnails', () => {
       return proc;
     });
 
-    await expect(
-      extractThumbnails('/input/video.mp4', 60_000, '/output'),
-    ).rejects.toThrow('Thumbnail extraction failed');
+    await expect(extractThumbnails('/input/video.mp4', 60_000, '/output')).rejects.toThrow(
+      'Thumbnail extraction failed',
+    );
   });
 
   it('rejects when ffmpeg spawn fails', async () => {
@@ -96,8 +92,8 @@ describe('extractThumbnails', () => {
       return proc;
     });
 
-    await expect(
-      extractThumbnails('/input/video.mp4', 60_000, '/output'),
-    ).rejects.toThrow('ENOENT: ffmpeg not found');
+    await expect(extractThumbnails('/input/video.mp4', 60_000, '/output')).rejects.toThrow(
+      'ENOENT: ffmpeg not found',
+    );
   });
 });

@@ -179,9 +179,7 @@ export async function uploadSegments(
 
   // ── 2. Rewrite variant playlists, prepare thumbnails ────────────
   const rewrittenPlaylists = variantInfos.map((info) =>
-    new TextEncoder().encode(
-      rewriteVariantPlaylist(info.playlistContent, info.mapping, ''),
-    ),
+    new TextEncoder().encode(rewriteVariantPlaylist(info.playlistContent, info.mapping, '')),
   );
 
   const thumbnailBuffers: Uint8Array[] = [];
@@ -251,9 +249,7 @@ export async function uploadSegments(
   // Each Sia Object ID is tied to its asset, rendition, and role. The
   // per-variant resolution/bitrate comes from the master's STREAM-INF
   // lines; everything else was captured during upload above.
-  const variantMetaByPath = new Map(
-    parseMasterVariants(masterContent).map((v) => [v.path, v]),
-  );
+  const variantMetaByPath = new Map(parseMasterVariants(masterContent).map((v) => [v.path, v]));
   const variantUploads: VariantUpload[] = variantInfos.map((info, i) => {
     const meta = variantMetaByPath.get(info.variantPath);
     return {

@@ -37,17 +37,16 @@ export class WebhookManager {
    *                    endpoint.
    * @returns `true` if the signature is valid.
    */
-  verifySignature(
-    payload: string,
-    signature: string,
-    secret: string,
-  ): boolean {
+  verifySignature(payload: string, signature: string, secret: string): boolean {
     // Use Node.js built-in `crypto` module when available for synchronous
     // HMAC verification with `timingSafeEqual`.
     try {
       // If we are in Node.js we can use the synchronous createHmac path
       // with timing-safe comparison.
-      if (typeof globalThis.process !== 'undefined' && (globalThis.process as NodeJS.Process).versions?.node) {
+      if (
+        typeof globalThis.process !== 'undefined' &&
+        (globalThis.process as NodeJS.Process).versions?.node
+      ) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const nodeCrypto: typeof import('node:crypto') = require('node:crypto');
         const expected = nodeCrypto
@@ -69,16 +68,10 @@ export class WebhookManager {
       // NOTE: This is a best-effort constant-time comparison.  For maximum
       // security, callers running outside Node.js should use the async
       // `verifySignatureAsync` method which leverages Web Crypto.
-      return this._constantTimeEqual(
-        this._hmacSha256Sync(payload, secret),
-        signature,
-      );
+      return this._constantTimeEqual(this._hmacSha256Sync(payload, secret), signature);
     } catch {
       // If all else fails, fall back to the naive sync path.
-      return this._constantTimeEqual(
-        this._hmacSha256Sync(payload, secret),
-        signature,
-      );
+      return this._constantTimeEqual(this._hmacSha256Sync(payload, secret), signature);
     }
   }
 
@@ -91,11 +84,7 @@ export class WebhookManager {
    * Preferred in environments where `crypto.subtle` is available
    * (browsers, Cloudflare Workers, Deno).
    */
-  async verifySignatureAsync(
-    payload: string,
-    signature: string,
-    secret: string,
-  ): Promise<boolean> {
+  async verifySignatureAsync(payload: string, signature: string, secret: string): Promise<boolean> {
     const encoder = new TextEncoder();
     const key = await globalThis.crypto.subtle.importKey(
       'raw',
@@ -105,11 +94,7 @@ export class WebhookManager {
       ['sign'],
     );
 
-    const sig = await globalThis.crypto.subtle.sign(
-      'HMAC',
-      key,
-      encoder.encode(payload),
-    );
+    const sig = await globalThis.crypto.subtle.sign('HMAC', key, encoder.encode(payload));
 
     const expected = this._bufferToHex(new Uint8Array(sig));
     return this._constantTimeEqual(expected, signature);
@@ -133,9 +118,7 @@ export class WebhookManager {
       typeof parsed.event !== 'string' ||
       typeof parsed.timestamp !== 'string'
     ) {
-      throw new Error(
-        'Invalid webhook payload: missing required "event" or "timestamp" field.',
-      );
+      throw new Error('Invalid webhook payload: missing required "event" or "timestamp" field.');
     }
 
     return {
@@ -180,10 +163,7 @@ export class WebhookManager {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const nodeCrypto: typeof import('node:crypto') = require('node:crypto');
-      return nodeCrypto
-        .createHmac('sha256', key)
-        .update(data, 'utf8')
-        .digest('hex');
+      return nodeCrypto.createHmac('sha256', key).update(data, 'utf8').digest('hex');
     } catch {
       throw new Error(
         'Synchronous HMAC-SHA256 is only available in Node.js. ' +

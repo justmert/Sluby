@@ -1,9 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  parseRange,
-  isManifestContent,
-  detectBinaryContentType,
-} from '../delivery/aggregator.js';
+import { parseRange, isManifestContent, detectBinaryContentType } from '../delivery/aggregator.js';
 
 vi.mock('../config/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
@@ -244,8 +240,7 @@ describe('isManifestContent', () => {
   });
 
   it('is true for a master playlist with variant streams', () => {
-    const master =
-      '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n360p.m3u8\n';
+    const master = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n360p.m3u8\n';
     expect(isManifestContent(bytesOf(master))).toBe(true);
   });
 
@@ -282,9 +277,7 @@ describe('detectBinaryContentType', () => {
   });
 
   it('detects a minimal 3-byte JPEG header', () => {
-    expect(detectBinaryContentType(new Uint8Array([0xff, 0xd8, 0xff]))).toBe(
-      'image/jpeg',
-    );
+    expect(detectBinaryContentType(new Uint8Array([0xff, 0xd8, 0xff]))).toBe('image/jpeg');
   });
 
   it('detects PNG from the full 8-byte signature', () => {
@@ -301,19 +294,40 @@ describe('detectBinaryContentType', () => {
 
   it('detects WebP from RIFF....WEBP', () => {
     const webp = new Uint8Array([
-      0x52, 0x49, 0x46, 0x46, // R I F F
-      0x24, 0x00, 0x00, 0x00, // little-endian file size
-      0x57, 0x45, 0x42, 0x50, // W E B P
-      0x56, 0x50, 0x38, 0x20, // VP8 chunk
+      0x52,
+      0x49,
+      0x46,
+      0x46, // R I F F
+      0x24,
+      0x00,
+      0x00,
+      0x00, // little-endian file size
+      0x57,
+      0x45,
+      0x42,
+      0x50, // W E B P
+      0x56,
+      0x50,
+      0x38,
+      0x20, // VP8 chunk
     ]);
     expect(detectBinaryContentType(webp)).toBe('image/webp');
   });
 
   it('does not treat a non-WEBP RIFF container as WebP', () => {
     const wav = new Uint8Array([
-      0x52, 0x49, 0x46, 0x46, // R I F F
-      0x24, 0x00, 0x00, 0x00,
-      0x57, 0x41, 0x56, 0x45, // W A V E
+      0x52,
+      0x49,
+      0x46,
+      0x46, // R I F F
+      0x24,
+      0x00,
+      0x00,
+      0x00,
+      0x57,
+      0x41,
+      0x56,
+      0x45, // W A V E
     ]);
     expect(detectBinaryContentType(wav)).toBe('application/octet-stream');
   });
@@ -340,17 +354,11 @@ describe('detectBinaryContentType', () => {
   });
 
   it('falls back for an empty buffer without throwing', () => {
-    expect(detectBinaryContentType(new Uint8Array())).toBe(
-      'application/octet-stream',
-    );
+    expect(detectBinaryContentType(new Uint8Array())).toBe('application/octet-stream');
   });
 
   it('falls back for a 1-byte buffer that merely shares a first magic byte', () => {
-    expect(detectBinaryContentType(new Uint8Array([0xff]))).toBe(
-      'application/octet-stream',
-    );
-    expect(detectBinaryContentType(new Uint8Array([0x89]))).toBe(
-      'application/octet-stream',
-    );
+    expect(detectBinaryContentType(new Uint8Array([0xff]))).toBe('application/octet-stream');
+    expect(detectBinaryContentType(new Uint8Array([0x89]))).toBe('application/octet-stream');
   });
 });

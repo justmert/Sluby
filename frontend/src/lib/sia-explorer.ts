@@ -29,12 +29,11 @@ const BASE = (
 export const EXPLORER_BASE_URL = BASE;
 
 /** Human-readable label for the configured explorer (for UI affordances). */
-export const EXPLORER_LABEL =
-  BASE.includes('zen.siascan.com')
-    ? 'Zen Siascan'
-    : BASE.includes('siascan.com')
-      ? 'Siascan'
-      : 'Sia Explorer';
+export const EXPLORER_LABEL = BASE.includes('zen.siascan.com')
+  ? 'Zen Siascan'
+  : BASE.includes('siascan.com')
+    ? 'Siascan'
+    : 'Sia Explorer';
 
 /** True when we're pointing at the Zen testnet explorer. */
 export const IS_TESTNET_EXPLORER = BASE.includes('zen.siascan.com');

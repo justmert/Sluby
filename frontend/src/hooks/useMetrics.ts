@@ -139,33 +139,29 @@ export function useMetrics(
     bandwidthBytes: [],
   });
 
-  const select = useCallback(
-    (data: PromMetricsResponse): MetricsWithHistory => {
-      const current = parseMetrics(data);
-      const h = historyRef.current;
+  const select = useCallback((data: PromMetricsResponse): MetricsWithHistory => {
+    const current = parseMetrics(data);
+    const h = historyRef.current;
 
-      historyRef.current = {
-        totalAssets: pushHistory(h.totalAssets, current.totalAssets),
-        totalUploads: pushHistory(h.totalUploads, current.totalUploads),
-        activeStreams: pushHistory(h.activeStreams, current.activeStreams),
-        storageBytes: pushHistory(h.storageBytes, current.storageBytes),
-        cacheHits: pushHistory(h.cacheHits, current.cacheHits),
-        cacheMisses: pushHistory(h.cacheMisses, current.cacheMisses),
-        requestsTotal: pushHistory(h.requestsTotal, current.requestsTotal),
-        errorsTotal: pushHistory(h.errorsTotal, current.errorsTotal),
-        avgResponseMs: pushHistory(h.avgResponseMs, current.avgResponseMs),
-        bandwidthBytes: pushHistory(h.bandwidthBytes, current.bandwidthBytes),
-      };
+    historyRef.current = {
+      totalAssets: pushHistory(h.totalAssets, current.totalAssets),
+      totalUploads: pushHistory(h.totalUploads, current.totalUploads),
+      activeStreams: pushHistory(h.activeStreams, current.activeStreams),
+      storageBytes: pushHistory(h.storageBytes, current.storageBytes),
+      cacheHits: pushHistory(h.cacheHits, current.cacheHits),
+      cacheMisses: pushHistory(h.cacheMisses, current.cacheMisses),
+      requestsTotal: pushHistory(h.requestsTotal, current.requestsTotal),
+      errorsTotal: pushHistory(h.errorsTotal, current.errorsTotal),
+      avgResponseMs: pushHistory(h.avgResponseMs, current.avgResponseMs),
+      bandwidthBytes: pushHistory(h.bandwidthBytes, current.bandwidthBytes),
+    };
 
-      return { current, history: historyRef.current };
-    },
-    [],
-  );
+    return { current, history: historyRef.current };
+  }, []);
 
   return useQuery({
     queryKey: ['metrics'],
-    queryFn: () =>
-      apiClient.get<PromMetricsResponse>('/metrics?format=json'),
+    queryFn: () => apiClient.get<PromMetricsResponse>('/metrics?format=json'),
     refetchInterval,
     select,
     staleTime: 10_000,

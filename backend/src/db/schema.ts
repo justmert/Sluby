@@ -31,10 +31,7 @@ export const videoStatusEnum = pgEnum('video_status', [
   'failed',
 ]);
 
-export const accessTierEnum = pgEnum('access_tier', [
-  'public',
-  'private',
-]);
+export const accessTierEnum = pgEnum('access_tier', ['public', 'private']);
 
 export const jobStatusEnum = pgEnum('job_status', [
   'queued',
@@ -57,17 +54,10 @@ export const artifactRoleEnum = pgEnum('artifact_role', [
  * requires a time-limited signed URL. Lets a creator revoke or rotate a
  * public handle without touching the underlying asset.
  */
-export const playbackPolicyEnum = pgEnum('playback_policy', [
-  'public',
-  'signed',
-]);
+export const playbackPolicyEnum = pgEnum('playback_policy', ['public', 'signed']);
 
 /** Outcome of a reconciliation run: matched, or drift was detected. */
-export const reconcileStatusEnum = pgEnum('reconcile_status', [
-  'ok',
-  'drift',
-  'failed',
-]);
+export const reconcileStatusEnum = pgEnum('reconcile_status', ['ok', 'drift', 'failed']);
 
 // ──────────────────────────────────────────
 // Tables
@@ -86,18 +76,12 @@ export const uploadSessions = pgTable('upload_sessions', {
   uploadUrl: text('upload_url').notNull(),
   filePath: text('file_path').notNull(),
   fileSize: bigint('file_size', { mode: 'number' }).notNull(),
-  uploadedBytes: bigint('uploaded_bytes', { mode: 'number' })
-    .notNull()
-    .default(0),
+  uploadedBytes: bigint('uploaded_bytes', { mode: 'number' }).notNull().default(0),
   sha256Hash: text('sha256_hash'),
   status: uploadStatusEnum('status').notNull().default('uploading'),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
 });
 
@@ -106,93 +90,92 @@ export const uploadSessions = pgTable('upload_sessions', {
  * PostgreSQL is the source of truth for video metadata;
  * this table is a cache for fast queries and search.
  */
-export const videoAssets = pgTable('video_assets', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  manifestObjectId: text('manifest_object_id'),
-  title: text('title').notNull(),
-  description: text('description').notNull().default(''),
-  durationMs: bigint('duration_ms', { mode: 'number' }).default(0),
-  resolution: text('resolution').default(''),
-  status: videoStatusEnum('status').notNull().default('created'),
-  accessTier: accessTierEnum('access_tier').notNull().default('public'),
-  creatorAddress: text('creator_address').notNull(),
-  thumbnailObjectIds: text('thumbnail_object_ids')
-    .array()
-    .notNull()
-    .default([]),
-  segmentCount: integer('segment_count').notNull().default(0),
-  totalStorageBytes: bigint('total_storage_bytes', { mode: 'number' })
-    .notNull()
-    .default(0),
-  siaObjectIds: jsonb('sia_object_ids').$type<string[]>().default([]),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-}, (t) => [
-  // Every by-id API lookup is now owner-scoped, and listing filters on it.
-  index('video_assets_creator_address_idx').on(t.creatorAddress),
-  index('video_assets_status_idx').on(t.status),
-  // Matches the listing's stable sort key (createdAt desc, id desc).
-  index('video_assets_created_at_id_idx').on(t.createdAt, t.id),
-]);
+export const videoAssets = pgTable(
+  'video_assets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    manifestObjectId: text('manifest_object_id'),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    durationMs: bigint('duration_ms', { mode: 'number' }).default(0),
+    resolution: text('resolution').default(''),
+    status: videoStatusEnum('status').notNull().default('created'),
+    accessTier: accessTierEnum('access_tier').notNull().default('public'),
+    creatorAddress: text('creator_address').notNull(),
+    thumbnailObjectIds: text('thumbnail_object_ids').array().notNull().default([]),
+    segmentCount: integer('segment_count').notNull().default(0),
+    totalStorageBytes: bigint('total_storage_bytes', { mode: 'number' }).notNull().default(0),
+    siaObjectIds: jsonb('sia_object_ids').$type<string[]>().default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Every by-id API lookup is now owner-scoped, and listing filters on it.
+    index('video_assets_creator_address_idx').on(t.creatorAddress),
+    index('video_assets_status_idx').on(t.status),
+    // Matches the listing's stable sort key (createdAt desc, id desc).
+    index('video_assets_created_at_id_idx').on(t.createdAt, t.id),
+  ],
+);
 
 /**
  * processing_jobs represents transcoding/upload/finalization jobs.
  * Managed by BullMQ; this table mirrors queue state for API queries
  * and durable audit.
  */
-export const processingJobs = pgTable('processing_jobs', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  videoAssetId: uuid('video_asset_id')
-    .notNull()
-    .references(() => videoAssets.id, { onDelete: 'cascade' }),
-  uploadSessionId: uuid('upload_session_id')
-    .notNull()
-    .references(() => uploadSessions.id, { onDelete: 'cascade' }),
-  status: jobStatusEnum('status').notNull().default('queued'),
-  progressPercent: integer('progress_percent').notNull().default(0),
-  errorMessage: text('error_message'),
-  startedAt: timestamp('started_at', { withTimezone: true }),
-  completedAt: timestamp('completed_at', { withTimezone: true }),
-  retryCount: integer('retry_count').notNull().default(0),
-  maxRetries: integer('max_retries').notNull().default(3),
-  logs: jsonb('logs').$type<Array<{ timestamp: string; stage: string; message: string }>>().default([]),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-}, (t) => [
-  index('processing_jobs_video_asset_id_idx').on(t.videoAssetId),
-  index('processing_jobs_upload_session_id_idx').on(t.uploadSessionId),
-]);
+export const processingJobs = pgTable(
+  'processing_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    videoAssetId: uuid('video_asset_id')
+      .notNull()
+      .references(() => videoAssets.id, { onDelete: 'cascade' }),
+    uploadSessionId: uuid('upload_session_id')
+      .notNull()
+      .references(() => uploadSessions.id, { onDelete: 'cascade' }),
+    status: jobStatusEnum('status').notNull().default('queued'),
+    progressPercent: integer('progress_percent').notNull().default(0),
+    errorMessage: text('error_message'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    retryCount: integer('retry_count').notNull().default(0),
+    maxRetries: integer('max_retries').notNull().default(3),
+    logs: jsonb('logs')
+      .$type<Array<{ timestamp: string; stage: string; message: string }>>()
+      .default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('processing_jobs_video_asset_id_idx').on(t.videoAssetId),
+    index('processing_jobs_upload_session_id_idx').on(t.uploadSessionId),
+  ],
+);
 
 /**
  * renditions stores one row per quality level produced for an asset
  * (e.g. 1080p, 720p). Each rendition maps to its own Sia data object
  * (the single_file `data.m4s`) and its rewritten variant playlist.
  */
-export const renditions = pgTable('renditions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  videoAssetId: uuid('video_asset_id')
-    .notNull()
-    .references(() => videoAssets.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  width: integer('width'),
-  height: integer('height'),
-  videoBitrateKbps: integer('video_bitrate_kbps'),
-  segmentCount: integer('segment_count').notNull().default(0),
-  byteSize: bigint('byte_size', { mode: 'number' }).notNull().default(0),
-  dataObjectId: text('data_object_id').notNull(),
-  playlistObjectId: text('playlist_object_id').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-}, (t) => [index('renditions_video_asset_id_idx').on(t.videoAssetId)]);
+export const renditions = pgTable(
+  'renditions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    videoAssetId: uuid('video_asset_id')
+      .notNull()
+      .references(() => videoAssets.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    width: integer('width'),
+    height: integer('height'),
+    videoBitrateKbps: integer('video_bitrate_kbps'),
+    segmentCount: integer('segment_count').notNull().default(0),
+    byteSize: bigint('byte_size', { mode: 'number' }).notNull().default(0),
+    dataObjectId: text('data_object_id').notNull(),
+    playlistObjectId: text('playlist_object_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('renditions_video_asset_id_idx').on(t.videoAssetId)],
+);
 
 /**
  * artifacts is the authoritative mapping between every stored Sia Object
@@ -200,26 +183,28 @@ export const renditions = pgTable('renditions', {
  * what lets the platform reconcile against the indexer, render a per-asset
  * storage breakdown, and unpin precisely on delete.
  */
-export const artifacts = pgTable('artifacts', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  videoAssetId: uuid('video_asset_id')
-    .notNull()
-    .references(() => videoAssets.id, { onDelete: 'cascade' }),
-  renditionId: uuid('rendition_id').references(() => renditions.id, {
-    onDelete: 'cascade',
-  }),
-  role: artifactRoleEnum('role').notNull(),
-  objectId: text('object_id').notNull(),
-  byteSize: bigint('byte_size', { mode: 'number' }).notNull().default(0),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-}, (t) => [
-  index('artifacts_video_asset_id_idx').on(t.videoAssetId),
-  index('artifacts_rendition_id_idx').on(t.renditionId),
-  // The delivery gateway resolves an object's access tier by object id.
-  index('artifacts_object_id_idx').on(t.objectId),
-]);
+export const artifacts = pgTable(
+  'artifacts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    videoAssetId: uuid('video_asset_id')
+      .notNull()
+      .references(() => videoAssets.id, { onDelete: 'cascade' }),
+    renditionId: uuid('rendition_id').references(() => renditions.id, {
+      onDelete: 'cascade',
+    }),
+    role: artifactRoleEnum('role').notNull(),
+    objectId: text('object_id').notNull(),
+    byteSize: bigint('byte_size', { mode: 'number' }).notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('artifacts_video_asset_id_idx').on(t.videoAssetId),
+    index('artifacts_rendition_id_idx').on(t.renditionId),
+    // The delivery gateway resolves an object's access tier by object id.
+    index('artifacts_object_id_idx').on(t.objectId),
+  ],
+);
 
 /**
  * playback_ids are public, rotatable handles that map to a video asset.
@@ -227,18 +212,20 @@ export const artifacts = pgTable('artifacts', {
  * revoke or rotate it without exposing or changing the internal asset
  * UUID — the same indirection Mux and other platforms use.
  */
-export const playbackIds = pgTable('playback_ids', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  playbackId: text('playback_id').unique().notNull(),
-  videoAssetId: uuid('video_asset_id')
-    .notNull()
-    .references(() => videoAssets.id, { onDelete: 'cascade' }),
-  policy: playbackPolicyEnum('policy').notNull().default('public'),
-  name: text('name').notNull().default(''),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-}, (t) => [index('playback_ids_video_asset_id_idx').on(t.videoAssetId)]);
+export const playbackIds = pgTable(
+  'playback_ids',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    playbackId: text('playback_id').unique().notNull(),
+    videoAssetId: uuid('video_asset_id')
+      .notNull()
+      .references(() => videoAssets.id, { onDelete: 'cascade' }),
+    policy: playbackPolicyEnum('policy').notNull().default('public'),
+    name: text('name').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('playback_ids_video_asset_id_idx').on(t.videoAssetId)],
+);
 
 /**
  * reconciliation_runs records each pass of the background worker that
@@ -260,9 +247,7 @@ export const reconciliationRuns = pgTable('reconciliation_runs', {
   missingIds: jsonb('missing_ids').$type<string[]>().notNull().default([]),
   /** Populated when status is 'failed' so outages are visible, not just logged. */
   errorMessage: text('error_message'),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 /**
@@ -270,37 +255,41 @@ export const reconciliationRuns = pgTable('reconciliation_runs', {
  * The raw key is shown only once at creation time; we store SHA-256
  * hashes for lookup.
  */
-export const apiKeys = pgTable('api_keys', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  keyHash: text('key_hash').unique().notNull(),
-  name: text('name').notNull(),
-  scopes: text('scopes').array().notNull().default([]),
-  rateLimit: integer('rate_limit').notNull().default(100),
-  creatorAddress: text('creator_address').notNull(),
-  isActive: boolean('is_active').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  expiresAt: timestamp('expires_at', { withTimezone: true }),
-}, (t) => [index('api_keys_creator_address_idx').on(t.creatorAddress)]);
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    keyHash: text('key_hash').unique().notNull(),
+    name: text('name').notNull(),
+    scopes: text('scopes').array().notNull().default([]),
+    rateLimit: integer('rate_limit').notNull().default(100),
+    creatorAddress: text('creator_address').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+  },
+  (t) => [index('api_keys_creator_address_idx').on(t.creatorAddress)],
+);
 
 /**
  * webhook_endpoints stores registered webhook URLs for a given API key.
  * Each endpoint receives POST requests for subscribed event types.
  */
-export const webhookEndpoints = pgTable('webhook_endpoints', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  apiKeyId: uuid('api_key_id')
-    .notNull()
-    .references(() => apiKeys.id, { onDelete: 'cascade' }),
-  url: text('url').notNull(),
-  events: text('events').array().notNull().default([]),
-  secret: text('secret').notNull(),
-  isActive: boolean('is_active').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-}, (t) => [index('webhook_endpoints_api_key_id_idx').on(t.apiKeyId)]);
+export const webhookEndpoints = pgTable(
+  'webhook_endpoints',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    apiKeyId: uuid('api_key_id')
+      .notNull()
+      .references(() => apiKeys.id, { onDelete: 'cascade' }),
+    url: text('url').notNull(),
+    events: text('events').array().notNull().default([]),
+    secret: text('secret').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('webhook_endpoints_api_key_id_idx').on(t.apiKeyId)],
+);
 
 /**
  * webhook_deliveries logs every webhook delivery attempt.
@@ -317,24 +306,19 @@ export const webhookDeliveries = pgTable('webhook_deliveries', {
   responseBody: text('response_body'),
   deliveredAt: timestamp('delivered_at', { withTimezone: true }),
   retryCount: integer('retry_count').notNull().default(0),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ──────────────────────────────────────────
 // Relations
 // ──────────────────────────────────────────
 
-export const uploadSessionsRelations = relations(
-  uploadSessions,
-  ({ one }) => ({
-    videoAsset: one(videoAssets, {
-      fields: [uploadSessions.videoAssetId],
-      references: [videoAssets.id],
-    }),
+export const uploadSessionsRelations = relations(uploadSessions, ({ one }) => ({
+  videoAsset: one(videoAssets, {
+    fields: [uploadSessions.videoAssetId],
+    references: [videoAssets.id],
   }),
-);
+}));
 
 export const videoAssetsRelations = relations(videoAssets, ({ many }) => ({
   uploadSessions: many(uploadSessions),
@@ -370,44 +354,35 @@ export const artifactsRelations = relations(artifacts, ({ one }) => ({
   }),
 }));
 
-export const processingJobsRelations = relations(
-  processingJobs,
-  ({ one }) => ({
-    videoAsset: one(videoAssets, {
-      fields: [processingJobs.videoAssetId],
-      references: [videoAssets.id],
-    }),
-    uploadSession: one(uploadSessions, {
-      fields: [processingJobs.uploadSessionId],
-      references: [uploadSessions.id],
-    }),
+export const processingJobsRelations = relations(processingJobs, ({ one }) => ({
+  videoAsset: one(videoAssets, {
+    fields: [processingJobs.videoAssetId],
+    references: [videoAssets.id],
   }),
-);
+  uploadSession: one(uploadSessions, {
+    fields: [processingJobs.uploadSessionId],
+    references: [uploadSessions.id],
+  }),
+}));
 
 export const apiKeysRelations = relations(apiKeys, ({ many }) => ({
   webhookEndpoints: many(webhookEndpoints),
 }));
 
-export const webhookEndpointsRelations = relations(
-  webhookEndpoints,
-  ({ one, many }) => ({
-    apiKey: one(apiKeys, {
-      fields: [webhookEndpoints.apiKeyId],
-      references: [apiKeys.id],
-    }),
-    deliveries: many(webhookDeliveries),
+export const webhookEndpointsRelations = relations(webhookEndpoints, ({ one, many }) => ({
+  apiKey: one(apiKeys, {
+    fields: [webhookEndpoints.apiKeyId],
+    references: [apiKeys.id],
   }),
-);
+  deliveries: many(webhookDeliveries),
+}));
 
-export const webhookDeliveriesRelations = relations(
-  webhookDeliveries,
-  ({ one }) => ({
-    webhookEndpoint: one(webhookEndpoints, {
-      fields: [webhookDeliveries.webhookEndpointId],
-      references: [webhookEndpoints.id],
-    }),
+export const webhookDeliveriesRelations = relations(webhookDeliveries, ({ one }) => ({
+  webhookEndpoint: one(webhookEndpoints, {
+    fields: [webhookDeliveries.webhookEndpointId],
+    references: [webhookEndpoints.id],
   }),
-);
+}));
 
 // ──────────────────────────────────────────
 // Type exports for use in queries
@@ -442,4 +417,3 @@ export type NewPlaybackId = typeof playbackIds.$inferInsert;
 
 export type ReconciliationRun = typeof reconciliationRuns.$inferSelect;
 export type NewReconciliationRun = typeof reconciliationRuns.$inferInsert;
-

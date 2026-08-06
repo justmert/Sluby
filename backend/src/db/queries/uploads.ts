@@ -1,30 +1,19 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import {
-  uploadSessions,
-  type UploadSession,
-  type NewUploadSession,
-} from '../schema.js';
+import { uploadSessions, type UploadSession, type NewUploadSession } from '../schema.js';
 
 /**
  * Create a new upload session record.
  */
-export async function createUploadSession(
-  data: NewUploadSession,
-): Promise<UploadSession> {
-  const [session] = await db
-    .insert(uploadSessions)
-    .values(data)
-    .returning();
+export async function createUploadSession(data: NewUploadSession): Promise<UploadSession> {
+  const [session] = await db.insert(uploadSessions).values(data).returning();
   return session;
 }
 
 /**
  * Find an upload session by its primary key.
  */
-export async function getUploadSessionById(
-  id: string,
-): Promise<UploadSession | undefined> {
+export async function getUploadSessionById(id: string): Promise<UploadSession | undefined> {
   return db.query.uploadSessions.findFirst({
     where: eq(uploadSessions.id, id),
   });

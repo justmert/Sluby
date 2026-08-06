@@ -86,10 +86,7 @@ export interface Page<T> {
  * and it is trimmed from the returned data. The next cursor points at the
  * last row actually returned.
  */
-export function paginateRows<T extends CursorKey>(
-  rows: T[],
-  limit: number,
-): Page<T> {
+export function paginateRows<T extends CursorKey>(rows: T[], limit: number): Page<T> {
   const hasMore = rows.length > limit;
   const data = hasMore ? rows.slice(0, limit) : rows;
   const last = data[data.length - 1];

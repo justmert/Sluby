@@ -9,16 +9,12 @@ import {
   Cpu,
   XCircle,
   FileVideo,
-  ExternalLink,
-  Copy,
-  Check,
   RotateCcw,
   Play,
   Eye,
   AlertTriangle,
 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/PageContainer';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -30,7 +26,6 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
 import { useUpload, type UploadMetadata, type ProcessingLogEntry } from '@/hooks/useUpload';
 import { formatBytes } from '@/lib/formatters';
 import { cn } from '@/lib/cn';
@@ -45,8 +40,6 @@ const STEPS = [
   { key: 'processing', label: 'Process' },
   { key: 'complete', label: 'Complete' },
 ] as const;
-
-type StepKey = (typeof STEPS)[number]['key'];
 
 const FIVE_GB = 5 * 1024 * 1024 * 1024;
 const TEN_GB = 10 * 1024 * 1024 * 1024;
@@ -63,27 +56,6 @@ function getStepIndex(status: string): number {
   if (status === 'creating') return 1; // Map to Upload step
   const idx = STEPS.findIndex((s) => s.key === status);
   return idx >= 0 ? idx : 0;
-}
-
-// ---------------------------------------------------------------------------
-// CopyButton (inline)
-// ---------------------------------------------------------------------------
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-  return (
-    <button
-      onClick={handleCopy}
-      className="p-1 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
-    >
-      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-    </button>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +114,9 @@ function UploadStepper({ currentStatus }: { currentStatus: string }) {
                   <div
                     className={cn(
                       'absolute inset-y-0 left-0 transition-all duration-500',
-                      i < currentIndex ? 'bg-gradient-to-r from-emerald-500/60 to-emerald-400/40 w-full' : 'w-0',
+                      i < currentIndex
+                        ? 'bg-gradient-to-r from-emerald-500/60 to-emerald-400/40 w-full'
+                        : 'w-0',
                     )}
                   />
                 </div>
@@ -185,9 +159,18 @@ function ChunkVisualizer({ chunks }: { chunks: Array<{ index: number; status: st
 // ---------------------------------------------------------------------------
 
 const STAGE_COLORS: Record<string, { badge: string; text: string }> = {
-  transcode: { badge: 'bg-teal-500/20 text-teal-400 ring-1 ring-teal-500/30', text: 'text-teal-400' },
-  upload: { badge: 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30', text: 'text-amber-400' },
-  finalize: { badge: 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30', text: 'text-emerald-400' },
+  transcode: {
+    badge: 'bg-teal-500/20 text-teal-400 ring-1 ring-teal-500/30',
+    text: 'text-teal-400',
+  },
+  upload: {
+    badge: 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30',
+    text: 'text-amber-400',
+  },
+  finalize: {
+    badge: 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30',
+    text: 'text-emerald-400',
+  },
 };
 
 function formatRelativeTime(isoTimestamp: string): string {
@@ -229,10 +212,12 @@ function ProcessingLogViewer({ logs }: { logs: ProcessingLogEntry[] }) {
               <span className="text-[10px] text-zinc-600 font-mono tabular-nums whitespace-nowrap mt-0.5 min-w-[52px] text-right">
                 {formatRelativeTime(log.timestamp)}
               </span>
-              <span className={cn(
-                'text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-md whitespace-nowrap',
-                colors.badge,
-              )}>
+              <span
+                className={cn(
+                  'text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-md whitespace-nowrap',
+                  colors.badge,
+                )}
+              >
                 {log.stage}
               </span>
               <span className="text-xs text-zinc-300 font-mono leading-relaxed break-all">
@@ -264,9 +249,12 @@ function RenditionStrip({ progress }: { progress: number }) {
         // Estimate per-rendition progress: each gets ~25% of the 0-80% transcode phase
         const renditionStart = i * 20;
         const renditionEnd = renditionStart + 20;
-        const renditionProgress = progress <= renditionStart ? 0
-          : progress >= renditionEnd ? 100
-          : ((progress - renditionStart) / 20) * 100;
+        const renditionProgress =
+          progress <= renditionStart
+            ? 0
+            : progress >= renditionEnd
+              ? 100
+              : ((progress - renditionStart) / 20) * 100;
         const isActive = progress >= renditionStart && progress < renditionEnd;
         const isDone = progress >= renditionEnd;
 
@@ -275,17 +263,28 @@ function RenditionStrip({ progress }: { progress: number }) {
             key={r.label}
             className={cn(
               'flex-1 rounded-lg border p-2.5 transition-all duration-300',
-              isActive ? 'border-teal-500/30 bg-teal-500/[0.06]' :
-              isDone ? 'border-emerald-500/20 bg-emerald-500/[0.04]' :
-              'border-white/[0.08] bg-white/[0.03]',
+              isActive
+                ? 'border-teal-500/30 bg-teal-500/[0.06]'
+                : isDone
+                  ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
+                  : 'border-white/[0.08] bg-white/[0.03]',
             )}
           >
             <div className="flex items-center gap-2 mb-1.5">
-              <div className={cn('w-1.5 h-1.5 rounded-full', r.color, isDone && 'bg-emerald-500', isActive && 'bg-teal-500 animate-pulse')} />
-              <span className={cn(
-                'text-xs font-semibold',
-                isActive ? 'text-teal-400' : isDone ? 'text-emerald-400' : 'text-zinc-400',
-              )}>
+              <div
+                className={cn(
+                  'w-1.5 h-1.5 rounded-full',
+                  r.color,
+                  isDone && 'bg-emerald-500',
+                  isActive && 'bg-teal-500 animate-pulse',
+                )}
+              />
+              <span
+                className={cn(
+                  'text-xs font-semibold',
+                  isActive ? 'text-teal-400' : isDone ? 'text-emerald-400' : 'text-zinc-400',
+                )}
+              >
                 {r.label}
               </span>
               {isDone && <CheckCircle2 className="w-3 h-3 text-emerald-400 ml-auto" />}
@@ -377,14 +376,18 @@ function UploadDropZone({
         />
         {file ? (
           <div className="flex flex-col items-center gap-2.5">
-            <div className={cn(
-              'p-3 rounded-xl',
-              sizeWarning === 'exceeded' ? 'bg-red-500/10' : 'bg-emerald-500/10',
-            )}>
-              <FileVideo className={cn(
-                'w-8 h-8',
-                sizeWarning === 'exceeded' ? 'text-red-400' : 'text-emerald-400',
-              )} />
+            <div
+              className={cn(
+                'p-3 rounded-xl',
+                sizeWarning === 'exceeded' ? 'bg-red-500/10' : 'bg-emerald-500/10',
+              )}
+            >
+              <FileVideo
+                className={cn(
+                  'w-8 h-8',
+                  sizeWarning === 'exceeded' ? 'text-red-400' : 'text-emerald-400',
+                )}
+              />
             </div>
             <p className="text-sm font-medium text-zinc-200">{file.name}</p>
             <p className="text-xs text-zinc-400">{formatBytes(file.size)}</p>
@@ -394,25 +397,27 @@ function UploadDropZone({
             <div className="p-3 rounded-xl bg-white/[0.04]">
               <Upload className="w-8 h-8 text-zinc-400" />
             </div>
-            <p className="text-sm text-zinc-300">
-              Drop video here or click to browse
-            </p>
-            <p className="text-xs text-zinc-500">
-              MP4, MOV, WebM, MKV up to 10GB
-            </p>
+            <p className="text-sm text-zinc-300">Drop video here or click to browse</p>
+            <p className="text-xs text-zinc-500">MP4, MOV, WebM, MKV up to 10GB</p>
           </div>
         )}
       </div>
 
       {/* File size warnings */}
       {sizeWarning === 'large' && (
-        <div role="alert" className="flex items-center gap-2 mt-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+        <div
+          role="alert"
+          className="flex items-center gap-2 mt-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20"
+        >
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
           <span className="text-xs text-amber-400">Large file — upload may be slow</span>
         </div>
       )}
       {sizeWarning === 'exceeded' && (
-        <div role="alert" className="flex items-center gap-2 mt-3 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20">
+        <div
+          role="alert"
+          className="flex items-center gap-2 mt-3 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20"
+        >
           <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
           <span className="text-xs text-red-400">File exceeds 10GB limit</span>
         </div>
@@ -475,9 +480,7 @@ export default function UploadPage() {
               <UploadDropZone onFileSelect={handleFileSelect} file={file} />
 
               <div>
-                <label className="text-xs text-zinc-400 font-medium mb-1.5 block">
-                  Title
-                </label>
+                <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Title</label>
                 <Input
                   placeholder="Enter a title for the video"
                   value={title}
@@ -515,7 +518,9 @@ export default function UploadPage() {
 
               <Button
                 onClick={handleStartUpload}
-                disabled={!file || state.status === 'creating' || (file !== null && file.size > TEN_GB)}
+                disabled={
+                  !file || state.status === 'creating' || (file !== null && file.size > TEN_GB)
+                }
                 className="w-full gap-2 h-11 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg"
               >
                 {state.status === 'creating' ? (
@@ -542,9 +547,20 @@ export default function UploadPage() {
               {/* Big percentage display */}
               <div className="relative shrink-0">
                 <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="currentColor" strokeWidth="5" className="text-white/[0.08]" />
                   <circle
-                    cx="40" cy="40" r="34" fill="none"
+                    cx="40"
+                    cy="40"
+                    r="34"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="5"
+                    className="text-white/[0.08]"
+                  />
+                  <circle
+                    cx="40"
+                    cy="40"
+                    r="34"
+                    fill="none"
                     strokeWidth="5"
                     strokeLinecap="round"
                     className="text-teal-500"
@@ -555,12 +571,16 @@ export default function UploadPage() {
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-lg font-bold text-[#f0f0f0] tabular-nums">{state.progress.toFixed(0)}%</span>
+                  <span className="text-lg font-bold text-[#f0f0f0] tabular-nums">
+                    {state.progress.toFixed(0)}%
+                  </span>
                 </div>
               </div>
 
               <div className="flex-1 min-w-0 pt-1">
-                <h2 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-1">Uploading</h2>
+                <h2 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-1">
+                  Uploading
+                </h2>
                 <p className="text-sm text-zinc-400 mb-2">
                   Uploading video via resumable TUS protocol
                 </p>
@@ -606,9 +626,20 @@ export default function UploadPage() {
               {/* Big percentage display */}
               <div className="relative shrink-0">
                 <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="currentColor" strokeWidth="5" className="text-white/[0.08]" />
                   <circle
-                    cx="40" cy="40" r="34" fill="none"
+                    cx="40"
+                    cy="40"
+                    r="34"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="5"
+                    className="text-white/[0.08]"
+                  />
+                  <circle
+                    cx="40"
+                    cy="40"
+                    r="34"
+                    fill="none"
                     strokeWidth="5"
                     strokeLinecap="round"
                     className={state.processingProgress > 80 ? 'text-amber-500' : 'text-teal-500'}
@@ -619,7 +650,9 @@ export default function UploadPage() {
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-lg font-bold text-[#f0f0f0] tabular-nums">{state.processingProgress}%</span>
+                  <span className="text-lg font-bold text-[#f0f0f0] tabular-nums">
+                    {state.processingProgress}%
+                  </span>
                 </div>
               </div>
 
@@ -646,13 +679,17 @@ export default function UploadPage() {
                     { label: 'Upload', threshold: 80, icon: Upload },
                     { label: 'Finalize', threshold: 95, icon: CheckCircle2 },
                   ].map((s) => {
-                    const isActive = state.processingProgress >= s.threshold &&
-                      (s.threshold === 95 ? true : state.processingProgress < (s.threshold === 0 ? 80 : 95));
-                    const isDone = s.threshold === 0
-                      ? state.processingProgress > 80
-                      : s.threshold === 80
-                        ? state.processingProgress >= 95
-                        : state.processingProgress >= 100;
+                    const isActive =
+                      state.processingProgress >= s.threshold &&
+                      (s.threshold === 95
+                        ? true
+                        : state.processingProgress < (s.threshold === 0 ? 80 : 95));
+                    const isDone =
+                      s.threshold === 0
+                        ? state.processingProgress > 80
+                        : s.threshold === 80
+                          ? state.processingProgress >= 95
+                          : state.processingProgress >= 100;
                     return (
                       <div
                         key={s.label}
@@ -663,9 +700,13 @@ export default function UploadPage() {
                           !isActive && !isDone && 'bg-white/[0.03] text-zinc-500',
                         )}
                       >
-                        {isDone ? <CheckCircle2 className="w-3 h-3" /> :
-                         isActive ? <Loader2 className="w-3 h-3 animate-spin" /> :
-                         <s.icon className="w-3 h-3" />}
+                        {isDone ? (
+                          <CheckCircle2 className="w-3 h-3" />
+                        ) : isActive ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <s.icon className="w-3 h-3" />
+                        )}
                         {s.label}
                       </div>
                     );
@@ -699,9 +740,7 @@ export default function UploadPage() {
                 <CheckCircle2 className="w-6 h-6 text-emerald-400" />
               </div>
               <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading">Video ready!</h3>
-              <p className="text-sm text-zinc-400">
-                Upload and processing completed successfully
-              </p>
+              <p className="text-sm text-zinc-400">Upload and processing completed successfully</p>
             </div>
 
             {/* Thumbnail preview placeholder */}
@@ -759,9 +798,7 @@ export default function UploadPage() {
               </div>
               <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading">Upload Failed</h3>
               {state.error && (
-                <p className="text-sm text-red-400 text-center max-w-md">
-                  {state.error}
-                </p>
+                <p className="text-sm text-red-400 text-center max-w-md">{state.error}</p>
               )}
             </div>
 

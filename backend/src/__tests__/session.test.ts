@@ -42,9 +42,10 @@ describe('signSession', () => {
     const token = signSession(LOGIN, SECRET, 3600);
     const [encoded] = token.split('.');
 
-    const payload = JSON.parse(
-      Buffer.from(encoded, 'base64url').toString('utf8'),
-    ) as { login: string; exp: number };
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
+      login: string;
+      exp: number;
+    };
 
     expect(payload.login).toBe(LOGIN);
     expect(payload.exp).toBeGreaterThanOrEqual(before + 3600);
@@ -59,9 +60,9 @@ describe('signSession', () => {
   it('defaults to a seven-day TTL', () => {
     const before = Math.floor(Date.now() / 1000);
     const [encoded] = signSession(LOGIN, SECRET).split('.');
-    const { exp } = JSON.parse(
-      Buffer.from(encoded, 'base64url').toString('utf8'),
-    ) as { exp: number };
+    const { exp } = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
+      exp: number;
+    };
 
     expect(exp - before).toBeGreaterThanOrEqual(7 * 24 * 3600 - 2);
     expect(exp - before).toBeLessThanOrEqual(7 * 24 * 3600 + 2);
@@ -157,9 +158,7 @@ describe('verifySession', () => {
 
   it('proves timingSafeEqual really would throw on that input', () => {
     // Guards against the length check being deleted as "redundant".
-    expect(() =>
-      crypto.timingSafeEqual(Buffer.from('a'), Buffer.from('abcdef')),
-    ).toThrow();
+    expect(() => crypto.timingSafeEqual(Buffer.from('a'), Buffer.from('abcdef'))).toThrow();
   });
 
   it('returns null when verified with a different secret', () => {
@@ -189,10 +188,7 @@ describe('verifySession', () => {
 
   it('returns null for a correctly signed token whose payload is not JSON', () => {
     const encoded = Buffer.from('this is not json').toString('base64url');
-    const sig = crypto
-      .createHmac('sha256', SECRET)
-      .update(encoded)
-      .digest('base64url');
+    const sig = crypto.createHmac('sha256', SECRET).update(encoded).digest('base64url');
 
     expect(verifySession(`${encoded}.${sig}`, SECRET)).toBeNull();
   });
@@ -200,10 +196,7 @@ describe('verifySession', () => {
   it('returns null for a correctly signed payload missing login or exp', () => {
     const sign = (obj: unknown) => {
       const encoded = Buffer.from(JSON.stringify(obj)).toString('base64url');
-      const sig = crypto
-        .createHmac('sha256', SECRET)
-        .update(encoded)
-        .digest('base64url');
+      const sig = crypto.createHmac('sha256', SECRET).update(encoded).digest('base64url');
       return `${encoded}.${sig}`;
     };
     const future = Math.floor(Date.now() / 1000) + 3600;

@@ -3,11 +3,7 @@
 // ---------------------------------------------------------------------------
 
 /** Truncate a long hex address or ID for display. */
-export function truncateAddress(
-  address: string,
-  startChars = 6,
-  endChars = 4,
-): string {
+export function truncateAddress(address: string, startChars = 6, endChars = 4): string {
   if (!address) return '';
   if (address.length <= startChars + endChars + 2) return address;
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;

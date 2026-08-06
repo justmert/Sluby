@@ -21,14 +21,8 @@ export interface VerifyResult {
 }
 
 /** Deterministic HMAC-SHA256 over `objectId:expires`, hex encoded. */
-export function signObjectAccess(
-  objectId: string,
-  expiresAtSec: number,
-  secret: string,
-): string {
-  return createHmac('sha256', secret)
-    .update(`${objectId}:${expiresAtSec}`)
-    .digest('hex');
+export function signObjectAccess(objectId: string, expiresAtSec: number, secret: string): string {
+  return createHmac('sha256', secret).update(`${objectId}:${expiresAtSec}`).digest('hex');
 }
 
 /** Query string (`expires=...&sig=...`) granting timed access to an object. */

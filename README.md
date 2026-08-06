@@ -76,10 +76,10 @@ video, and copy its playback URL into the player page.
 
 The backend listens on a different host port depending on how you start it:
 
-| How you start it            | Backend URL on the host  | Where that comes from                                     |
-| --------------------------- | ------------------------ | --------------------------------------------------------- |
-| `docker compose up -d`      | `http://localhost:4500`  | the `4500:3000` port mapping in `docker-compose.yml`       |
-| `cd backend && npm run dev` | `http://localhost:3000`  | the `PORT` default in `backend/src/config/env.ts`, which `.env.example` also sets to 3000 |
+| How you start it            | Backend URL on the host | Where that comes from                                                                     |
+| --------------------------- | ----------------------- | ----------------------------------------------------------------------------------------- |
+| `docker compose up -d`      | `http://localhost:4500` | the `4500:3000` port mapping in `docker-compose.yml`                                      |
+| `cd backend && npm run dev` | `http://localhost:3000` | the `PORT` default in `backend/src/config/env.ts`, which `.env.example` also sets to 3000 |
 
 The studio frontend and the SDK snippets below default to
 `http://localhost:4500`, the Docker port. If you run the backend with
@@ -89,18 +89,18 @@ at the backend with `VITE_API_BASE_URL=http://localhost:3000`.
 ### Using the SDK
 
 ```ts
-import { SlubyClient } from "@sluby/sdk";
+import { SlubyClient } from '@sluby/sdk';
 
 const client = new SlubyClient({
-  apiKey: "sluby_your_api_key",
+  apiKey: 'sluby_your_api_key',
   // Docker publishes the backend on 4500. A local `npm run dev` backend
   // listens on 3000 unless you override PORT.
-  baseUrl: "http://localhost:4500",
+  baseUrl: 'http://localhost:4500',
 });
 
 const { videoAssetId, uploadUrl } = await client.uploads.create({
-  title: "My Video",
-  accessTier: "public",
+  title: 'My Video',
+  accessTier: 'public',
 });
 
 await client.uploads.uploadFile(uploadUrl, file, {
@@ -111,12 +111,9 @@ const asset = await client.assets.waitForReady(videoAssetId);
 ```
 
 ```tsx
-import { SlubyPlayer } from "@sluby/react";
+import { SlubyPlayer } from '@sluby/react';
 
-<SlubyPlayer
-  src={`http://localhost/v1/stream/${videoAssetId}/master.m3u8`}
-  controls
-/>
+<SlubyPlayer src={`http://localhost/v1/stream/${videoAssetId}/master.m3u8`} controls />;
 ```
 
 ## API reference

@@ -64,16 +64,11 @@ export function useCreateWebhook(): UseMutationResult<
   });
 }
 
-export function useDeleteWebhook(): UseMutationResult<
-  { success: boolean },
-  Error,
-  string
-> {
+export function useDeleteWebhook(): UseMutationResult<{ success: boolean }, Error, string> {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.delete<{ success: boolean }>(`/webhooks/${id}`),
+    mutationFn: (id: string) => apiClient.delete<{ success: boolean }>(`/webhooks/${id}`),
     onMutate: async (id) => {
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
       await queryClient.cancelQueries({ queryKey: ['webhooks'] });

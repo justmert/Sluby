@@ -33,8 +33,7 @@ for (const envPath of envPaths) {
 }
 
 const connectionString =
-  process.env.DATABASE_URL ||
-  'postgresql://sluby:sluby@localhost:5432/sluby';
+  process.env.DATABASE_URL || 'postgresql://sluby:sluby@localhost:5432/sluby';
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -45,7 +44,10 @@ function getArg(flag: string, defaultValue: string): string {
 }
 
 const name = getArg('--name', 'admin');
-const creatorAddress = getArg('--address', '0x0000000000000000000000000000000000000000000000000000000000000000');
+const creatorAddress = getArg(
+  '--address',
+  '0x0000000000000000000000000000000000000000000000000000000000000000',
+);
 
 async function seedApiKey() {
   const sql = postgres(connectionString, { max: 1 });

@@ -10,13 +10,15 @@ export interface WebhookRouteDeps {
     events: string[];
     secret: string;
   }) => Promise<{ id: string }>;
-  listWebhooks: (apiKeyId: string) => Promise<Array<{
-    id: string;
-    url: string;
-    events: string[];
-    isActive: boolean;
-    createdAt: Date;
-  }>>;
+  listWebhooks: (apiKeyId: string) => Promise<
+    Array<{
+      id: string;
+      url: string;
+      events: string[];
+      isActive: boolean;
+      createdAt: Date;
+    }>
+  >;
   /** Deletes only if the endpoint belongs to `apiKeyId`; false when it does not. */
   deleteWebhook: (id: string, apiKeyId: string) => Promise<boolean>;
 }

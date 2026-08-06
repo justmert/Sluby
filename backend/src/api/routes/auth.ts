@@ -81,7 +81,7 @@ async function exchangeCodeForToken(code: string): Promise<string> {
   const res = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: {
-      'Accept': 'application/json',
+      Accept: 'application/json',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -93,9 +93,7 @@ async function exchangeCodeForToken(code: string): Promise<string> {
   });
   const body = (await res.json()) as GithubTokenResponse;
   if (!res.ok || body.error || !body.access_token) {
-    throw new Error(
-      `GitHub token exchange failed: ${body.error ?? res.statusText}`,
-    );
+    throw new Error(`GitHub token exchange failed: ${body.error ?? res.statusText}`);
   }
   return body.access_token;
 }
@@ -103,8 +101,8 @@ async function exchangeCodeForToken(code: string): Promise<string> {
 async function fetchGithubUser(accessToken: string): Promise<GithubUser> {
   const res = await fetch('https://api.github.com/user', {
     headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': `Bearer ${accessToken}`,
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${accessToken}`,
       'User-Agent': 'sluby',
     },
   });
@@ -197,9 +195,9 @@ export function createAuthRoutes(): Router {
       const allowed = getAllowedUsers();
       if (allowed.size > 0 && !allowed.has(user.login.toLowerCase())) {
         logger.warn({ login: user.login }, 'GitHub user not in allowlist');
-        res.status(403).send(
-          `Access denied: GitHub user "${user.login}" is not on the Studio allowlist.`,
-        );
+        res
+          .status(403)
+          .send(`Access denied: GitHub user "${user.login}" is not on the Studio allowlist.`);
         return;
       }
 
@@ -213,19 +211,10 @@ export function createAuthRoutes(): Router {
 
       const cookies = parseCookieHeader(req.headers.cookie);
       const next = cookies['sluby_login_next'];
-      const redirectTo =
-        next && next.startsWith('/') && !next.startsWith('//')
-          ? next
-          : '/studio';
+      const redirectTo = next && next.startsWith('/') && !next.startsWith('//') ? next : '/studio';
 
       // Clear the one-shot next cookie.
-      const clearNext = [
-        'sluby_login_next=',
-        'Path=/',
-        'HttpOnly',
-        'SameSite=Lax',
-        'Max-Age=0',
-      ];
+      const clearNext = ['sluby_login_next=', 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
       if (isSecure()) clearNext.push('Secure');
       setCookies.push(clearNext.join('; '));
 

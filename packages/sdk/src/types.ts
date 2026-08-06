@@ -3,12 +3,7 @@
 // ---------------------------------------------------------------------------
 
 /** Processing status of a video asset. */
-export type VideoAssetStatus =
-  | 'created'
-  | 'uploading'
-  | 'processing'
-  | 'ready'
-  | 'failed';
+export type VideoAssetStatus = 'created' | 'uploading' | 'processing' | 'ready' | 'failed';
 
 /** Access tier controlling who can view a video. */
 export type AccessTier = 'public' | 'private';

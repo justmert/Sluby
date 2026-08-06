@@ -15,11 +15,7 @@
  * Do not "fix" this by adding a reset export to the source.
  */
 import { describe, it, expect, vi } from 'vitest';
-import {
-  getCachedObject,
-  warmObjects,
-  getCacheStats,
-} from '../storage/blob-manager.js';
+import { getCachedObject, warmObjects, getCacheStats } from '../storage/blob-manager.js';
 
 vi.mock('../config/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },

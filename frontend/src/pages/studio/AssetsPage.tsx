@@ -46,7 +46,10 @@ import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
 // ---------------------------------------------------------------------------
 
 function StatusBadge({ status }: { status: string }) {
-  const config: Record<string, { label: string; variant: 'success' | 'warning' | 'destructive' | 'secondary' | 'default' }> = {
+  const config: Record<
+    string,
+    { label: string; variant: 'success' | 'warning' | 'destructive' | 'secondary' | 'default' }
+  > = {
     created: { label: 'Created', variant: 'secondary' },
     uploading: { label: 'Uploading', variant: 'warning' },
     processing: { label: 'Processing', variant: 'warning' },
@@ -58,7 +61,10 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function AccessTierBadge({ tier }: { tier: string }) {
-  const config: Record<string, { label: string; variant: 'default' | 'secondary' | 'warning' | 'success' }> = {
+  const config: Record<
+    string,
+    { label: string; variant: 'default' | 'secondary' | 'warning' | 'success' }
+  > = {
     public: { label: 'Public', variant: 'success' },
     private: { label: 'Private', variant: 'default' },
   };
@@ -95,16 +101,21 @@ function VideoCard({
           <Checkbox checked={isSelected} />
         </div>
       )}
-      <Link to={isSelecting ? '#' : `/studio/assets/${asset.id}`} onClick={(e) => {
-        if (isSelecting) {
-          e.preventDefault();
-          onToggleSelect(asset.id);
-        }
-      }}>
-        <div className={cn(
-          'group cursor-pointer bg-white/[0.03] border rounded-2xl hover:bg-white/[0.05] hover:border-white/[0.12] hover:shadow-lg hover:shadow-teal-500/5 transition-all duration-200 overflow-hidden card-glow',
-          isSelected ? 'border-teal-500/40 ring-1 ring-teal-500/20' : 'border-white/[0.08]',
-        )}>
+      <Link
+        to={isSelecting ? '#' : `/studio/assets/${asset.id}`}
+        onClick={(e) => {
+          if (isSelecting) {
+            e.preventDefault();
+            onToggleSelect(asset.id);
+          }
+        }}
+      >
+        <div
+          className={cn(
+            'group cursor-pointer bg-white/[0.03] border rounded-2xl hover:bg-white/[0.05] hover:border-white/[0.12] hover:shadow-lg hover:shadow-teal-500/5 transition-all duration-200 overflow-hidden card-glow',
+            isSelected ? 'border-teal-500/40 ring-1 ring-teal-500/20' : 'border-white/[0.08]',
+          )}
+        >
           {/* Thumbnail */}
           <div className="relative aspect-video bg-white/[0.01] flex items-center justify-center overflow-hidden">
             {asset.thumbnail_object_ids?.[0] ? (
@@ -126,9 +137,7 @@ function VideoCard({
           </div>
           {/* Info */}
           <div className="p-3.5">
-            <p className="text-sm font-medium text-zinc-200 truncate">
-              {asset.title}
-            </p>
+            <p className="text-sm font-medium text-zinc-200 truncate">{asset.title}</p>
             <div className="flex items-center gap-1.5 mt-2">
               <StatusBadge status={asset.status} />
               <AccessTierBadge tier={asset.access_tier} />
@@ -224,7 +233,9 @@ function AssetListRow({
       {/* Title + ID */}
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-zinc-200 truncate">{asset.title}</p>
-        <p className="text-[10px] font-mono text-zinc-500 truncate mt-0.5">{asset.id.slice(0, 12)}</p>
+        <p className="text-[10px] font-mono text-zinc-500 truncate mt-0.5">
+          {asset.id.slice(0, 12)}
+        </p>
       </div>
 
       {/* Status */}
@@ -313,7 +324,10 @@ function GridSkeleton() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
+        <div
+          key={i}
+          className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden"
+        >
           <Skeleton className="aspect-video rounded-none" />
           <div className="p-3.5">
             <Skeleton className="h-4 w-3/4 mb-2" />
@@ -330,7 +344,10 @@ function ListSkeleton() {
   return (
     <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4 px-4 py-3 border-b border-white/[0.04] last:border-b-0">
+        <div
+          key={i}
+          className="flex items-center gap-4 px-4 py-3 border-b border-white/[0.04] last:border-b-0"
+        >
           <Skeleton className="w-20 h-[45px] rounded-lg" />
           <div className="flex-1">
             <Skeleton className="h-4 w-40 mb-1" />
@@ -386,7 +403,8 @@ export default function AssetsPage() {
   const handleBulkDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
     const count = selectedIds.size;
-    if (!confirm(`Delete ${count} selected asset${count !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    if (!confirm(`Delete ${count} selected asset${count !== 1 ? 's' : ''}? This cannot be undone.`))
+      return;
 
     setIsDeleting(true);
     const ids = Array.from(selectedIds);
@@ -440,14 +458,19 @@ export default function AssetsPage() {
         className="flex items-center justify-between mb-6"
       >
         <div>
-          <h1 className="text-2xl font-semibold text-[#f0f0f0] tracking-tight font-heading">Video Assets</h1>
+          <h1 className="text-2xl font-semibold text-[#f0f0f0] tracking-tight font-heading">
+            Video Assets
+          </h1>
           <p className="text-sm text-zinc-500 mt-1">
             {assets.data
               ? `${assets.data.total} asset${assets.data.total !== 1 ? 's' : ''}`
               : 'Loading assets...'}
           </p>
         </div>
-        <Button asChild className="bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg h-9 px-4">
+        <Button
+          asChild
+          className="bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg h-9 px-4"
+        >
           <Link to="/studio/upload" className="gap-2">
             <Upload className="w-4 h-4" />
             Upload Video
@@ -574,7 +597,11 @@ export default function AssetsPage() {
 
       {/* Content */}
       {assets.isLoading ? (
-        view === 'grid' ? <GridSkeleton /> : <ListSkeleton />
+        view === 'grid' ? (
+          <GridSkeleton />
+        ) : (
+          <ListSkeleton />
+        )
       ) : assets.data && assets.data.data.length > 0 ? (
         <>
           {view === 'grid' ? (
@@ -656,10 +683,11 @@ export default function AssetsPage() {
               <Film className="w-6 h-6 text-zinc-500" />
             </div>
             <h3 className="text-base font-medium text-zinc-200 font-heading mb-1">No videos yet</h3>
-            <p className="text-sm text-zinc-400 mb-4">
-              Get started by uploading your first video
-            </p>
-            <Button asChild className="bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg">
+            <p className="text-sm text-zinc-400 mb-4">Get started by uploading your first video</p>
+            <Button
+              asChild
+              className="bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg"
+            >
               <Link to="/studio/upload" className="gap-2">
                 <Upload className="w-4 h-4" />
                 Upload your first video
@@ -679,9 +707,7 @@ export default function AssetsPage() {
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
           >
             <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-zinc-900/90 border border-white/[0.1] backdrop-blur-xl shadow-2xl shadow-black/40">
-              <span className="text-sm font-medium text-zinc-200">
-                {selectedIds.size} selected
-              </span>
+              <span className="text-sm font-medium text-zinc-200">{selectedIds.size} selected</span>
               <div className="w-px h-5 bg-white/[0.1]" />
               <Button
                 variant="destructive"

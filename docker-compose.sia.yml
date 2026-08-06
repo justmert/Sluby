@@ -69,9 +69,9 @@ services:
     ports:
       # Expose on a host port that doesn't conflict with other projects.
       # Container-to-container traffic uses the service name + 5432 regardless.
-      - "127.0.0.1:5435:5432"
+      - '127.0.0.1:5435:5432'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U indexd -d indexd"]
+      test: ['CMD-SHELL', 'pg_isready -U indexd -d indexd']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -85,11 +85,11 @@ services:
         condition: service_healthy
     ports:
       # Admin UI + admin API (password-protected). Exposed only on localhost.
-      - "127.0.0.1:9980:9980/tcp"
+      - '127.0.0.1:9980:9980/tcp'
       # Syncer (p2p, public). Needed to sync the Sia chain.
-      - "9981:9981/tcp"
+      - '9981:9981/tcp'
       # Application API (what our backend's SDK connects to).
-      - "127.0.0.1:9982:9982/tcp"
+      - '127.0.0.1:9982:9982/tcp'
     volumes:
       - indexd-data:/data
 
@@ -102,11 +102,11 @@ services:
     container_name: sia-walletd
     restart: unless-stopped
     ports:
-      - "127.0.0.1:19980:9980/tcp"
-      - "19981:9981/tcp"
+      - '127.0.0.1:19980:9980/tcp'
+      - '19981:9981/tcp'
     environment:
       WALLETD_API_PASSWORD: ${WALLETD_API_PASSWORD:-1234}
-    command: ["-network=zen"]
+    command: ['-network=zen']
     volumes:
       - walletd-data:/data
 
@@ -124,10 +124,10 @@ services:
     # (fetch via: curl -u :ADMIN_PASSWORD http://127.0.0.1:9980/api/wallet).
     command:
       [
-        "--address=${MINER_ADDRESS}",
-        "--api=http://walletd:9980/api",
-        "--password=${WALLETD_API_PASSWORD:-1234}",
-        "--threads=8",
+        '--address=${MINER_ADDRESS}',
+        '--api=http://walletd:9980/api',
+        '--password=${WALLETD_API_PASSWORD:-1234}',
+        '--threads=8',
       ]
 
 volumes:

@@ -273,7 +273,9 @@ const tusServerDeps: TusServerDeps = {
       title: data.metadata.title ?? 'Untitled',
       description: data.metadata.description ?? '',
       creatorAddress: data.metadata.creatorAddress ?? '',
-      accessTier: ((data.metadata.accessTier ?? data.metadata.access_tier) as 'public' | 'private') ?? 'public',
+      accessTier:
+        ((data.metadata.accessTier ?? data.metadata.access_tier) as 'public' | 'private') ??
+        'public',
     });
 
     // Create the upload session using the session manager
@@ -315,13 +317,17 @@ const tusServerDeps: TusServerDeps = {
 
     // Enqueue the BullMQ transcoding job — use videoAssetId as jobId
     // so duplicate enqueue attempts (e.g. from retried hooks) are ignored
-    await transcodeQueue.add('transcode', {
-      videoAssetId: data.videoAssetId,
-      uploadSessionId: data.uploadSessionId,
-      filePath: data.filePath,
-    }, {
-      jobId: `transcode-${data.videoAssetId}`,
-    });
+    await transcodeQueue.add(
+      'transcode',
+      {
+        videoAssetId: data.videoAssetId,
+        uploadSessionId: data.uploadSessionId,
+        filePath: data.filePath,
+      },
+      {
+        jobId: `transcode-${data.videoAssetId}`,
+      },
+    );
   },
 
   dispatchWebhook: async (event, data) => {
@@ -420,7 +426,8 @@ const apiRouterDeps: ApiRouterDeps = {
   // ── AssetRouteDeps ──
   listAssets: async (params) => {
     const result = await listVideoAssets({
-      status: params.status as 'created' | 'uploading' | 'processing' | 'ready' | 'failed' | undefined,
+      status: params.status as
+        'created' | 'uploading' | 'processing' | 'ready' | 'failed' | undefined,
       accessTier: params.accessTier as 'public' | 'private' | undefined,
       creatorAddress: params.creatorAddress,
       limit: params.limit,
@@ -488,7 +495,8 @@ const apiRouterDeps: ApiRouterDeps = {
   retryAsset: async (id, owner) => {
     const asset = await getVideoAssetById(id, owner);
     if (!asset) throw Object.assign(new Error('Video asset not found'), { statusCode: 404 });
-    if (asset.status !== 'failed') throw Object.assign(new Error('Asset is not in failed state'), { statusCode: 400 });
+    if (asset.status !== 'failed')
+      throw Object.assign(new Error('Asset is not in failed state'), { statusCode: 400 });
 
     const processingJob = await getProcessingJobByVideoAssetId(id);
     const uploadSessionId = processingJob?.uploadSessionId ?? '';
@@ -500,32 +508,48 @@ const apiRouterDeps: ApiRouterDeps = {
       // Transcoding done — retry from upload-segments stage
       await updateVideoAsset(id, { status: 'processing' });
       if (processingJob) {
-        await updateProcessingJobStatus(processingJob.id, { status: 'processing', errorMessage: null });
+        await updateProcessingJobStatus(processingJob.id, {
+          status: 'processing',
+          errorMessage: null,
+        });
       }
-      await uploadSegmentsQueue.add('upload-segments', {
-        videoAssetId: id,
-        uploadSessionId,
-        outputDir,
-        accessTier: asset.accessTier,
-      }, { jobId: `retry-upload-${id}-${Date.now()}` });
+      await uploadSegmentsQueue.add(
+        'upload-segments',
+        {
+          videoAssetId: id,
+          uploadSessionId,
+          outputDir,
+          accessTier: asset.accessTier,
+        },
+        { jobId: `retry-upload-${id}-${Date.now()}` },
+      );
       return { stage: 'upload-segments' };
     }
 
     // No transcoded output — need to find source file and re-transcode
     const session = uploadSessionId ? await getUploadSessionById(uploadSessionId) : null;
     if (!session?.filePath || !existsSync(session.filePath)) {
-      throw Object.assign(new Error('Source file not found — please re-upload the video'), { statusCode: 410 });
+      throw Object.assign(new Error('Source file not found — please re-upload the video'), {
+        statusCode: 410,
+      });
     }
 
     await updateVideoAsset(id, { status: 'processing' });
     if (processingJob) {
-      await updateProcessingJobStatus(processingJob.id, { status: 'processing', errorMessage: null });
+      await updateProcessingJobStatus(processingJob.id, {
+        status: 'processing',
+        errorMessage: null,
+      });
     }
-    await transcodeQueue.add('transcode', {
-      videoAssetId: id,
-      uploadSessionId,
-      filePath: session.filePath,
-    }, { jobId: `retry-transcode-${id}-${Date.now()}` });
+    await transcodeQueue.add(
+      'transcode',
+      {
+        videoAssetId: id,
+        uploadSessionId,
+        filePath: session.filePath,
+      },
+      { jobId: `retry-transcode-${id}-${Date.now()}` },
+    );
     return { stage: 'transcode' };
   },
 
@@ -614,11 +638,7 @@ const apiRouterDeps: ApiRouterDeps = {
     // A real capability URL: HMAC over (objectId, expiry) that the delivery
     // gateway verifies before serving a private object's bytes.
     const expiresAtSec = Math.floor(Date.now() / 1000) + expiresIn;
-    const query = buildSignedObjectQuery(
-      manifestObjectId,
-      expiresAtSec,
-      env.SESSION_SECRET,
-    );
+    const query = buildSignedObjectQuery(manifestObjectId, expiresAtSec, env.SESSION_SECRET);
     const base = env.PUBLIC_URL.replace(/\/$/, '');
     const signedUrl = `${base}/v1/objects/${encodeURIComponent(manifestObjectId)}?type=manifest&${query}`;
     return { signedUrl, expiresAt: new Date(expiresAtSec * 1000).toISOString() };
@@ -669,13 +689,16 @@ const apiRouterDeps: ApiRouterDeps = {
   // ── ApiRouterDeps (key management) ──
   createApiKey: async (data) => {
     // Insert directly since we already have the hash from the router's generateApiKey()
-    const [result] = await db.insert(apiKeysTable).values({
-      keyHash: data.keyHash,
-      name: data.name,
-      scopes: data.scopes,
-      rateLimit: data.rateLimit,
-      creatorAddress: data.creatorAddress,
-    }).returning({ id: apiKeysTable.id });
+    const [result] = await db
+      .insert(apiKeysTable)
+      .values({
+        keyHash: data.keyHash,
+        name: data.name,
+        scopes: data.scopes,
+        rateLimit: data.rateLimit,
+        creatorAddress: data.creatorAddress,
+      })
+      .returning({ id: apiKeysTable.id });
     return { id: result.id };
   },
 
@@ -782,7 +805,7 @@ async function bootstrapApiKey(): Promise<void> {
 
   const keyHash = createHash('sha256').update(env.BOOTSTRAP_API_KEY).digest('hex');
 
-  let platformAddress = 'platform';
+  const platformAddress = 'platform';
 
   // Check if this specific bootstrap key already exists
   const existing = await db.query.apiKeys.findFirst({
@@ -828,10 +851,7 @@ scheduleReconciliation().catch((err) => {
 });
 
 const server = app.listen(env.PORT, env.HOST, () => {
-  logger.info(
-    { host: env.HOST, port: env.PORT },
-    'Sluby backend is running',
-  );
+  logger.info({ host: env.HOST, port: env.PORT }, 'Sluby backend is running');
 });
 
 // ──────────────────────────────────────────

@@ -66,9 +66,7 @@ describe('reconciliation routes', () => {
     });
 
     it('requires the manage scope', async () => {
-      const res = await request(app({ ...manageKey, scopes: ['read'] })).get(
-        '/reconciliation',
-      );
+      const res = await request(app({ ...manageKey, scopes: ['read'] })).get('/reconciliation');
       expect(res.status).toBe(403);
     });
   });

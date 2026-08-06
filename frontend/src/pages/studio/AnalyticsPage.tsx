@@ -1,13 +1,27 @@
 import { useState } from 'react';
 import {
-  Database, Upload, Globe, Server, Clock, BarChart3, Activity, Zap,
-  HardDrive, ChevronDown, ChevronUp, Loader2, XCircle,
+  Database,
+  Upload,
+  Globe,
+  Server,
+  Clock,
+  BarChart3,
+  Activity,
+  Zap,
+  HardDrive,
+  ChevronDown,
+  ChevronUp,
+  XCircle,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { AreaChart, Area, PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
-  AreaChart, Area, PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
-} from 'recharts';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -15,7 +29,6 @@ import { useMetrics } from '@/hooks/useMetrics';
 import { useCacheStats } from '@/hooks/useCacheStats';
 import { useAssets } from '@/hooks/useAssets';
 import { formatBytes } from '@/lib/formatters';
-import { cn } from '@/lib/cn';
 import type { LucideIcon } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -81,7 +94,13 @@ interface MetricCardProps {
   sparkColor?: string;
 }
 
-function MetricCard({ icon: Icon, label, value, sparkData, sparkColor = '#ff791a' }: MetricCardProps) {
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  sparkData,
+  sparkColor = '#ff791a',
+}: MetricCardProps) {
   return (
     <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 space-y-2 hover:bg-white/[0.05] transition-all duration-200">
       <div className="flex items-center gap-2">
@@ -91,9 +110,7 @@ function MetricCard({ icon: Icon, label, value, sparkData, sparkColor = '#ff791a
         <span className="text-xs text-zinc-400 font-medium">{label}</span>
       </div>
       <p className="text-2xl font-bold text-zinc-100 tabular-nums">{value}</p>
-      {sparkData && sparkData.length > 1 && (
-        <Sparkline data={sparkData} color={sparkColor} />
-      )}
+      {sparkData && sparkData.length > 1 && <Sparkline data={sparkData} color={sparkColor} />}
     </div>
   );
 }
@@ -139,7 +156,10 @@ function DonutChart({ data, centerLabel }: { data: DonutSlice[]; centerLabel?: s
               boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
             }}
             itemStyle={{ color: '#e4e4e7', padding: 0 }}
-            formatter={(value: number, name: string) => [`${value.toLocaleString()} (${total > 0 ? Math.round((value / total) * 100) : 0}%)`, name]}
+            formatter={(value: number, name: string) => [
+              `${value.toLocaleString()} (${total > 0 ? Math.round((value / total) * 100) : 0}%)`,
+              name,
+            ]}
           />
         </PieChart>
       </ResponsiveContainer>
@@ -203,7 +223,9 @@ export default function AnalyticsPage() {
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl flex flex-col items-center justify-center py-16 text-center">
           <XCircle className="w-8 h-8 text-zinc-500 mb-3" />
           <p className="text-sm font-medium text-zinc-300">Failed to load metrics</p>
-          <p className="text-xs text-zinc-500 mt-1">Check that the backend is running and try again</p>
+          <p className="text-xs text-zinc-500 mt-1">
+            Check that the backend is running and try again
+          </p>
         </div>
       </PageContainer>
     );
@@ -222,10 +244,12 @@ export default function AnalyticsPage() {
   // Derive REAL counts from the database via assets API
   const dbAssets = allAssets.data?.data ?? [];
   const dbTotalAssets = allAssets.data?.total ?? 0;
-  const dbReadyCount = dbAssets.filter(a => a.status === 'ready').length;
-  const dbProcessingCount = dbAssets.filter(a => a.status === 'processing' || a.status === 'uploading').length;
-  const dbCreatedCount = dbAssets.filter(a => a.status === 'created').length;
-  const dbFailedCount = dbAssets.filter(a => a.status === 'failed').length;
+  const dbReadyCount = dbAssets.filter((a) => a.status === 'ready').length;
+  const dbProcessingCount = dbAssets.filter(
+    (a) => a.status === 'processing' || a.status === 'uploading',
+  ).length;
+  const dbCreatedCount = dbAssets.filter((a) => a.status === 'created').length;
+  const dbFailedCount = dbAssets.filter((a) => a.status === 'failed').length;
   const dbTotalStorage = dbAssets.reduce((sum, a) => sum + (a.total_storage_bytes ?? 0), 0);
 
   // Data for distribution charts -- from real DB data
@@ -243,12 +267,20 @@ export default function AnalyticsPage() {
 
   return (
     <PageContainer>
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-semibold text-[#f0f0f0] font-heading mb-1">System Metrics</h1>
-            <p className="text-sm text-zinc-400">Real-time platform metrics and performance analytics</p>
+            <h1 className="text-2xl font-semibold text-[#f0f0f0] font-heading mb-1">
+              System Metrics
+            </h1>
+            <p className="text-sm text-zinc-400">
+              Real-time platform metrics and performance analytics
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {interval && (
@@ -263,7 +295,9 @@ export default function AnalyticsPage() {
               </SelectTrigger>
               <SelectContent>
                 {REFRESH_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -275,14 +309,56 @@ export default function AnalyticsPage() {
           <section>
             <h2 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-4">Overview</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <MetricCard icon={Database} label="Total Assets" value={dbTotalAssets} sparkColor="#ff791a" />
-              <MetricCard icon={Globe} label="Ready to Stream" value={dbReadyCount} sparkColor="#10b981" />
-              <MetricCard icon={Activity} label="Processing" value={dbProcessingCount} sparkColor="#f59e0b" />
-              <MetricCard icon={Server} label="Storage Used" value={formatBytes(dbTotalStorage)} sparkColor="#8b5cf6" />
-              <MetricCard icon={Upload} label="Total Uploads" value={dbTotalAssets} sparkColor="#ff791a" />
+              <MetricCard
+                icon={Database}
+                label="Total Assets"
+                value={dbTotalAssets}
+                sparkColor="#ff791a"
+              />
+              <MetricCard
+                icon={Globe}
+                label="Ready to Stream"
+                value={dbReadyCount}
+                sparkColor="#10b981"
+              />
+              <MetricCard
+                icon={Activity}
+                label="Processing"
+                value={dbProcessingCount}
+                sparkColor="#f59e0b"
+              />
+              <MetricCard
+                icon={Server}
+                label="Storage Used"
+                value={formatBytes(dbTotalStorage)}
+                sparkColor="#8b5cf6"
+              />
+              <MetricCard
+                icon={Upload}
+                label="Total Uploads"
+                value={dbTotalAssets}
+                sparkColor="#ff791a"
+              />
               <MetricCard icon={Zap} label="Failed" value={dbFailedCount} sparkColor="#ef4444" />
-              <MetricCard icon={Clock} label="Avg Duration" value={dbTotalAssets > 0 ? `${(dbAssets.reduce((sum, a) => sum + (a.duration_ms ?? 0), 0) / dbTotalAssets / 1000).toFixed(0)}s` : '\u2014'} sparkColor="#f59e0b" />
-              <MetricCard icon={BarChart3} label="Total Duration" value={(() => { const totalMs = dbAssets.reduce((sum, a) => sum + (a.duration_ms ?? 0), 0); return totalMs > 0 ? `${(totalMs / 60000).toFixed(1)}m` : '\u2014'; })()} sparkColor="#8b5cf6" />
+              <MetricCard
+                icon={Clock}
+                label="Avg Duration"
+                value={
+                  dbTotalAssets > 0
+                    ? `${(dbAssets.reduce((sum, a) => sum + (a.duration_ms ?? 0), 0) / dbTotalAssets / 1000).toFixed(0)}s`
+                    : '\u2014'
+                }
+                sparkColor="#f59e0b"
+              />
+              <MetricCard
+                icon={BarChart3}
+                label="Total Duration"
+                value={(() => {
+                  const totalMs = dbAssets.reduce((sum, a) => sum + (a.duration_ms ?? 0), 0);
+                  return totalMs > 0 ? `${(totalMs / 60000).toFixed(1)}m` : '\u2014';
+                })()}
+                sparkColor="#8b5cf6"
+              />
             </div>
           </section>
 
@@ -291,11 +367,15 @@ export default function AnalyticsPage() {
             <h2 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-4">Distribution</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
-                <h3 className="text-sm font-semibold text-[#f0f0f0] font-heading mb-3">Asset Status Distribution</h3>
+                <h3 className="text-sm font-semibold text-[#f0f0f0] font-heading mb-3">
+                  Asset Status Distribution
+                </h3>
                 <DonutChart data={statusDistribution} />
               </div>
               <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
-                <h3 className="text-sm font-semibold text-[#f0f0f0] font-heading mb-3">Access Tier Distribution</h3>
+                <h3 className="text-sm font-semibold text-[#f0f0f0] font-heading mb-3">
+                  Access Tier Distribution
+                </h3>
                 <DonutChart data={tierDistribution} />
               </div>
             </div>
@@ -308,17 +388,30 @@ export default function AnalyticsPage() {
               <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl px-5 py-4">
                 <p className="text-[10px] text-zinc-400 uppercase tracking-wider mb-1">Uptime</p>
                 <p className="text-lg font-bold text-zinc-100 tabular-nums">
-                  {(() => { const s = safeNum(current.uptime); return s > 3600 ? `${(s/3600).toFixed(1)}h` : s > 60 ? `${Math.floor(s/60)}m` : `${Math.floor(s)}s`; })()}
+                  {(() => {
+                    const s = safeNum(current.uptime);
+                    return s > 3600
+                      ? `${(s / 3600).toFixed(1)}h`
+                      : s > 60
+                        ? `${Math.floor(s / 60)}m`
+                        : `${Math.floor(s)}s`;
+                  })()}
                 </p>
               </div>
               <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl px-5 py-4">
-                <p className="text-[10px] text-zinc-400 uppercase tracking-wider mb-1">Created Assets</p>
+                <p className="text-[10px] text-zinc-400 uppercase tracking-wider mb-1">
+                  Created Assets
+                </p>
                 <p className="text-lg font-bold text-zinc-100 tabular-nums">{dbCreatedCount}</p>
               </div>
               <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl px-5 py-4">
-                <p className="text-[10px] text-zinc-400 uppercase tracking-wider mb-1">Success Rate</p>
+                <p className="text-[10px] text-zinc-400 uppercase tracking-wider mb-1">
+                  Success Rate
+                </p>
                 <p className="text-lg font-bold text-emerald-400 tabular-nums">
-                  {dbTotalAssets > 0 ? `${((dbReadyCount / dbTotalAssets) * 100).toFixed(0)}%` : '\u2014'}
+                  {dbTotalAssets > 0
+                    ? `${((dbReadyCount / dbTotalAssets) * 100).toFixed(0)}%`
+                    : '\u2014'}
                 </p>
               </div>
             </div>
@@ -327,11 +420,15 @@ export default function AnalyticsPage() {
           {/* Section 4: Delivery Cache Live */}
           {cacheStats.data && (
             <section>
-              <h2 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-4">Delivery Cache Live</h2>
+              <h2 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-4">
+                Delivery Cache Live
+              </h2>
               <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <HardDrive className="w-4 h-4 text-teal-400" />
-                  <span className="text-sm font-semibold text-[#f0f0f0] font-heading">Live Stats</span>
+                  <span className="text-sm font-semibold text-[#f0f0f0] font-heading">
+                    Live Stats
+                  </span>
                   {interval && (
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -342,27 +439,40 @@ export default function AnalyticsPage() {
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl px-4 py-3">
                     <p className="text-[10px] text-zinc-400 uppercase tracking-wider">Hits</p>
-                    <p className="text-lg font-bold text-emerald-400 tabular-nums mt-0.5">{safeNum(cacheStats.data?.hits).toLocaleString()}</p>
+                    <p className="text-lg font-bold text-emerald-400 tabular-nums mt-0.5">
+                      {safeNum(cacheStats.data?.hits).toLocaleString()}
+                    </p>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl px-4 py-3">
                     <p className="text-[10px] text-zinc-400 uppercase tracking-wider">Misses</p>
-                    <p className="text-lg font-bold text-amber-400 tabular-nums mt-0.5">{safeNum(cacheStats.data?.misses).toLocaleString()}</p>
+                    <p className="text-lg font-bold text-amber-400 tabular-nums mt-0.5">
+                      {safeNum(cacheStats.data?.misses).toLocaleString()}
+                    </p>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl px-4 py-3">
                     <p className="text-[10px] text-zinc-400 uppercase tracking-wider">Hit Rate</p>
                     <p className="text-lg font-bold text-zinc-100 tabular-nums mt-0.5">
-                      {(safeNum(cacheStats.data?.hits) + safeNum(cacheStats.data?.misses)) > 0
-                        ? ((safeNum(cacheStats.data?.hits) / (safeNum(cacheStats.data?.hits) + safeNum(cacheStats.data?.misses))) * 100).toFixed(1)
-                        : '0.0'}%
+                      {safeNum(cacheStats.data?.hits) + safeNum(cacheStats.data?.misses) > 0
+                        ? (
+                            (safeNum(cacheStats.data?.hits) /
+                              (safeNum(cacheStats.data?.hits) + safeNum(cacheStats.data?.misses))) *
+                            100
+                          ).toFixed(1)
+                        : '0.0'}
+                      %
                     </p>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl px-4 py-3">
                     <p className="text-[10px] text-zinc-400 uppercase tracking-wider">Entries</p>
-                    <p className="text-lg font-bold text-zinc-100 tabular-nums mt-0.5">{safeNum(cacheStats.data?.entries).toLocaleString()}</p>
+                    <p className="text-lg font-bold text-zinc-100 tabular-nums mt-0.5">
+                      {safeNum(cacheStats.data?.entries).toLocaleString()}
+                    </p>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl px-4 py-3">
                     <p className="text-[10px] text-zinc-400 uppercase tracking-wider">Cache Size</p>
-                    <p className="text-lg font-bold text-zinc-100 mt-0.5">{formatBytes(safeNum(cacheStats.data?.size))}</p>
+                    <p className="text-lg font-bold text-zinc-100 mt-0.5">
+                      {formatBytes(safeNum(cacheStats.data?.size))}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -378,7 +488,9 @@ export default function AnalyticsPage() {
                   className="w-full px-5 py-3.5 flex items-center justify-between hover:bg-white/[0.05] transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-[#f0f0f0] font-heading">Raw Prometheus Metrics</span>
+                    <span className="text-sm font-semibold text-[#f0f0f0] font-heading">
+                      Raw Prometheus Metrics
+                    </span>
                     <Badge variant="secondary">{current.raw?.length ?? 0} metrics</Badge>
                   </div>
                   {rawExpanded ? (
@@ -392,18 +504,33 @@ export default function AnalyticsPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-white/[0.08] text-left bg-white/[0.01]">
-                          <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">Name</th>
-                          <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">Type</th>
-                          <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">Help</th>
-                          <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider text-right">Value</th>
+                          <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                            Name
+                          </th>
+                          <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                            Type
+                          </th>
+                          <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                            Help
+                          </th>
+                          <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider text-right">
+                            Value
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {current.raw.map((metric) => (
-                          <tr key={metric.name} className="border-b border-white/[0.04] hover:bg-white/[0.05] transition-colors">
-                            <td className="px-4 py-3 font-mono text-xs text-zinc-300">{metric.name}</td>
+                          <tr
+                            key={metric.name}
+                            className="border-b border-white/[0.04] hover:bg-white/[0.05] transition-colors"
+                          >
+                            <td className="px-4 py-3 font-mono text-xs text-zinc-300">
+                              {metric.name}
+                            </td>
                             <td className="px-4 py-3">
-                              <Badge variant="secondary" className="text-[10px]">{metric.type}</Badge>
+                              <Badge variant="secondary" className="text-[10px]">
+                                {metric.type}
+                              </Badge>
                             </td>
                             <td className="px-4 py-3 text-xs text-zinc-500">{metric.help}</td>
                             <td className="px-4 py-3 text-right font-mono text-xs text-zinc-200 tabular-nums">

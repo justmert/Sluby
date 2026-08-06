@@ -24,9 +24,7 @@ const { deliveryRouter } = await import('../delivery/aggregator.js');
 const { getCachedObject } = await import('../storage/blob-manager.js');
 const { getObject, downloadObject } = await import('../storage/sia-client.js');
 const { getObjectAccessTier } = await import('../delivery/access-control.js');
-const { verifyObjectAccess, buildSignedObjectQuery } = await import(
-  '../delivery/signed-url.js'
-);
+const { verifyObjectAccess, buildSignedObjectQuery } = await import('../delivery/signed-url.js');
 const { env } = await import('../config/env.js');
 
 const SECRET = env.SESSION_SECRET;

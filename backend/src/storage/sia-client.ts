@@ -29,12 +29,7 @@
 
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
-import {
-  initSia,
-  AppKey,
-  Builder,
-  setLogger,
-} from 'sia-storage';
+import { initSia, AppKey, Builder, setLogger } from 'sia-storage';
 
 // sia-storage 0.0.8 has a packaging quirk: its `exports` map puts the
 // `types` key at the root of the conditional fork instead of inside the
@@ -176,10 +171,7 @@ let sdkPromise: Promise<NapiSdk> | null = null;
 export function getClient(): Promise<NapiSdk> {
   if (!sdkPromise) {
     sdkPromise = (async () => {
-      logger.info(
-        { indexer: env.SIA_INDEXER_URL },
-        'Connecting to indexd via sia-storage SDK',
-      );
+      logger.info({ indexer: env.SIA_INDEXER_URL }, 'Connecting to indexd via sia-storage SDK');
       await initSia();
       // Forward SDK debug logs into pino at the matching level so
       // upload/download progress shows up in the same stream as the
@@ -242,10 +234,7 @@ interface AdminWalletResponse {
 }
 
 async function refreshHostContracts(): Promise<HostContractMap> {
-  if (
-    hostContractCache &&
-    Date.now() - hostContractCache.fetchedAt < HOST_CONTRACT_TTL_MS
-  ) {
+  if (hostContractCache && Date.now() - hostContractCache.fetchedAt < HOST_CONTRACT_TTL_MS) {
     return hostContractCache;
   }
   try {
@@ -288,10 +277,7 @@ function adaptSlabs(slabs: NapiSlab[], hostContracts: Map<string, string[]>): Ra
   }));
 }
 
-function adaptObject(
-  obj: NapiPinnedObject,
-  hostContracts: Map<string, string[]>,
-): PinnedObject {
+function adaptObject(obj: NapiPinnedObject, hostContracts: Map<string, string[]>): PinnedObject {
   // Snapshot the SDK fields once — calling them across an async boundary
   // re-acquires the inner mutex on every call.
   const id = obj.id();
@@ -331,17 +317,12 @@ export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
   await packed.add(bytesToStream(data));
   const objects = await packed.finalize();
   if (objects.length !== 1) {
-    throw new Error(
-      `uploadAndPin expected 1 packed object, got ${objects.length}`,
-    );
+    throw new Error(`uploadAndPin expected 1 packed object, got ${objects.length}`);
   }
   const obj = objects[0];
   await sdk.pinObject(obj);
   const objectId = obj.id();
-  logger.info(
-    { objectId, size: data.length },
-    'Object uploaded + pinned to Sia',
-  );
+  logger.info({ objectId, size: data.length }, 'Object uploaded + pinned to Sia');
   return { objectId, size: data.length };
 }
 
@@ -350,9 +331,7 @@ export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
  * with its neighbours, which is materially cheaper than N independent
  * uploads when the items are small (e.g. HLS playlist + thumbnails).
  */
-export async function uploadAndPinPacked(
-  items: Uint8Array[],
-): Promise<UploadResult[]> {
+export async function uploadAndPinPacked(items: Uint8Array[]): Promise<UploadResult[]> {
   if (items.length === 0) return [];
   const sdk = await getClient();
   const packed = sdk.uploadPacked({
@@ -364,9 +343,7 @@ export async function uploadAndPinPacked(
   }
   const objects = await packed.finalize();
   if (objects.length !== items.length) {
-    throw new Error(
-      `uploadAndPinPacked expected ${items.length} objects, got ${objects.length}`,
-    );
+    throw new Error(`uploadAndPinPacked expected ${items.length} objects, got ${objects.length}`);
   }
   // Pin in parallel — each pin is an indexd HTTP call, no host round-trip.
   await Promise.all(objects.map((obj) => sdk.pinObject(obj)));
@@ -411,7 +388,11 @@ export async function downloadObject(
     offset += chunk.length;
   }
   logger.debug(
-    { objectId, size: out.length, range: options ? `${options.offset ?? 0}+${options.length ?? '∞'}` : 'full' },
+    {
+      objectId,
+      size: out.length,
+      range: options ? `${options.offset ?? 0}+${options.length ?? '∞'}` : 'full',
+    },
     'Object downloaded from Sia',
   );
   return out;

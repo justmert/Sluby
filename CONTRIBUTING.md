@@ -166,17 +166,17 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 
 ### Types
 
-| Type       | Description                                              |
-| ---------- | -------------------------------------------------------- |
-| `feat`     | A new feature                                            |
-| `fix`      | A bug fix                                                |
-| `docs`     | Documentation-only changes                               |
-| `style`    | Formatting / cosmetic (no behavior change)               |
-| `refactor` | Refactor that neither fixes a bug nor adds a feature     |
-| `perf`     | Performance improvement                                  |
-| `test`     | Adding or correcting tests                               |
-| `chore`    | Build / tooling / housekeeping                           |
-| `ci`       | CI configuration and scripts                             |
+| Type       | Description                                          |
+| ---------- | ---------------------------------------------------- |
+| `feat`     | A new feature                                        |
+| `fix`      | A bug fix                                            |
+| `docs`     | Documentation-only changes                           |
+| `style`    | Formatting / cosmetic (no behavior change)           |
+| `refactor` | Refactor that neither fixes a bug nor adds a feature |
+| `perf`     | Performance improvement                              |
+| `test`     | Adding or correcting tests                           |
+| `chore`    | Build / tooling / housekeeping                       |
+| `ci`       | CI configuration and scripts                         |
 
 ### Scopes
 

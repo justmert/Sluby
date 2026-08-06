@@ -15,7 +15,11 @@ vi.mock('../webhooks/signature.js', () => ({
   generateSignature: vi.fn((payload: string, secret: string) => `sig_${secret}_${payload.length}`),
 }));
 
-import { WebhookDispatcher, type WebhookDispatcherDeps, type WebhookEndpointRecord } from '../webhooks/dispatcher.js';
+import {
+  WebhookDispatcher,
+  type WebhookDispatcherDeps,
+  type WebhookEndpointRecord,
+} from '../webhooks/dispatcher.js';
 import { generateSignature } from '../webhooks/signature.js';
 import { logger } from '../config/logger.js';
 
@@ -68,9 +72,7 @@ describe('WebhookDispatcher', () => {
     const endpoint = createEndpoint();
     vi.mocked(deps.getActiveWebhooksForEvent).mockResolvedValue([endpoint]);
 
-    vi.mocked(fetch).mockResolvedValue(
-      new Response('OK', { status: 200 }),
-    );
+    vi.mocked(fetch).mockResolvedValue(new Response('OK', { status: 200 }));
 
     await dispatcher.dispatch('upload.completed', { id: '123' });
 

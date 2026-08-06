@@ -19,19 +19,19 @@ export async function computeFileHash(filePath: string): Promise<string> {
 /**
  * Verify that a file matches the expected SHA-256 hash.
  */
-export async function verifyFileHash(
-  filePath: string,
-  expectedHash: string,
-): Promise<boolean> {
+export async function verifyFileHash(filePath: string, expectedHash: string): Promise<boolean> {
   const actualHash = await computeFileHash(filePath);
   const matches = actualHash === expectedHash;
 
   if (!matches) {
-    logger.warn({
-      filePath,
-      expected: expectedHash,
-      actual: actualHash,
-    }, 'File hash mismatch');
+    logger.warn(
+      {
+        filePath,
+        expected: expectedHash,
+        actual: actualHash,
+      },
+      'File hash mismatch',
+    );
   }
 
   return matches;

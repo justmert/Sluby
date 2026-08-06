@@ -18,10 +18,7 @@ export async function extractThumbnails(
   const paths: string[] = [];
   for (const position of positions) {
     const timeSeconds = (durationMs / 1000) * position;
-    const outputPath = path.join(
-      outputDir,
-      `thumb_${Math.round(position * 100)}.jpg`,
-    );
+    const outputPath = path.join(outputDir, `thumb_${Math.round(position * 100)}.jpg`);
     logger.debug({ position, timeSeconds, outputPath }, 'Extracting thumbnail');
     await extractThumbnail(inputPath, timeSeconds, outputPath);
     paths.push(outputPath);
@@ -59,11 +56,7 @@ async function extractThumbnail(
 
     proc.on('close', (code) => {
       if (code !== 0) {
-        reject(
-          new Error(
-            `Thumbnail extraction failed (code ${code}): ${stderr.slice(-300)}`,
-          ),
-        );
+        reject(new Error(`Thumbnail extraction failed (code ${code}): ${stderr.slice(-300)}`));
         return;
       }
       resolve();

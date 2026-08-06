@@ -8,10 +8,10 @@ import { z } from 'zod';
 // Search upward from this file to find .env at the monorepo root.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const envPaths = [
-  resolve(__dirname, '../../../.env'),   // backend/src/config -> monorepo root
-  resolve(__dirname, '../../.env'),       // backend/src -> monorepo root (if running from src)
-  resolve(process.cwd(), '.env'),         // CWD
-  resolve(process.cwd(), '../.env'),      // one level up from CWD
+  resolve(__dirname, '../../../.env'), // backend/src/config -> monorepo root
+  resolve(__dirname, '../../.env'), // backend/src -> monorepo root (if running from src)
+  resolve(process.cwd(), '.env'), // CWD
+  resolve(process.cwd(), '../.env'), // one level up from CWD
 ];
 
 for (const envPath of envPaths) {
@@ -30,10 +30,7 @@ const DEV_SESSION_SECRET = 'dev-only-do-not-use-in-production-change-me';
 
 const envSchema = z.object({
   /** PostgreSQL connection string */
-  DATABASE_URL: z
-    .string()
-    .url()
-    .default('postgresql://sluby:sluby@localhost:5432/sluby'),
+  DATABASE_URL: z.string().url().default('postgresql://sluby:sluby@localhost:5432/sluby'),
 
   /** Redis connection string for BullMQ and caching */
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
@@ -71,9 +68,7 @@ const envSchema = z.object({
 
   /** Which Sia network the connected indexd runs against. Used for
    *  UI labelling only (badge on the asset detail page, etc). */
-  SIA_NETWORK: z
-    .enum(['zen', 'mainnet', 'testnet', 'anagami'])
-    .default('zen'),
+  SIA_NETWORK: z.enum(['zen', 'mainnet', 'testnet', 'anagami']).default('zen'),
 
   /** HTTP server port */
   PORT: z.coerce.number().int().positive().default(3000),
@@ -146,9 +141,7 @@ const envSchema = z.object({
 
   /** HMAC secret for signing session cookies. Must be set in production;
    *  loadEnv() refuses to boot with the dev default when NODE_ENV=production. */
-  SESSION_SECRET: z
-    .string()
-    .default(DEV_SESSION_SECRET),
+  SESSION_SECRET: z.string().default(DEV_SESSION_SECRET),
 
   /** When set to 'true', bypasses the GitHub auth gate entirely (dev only). */
   AUTH_DISABLED: z

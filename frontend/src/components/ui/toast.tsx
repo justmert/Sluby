@@ -20,42 +20,38 @@ export const ToastViewport = forwardRef<
 ));
 ToastViewport.displayName = 'ToastViewport';
 
-interface ToastRootProps
-  extends React.ComponentPropsWithoutRef<typeof ToastPrimitive.Root> {
+interface ToastRootProps extends React.ComponentPropsWithoutRef<typeof ToastPrimitive.Root> {
   variant?: 'default' | 'destructive' | 'success';
 }
 
-export const Toast = forwardRef<
-  React.ComponentRef<typeof ToastPrimitive.Root>,
-  ToastRootProps
->(({ className, variant = 'default', ...props }, ref) => (
-  <ToastPrimitive.Root
-    ref={ref}
-    className={cn(
-      'group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-xl border p-4 shadow-xl shadow-black/20 backdrop-blur-2xl transition-all',
-      'data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom-full',
-      'data-[state=closed]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full',
-      {
-        'border-white/[0.08] bg-[#0a0a0f]/95 text-zinc-100': variant === 'default',
-        'border-red-500/20 bg-red-950/90 text-red-100 shadow-red-500/10': variant === 'destructive',
-        'border-emerald-500/20 bg-emerald-950/90 text-emerald-100 shadow-emerald-500/10': variant === 'success',
-      },
-      className,
-    )}
-    {...props}
-  />
-));
+export const Toast = forwardRef<React.ComponentRef<typeof ToastPrimitive.Root>, ToastRootProps>(
+  ({ className, variant = 'default', ...props }, ref) => (
+    <ToastPrimitive.Root
+      ref={ref}
+      className={cn(
+        'group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-xl border p-4 shadow-xl shadow-black/20 backdrop-blur-2xl transition-all',
+        'data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom-full',
+        'data-[state=closed]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full',
+        {
+          'border-white/[0.08] bg-[#0a0a0f]/95 text-zinc-100': variant === 'default',
+          'border-red-500/20 bg-red-950/90 text-red-100 shadow-red-500/10':
+            variant === 'destructive',
+          'border-emerald-500/20 bg-emerald-950/90 text-emerald-100 shadow-emerald-500/10':
+            variant === 'success',
+        },
+        className,
+      )}
+      {...props}
+    />
+  ),
+);
 Toast.displayName = 'Toast';
 
 export const ToastTitle = forwardRef<
   React.ComponentRef<typeof ToastPrimitive.Title>,
   React.ComponentPropsWithoutRef<typeof ToastPrimitive.Title>
 >(({ className, ...props }, ref) => (
-  <ToastPrimitive.Title
-    ref={ref}
-    className={cn('text-sm font-semibold', className)}
-    {...props}
-  />
+  <ToastPrimitive.Title ref={ref} className={cn('text-sm font-semibold', className)} {...props} />
 ));
 ToastTitle.displayName = 'ToastTitle';
 

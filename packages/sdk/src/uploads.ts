@@ -11,10 +11,7 @@ import type {
 } from './types.js';
 
 /** Internal fetch helper signature shared from the client. */
-export type FetchFn = (
-  path: string,
-  init?: RequestInit,
-) => Promise<Response>;
+export type FetchFn = (path: string, init?: RequestInit) => Promise<Response>;
 
 const DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
 const DEFAULT_PARALLEL_UPLOADS = 3;

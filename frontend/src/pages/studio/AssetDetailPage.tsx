@@ -54,18 +54,14 @@ import {
   type SiaVariantInfo,
 } from '@/hooks/useAssets';
 import { usePlayback } from '@/hooks/usePlayback';
-import { useProcessingJob, type ProcessingLog } from '@/hooks/useProcessingJob';
+import { useProcessingJob } from '@/hooks/useProcessingJob';
 import { formatDuration, formatBytes, formatRelativeTime } from '@/lib/formatters';
 import { truncateAddress } from '@/lib/address-helpers';
 import { siaObjectUrl } from '@/lib/sia';
 import { BASE_URL } from '@/lib/api-client';
 import { cn } from '@/lib/cn';
 import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
-import {
-  EXPLORER_LABEL,
-  EXTERNAL_LINK_PROPS,
-  explorerUrls,
-} from '@/lib/sia-explorer';
+import { EXPLORER_LABEL, EXTERNAL_LINK_PROPS, explorerUrls } from '@/lib/sia-explorer';
 
 // ---------------------------------------------------------------------------
 // CopyButton (inline)
@@ -86,7 +82,11 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
         className,
       )}
     >
-      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? (
+        <Check className="w-3.5 h-3.5 text-emerald-400" />
+      ) : (
+        <Copy className="w-3.5 h-3.5" />
+      )}
     </button>
   );
 }
@@ -96,7 +96,10 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
 // ---------------------------------------------------------------------------
 
 function StatusBadge({ status, large }: { status: string; large?: boolean }) {
-  const config: Record<string, { label: string; variant: 'success' | 'warning' | 'destructive' | 'secondary' | 'default' }> = {
+  const config: Record<
+    string,
+    { label: string; variant: 'success' | 'warning' | 'destructive' | 'secondary' | 'default' }
+  > = {
     created: { label: 'Created', variant: 'secondary' },
     uploading: { label: 'Uploading', variant: 'warning' },
     processing: { label: 'Processing', variant: 'warning' },
@@ -112,7 +115,10 @@ function StatusBadge({ status, large }: { status: string; large?: boolean }) {
 }
 
 function AccessTierBadge({ tier, large }: { tier: string; large?: boolean }) {
-  const config: Record<string, { label: string; variant: 'default' | 'secondary' | 'warning' | 'success' }> = {
+  const config: Record<
+    string,
+    { label: string; variant: 'default' | 'secondary' | 'warning' | 'success' }
+  > = {
     public: { label: 'Public', variant: 'success' },
     private: { label: 'Private', variant: 'default' },
   };
@@ -199,7 +205,9 @@ function InlineEditable({
       )}
     >
       <div className="flex items-center gap-2">
-        <span className="flex-1">{value || <span className="text-zinc-600 italic">Click to edit</span>}</span>
+        <span className="flex-1">
+          {value || <span className="text-zinc-600 italic">Click to edit</span>}
+        </span>
         <Pencil className="w-3 h-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
     </div>
@@ -282,10 +290,38 @@ function PipelineStepper({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 const RENDITIONS = [
-  { label: '1080p', resolution: '1920x1080', videoBitrate: '6 Mbps', audioBitrate: '192 Kbps', codec: 'H.264 Main', audio: 'AAC Stereo' },
-  { label: '720p', resolution: '1280x720', videoBitrate: '3.5 Mbps', audioBitrate: '128 Kbps', codec: 'H.264 Main', audio: 'AAC Stereo' },
-  { label: '540p', resolution: '960x540', videoBitrate: '1.8 Mbps', audioBitrate: '128 Kbps', codec: 'H.264 Main', audio: 'AAC Stereo' },
-  { label: '360p', resolution: '640x360', videoBitrate: '800 Kbps', audioBitrate: '96 Kbps', codec: 'H.264 Main', audio: 'AAC Stereo' },
+  {
+    label: '1080p',
+    resolution: '1920x1080',
+    videoBitrate: '6 Mbps',
+    audioBitrate: '192 Kbps',
+    codec: 'H.264 Main',
+    audio: 'AAC Stereo',
+  },
+  {
+    label: '720p',
+    resolution: '1280x720',
+    videoBitrate: '3.5 Mbps',
+    audioBitrate: '128 Kbps',
+    codec: 'H.264 Main',
+    audio: 'AAC Stereo',
+  },
+  {
+    label: '540p',
+    resolution: '960x540',
+    videoBitrate: '1.8 Mbps',
+    audioBitrate: '128 Kbps',
+    codec: 'H.264 Main',
+    audio: 'AAC Stereo',
+  },
+  {
+    label: '360p',
+    resolution: '640x360',
+    videoBitrate: '800 Kbps',
+    audioBitrate: '96 Kbps',
+    codec: 'H.264 Main',
+    audio: 'AAC Stereo',
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -395,9 +431,7 @@ function SiaStat({
           {label}
         </span>
       </div>
-      <div className="text-lg font-semibold text-zinc-100 font-heading tabular-nums">
-        {value}
-      </div>
+      <div className="text-lg font-semibold text-zinc-100 font-heading tabular-nums">{value}</div>
       {sub && <div className="text-[11px] text-zinc-500 mt-0.5">{sub}</div>}
     </div>
   );
@@ -442,8 +476,7 @@ function RedundancyGraphic({
 }
 
 function HostPill({ pubkey }: { pubkey: string }) {
-  const shortKey =
-    pubkey.length > 18 ? `${pubkey.slice(0, 10)}\u2026${pubkey.slice(-6)}` : pubkey;
+  const shortKey = pubkey.length > 18 ? `${pubkey.slice(0, 10)}\u2026${pubkey.slice(-6)}` : pubkey;
   return (
     <a
       href={explorerUrls.host(pubkey)}
@@ -459,8 +492,7 @@ function HostPill({ pubkey }: { pubkey: string }) {
 }
 
 function ContractPill({ id }: { id: string }) {
-  const short =
-    id.length > 18 ? `${id.slice(0, 10)}\u2026${id.slice(-6)}` : id;
+  const short = id.length > 18 ? `${id.slice(0, 10)}\u2026${id.slice(-6)}` : id;
   return (
     <a
       href={explorerUrls.contract(id)}
@@ -479,9 +511,7 @@ function VariantRow({ variant }: { variant: SiaVariantInfo }) {
   return (
     <tr className="hover:bg-white/[0.03] transition-colors align-top">
       <td className="px-5 py-3">
-        <div className="text-sm font-semibold text-zinc-100">
-          {variant.resolution || '\u2014'}
-        </div>
+        <div className="text-sm font-semibold text-zinc-100">{variant.resolution || '\u2014'}</div>
         <div className="text-[10px] text-zinc-500 tabular-nums mt-0.5">
           {variant.bitrateKbps > 0 ? `${variant.bitrateKbps.toLocaleString()} kbps` : ''}
         </div>
@@ -513,15 +543,9 @@ function VariantRow({ variant }: { variant: SiaVariantInfo }) {
       <td className="px-5 py-3 text-right tabular-nums text-zinc-300">
         {variant.segmentCount.toLocaleString()}
       </td>
-      <td className="px-5 py-3 text-right tabular-nums text-teal-300">
-        {variant.hostCount}
-      </td>
-      <td className="px-5 py-3 text-right tabular-nums text-zinc-400">
-        {variant.slabCount}
-      </td>
-      <td className="px-5 py-3 text-right tabular-nums text-zinc-400">
-        {variant.sectorCount}
-      </td>
+      <td className="px-5 py-3 text-right tabular-nums text-teal-300">{variant.hostCount}</td>
+      <td className="px-5 py-3 text-right tabular-nums text-zinc-400">{variant.slabCount}</td>
+      <td className="px-5 py-3 text-right tabular-nums text-zinc-400">{variant.sectorCount}</td>
       <td className="px-5 py-3 text-right tabular-nums text-zinc-400 font-mono">
         {variant.minShards !== null && variant.totalShards !== null
           ? `${variant.minShards}/${variant.totalShards}`
@@ -532,20 +556,13 @@ function VariantRow({ variant }: { variant: SiaVariantInfo }) {
 }
 
 function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
-  const {
-    manifest,
-    manifestObjectId,
-    variants,
-    totals,
-    indexer,
-  } = info;
+  const { manifest, manifestObjectId, variants, totals, indexer } = info;
 
   // Reed-Solomon parameters are only known once we've observed at least one
   // populated slab — the Sia SDK carries them as slab metadata, not a
   // renter-wide setting. If nothing has been pinned yet we show a
   // placeholder state instead of guessing.
-  const hasShardInfo =
-    totals.dataShards !== null && totals.parityShards !== null;
+  const hasShardInfo = totals.dataShards !== null && totals.parityShards !== null;
 
   return (
     <div className="bg-gradient-to-br from-teal-500/[0.04] via-transparent to-transparent bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden backdrop-blur-sm">
@@ -556,12 +573,8 @@ function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
             <Database className="w-4 h-4 text-teal-400" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-zinc-100 font-heading">
-              Sia Storage
-            </h3>
-            <p className="text-[11px] text-zinc-500">
-              Decentralized on the Sia network
-            </p>
+            <h3 className="text-sm font-semibold text-zinc-100 font-heading">Sia Storage</h3>
+            <p className="text-[11px] text-zinc-500">Decentralized on the Sia network</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -631,61 +644,59 @@ function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
       </div>
 
       {/* Redundancy visualization — only when real slab metadata is present */}
-      {hasShardInfo && totals.dataShards !== null && totals.parityShards !== null && (() => {
-        // Derive totals from the single source of truth — the API's
-        // totals.encodedBytes. Sectors are a 4 MiB protocol constant,
-        // so N sectors × 4 MiB is guaranteed to equal encodedBytes.
-        // (Previous local sum over manifest+variants omitted
-        // thumbnails and drifted from the API's real number.)
-        const SECTOR = 4 * 1024 * 1024;
-        const totalSectors = totals.encodedBytes !== null
-          ? Math.floor(totals.encodedBytes / SECTOR)
-          : 0;
-        const totalSlabs = totalSectors > 0
-          ? Math.ceil(totalSectors / (totals.dataShards + totals.parityShards))
-          : 0;
-        return (
-          <div className="mx-5 mb-5 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium mb-1">
-                  Erasure Coding — observed across {totalSlabs} slab
-                  {totalSlabs === 1 ? '' : 's'}
+      {hasShardInfo &&
+        totals.dataShards !== null &&
+        totals.parityShards !== null &&
+        (() => {
+          // Derive totals from the single source of truth — the API's
+          // totals.encodedBytes. Sectors are a 4 MiB protocol constant,
+          // so N sectors × 4 MiB is guaranteed to equal encodedBytes.
+          // (Previous local sum over manifest+variants omitted
+          // thumbnails and drifted from the API's real number.)
+          const SECTOR = 4 * 1024 * 1024;
+          const totalSectors =
+            totals.encodedBytes !== null ? Math.floor(totals.encodedBytes / SECTOR) : 0;
+          const totalSlabs =
+            totalSectors > 0
+              ? Math.ceil(totalSectors / (totals.dataShards + totals.parityShards))
+              : 0;
+          return (
+            <div className="mx-5 mb-5 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium mb-1">
+                    Erasure Coding — observed across {totalSlabs} slab
+                    {totalSlabs === 1 ? '' : 's'}
+                  </div>
+                  <div className="text-xs text-zinc-400 max-w-md">
+                    Each slab stores{' '}
+                    <span className="text-teal-400 font-semibold">{totals.dataShards}</span> data +{' '}
+                    <span className="text-zinc-300 font-semibold">{totals.parityShards}</span>{' '}
+                    parity shards. Any {totals.dataShards} of{' '}
+                    {totals.dataShards + totals.parityShards} reconstruct the data. Total on hosts:{' '}
+                    <span className="font-mono text-zinc-300">
+                      {totalSectors} sector{totalSectors === 1 ? '' : 's'}
+                    </span>{' '}
+                    {totals.encodedBytes !== null && (
+                      <>
+                        {' '}
+                        × 4 MiB ={' '}
+                        <span className="font-mono text-zinc-300">
+                          {formatBytes(totals.encodedBytes)}
+                        </span>
+                      </>
+                    )}
+                    .
+                  </div>
                 </div>
-                <div className="text-xs text-zinc-400 max-w-md">
-                  Each slab stores{' '}
-                  <span className="text-teal-400 font-semibold">
-                    {totals.dataShards}
-                  </span>{' '}
-                  data +{' '}
-                  <span className="text-zinc-300 font-semibold">
-                    {totals.parityShards}
-                  </span>{' '}
-                  parity shards. Any {totals.dataShards} of{' '}
-                  {totals.dataShards + totals.parityShards} reconstruct the
-                  data. Total on hosts:{' '}
-                  <span className="font-mono text-zinc-300">
-                    {totalSectors} sector{totalSectors === 1 ? '' : 's'}
-                  </span>{' '}
-                  {totals.encodedBytes !== null && (
-                    <>
-                      {' '}× 4 MiB ={' '}
-                      <span className="font-mono text-zinc-300">
-                        {formatBytes(totals.encodedBytes)}
-                      </span>
-                    </>
-                  )}
-                  .
-                </div>
+                <RedundancyGraphic
+                  dataShards={totals.dataShards}
+                  parityShards={totals.parityShards}
+                />
               </div>
-              <RedundancyGraphic
-                dataShards={totals.dataShards}
-                parityShards={totals.parityShards}
-              />
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
 
       {/* Manifest row */}
       {manifestObjectId && (
@@ -694,11 +705,7 @@ function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
             Master Manifest
           </div>
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <ObjectIdBadge
-              value={manifestObjectId}
-              truncate={10}
-              className="text-xs"
-            />
+            <ObjectIdBadge value={manifestObjectId} truncate={10} className="text-xs" />
             {manifest && (
               <div className="flex items-center gap-4 text-[11px] text-zinc-400 tabular-nums">
                 <span>{formatBytes(manifest.size)}</span>
@@ -796,21 +803,18 @@ function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
             </span>
           </div>
           <p className="text-[11px] text-zinc-500 mb-4 max-w-2xl leading-relaxed">
-            Every slab that has been flushed to hosts is committed by a Sia
-            file contract — an on-chain obligation where the host has locked
-            collateral to store the data until expiry. Click any contract or
-            host ID below to independently verify it on {EXPLORER_LABEL}.
-            Tiny sub-slab objects (manifests, playlists) may briefly sit in
-            the indexer's packing buffer before the next flush.
+            Every slab that has been flushed to hosts is committed by a Sia file contract — an
+            on-chain obligation where the host has locked collateral to store the data until expiry.
+            Click any contract or host ID below to independently verify it on {EXPLORER_LABEL}. Tiny
+            sub-slab objects (manifests, playlists) may briefly sit in the indexer's packing buffer
+            before the next flush.
           </p>
 
           {totals.allContracts.length > 0 && (
             <div className="mb-4">
               <div className="flex items-center gap-2 mb-2">
                 <FileSignature className="w-3.5 h-3.5 text-teal-400" />
-                <span className="text-xs font-semibold text-zinc-200">
-                  File contracts
-                </span>
+                <span className="text-xs font-semibold text-zinc-200">File contracts</span>
                 <span className="text-[11px] text-zinc-500">
                   {totals.uniqueContractCount} on-chain contract
                   {totals.uniqueContractCount === 1 ? '' : 's'}
@@ -828,9 +832,7 @@ function SiaStorageSection({ info }: { info: AssetSiaInfo }) {
             <div className="mb-4">
               <div className="flex items-center gap-2 mb-2">
                 <Server className="w-3.5 h-3.5 text-zinc-400" />
-                <span className="text-xs font-semibold text-zinc-200">
-                  Hosts
-                </span>
+                <span className="text-xs font-semibold text-zinc-200">Hosts</span>
                 <span className="text-[11px] text-zinc-500">
                   {totals.uniqueHostCount} unique host
                   {totals.uniqueHostCount === 1 ? '' : 's'} storing sectors
@@ -867,9 +869,7 @@ function SiaStorageSectionLoader() {
     <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-4">
       <div className="flex items-center gap-2">
         <Database className="w-4 h-4 text-teal-400" />
-        <span className="text-sm font-semibold text-zinc-200 font-heading">
-          Sia Storage
-        </span>
+        <span className="text-sm font-semibold text-zinc-200 font-heading">Sia Storage</span>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[0, 1, 2, 3].map((i) => (
@@ -878,120 +878,6 @@ function SiaStorageSectionLoader() {
       </div>
       <Skeleton className="h-16 rounded-xl" />
       <Skeleton className="h-40 rounded-xl" />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Processing Logs Timeline
-// ---------------------------------------------------------------------------
-
-const STAGE_CONFIG: Record<string, { icon: typeof Cpu; color: string; bg: string; label: string }> = {
-  transcode: { icon: Cpu, color: 'text-zinc-400', bg: 'bg-zinc-400/20', label: 'Transcode' },
-  upload: { icon: HardDrive, color: 'text-violet-400', bg: 'bg-violet-400/20', label: 'Upload' },
-  finalize: { icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-400/20', label: 'Finalize' },
-};
-
-function formatLogTimestamp(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
-}
-
-/** Parse a log message and return rich JSX with clickable links where applicable. */
-function RichLogMessage({ message }: { message: string }) {
-  // Check for object ID pattern: "object <id>"
-  const objectMatch = message.match(/object\s+([A-Za-z0-9_/-]{10,})/);
-  if (objectMatch) {
-    const objectId = objectMatch[1];
-    const idx = objectMatch.index!;
-    const beforeText = message.slice(0, idx);
-    const afterText = message.slice(idx + objectMatch[0].length);
-    return (
-      <span>
-        {beforeText}object{' '}
-        <span className="text-violet-400 font-mono">
-          {truncateAddress(objectId, 8, 6)}
-        </span>
-        {afterText}
-      </span>
-    );
-  }
-
-  // Format segment counts and byte sizes for readability
-  const formattedMessage = message
-    .replace(/(\d{4,})(\s*bytes)/gi, (_match, num, suffix) => {
-      const n = parseInt(num, 10);
-      if (n >= 1_073_741_824) return `${(n / 1_073_741_824).toFixed(2)} GB${suffix ? '' : ''}`;
-      if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(2)} MB`;
-      if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
-      return `${num}${suffix}`;
-    })
-    .replace(/(\d+)\s+segments?/gi, (match) => match);
-
-  return <span>{formattedMessage}</span>;
-}
-
-function ProcessingLogsTimeline({ logs }: { logs: ProcessingLog[] }) {
-  if (!logs || logs.length === 0) return null;
-
-  return (
-    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 backdrop-blur-sm">
-      <h3 className="text-sm font-semibold text-zinc-200 font-heading flex items-center gap-2 mb-4">
-        <Layers className="w-4 h-4 text-zinc-400" />
-        Pipeline Activity
-      </h3>
-      <div className="relative ml-3">
-        {/* Vertical timeline line */}
-        <div className="absolute left-0 top-2 bottom-2 w-px bg-white/[0.08]" />
-
-        <div className="space-y-3">
-          {logs.map((log, index) => {
-            const config = STAGE_CONFIG[log.stage] ?? STAGE_CONFIG.transcode;
-            const Icon = config.icon;
-
-            return (
-              <div key={index} className="relative pl-6 group">
-                {/* Timeline dot */}
-                <div
-                  className={cn(
-                    'absolute left-0 top-1.5 w-2 h-2 rounded-full -translate-x-[3.5px] ring-2 ring-zinc-950',
-                    config.bg,
-                  )}
-                />
-
-                <div className="flex items-start gap-3">
-                  {/* Timestamp */}
-                  <span className="text-[10px] font-mono text-zinc-600 whitespace-nowrap pt-0.5 min-w-[60px]">
-                    {formatLogTimestamp(log.timestamp)}
-                  </span>
-
-                  {/* Stage badge */}
-                  <span
-                    className={cn(
-                      'inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md whitespace-nowrap',
-                      config.bg,
-                      config.color,
-                    )}
-                  >
-                    <Icon className="w-3 h-3" />
-                    {config.label}
-                  </span>
-
-                  {/* Message */}
-                  <span className="text-xs text-zinc-400 leading-relaxed pt-0.5">
-                    <RichLogMessage message={log.message} />
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }
@@ -1033,9 +919,24 @@ console.log('HLS URL:', playback.playbackUrl);`;
       <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-4">Embed Code</h3>
       <Tabs defaultValue="html">
         <TabsList className="bg-white/[0.04] rounded-lg p-0.5">
-          <TabsTrigger value="html" className="rounded-md text-xs data-[state=active]:bg-white/[0.07]">HTML</TabsTrigger>
-          <TabsTrigger value="react" className="rounded-md text-xs data-[state=active]:bg-white/[0.07]">React</TabsTrigger>
-          <TabsTrigger value="sdk" className="rounded-md text-xs data-[state=active]:bg-white/[0.07]">SDK</TabsTrigger>
+          <TabsTrigger
+            value="html"
+            className="rounded-md text-xs data-[state=active]:bg-white/[0.07]"
+          >
+            HTML
+          </TabsTrigger>
+          <TabsTrigger
+            value="react"
+            className="rounded-md text-xs data-[state=active]:bg-white/[0.07]"
+          >
+            React
+          </TabsTrigger>
+          <TabsTrigger
+            value="sdk"
+            className="rounded-md text-xs data-[state=active]:bg-white/[0.07]"
+          >
+            SDK
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="html">
           <div className="relative">
@@ -1073,19 +974,6 @@ console.log('HLS URL:', playback.playbackUrl);`;
 }
 
 // ---------------------------------------------------------------------------
-// Metadata Card
-// ---------------------------------------------------------------------------
-
-function MetadataRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between py-2.5 border-b border-white/[0.08] last:border-b-0">
-      <span className="text-xs text-zinc-400">{label}</span>
-      <span className="text-xs text-zinc-200">{value}</span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Skeleton Loading
 // ---------------------------------------------------------------------------
 
@@ -1110,7 +998,6 @@ function DetailSkeleton() {
   );
 }
 
-
 // ---------------------------------------------------------------------------
 // Sia Objects Section (collapsible)
 // ---------------------------------------------------------------------------
@@ -1133,10 +1020,11 @@ function SiaObjectsSection({
       >
         <div className="flex items-center gap-2">
           <Database className="w-4 h-4 text-teal-400" />
-          <h3 className="text-sm font-semibold text-zinc-200 font-heading">
-            Sia Objects
-          </h3>
-          <Badge variant="secondary" className="text-[10px] px-2 py-0.5 ml-1 bg-teal-500/10 text-teal-400 border-teal-500/20">
+          <h3 className="text-sm font-semibold text-zinc-200 font-heading">Sia Objects</h3>
+          <Badge
+            variant="secondary"
+            className="text-[10px] px-2 py-0.5 ml-1 bg-teal-500/10 text-teal-400 border-teal-500/20"
+          >
             {totalObjects}
           </Badge>
         </div>
@@ -1147,9 +1035,8 @@ function SiaObjectsSection({
       {open && (
         <div className="px-5 pb-5 pt-1 space-y-3 border-t border-white/[0.08]">
           <p className="text-xs text-zinc-500">
-            Every asset artifact is stored on the Sia network. Object
-            identifiers are app-layer hashes — they are not consensus-layer
-            entities and do not appear on {EXPLORER_LABEL}.
+            Every asset artifact is stored on the Sia network. Object identifiers are app-layer
+            hashes — they are not consensus-layer entities and do not appear on {EXPLORER_LABEL}.
           </p>
           {manifestId && (
             <div className="flex items-center justify-between py-2 border-b border-white/[0.06]">
@@ -1164,16 +1051,11 @@ function SiaObjectsSection({
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Image className="w-3.5 h-3.5 text-zinc-400" />
-                <span className="text-xs text-zinc-400">
-                  Thumbnails ({thumbnailIds.length})
-                </span>
+                <span className="text-xs text-zinc-400">Thumbnails ({thumbnailIds.length})</span>
               </div>
               <ul className="space-y-1.5">
                 {thumbnailIds.map((id, i) => (
-                  <li
-                    key={id}
-                    className="flex items-center justify-between text-xs pl-5"
-                  >
+                  <li key={id} className="flex items-center justify-between text-xs pl-5">
                     <span className="text-zinc-500 font-mono">#{i + 1}</span>
                     <ObjectIdBadge value={id} />
                   </li>
@@ -1222,7 +1104,12 @@ export default function AssetDetailPage() {
               <RefreshCw className="w-3.5 h-3.5" />
               Retry
             </Button>
-            <Button variant="ghost" size="sm" asChild className="bg-white/[0.04] hover:bg-white/[0.07] text-zinc-300">
+            <Button
+              variant="ghost"
+              size="sm"
+              asChild
+              className="bg-white/[0.04] hover:bg-white/[0.07] text-zinc-300"
+            >
               <Link to="/studio/assets">Back to Library</Link>
             </Button>
           </div>
@@ -1251,10 +1138,20 @@ export default function AssetDetailPage() {
 
   return (
     <PageContainer>
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="space-y-6">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className="space-y-6"
+      >
         {/* ── HEADER ── */}
         <div>
-          <Button variant="ghost" size="sm" asChild className="gap-1.5 -ml-2 text-zinc-400 hover:text-zinc-200 mb-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+            className="gap-1.5 -ml-2 text-zinc-400 hover:text-zinc-200 mb-3"
+          >
             <Link to="/studio/assets">
               <ArrowLeft className="w-3.5 h-3.5" />
               Back to Library
@@ -1273,7 +1170,12 @@ export default function AssetDetailPage() {
               <StatusBadge status={asset.status} />
               <AccessTierBadge tier={asset.access_tier} />
               {asset.status === 'ready' && (
-                <Button variant="outline" size="sm" asChild className="gap-1.5 bg-white/[0.04] hover:bg-white/[0.07]">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  className="gap-1.5 bg-white/[0.04] hover:bg-white/[0.07]"
+                >
                   <Link to={`/studio/player?asset=${asset.id}`}>
                     <Play className="w-3.5 h-3.5" />
                     Play
@@ -1353,7 +1255,8 @@ export default function AssetDetailPage() {
         )}
 
         {/* ── SIA OBJECTS ── */}
-        {(asset.manifest_object_id || (asset.thumbnail_object_ids && asset.thumbnail_object_ids.length > 0)) && (
+        {(asset.manifest_object_id ||
+          (asset.thumbnail_object_ids && asset.thumbnail_object_ids.length > 0)) && (
           <SiaObjectsSection
             manifestId={asset.manifest_object_id}
             thumbnailIds={asset.thumbnail_object_ids ?? []}
@@ -1361,13 +1264,13 @@ export default function AssetDetailPage() {
         )}
 
         {/* ── SIA STORAGE ── Only when asset is ready & manifest exists */}
-        {asset.status === 'ready' && asset.manifest_object_id && (
-          siaInfo.isLoading && !siaInfo.data ? (
+        {asset.status === 'ready' &&
+          asset.manifest_object_id &&
+          (siaInfo.isLoading && !siaInfo.data ? (
             <SiaStorageSectionLoader />
           ) : siaInfo.data ? (
             <SiaStorageSection info={siaInfo.data} />
-          ) : null
-        )}
+          ) : null)}
 
         {/* ── TECHNICAL DETAILS ── */}
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 backdrop-blur-sm">
@@ -1377,7 +1280,10 @@ export default function AssetDetailPage() {
           </h3>
           <div className="grid grid-cols-2 gap-x-8 gap-y-2">
             {TECHNICAL_DETAILS.map((item) => (
-              <div key={item.label} className="flex items-center justify-between py-1.5 border-b border-white/[0.06] last:border-b-0">
+              <div
+                key={item.label}
+                className="flex items-center justify-between py-1.5 border-b border-white/[0.06] last:border-b-0"
+              >
                 <span className="text-xs text-zinc-400">{item.label}</span>
                 <span className="text-xs font-medium text-zinc-200">{item.value}</span>
               </div>
@@ -1388,19 +1294,28 @@ export default function AssetDetailPage() {
         {/* ── PROCESSING PIPELINE ── Only when not ready */}
         {asset.status !== 'ready' && (
           <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5">
-            <h3 className="text-sm font-semibold text-zinc-200 font-heading mb-4">Processing Pipeline</h3>
+            <h3 className="text-sm font-semibold text-zinc-200 font-heading mb-4">
+              Processing Pipeline
+            </h3>
             <PipelineStepper status={asset.status} />
-            {processingJob.data && (asset.status === 'processing' || asset.status === 'uploading') && (
-              <div className="mt-4">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs text-zinc-400">
-                    {processingJob.data.progress_percent <= 80 ? 'Transcoding...' : processingJob.data.progress_percent < 100 ? 'Uploading to Sia...' : 'Finalizing...'}
-                  </span>
-                  <span className="text-xs font-mono text-zinc-400 tabular-nums">{processingJob.data.progress_percent}%</span>
+            {processingJob.data &&
+              (asset.status === 'processing' || asset.status === 'uploading') && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-zinc-400">
+                      {processingJob.data.progress_percent <= 80
+                        ? 'Transcoding...'
+                        : processingJob.data.progress_percent < 100
+                          ? 'Uploading to Sia...'
+                          : 'Finalizing...'}
+                    </span>
+                    <span className="text-xs font-mono text-zinc-400 tabular-nums">
+                      {processingJob.data.progress_percent}%
+                    </span>
+                  </div>
+                  <Progress value={processingJob.data.progress_percent} />
                 </div>
-                <Progress value={processingJob.data.progress_percent} />
-              </div>
-            )}
+              )}
           </div>
         )}
 
@@ -1418,8 +1333,20 @@ export default function AssetDetailPage() {
               Renditions
             </h3>
             <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="text-[10px] px-2 py-0.5 bg-teal-500/10 text-teal-400 border-teal-500/20" title="HTTP Live Streaming">HLS</Badge>
-              <Badge variant="secondary" className="text-[10px] px-2 py-0.5 bg-violet-500/10 text-violet-400 border-violet-500/20" title="Fragmented MPEG-4">fMP4</Badge>
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-2 py-0.5 bg-teal-500/10 text-teal-400 border-teal-500/20"
+                title="HTTP Live Streaming"
+              >
+                HLS
+              </Badge>
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-2 py-0.5 bg-violet-500/10 text-violet-400 border-violet-500/20"
+                title="Fragmented MPEG-4"
+              >
+                fMP4
+              </Badge>
             </div>
           </div>
 
@@ -1428,11 +1355,21 @@ export default function AssetDetailPage() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-white/[0.08] bg-white/[0.03]">
-                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">Quality</th>
-                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">Resolution</th>
-                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">Bitrate</th>
-                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">Codec</th>
-                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">Audio</th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Quality
+                  </th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Resolution
+                  </th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Bitrate
+                  </th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Codec
+                  </th>
+                  <th className="text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-5 py-2.5">
+                    Audio
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.06]">
@@ -1464,8 +1401,12 @@ export default function AssetDetailPage() {
 
           {/* Footer details */}
           <div className="flex items-center gap-4 px-5 py-3 border-t border-white/[0.08] bg-white/[0.01]">
-            <span className="text-[10px] text-zinc-500">Keyframe interval: <span className="text-zinc-400">2s</span></span>
-            <span className="text-[10px] text-zinc-500">Segment duration: <span className="text-zinc-400">6s</span></span>
+            <span className="text-[10px] text-zinc-500">
+              Keyframe interval: <span className="text-zinc-400">2s</span>
+            </span>
+            <span className="text-[10px] text-zinc-500">
+              Segment duration: <span className="text-zinc-400">6s</span>
+            </span>
           </div>
         </div>
 
@@ -1473,9 +1414,16 @@ export default function AssetDetailPage() {
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-red-400 font-heading">Danger Zone</h3>
-            <p className="text-xs text-zinc-500 mt-0.5">Permanently delete this video and all associated data</p>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Permanently delete this video and all associated data
+            </p>
           </div>
-          <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)} className="gap-1.5">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setDeleteOpen(true)}
+            className="gap-1.5"
+          >
             <Trash2 className="w-3.5 h-3.5" />
             Delete
           </Button>
@@ -1489,11 +1437,17 @@ export default function AssetDetailPage() {
             <DialogTitle>Delete Asset</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete &ldquo;{asset.title}&rdquo;? This will permanently
-              remove the video, all renditions, and Sia storage objects. This action cannot be undone.
+              remove the video, all renditions, and Sia storage objects. This action cannot be
+              undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setDeleteOpen(false)} className="bg-white/[0.04] hover:bg-white/[0.07] text-zinc-300">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDeleteOpen(false)}
+              className="bg-white/[0.04] hover:bg-white/[0.07] text-zinc-300"
+            >
               Cancel
             </Button>
             <Button
