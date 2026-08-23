@@ -21,17 +21,15 @@ import { WebhookManager } from './webhooks.js';
  *   baseUrl: 'https://api.sluby.app',
  * });
  *
- * // Create an upload session
- * const { videoAssetId, uploadUrl } = await client.uploads.create({
+ * // Upload a video via resumable TUS (creates the asset as it starts)
+ * const upload = client.uploads.upload(file, {
  *   title: 'My Video',
  *   description: 'Demo upload',
  *   accessTier: 'public',
- * });
- *
- * // Upload a file via TUS
- * await client.uploads.uploadFile(uploadUrl, file, {
  *   onProgress: (pct) => console.log(`${pct}%`),
  * });
+ * const videoAssetId = await upload.assetId;
+ * await upload;
  *
  * // Wait until processing finishes
  * const asset = await client.assets.waitForReady(videoAssetId);
@@ -41,7 +39,7 @@ import { WebhookManager } from './webhooks.js';
  * ```
  */
 export class SlubyClient {
-  /** Video upload management (create session, TUS upload, status, cancel). */
+  /** Video upload management (resumable TUS upload, status, cancel). */
   readonly uploads: UploadManager;
 
   /** Video asset CRUD and lifecycle polling. */
@@ -76,7 +74,7 @@ export class SlubyClient {
     // they share authentication and error-handling logic.
     const boundFetch = this._fetch.bind(this);
 
-    this.uploads = new UploadManager(boundFetch, this._config.apiKey);
+    this.uploads = new UploadManager(boundFetch, this._config.apiKey, this._config.baseUrl);
     this.assets = new AssetManager(boundFetch);
     this.playback = new PlaybackManager(boundFetch, this.resolveDeliveryUrl.bind(this));
     this.webhooks = new WebhookManager();

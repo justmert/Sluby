@@ -89,6 +89,9 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const hlsRef = useRef<Hls | null>(null);
+    // Set once we have reported a terminal (given-up) error, so a follow-on
+    // native <video> error event cannot overwrite the authoritative message.
+    const terminalRef = useRef(false);
 
     const [state, setState] = useState<PlayerState>('idle');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -151,7 +154,10 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       return () => {
         cancelled = true;
       };
-    }, [src, client, assetId, signed, expiresIn, poster, fail]);
+      // `retryKey` is included so the overlay Retry button re-runs a failed
+      // resolution. `poster` is intentionally excluded (a dedicated effect
+      // handles poster changes) so updating it does not re-mint a signed URL.
+    }, [src, client, assetId, signed, expiresIn, retryKey, fail]);
 
     useEffect(() => {
       if (poster) setResolvedPoster(poster);
@@ -182,6 +188,9 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
     const handleVideoError = useCallback(() => {
       const video = videoRef.current;
       const mediaError = video?.error;
+      // A terminal HLS error already reported the authoritative message; a
+      // native error from MSE detaching afterwards must not overwrite it.
+      if (terminalRef.current) return;
       // hls.js surfaces its own errors; only report a native <video> error when
       // we are not driving playback through hls.js (Safari native path).
       if (hlsRef.current) return;
@@ -199,6 +208,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
       setErrorMessage(null);
       setState('loading');
+      terminalRef.current = false;
 
       // ------------------------------------------------------------------
       // Native HLS support (e.g. Safari on macOS / iOS)
@@ -250,6 +260,19 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       let networkRetries = 0;
       let mediaRetries = 0;
       let backoffTimer: ReturnType<typeof setTimeout> | null = null;
+      let destroyed = false;
+
+      // Tear down after an unrecoverable error, exactly once: cancel any pending
+      // reload so its callback cannot fire on a destroyed instance, mark the
+      // error terminal, destroy, and report.
+      const giveUp = (message: string) => {
+        if (backoffTimer) clearTimeout(backoffTimer);
+        destroyed = true;
+        terminalRef.current = true;
+        hls.destroy();
+        hlsRef.current = null;
+        fail(message);
+      };
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (hls.currentLevel >= 0 && hls.currentLevel < hls.levels.length) {
@@ -291,9 +314,9 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
                 NETWORK_RETRY_BACKOFF_MS * networkRetries,
               );
             } else {
-              hls.destroy();
-              hlsRef.current = null;
-              fail(`Network error, gave up after ${maxNetworkRetries} retries (${data.details}).`);
+              giveUp(
+                `Network error, gave up after ${maxNetworkRetries} retries (${data.details}).`,
+              );
             }
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
@@ -302,15 +325,11 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
               setState('buffering');
               hls.recoverMediaError();
             } else {
-              hls.destroy();
-              hlsRef.current = null;
-              fail(`Media error, gave up after ${maxMediaRetries} retries (${data.details}).`);
+              giveUp(`Media error, gave up after ${maxMediaRetries} retries (${data.details}).`);
             }
             break;
           default:
-            hls.destroy();
-            hlsRef.current = null;
-            fail(`Fatal HLS error: ${data.type} / ${data.details}`);
+            giveUp(`Fatal HLS error: ${data.type} / ${data.details}`);
             break;
         }
       });
@@ -320,7 +339,8 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
       return () => {
         if (backoffTimer) clearTimeout(backoffTimer);
-        hls.destroy();
+        // A give-up already destroyed the instance; do not destroy twice.
+        if (!destroyed) hls.destroy();
         hlsRef.current = null;
       };
     }, [resolvedSrc, retryKey, autoPlay, maxNetworkRetries, maxMediaRetries, fail]);

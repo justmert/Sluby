@@ -69,6 +69,13 @@ export function decodeCursor(token: string): CursorKey | null {
   const createdAt = new Date(c);
   if (Number.isNaN(createdAt.getTime())) return null;
 
+  // The id is interpolated into the keyset predicate as ::uuid, so a non-UUID
+  // would raise a Postgres 22P02 instead of falling back to page one. Reject it
+  // here so a malformed cursor behaves as documented (start from the beginning).
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(i)) {
+    return null;
+  }
+
   return { createdAt, id: i };
 }
 

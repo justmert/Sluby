@@ -17,7 +17,8 @@ export interface VideoAsset {
   id: string;
   title: string;
   description: string;
-  manifestObjectId: string;
+  /** Null until the asset finishes processing. */
+  manifestObjectId: string | null;
   thumbnailObjectIds: string[];
   durationMs: number;
   resolution: string;
@@ -34,7 +35,6 @@ export interface VideoAsset {
 export interface UploadSession {
   id: string;
   videoAssetId: string;
-  uploadUrl: string;
   status: string;
   progressPercent: number;
   fileSize: number;
@@ -91,25 +91,10 @@ export interface ApiKey {
 // Request / option types
 // ---------------------------------------------------------------------------
 
-/** Options for creating a new video upload session. */
-export interface CreateUploadOptions {
-  title: string;
-  description: string;
-  accessTier: AccessTier;
-}
-
-/** Result of creating a new upload. */
-export interface CreateUploadResult {
-  videoAssetId: string;
-  uploadUrl: string;
-}
-
 /** Options controlling the TUS file upload behaviour. */
 export interface UploadFileOptions {
   /** Chunk size in bytes. Default: 10 MB. */
   chunkSize?: number;
-  /** Number of parallel chunk uploads (tus-js-client parallelUploads). Default: 3. */
-  parallelUploads?: number;
   /** Retry delay sequence in milliseconds. Default: [0, 1000, 3000, 5000]. */
   retryDelays?: number[];
   /** Called periodically with the upload progress percentage (0-100). */
@@ -121,7 +106,7 @@ export interface UploadFileOptions {
 }
 
 /**
- * Awaitable upload handle returned by `uploads.uploadFile`.
+ * Awaitable upload handle returned by `uploads.upload`.
  *
  * `await`-ing the handle resolves when the upload completes (or rejects on an
  * unrecoverable error / termination). The control methods let you pause,

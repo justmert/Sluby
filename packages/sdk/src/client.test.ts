@@ -187,18 +187,14 @@ describe('SlubyClient._fetch', () => {
   });
 
   it('should not override an existing Accept header', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse(200, { video_asset_id: 'v1', upload_url: 'u1' }));
+    fetchMock.mockResolvedValueOnce(makeResponse(200, { id: 'v1' }));
 
-    await client.uploads.create({
-      title: 'test',
-      description: 'desc',
-      accessTier: 'public',
-    });
+    // assets.update sets Content-Type but not Accept, so _fetch should still
+    // default Accept to application/json.
+    await client.assets.update('v1', { title: 'test' });
 
     const [, init] = fetchMock.mock.calls[0];
     const headers = init.headers as Headers;
-    // The uploads.create call sets Content-Type but not Accept, so Accept
-    // should still be set to application/json by _fetch
     expect(headers.get('Accept')).toBe('application/json');
   });
 

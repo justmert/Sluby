@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { uploadAndPin, uploadAndPinPacked } from './sia-client.js';
+import { uploadAndPin, uploadAndPinPacked, deleteObject } from './sia-client.js';
 import {
   rewriteVariantPlaylist,
   rewriteMasterPlaylist,
@@ -87,196 +87,228 @@ export async function uploadSegments(
   let totalSegments = 0;
   const allObjectIds: string[] = [];
 
-  // ── 1. Upload data files in parallel ────────────────────────────
-  /** Read data file + upload + return mapping for playlist rewriting. */
-  async function uploadVariantData(variantPath: string): Promise<{
-    variantPath: string;
-    playlistContent: string;
-    mapping: SegmentBlobMapping;
-    bytesUploaded: number;
-    segmentCount: number;
-    dataObjectId: string;
-  }> {
-    const variantDir = path.join(outputDir, path.dirname(variantPath));
-    const playlistFsPath = path.join(outputDir, variantPath);
-    const playlistContent = await readFile(playlistFsPath, 'utf-8');
-    const parsed = parseVariantPlaylist(playlistContent);
+  // Everything from here on pins objects on Sia. If any step fails, this
+  // whole stage is retried by BullMQ from scratch and would re-pin every
+  // object, orphaning the ones pinned this attempt. So on failure we unpin
+  // what we pinned before rethrowing, keeping the retry clean.
+  try {
+    // ── 1. Upload data files in parallel ────────────────────────────
+    /** Read data file + upload + return mapping for playlist rewriting. */
+    async function uploadVariantData(variantPath: string): Promise<{
+      variantPath: string;
+      playlistContent: string;
+      mapping: SegmentBlobMapping;
+      bytesUploaded: number;
+      segmentCount: number;
+      dataObjectId: string;
+    }> {
+      const variantDir = path.join(outputDir, path.dirname(variantPath));
+      const playlistFsPath = path.join(outputDir, variantPath);
+      const playlistContent = await readFile(playlistFsPath, 'utf-8');
+      const parsed = parseVariantPlaylist(playlistContent);
 
-    if (!parsed.dataFilename) {
-      throw new Error(
-        `variant ${variantPath} has no data file reference (single_file mode expected)`,
+      if (!parsed.dataFilename) {
+        throw new Error(
+          `variant ${variantPath} has no data file reference (single_file mode expected)`,
+        );
+      }
+
+      const dataPath = path.join(variantDir, parsed.dataFilename);
+      const dataBytes = await readFile(dataPath);
+
+      logger.info(
+        {
+          variantPath,
+          dataSize: dataBytes.length,
+          segments: parsed.segmentCount,
+        },
+        'Uploading variant data file to Sia',
       );
+
+      let dataObjectId = '';
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const result = await uploadAndPin(new Uint8Array(dataBytes));
+          dataObjectId = result.objectId;
+          break;
+        } catch (err) {
+          lastErr = err;
+          const delay = 2000 * Math.pow(2, attempt);
+          logger.warn(
+            { variantPath, attempt: attempt + 1, delay, err },
+            'Variant data upload failed, retrying',
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+      if (!dataObjectId) {
+        throw new Error(
+          `variant ${variantPath} data upload failed after retries: ${
+            lastErr instanceof Error ? lastErr.message : String(lastErr)
+          }`,
+        );
+      }
+
+      return {
+        variantPath,
+        playlistContent,
+        mapping: { dataObjectId, dataFilename: parsed.dataFilename },
+        bytesUploaded: dataBytes.length,
+        segmentCount: parsed.segmentCount,
+        dataObjectId,
+      };
     }
 
-    const dataPath = path.join(variantDir, parsed.dataFilename);
-    const dataBytes = await readFile(dataPath);
+    // Run in parallel batches.
+    const variantInfos: Awaited<ReturnType<typeof uploadVariantData>>[] = [];
+    for (let i = 0; i < variantPaths.length; i += concurrency) {
+      const batch = variantPaths.slice(i, i + concurrency);
+      const results = await Promise.allSettled(batch.map(uploadVariantData));
+      for (const r of results) {
+        if (r.status !== 'fulfilled') {
+          logger.error({ error: r.reason }, 'Variant data upload permanently failed');
+          throw r.reason;
+        }
+        variantInfos.push(r.value);
+        allObjectIds.push(r.value.dataObjectId);
+        totalBytes += r.value.bytesUploaded;
+        // Renditions are segmented identically, so the asset's segment count is
+        // the per-rendition count, not the sum across renditions.
+        totalSegments = Math.max(totalSegments, r.value.segmentCount);
+        uploadedFiles += 1;
+        options.onProgress?.(uploadedFiles, totalFiles);
+      }
+      if (i + concurrency < variantPaths.length) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
 
-    logger.info(
-      {
-        variantPath,
-        dataSize: dataBytes.length,
-        segments: parsed.segmentCount,
-      },
-      'Uploading variant data file to Sia',
+    // ── 2. Rewrite variant playlists, prepare thumbnails ────────────
+    const rewrittenPlaylists = variantInfos.map((info) =>
+      new TextEncoder().encode(rewriteVariantPlaylist(info.playlistContent, info.mapping, '')),
     );
 
-    let dataObjectId = '';
-    let lastErr: unknown;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        const result = await uploadAndPin(new Uint8Array(dataBytes));
-        dataObjectId = result.objectId;
-        break;
-      } catch (err) {
-        lastErr = err;
-        const delay = 2000 * Math.pow(2, attempt);
-        logger.warn(
-          { variantPath, attempt: attempt + 1, delay, err },
-          'Variant data upload failed, retrying',
+    const thumbnailBuffers: Uint8Array[] = [];
+    for (const tp of thumbnailPaths) {
+      const buf = await readFile(tp);
+      thumbnailBuffers.push(new Uint8Array(buf));
+    }
+
+    // ── 3. ONE packed Sia upload for [variant playlists + thumbnails] ─
+    // Order is important — playlists first, thumbnails after — so we can
+    // index into the result array deterministically.
+    const packedItems: Uint8Array[] = [...rewrittenPlaylists, ...thumbnailBuffers];
+    let packedResults: Awaited<ReturnType<typeof uploadAndPinPacked>> = [];
+    if (packedItems.length > 0) {
+      packedResults = await uploadAndPinPacked(packedItems);
+      // The playlist→variant and thumbnail mappings below index into the result
+      // positionally, which requires the packed upload to return one result per
+      // input in add() order. A count mismatch means that contract broke; fail
+      // loudly rather than silently mis-map a variant to a thumbnail.
+      if (packedResults.length !== packedItems.length) {
+        throw new Error(
+          `packed upload returned ${packedResults.length} results for ${packedItems.length} items`,
         );
-        await new Promise((r) => setTimeout(r, delay));
       }
-    }
-    if (!dataObjectId) {
-      throw new Error(
-        `variant ${variantPath} data upload failed after retries: ${
-          lastErr instanceof Error ? lastErr.message : String(lastErr)
-        }`,
-      );
-    }
-
-    return {
-      variantPath,
-      playlistContent,
-      mapping: { dataObjectId, dataFilename: parsed.dataFilename },
-      bytesUploaded: dataBytes.length,
-      segmentCount: parsed.segmentCount,
-      dataObjectId,
-    };
-  }
-
-  // Run in parallel batches.
-  const variantInfos: Awaited<ReturnType<typeof uploadVariantData>>[] = [];
-  for (let i = 0; i < variantPaths.length; i += concurrency) {
-    const batch = variantPaths.slice(i, i + concurrency);
-    const results = await Promise.allSettled(batch.map(uploadVariantData));
-    for (const r of results) {
-      if (r.status !== 'fulfilled') {
-        logger.error({ error: r.reason }, 'Variant data upload permanently failed');
-        throw r.reason;
+      for (const r of packedResults) {
+        allObjectIds.push(r.objectId);
+        totalBytes += r.size;
       }
-      variantInfos.push(r.value);
-      allObjectIds.push(r.value.dataObjectId);
-      totalBytes += r.value.bytesUploaded;
-      totalSegments += r.value.segmentCount;
-      uploadedFiles += 1;
+      uploadedFiles += 1; // count the whole pack as one progress op
       options.onProgress?.(uploadedFiles, totalFiles);
     }
-    if (i + concurrency < variantPaths.length) {
-      await new Promise((r) => setTimeout(r, 100));
+
+    const playlistResults = packedResults.slice(0, rewrittenPlaylists.length);
+    const thumbnailResults = packedResults.slice(rewrittenPlaylists.length);
+    const thumbnailObjectIds = thumbnailResults.map((r) => r.objectId);
+
+    // Build variant→playlistObjectId map for the master rewrite.
+    const variantObjectMap = new Map<string, string>();
+    for (let i = 0; i < variantInfos.length; i++) {
+      variantObjectMap.set(variantInfos[i].variantPath, playlistResults[i].objectId);
     }
-  }
 
-  // ── 2. Rewrite variant playlists, prepare thumbnails ────────────
-  const rewrittenPlaylists = variantInfos.map((info) =>
-    new TextEncoder().encode(rewriteVariantPlaylist(info.playlistContent, info.mapping, '')),
-  );
-
-  const thumbnailBuffers: Uint8Array[] = [];
-  for (const tp of thumbnailPaths) {
-    const buf = await readFile(tp);
-    thumbnailBuffers.push(new Uint8Array(buf));
-  }
-
-  // ── 3. ONE packed Sia upload for [variant playlists + thumbnails] ─
-  // Order is important — playlists first, thumbnails after — so we can
-  // index into the result array deterministically.
-  const packedItems: Uint8Array[] = [...rewrittenPlaylists, ...thumbnailBuffers];
-  let packedResults: Awaited<ReturnType<typeof uploadAndPinPacked>> = [];
-  if (packedItems.length > 0) {
-    packedResults = await uploadAndPinPacked(packedItems);
-    for (const r of packedResults) {
-      allObjectIds.push(r.objectId);
-      totalBytes += r.size;
+    for (let i = 0; i < variantInfos.length; i++) {
+      logger.info(
+        {
+          variantPath: variantInfos[i].variantPath,
+          dataObjectId: variantInfos[i].dataObjectId,
+          playlistObjectId: playlistResults[i].objectId,
+          segments: variantInfos[i].segmentCount,
+        },
+        'Variant uploaded',
+      );
     }
-    uploadedFiles += 1; // count the whole pack as one progress op
+
+    // ── 4. Rewrite + upload master playlist ─────────────────────────
+    const rewrittenMaster = rewriteMasterPlaylist(masterContent, variantObjectMap, '');
+    const masterBytes = new TextEncoder().encode(rewrittenMaster);
+    const masterResult = await uploadAndPin(masterBytes);
+    allObjectIds.push(masterResult.objectId);
+    totalBytes += masterBytes.length;
+    uploadedFiles += 1;
     options.onProgress?.(uploadedFiles, totalFiles);
-  }
 
-  const playlistResults = packedResults.slice(0, rewrittenPlaylists.length);
-  const thumbnailResults = packedResults.slice(rewrittenPlaylists.length);
-  const thumbnailObjectIds = thumbnailResults.map((r) => r.objectId);
-
-  // Build variant→playlistObjectId map for the master rewrite.
-  const variantObjectMap = new Map<string, string>();
-  for (let i = 0; i < variantInfos.length; i++) {
-    variantObjectMap.set(variantInfos[i].variantPath, playlistResults[i].objectId);
-  }
-
-  for (let i = 0; i < variantInfos.length; i++) {
     logger.info(
       {
-        variantPath: variantInfos[i].variantPath,
-        dataObjectId: variantInfos[i].dataObjectId,
-        playlistObjectId: playlistResults[i].objectId,
-        segments: variantInfos[i].segmentCount,
+        masterObjectId: masterResult.objectId,
+        thumbnailCount: thumbnailObjectIds.length,
+        totalSegments,
+        totalBytes,
+        siaOperations: variantInfos.length + (packedItems.length > 0 ? 1 : 0) + 1,
       },
-      'Variant uploaded',
+      'Master manifest uploaded to Sia',
     );
-  }
 
-  // ── 4. Rewrite + upload master playlist ─────────────────────────
-  const rewrittenMaster = rewriteMasterPlaylist(masterContent, variantObjectMap, '');
-  const masterBytes = new TextEncoder().encode(rewrittenMaster);
-  const masterResult = await uploadAndPin(masterBytes);
-  allObjectIds.push(masterResult.objectId);
-  totalBytes += masterBytes.length;
-  uploadedFiles += 1;
-  options.onProgress?.(uploadedFiles, totalFiles);
+    // ── Assemble the normalized rendition + artifact mapping ────────────
+    // Each Sia Object ID is tied to its asset, rendition, and role. The
+    // per-variant resolution/bitrate comes from the master's STREAM-INF
+    // lines; everything else was captured during upload above.
+    const variantMetaByPath = new Map(parseMasterVariants(masterContent).map((v) => [v.path, v]));
+    const variantUploads: VariantUpload[] = variantInfos.map((info, i) => {
+      const meta = variantMetaByPath.get(info.variantPath);
+      return {
+        name: path.dirname(info.variantPath),
+        width: meta?.width ?? null,
+        height: meta?.height ?? null,
+        videoBitrateKbps: meta?.bandwidthKbps ?? null,
+        segmentCount: info.segmentCount,
+        dataObjectId: info.dataObjectId,
+        dataByteSize: info.bytesUploaded,
+        playlistObjectId: playlistResults[i].objectId,
+        playlistByteSize: playlistResults[i].size,
+      };
+    });
 
-  logger.info(
-    {
-      masterObjectId: masterResult.objectId,
-      thumbnailCount: thumbnailObjectIds.length,
+    const storageRecords = buildStorageRecords({
+      variants: variantUploads,
+      thumbnails: thumbnailResults.map((r) => ({ objectId: r.objectId, byteSize: r.size })),
+      master: { objectId: masterResult.objectId, byteSize: masterResult.size },
+    });
+
+    return {
+      masterManifestObjectId: masterResult.objectId,
+      thumbnailObjectIds,
       totalSegments,
       totalBytes,
-      siaOperations: variantInfos.length + (packedItems.length > 0 ? 1 : 0) + 1,
-    },
-    'Master manifest uploaded to Sia',
-  );
-
-  // ── Assemble the normalized rendition + artifact mapping ────────────
-  // Each Sia Object ID is tied to its asset, rendition, and role. The
-  // per-variant resolution/bitrate comes from the master's STREAM-INF
-  // lines; everything else was captured during upload above.
-  const variantMetaByPath = new Map(parseMasterVariants(masterContent).map((v) => [v.path, v]));
-  const variantUploads: VariantUpload[] = variantInfos.map((info, i) => {
-    const meta = variantMetaByPath.get(info.variantPath);
-    return {
-      name: path.dirname(info.variantPath),
-      width: meta?.width ?? null,
-      height: meta?.height ?? null,
-      videoBitrateKbps: meta?.bandwidthKbps ?? null,
-      segmentCount: info.segmentCount,
-      dataObjectId: info.dataObjectId,
-      dataByteSize: info.bytesUploaded,
-      playlistObjectId: playlistResults[i].objectId,
-      playlistByteSize: playlistResults[i].size,
+      allObjectIds,
+      storageRecords,
     };
-  });
-
-  const storageRecords = buildStorageRecords({
-    variants: variantUploads,
-    thumbnails: thumbnailResults.map((r) => ({ objectId: r.objectId, byteSize: r.size })),
-    master: { objectId: masterResult.objectId, byteSize: masterResult.size },
-  });
-
-  return {
-    masterManifestObjectId: masterResult.objectId,
-    thumbnailObjectIds,
-    totalSegments,
-    totalBytes,
-    allObjectIds,
-    storageRecords,
-  };
+  } catch (err) {
+    if (allObjectIds.length > 0) {
+      logger.warn(
+        { count: allObjectIds.length, err },
+        'upload-segments failed; unpinning objects pinned this attempt to avoid orphans',
+      );
+      for (const id of allObjectIds) {
+        try {
+          await deleteObject(id);
+        } catch (cleanupErr) {
+          logger.warn({ objectId: id, cleanupErr }, 'cleanup unpin failed');
+        }
+      }
+    }
+    throw err;
+  }
 }

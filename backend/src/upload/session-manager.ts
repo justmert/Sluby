@@ -55,7 +55,10 @@ export class SessionManager {
     return { id, uploadUrl, videoAssetId: params.videoAssetId };
   }
 
-  async getStatus(sessionId: string): Promise<{
+  async getStatus(
+    sessionId: string,
+    owner?: string,
+  ): Promise<{
     id: string;
     status: string;
     progressPercent: number;
@@ -64,7 +67,9 @@ export class SessionManager {
     videoAssetId: string | null;
   } | null> {
     const session = await this.deps.getSession(sessionId);
-    if (!session) return null;
+    // Owner-scope: a session belongs to the tenant whose address is stamped in
+    // its metadata. Return null (404) for another tenant so ids are not probeable.
+    if (!session || (owner && session.metadata.creatorAddress !== owner)) return null;
 
     const progressPercent =
       session.fileSize > 0 ? Math.round((session.uploadedBytes / session.fileSize) * 100) : 0;
@@ -86,9 +91,9 @@ export class SessionManager {
     return { uploadUrl: session.uploadUrl };
   }
 
-  async cancel(sessionId: string): Promise<void> {
+  async cancel(sessionId: string, owner?: string): Promise<boolean> {
     const session = await this.deps.getSession(sessionId);
-    if (!session) return;
+    if (!session || (owner && session.metadata.creatorAddress !== owner)) return false;
 
     await this.deps.updateSession(sessionId, { status: 'cancelled' });
 
@@ -102,6 +107,7 @@ export class SessionManager {
     }
 
     logger.info({ sessionId }, 'Upload session cancelled');
+    return true;
   }
 
   async complete(sessionId: string, filePath: string, sha256: string): Promise<void> {

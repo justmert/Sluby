@@ -36,16 +36,15 @@ export function App() {
     setPhase('uploading');
     setProgress(0);
     try {
-      const { videoAssetId, uploadUrl } = await client.uploads.create({
+      const upload = client.uploads.upload(file, {
         title: file.name,
         description: 'Uploaded from the Sluby quickstart example',
         accessTier: 'public',
-      });
-
-      const upload = client.uploads.uploadFile(uploadUrl, file, {
         onProgress: (pct) => setProgress(pct),
       });
       uploadRef.current = upload;
+
+      const videoAssetId = await upload.assetId;
       await upload;
 
       setPhase('processing');

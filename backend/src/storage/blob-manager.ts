@@ -98,6 +98,23 @@ export async function warmObjects(objectIds: string[], opts: GetOptions = {}): P
   return warmed;
 }
 
+/**
+ * Evict objects from both caches, e.g. after an asset is deleted and its
+ * objects are unpinned from Sia, so the gateway stops serving stale bytes.
+ * Returns how many cache entries were removed.
+ */
+export function evictObjects(objectIds: string[]): number {
+  let removed = 0;
+  for (const id of objectIds) {
+    if (objectCache.delete(id)) removed++;
+    if (manifestCache.delete(id)) removed++;
+  }
+  if (removed > 0) {
+    logger.debug({ requested: objectIds.length, removed }, 'Evicted objects from cache');
+  }
+  return removed;
+}
+
 export function getCacheStats() {
   return {
     object: {

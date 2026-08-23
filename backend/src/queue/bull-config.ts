@@ -65,8 +65,7 @@ export interface ReconcileJobData {
  * row; `gc` sweeps for soft-deleted assets whose deletion never finished and
  * re-enqueues a `delete` for each.
  */
-export type DeletionJobData =
-  { kind: 'delete'; videoAssetId: string; objectIds: string[] } | { kind: 'gc' };
+export type DeletionJobData = { kind: 'delete'; videoAssetId: string } | { kind: 'gc' };
 
 export type VideoProcessingJobData = TranscodeJobData | UploadSegmentsJobData | FinalizeJobData;
 

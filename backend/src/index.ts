@@ -39,6 +39,7 @@ import {
   softDeleteVideoAsset,
   getAssetObjectIds,
 } from './db/queries/assets.js';
+import { invalidateObjectAccessTier } from './delivery/access-control.js';
 
 import {
   createProcessingJob,
@@ -341,6 +342,10 @@ const tusServerDeps: TusServerDeps = {
     );
   },
 
+  markAssetFailed: async (videoAssetId) => {
+    await updateVideoAsset(videoAssetId, { status: 'failed' });
+  },
+
   dispatchWebhook: async (event, data) => {
     await webhookDispatcher.dispatch(event, data);
   },
@@ -395,43 +400,14 @@ function toAssetRecord(asset: VideoAsset) {
 
 const apiRouterDeps: ApiRouterDeps = {
   // ── UploadRouteDeps ──
-  createUploadSession: async (params) => {
-    // Create a video asset in DB
-    const videoAsset = await createVideoAsset({
-      title: params.title,
-      description: params.description,
-      creatorAddress: params.creatorAddress,
-      accessTier: params.accessTier as 'public' | 'private',
-    });
-
-    // Create an upload session
-    const session = await sessionManager.create({
-      apiKeyId: params.apiKeyId,
-      fileSize: 0,
-      metadata: {
-        title: params.title,
-        description: params.description,
-        accessTier: params.accessTier,
-      },
-      videoAssetId: videoAsset.id,
-      // The upload URL is handed to a browser, so it must be the public
-      // origin. Deriving it from HOST/PORT hardcodes http:// and the
-      // internal port, which breaks behind TLS or a reverse proxy.
-      uploadBaseUrl: env.PUBLIC_URL.replace(/\/$/, ''),
-    });
-
-    return {
-      videoAssetId: videoAsset.id,
-      uploadUrl: session.uploadUrl,
-    };
+  // Upload creation happens through the TUS protocol (see tusServer); the REST
+  // surface only exposes owner-scoped status and cancellation.
+  getUploadStatus: async (id, owner) => {
+    return sessionManager.getStatus(id, owner);
   },
 
-  getUploadStatus: async (id) => {
-    return sessionManager.getStatus(id);
-  },
-
-  cancelUpload: async (id) => {
-    await sessionManager.cancel(id);
+  cancelUpload: async (id, owner) => {
+    return sessionManager.cancel(id, owner);
   },
 
   // ── AssetRouteDeps ──
@@ -473,6 +449,15 @@ const apiRouterDeps: ApiRouterDeps = {
       owner,
     );
     if (!updated) return null;
+
+    // A tier change must take effect on the delivery path at once: drop the
+    // cached tier for every object of this asset so the gateway re-resolves
+    // (otherwise a just-privatized asset is served unsigned for up to 60s).
+    if (data.accessTier !== undefined) {
+      const objectIds = await getAssetObjectIds(id);
+      for (const objectId of objectIds) invalidateObjectAccessTier(objectId);
+    }
+
     return toAssetRecord(updated);
   },
 
@@ -480,11 +465,10 @@ const apiRouterDeps: ApiRouterDeps = {
   // Sia object ids, and enqueue the async unpin-and-remove job.
   deleteAsset: buildDeleteAsset({
     softDelete: (id, owner) => softDeleteVideoAsset(id, owner),
-    collectObjectIds: (id) => getAssetObjectIds(id),
-    enqueue: async ({ videoAssetId, objectIds }) => {
+    enqueue: async (videoAssetId) => {
       await deletionQueue.add(
         'delete',
-        { kind: 'delete', videoAssetId, objectIds },
+        { kind: 'delete', videoAssetId },
         { jobId: `delete-${videoAssetId}` },
       );
     },
@@ -533,6 +517,12 @@ const apiRouterDeps: ApiRouterDeps = {
           errorMessage: null,
         });
       }
+      // Re-attach any thumbnails still on disk from the transcode stage, so a
+      // retried upload does not end up with an empty thumbnailObjectIds.
+      const thumbnailPaths = [25, 50, 75]
+        .map((p) => path.join(outputDir, `thumb_${p}.jpg`))
+        .filter((tp) => existsSync(tp));
+
       await uploadSegmentsQueue.add(
         'upload-segments',
         {
@@ -540,6 +530,7 @@ const apiRouterDeps: ApiRouterDeps = {
           uploadSessionId,
           outputDir,
           accessTier: asset.accessTier,
+          thumbnailPaths,
         },
         { jobId: `retry-upload-${id}-${Date.now()}` },
       );

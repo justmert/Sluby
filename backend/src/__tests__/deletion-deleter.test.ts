@@ -10,6 +10,12 @@ function makeDeps(overrides: Partial<DeletionDeps> = {}) {
     pruneSlabs: vi.fn(async () => {
       calls.push('prune');
     }),
+    markUnpinned: vi.fn(async (_assetId: string, ids: string[]) => {
+      calls.push(`mark:${ids.join('+')}`);
+    }),
+    evictCache: vi.fn((ids: string[]) => {
+      calls.push(`evict:${ids.join('+')}`);
+    }),
     removeAsset: vi.fn(async (id: string) => {
       calls.push(`remove:${id}`);
     }),
@@ -20,7 +26,7 @@ function makeDeps(overrides: Partial<DeletionDeps> = {}) {
 }
 
 describe('runAssetDeletion', () => {
-  it('unpins every object, then prunes, then removes the row — in that order', async () => {
+  it('unpins all, evicts + marks them, prunes, then removes the row', async () => {
     const { deps, calls } = makeDeps();
 
     const result = await runAssetDeletion(deps, {
@@ -29,37 +35,44 @@ describe('runAssetDeletion', () => {
     });
 
     expect(deps.deleteObject).toHaveBeenCalledTimes(3);
-    expect(deps.deleteObject).toHaveBeenCalledWith('o1');
-    expect(deps.deleteObject).toHaveBeenCalledWith('o2');
-    expect(deps.deleteObject).toHaveBeenCalledWith('o3');
-    expect(calls).toEqual(['delete:o1', 'delete:o2', 'delete:o3', 'prune', 'remove:v1']);
+    expect(deps.evictCache).toHaveBeenCalledWith(['o1', 'o2', 'o3']);
+    expect(deps.markUnpinned).toHaveBeenCalledWith('v1', ['o1', 'o2', 'o3']);
+    expect(deps.removeAsset).toHaveBeenCalledWith('v1');
+    expect(calls).toEqual([
+      'delete:o1',
+      'delete:o2',
+      'delete:o3',
+      'evict:o1+o2+o3',
+      'mark:o1+o2+o3',
+      'prune',
+      'remove:v1',
+    ]);
     expect(result).toEqual({ videoAssetId: 'v1', unpinned: 3, failed: [] });
   });
 
-  it('continues past a failed unpin, still prunes and removes, and reports the straggler', async () => {
+  it('throws on partial failure and does NOT remove the row (so retry/GC re-drive)', async () => {
     const deleteObject = vi.fn(async (id: string) => {
       if (id === 'o2') throw new Error('host down');
     });
     const { deps } = makeDeps({ deleteObject });
 
-    const result = await runAssetDeletion(deps, {
-      videoAssetId: 'v1',
-      objectIds: ['o1', 'o2', 'o3'],
-    });
+    await expect(
+      runAssetDeletion(deps, { videoAssetId: 'v1', objectIds: ['o1', 'o2', 'o3'] }),
+    ).rejects.toThrow(/failed to unpin/);
 
-    expect(deps.deleteObject).toHaveBeenCalledTimes(3);
+    // Only the successful objects are evicted + marked (so the retry re-collects
+    // just o2), the row is kept, and prune still ran.
+    expect(deps.evictCache).toHaveBeenCalledWith(['o1', 'o3']);
+    expect(deps.markUnpinned).toHaveBeenCalledWith('v1', ['o1', 'o3']);
     expect(deps.pruneSlabs).toHaveBeenCalledTimes(1);
-    // The row is still removed so the asset truly disappears.
-    expect(deps.removeAsset).toHaveBeenCalledWith('v1');
-    expect(result.unpinned).toBe(2);
-    expect(result.failed).toEqual(['o2']);
-    expect(deps.logger.warn).toHaveBeenCalled();
+    expect(deps.removeAsset).not.toHaveBeenCalled();
   });
 
-  it('still removes the row when there are no objects to unpin', async () => {
+  it('removes the row when there is nothing to unpin', async () => {
     const { deps } = makeDeps();
     const result = await runAssetDeletion(deps, { videoAssetId: 'v1', objectIds: [] });
     expect(deps.deleteObject).not.toHaveBeenCalled();
+    expect(deps.markUnpinned).not.toHaveBeenCalled();
     expect(deps.removeAsset).toHaveBeenCalledWith('v1');
     expect(result).toEqual({ videoAssetId: 'v1', unpinned: 0, failed: [] });
   });

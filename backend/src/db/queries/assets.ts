@@ -1,4 +1,4 @@
-import { eq, and, desc, lt, sql, isNull, isNotNull, type SQL } from 'drizzle-orm';
+import { eq, and, desc, lt, sql, isNull, isNotNull, inArray, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { videoAssets, artifacts, type VideoAsset, type NewVideoAsset } from '../schema.js';
 import { decodeCursor, paginateRows } from '../../api/pagination.js';
@@ -221,6 +221,37 @@ export async function getAssetObjectIds(assetId: string): Promise<string[]> {
     thumbnailObjectIds: asset?.thumbnailObjectIds ?? [],
     siaObjectIds: (asset?.siaObjectIds ?? []) as string[],
   });
+}
+
+/**
+ * Record that specific objects have been unpinned during a deletion: remove
+ * their artifact rows and strip them from the asset's denormalized id fields.
+ * This is what lets a retried or GC-re-driven deletion converge — the next
+ * `getAssetObjectIds` returns only the objects that still need unpinning.
+ */
+export async function markObjectsUnpinned(assetId: string, unpinnedIds: string[]): Promise<void> {
+  if (unpinnedIds.length === 0) return;
+  const set = new Set(unpinnedIds);
+
+  await db
+    .delete(artifacts)
+    .where(and(eq(artifacts.videoAssetId, assetId), inArray(artifacts.objectId, unpinnedIds)));
+
+  const asset = await db.query.videoAssets.findFirst({
+    where: eq(videoAssets.id, assetId),
+    columns: { manifestObjectId: true, thumbnailObjectIds: true, siaObjectIds: true },
+  });
+  if (!asset) return;
+
+  await db
+    .update(videoAssets)
+    .set({
+      manifestObjectId:
+        asset.manifestObjectId && set.has(asset.manifestObjectId) ? null : asset.manifestObjectId,
+      thumbnailObjectIds: (asset.thumbnailObjectIds ?? []).filter((t) => !set.has(t)),
+      siaObjectIds: ((asset.siaObjectIds ?? []) as string[]).filter((s) => !set.has(s)),
+    })
+    .where(eq(videoAssets.id, assetId));
 }
 
 /**

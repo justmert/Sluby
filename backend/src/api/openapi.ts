@@ -302,32 +302,9 @@ export const openapiDocument = {
     },
 
     // ── Uploads ──
-    '/api/v1/uploads': {
-      post: {
-        tags: ['Uploads'],
-        summary: 'Create an upload session.',
-        'x-required-scope': 'upload',
-        requestBody: {
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  title: { type: 'string' },
-                  description: { type: 'string' },
-                  access_tier: { type: 'string', enum: ['public', 'private'] },
-                },
-                required: ['title'],
-              },
-            },
-          },
-        },
-        responses: {
-          '201': jsonResponse('UploadSession', 'Session created.'),
-          '400': errorResponse,
-        },
-      },
-    },
+    // Uploads are created through the TUS protocol at POST /api/v1/uploads,
+    // which the TUS server handles directly (not a REST JSON route). The REST
+    // surface documented here is status polling and cancellation.
     '/api/v1/uploads/{id}': {
       get: {
         tags: ['Uploads'],

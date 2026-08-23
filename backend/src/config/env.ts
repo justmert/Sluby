@@ -219,6 +219,13 @@ function loadEnv(): Env {
     process.exit(1);
   }
 
+  // AUTH_DISABLED grants every request full manage scope with no key; it must
+  // never be on in production. Mirror the SESSION_SECRET guard and refuse boot.
+  if (process.env.NODE_ENV === 'production' && result.data.AUTH_DISABLED) {
+    console.error('Refusing to start: AUTH_DISABLED=true while NODE_ENV=production.');
+    process.exit(1);
+  }
+
   return result.data;
 }
 

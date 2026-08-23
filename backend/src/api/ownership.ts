@@ -22,6 +22,10 @@ export const PLATFORM_ADDRESS = `0x${'0'.repeat(64)}`;
  * otherwise the address that queries must match.
  */
 export function ownerFilter(creatorAddress: string | undefined): string | undefined {
-  if (!creatorAddress) return undefined;
+  // Only the explicit platform address grants cross-tenant (unfiltered) access.
+  // A genuinely absent identity (undefined, from internal callers) is also
+  // unfiltered, but an empty string is NOT: it must scope to '' (matching no
+  // real asset) so a stray empty address can never become a superuser.
+  if (creatorAddress === undefined) return undefined;
   return creatorAddress === PLATFORM_ADDRESS ? undefined : creatorAddress;
 }

@@ -23,31 +23,30 @@ const client = new SlubyClient({
   deliveryBaseUrl: 'https://cache.sluby.app',
 });
 
-// 1. Create an upload session.
-const { videoAssetId, uploadUrl } = await client.uploads.create({
+// 1. Upload a video via resumable TUS. The asset is created as the upload
+//    begins; read `assetId` to start polling.
+const upload = client.uploads.upload(file, {
   title: 'My Video',
   description: 'Demo upload',
   accessTier: 'public',
-});
-
-// 2. Upload the file (resumable, with progress and pause/resume).
-const upload = client.uploads.uploadFile(uploadUrl, file, {
   onProgress: (percent) => console.log(`${percent}%`),
 });
 // upload.pause(); upload.resume(); upload.abort();
+const videoAssetId = await upload.assetId;
 await upload;
 
-// 3. Wait for processing to finish.
+// 2. Wait for processing to finish.
 const asset = await client.assets.waitForReady(videoAssetId);
 
-// 4. Get an absolute playback URL to hand to a player.
+// 3. Get an absolute playback URL to hand to a player.
 const { playbackUrl } = await client.playback.getUrl(asset.id);
 ```
 
 ## API
 
-- `client.uploads` — `create()`, `uploadFile()` (returns an awaitable handle with
-  `pause()` / `resume()` / `abort()` / `isPaused`), `getStatus()`, `cancel()`.
+- `client.uploads` — `upload()` (resumable TUS; returns an awaitable handle with
+  `pause()` / `resume()` / `abort()` / `isPaused` plus an `assetId` promise),
+  `getStatus()`, `cancel()`.
 - `client.assets` — `list()`, `get()`, `update()`, `delete()`, `waitForReady()`.
 - `client.playback` — `getUrl()` and `getSignedUrl()`, both returning an absolute
   URL (`playbackUrl` / `signedUrl`) resolved against the delivery base, plus the

@@ -149,6 +149,15 @@ describe('SessionManager', () => {
       expect(result).toBeNull();
     });
 
+    it('returns null for another tenant’s session (owner mismatch)', async () => {
+      vi.mocked(deps.getSession).mockResolvedValue(
+        createMockSession({ metadata: { apiKeyId: 'key-1', creatorAddress: '0xowner' } }),
+      );
+
+      const result = await manager.getStatus('session-1', '0xattacker');
+      expect(result).toBeNull();
+    });
+
     it('should return session status with progress', async () => {
       const session = createMockSession({
         fileSize: 1000,
@@ -265,7 +274,18 @@ describe('SessionManager', () => {
       vi.mocked(unlink).mockRejectedValue(new Error('ENOENT'));
 
       // Should not throw
-      await expect(manager.cancel('session-1')).resolves.toBeUndefined();
+      await expect(manager.cancel('session-1')).resolves.toBe(true);
+    });
+
+    it('does not cancel another tenant’s session (owner mismatch)', async () => {
+      vi.mocked(deps.getSession).mockResolvedValue(
+        createMockSession({ metadata: { apiKeyId: 'key-1', creatorAddress: '0xowner' } }),
+      );
+
+      const result = await manager.cancel('session-1', '0xattacker');
+
+      expect(result).toBe(false);
+      expect(deps.updateSession).not.toHaveBeenCalled();
     });
   });
 

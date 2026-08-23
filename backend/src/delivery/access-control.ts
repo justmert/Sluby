@@ -21,39 +21,73 @@ export type AccessTier = 'public' | 'private';
 
 const TIER_TTL_MS = 60_000;
 
-const tierCache = new LRUCache<string, AccessTier | 'unknown'>({
+/**
+ * Delivery decision for an object:
+ * - 'public'  — serve openly
+ * - 'private' — require a valid signed URL (private tier OR a signed-policy handle)
+ * - 'gone'    — the owning asset is being deleted; do not serve (404)
+ * - 'unknown' — no asset claims it; treated as public (carries no private data)
+ */
+export type ObjectTier = AccessTier | 'unknown' | 'gone';
+
+const tierCache = new LRUCache<string, ObjectTier>({
   max: 10_000,
   ttl: TIER_TTL_MS,
 });
 
 /**
- * Returns the access tier for an object id, or 'unknown' when no asset
- * claims it. Callers decide how to treat 'unknown'; the gateway treats it as
- * public because an unclaimed object carries no private asset's data.
+ * Resolve how an object id must be delivered. An object whose owning asset is
+ * soft-deleted resolves to 'gone'; an object whose asset is private OR has a
+ * signed-policy playback id resolves to 'private' (a signature is required
+ * even for a public-tier asset, so a 'signed' handle actually gates the whole
+ * object graph, not just the /v1/stream entry point).
  */
-export async function getObjectAccessTier(objectId: string): Promise<AccessTier | 'unknown'> {
+export async function getObjectAccessTier(objectId: string): Promise<ObjectTier> {
   const cached = tierCache.get(objectId);
   if (cached) return cached;
 
-  let tier: AccessTier | 'unknown' = 'unknown';
+  let tier: ObjectTier = 'unknown';
   try {
-    // If any owning asset is private, treat the object as private. `order by`
-    // puts 'private' first so a single row settles it.
-    const rows = await db.execute<{ access_tier: AccessTier }>(sql`
-      select va.access_tier from artifacts a
-        join video_assets va on va.id = a.video_asset_id
-        where a.object_id = ${objectId}
-      union
-      select va.access_tier from video_assets va
-        where va.manifest_object_id = ${objectId}
-           or ${objectId} = any(va.thumbnail_object_ids)
-           or va.sia_object_ids @> to_jsonb(${objectId}::text)
-      order by access_tier
+    const rows = await db.execute<{
+      access_tier: AccessTier;
+      deleted_at: string | null;
+      has_signed: boolean;
+    }>(sql`
+      select
+        va.access_tier,
+        va.deleted_at,
+        exists(
+          select 1 from playback_ids p
+          where p.video_asset_id = va.id and p.policy = 'signed'
+        ) as has_signed
+      from video_assets va
+      where va.id in (
+        select a.video_asset_id from artifacts a where a.object_id = ${objectId}
+        union
+        select va2.id from video_assets va2
+          where va2.manifest_object_id = ${objectId}
+             or ${objectId} = any(va2.thumbnail_object_ids)
+             or va2.sia_object_ids @> to_jsonb(${objectId}::text)
+      )
+      -- Prefer a deleted asset (so its objects stop being served), then a
+      -- private one, so a single row settles the decision.
+      order by (va.deleted_at is not null) desc, va.access_tier
       limit 1
     `);
 
-    const first = (rows as unknown as Array<{ access_tier: AccessTier }>)[0];
-    if (first?.access_tier) tier = first.access_tier;
+    const first = (
+      rows as unknown as Array<{
+        access_tier: AccessTier;
+        deleted_at: string | null;
+        has_signed: boolean;
+      }>
+    )[0];
+
+    if (first) {
+      if (first.deleted_at) tier = 'gone';
+      else if (first.access_tier === 'private' || first.has_signed) tier = 'private';
+      else tier = 'public';
+    }
   } catch (err) {
     // Fail closed: if we cannot determine the tier we must not hand out bytes
     // that might belong to a private asset.

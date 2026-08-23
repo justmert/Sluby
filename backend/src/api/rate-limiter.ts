@@ -48,6 +48,9 @@ export function rateLimiter(defaultLimit = 100, windowMs = 60_000) {
 
     if (entry.count > limit) {
       logger.warn({ key, count: entry.count, limit }, 'Rate limit exceeded');
+      // The standard header clients (and the SDK's RateLimitError.retryAfter)
+      // read; keep the body field too for convenience.
+      res.set('Retry-After', String(reset));
       res.status(429).json({
         error: 'Rate limit exceeded',
         retryAfter: reset,

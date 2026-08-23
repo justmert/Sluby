@@ -6,32 +6,39 @@ import { deleteObject, pruneSlabs } from '../storage/sia-client.js';
 import {
   deleteVideoAsset,
   getAssetObjectIds,
+  markObjectsUnpinned,
   listAssetsPendingDeletion,
 } from '../db/queries/assets.js';
+import { evictObjects } from '../storage/blob-manager.js';
+import { invalidateObjectAccessTier } from '../delivery/access-control.js';
 import { runAssetDeletion } from './deleter.js';
 import { buildDeletionGc } from './service.js';
 
 const logger = pino({ name: 'deletion-worker' });
 
-/** Enqueue a fresh deletion attempt. GC re-drives use a unique job id so a
- *  prior failed job (kept for inspection) does not block re-adding. */
-async function enqueueDeletion(
-  data: { videoAssetId: string; objectIds: string[] },
-  opts: { jobId?: string } = {},
-): Promise<void> {
-  await deletionQueue.add('delete', { kind: 'delete', ...data }, opts);
+/** Enqueue a deletion attempt. GC re-drives use a unique job id so a prior
+ *  failed job (kept for inspection) does not block re-adding. */
+async function enqueueDeletion(videoAssetId: string, opts: { jobId?: string } = {}): Promise<void> {
+  await deletionQueue.add('delete', { kind: 'delete', videoAssetId }, opts);
+}
+
+/** Drop unpinned objects from both the LRU blob cache and the tier cache. */
+function evictCache(objectIds: string[]): void {
+  evictObjects(objectIds);
+  for (const id of objectIds) invalidateObjectAccessTier(id);
 }
 
 const runGc = buildDeletionGc({
   listPending: () => listAssetsPendingDeletion(env.DELETION_STUCK_THRESHOLD_MS),
-  collectObjectIds: (id) => getAssetObjectIds(id),
-  enqueue: (data) => enqueueDeletion(data, { jobId: `redrive-${data.videoAssetId}-${Date.now()}` }),
+  enqueue: (id) => enqueueDeletion(id, { jobId: `redrive-${id}-${Date.now()}` }),
   logger,
 });
 
 /**
  * BullMQ worker for the deletion queue. A `delete` job unpins one asset's
- * objects and removes its row; a `gc` job re-drives stuck deletions.
+ * objects and removes its row; a `gc` job re-drives stuck deletions. Object
+ * ids are collected fresh on every attempt, so a retry only re-attempts the
+ * objects that still remain (markObjectsUnpinned removes the rest).
  */
 export const deletionWorker = new Worker<DeletionJobData>(
   'deletion',
@@ -41,12 +48,16 @@ export const deletionWorker = new Worker<DeletionJobData>(
       return { redriven };
     }
 
-    const { videoAssetId, objectIds } = job.data;
+    const { videoAssetId } = job.data;
+    const objectIds = await getAssetObjectIds(videoAssetId);
     logger.info({ videoAssetId, objectCount: objectIds.length }, 'Starting asset deletion');
+
     return runAssetDeletion(
       {
         deleteObject,
         pruneSlabs,
+        markUnpinned: markObjectsUnpinned,
+        evictCache,
         removeAsset: async (id) => {
           await deleteVideoAsset(id);
         },

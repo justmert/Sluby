@@ -3,17 +3,17 @@ import * as tus from 'tus-js-client';
 import { UploadManager } from './uploads.js';
 import type { FetchFn } from './uploads.js';
 
-// Fake tus Upload capturing the options and exposing spy control methods, so
-// we can drive progress/success and assert pause/resume/abort wiring.
+// Fake tus Upload capturing options + exposing spy control methods, so we can
+// drive the creation response, progress, success/error, and pause/resume.
 vi.mock('tus-js-client', () => {
   class Upload {
     static instances: Upload[] = [];
-    options: Record<string, (...args: unknown[]) => void>;
+    options: Record<string, (...args: unknown[]) => unknown>;
     start = vi.fn();
     abort = vi.fn<(shouldTerminate?: boolean) => Promise<void>>().mockResolvedValue(undefined);
     findPreviousUploads = vi.fn().mockResolvedValue([]);
     resumeFromPreviousUpload = vi.fn();
-    constructor(_file: unknown, options: Record<string, (...args: unknown[]) => void>) {
+    constructor(_file: unknown, options: Record<string, (...args: unknown[]) => unknown>) {
       this.options = options;
       Upload.instances.push(this);
     }
@@ -24,21 +24,25 @@ vi.mock('tus-js-client', () => {
 function lastUpload() {
   const instances = (tus as unknown as { Upload: { instances: unknown[] } }).Upload.instances;
   return instances[instances.length - 1] as {
-    options: Record<string, (...args: unknown[]) => void>;
+    options: Record<string, (...args: unknown[]) => unknown>;
     start: ReturnType<typeof vi.fn>;
     abort: ReturnType<typeof vi.fn>;
   };
 }
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
+function metadataHeader(videoAssetId: string): string {
+  const b64 =
+    typeof btoa === 'function'
+      ? btoa(videoAssetId)
+      : Buffer.from(videoAssetId, 'utf8').toString('base64');
+  return `videoAssetId ${b64},filename ${Buffer.from('v.mp4').toString('base64')}`;
+}
 
-// ---------------------------------------------------------------------------
-// Mock fetch function (the internal _fetch passed from the client)
-// ---------------------------------------------------------------------------
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
 let mockFetch: ReturnType<typeof vi.fn<FetchFn>>;
 
-function makeJsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown): Response {
   return {
     ok: true,
     status: 200,
@@ -52,214 +56,134 @@ beforeEach(() => {
   (tus as unknown as { Upload: { instances: unknown[] } }).Upload.instances = [];
 });
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+describe('UploadManager.upload()', () => {
+  const make = () => new UploadManager(mockFetch, 'sluby_key', 'https://api.test');
 
-describe('UploadManager.create()', () => {
-  it('should POST to /api/v1/uploads with snake_case body', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({
-        video_asset_id: 'vid_123',
-        upload_url: 'https://tus.sluby.app/upload/abc',
-      }),
-    );
-
-    const manager = new UploadManager(mockFetch, 'sluby_key');
-    const result = await manager.create({
+  it('drives TUS at the collection endpoint with metadata and auth', async () => {
+    const handle = make().upload(Buffer.from('data'), {
       title: 'My Video',
-      description: 'A test video',
-      accessTier: 'public',
+      description: 'desc',
+      accessTier: 'private',
     });
-
-    // Verify the request
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: 'My Video',
-        description: 'A test video',
-        access_tier: 'public',
-      }),
-    });
-
-    // Verify snake_case -> camelCase mapping
-    expect(result).toEqual({
-      videoAssetId: 'vid_123',
-      uploadUrl: 'https://tus.sluby.app/upload/abc',
-    });
-  });
-
-  it('should send correct body when no optional fields provided', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({
-        video_asset_id: 'vid_456',
-        upload_url: 'https://tus.sluby.app/upload/def',
-      }),
-    );
-
-    const manager = new UploadManager(mockFetch, 'sluby_key');
-    await manager.create({
-      title: 'Public Video',
-      description: 'Public',
-      accessTier: 'public',
-    });
-
-    const [, init] = mockFetch.mock.calls[0];
-    const body = JSON.parse(init!.body as string);
-    expect(body).toEqual({
-      title: 'Public Video',
-      description: 'Public',
-      access_tier: 'public',
-    });
-  });
-});
-
-describe('UploadManager.getStatus()', () => {
-  it('should GET /api/v1/uploads/:id and map snake_case response', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({
-        id: 'upload_1',
-        video_asset_id: 'vid_1',
-        upload_url: 'https://tus.example.com/u',
-        status: 'uploading',
-        progress_percent: 45,
-        file_size: 10000000,
-        uploaded_bytes: 4500000,
-      }),
-    );
-
-    const manager = new UploadManager(mockFetch, 'sluby_key');
-    const result = await manager.getStatus('upload_1');
-
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/upload_1');
-
-    expect(result).toEqual({
-      id: 'upload_1',
-      videoAssetId: 'vid_1',
-      uploadUrl: 'https://tus.example.com/u',
-      status: 'uploading',
-      progressPercent: 45,
-      fileSize: 10000000,
-      uploadedBytes: 4500000,
-    });
-  });
-
-  it('should encode special characters in upload ID', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({
-        id: 'a/b',
-        video_asset_id: 'v',
-        upload_url: 'u',
-        status: 'created',
-        progress_percent: 0,
-        file_size: 0,
-        uploaded_bytes: 0,
-      }),
-    );
-
-    const manager = new UploadManager(mockFetch, 'sluby_key');
-    await manager.getStatus('a/b');
-
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/a%2Fb');
-  });
-});
-
-describe('UploadManager.uploadFile()', () => {
-  it('starts the upload, reports progress, and resolves on success', async () => {
-    const manager = new UploadManager(mockFetch, 'sluby_key');
-    const onProgress = vi.fn();
-    const onSuccess = vi.fn();
-
-    const handle = manager.uploadFile('https://tus/upload', Buffer.from('data'), {
-      onProgress,
-      onSuccess,
-    });
-    await flush(); // let findPreviousUploads().then(start) run
+    await flush();
 
     const up = lastUpload();
-    expect(up.start).toHaveBeenCalledTimes(1);
+    expect(up.options.endpoint).toBe('https://api.test/api/v1/uploads');
     expect(up.options.headers).toMatchObject({ Authorization: 'Bearer sluby_key' });
+    expect(up.options.metadata).toMatchObject({
+      title: 'My Video',
+      description: 'desc',
+      accessTier: 'private',
+    });
+    // Single stream only — parallelUploads would mint multiple assets.
+    expect(up.options.parallelUploads).toBeUndefined();
+    expect(up.start).toHaveBeenCalledTimes(1);
 
-    // tus reports raw bytes; the SDK forwards percent + raw bytes.
-    up.options.onProgress(50, 200);
+    (up.options.onSuccess as () => void)();
+    await handle;
+  });
+
+  it('resolves assetId from the Upload-Metadata creation response header', async () => {
+    const handle = make().upload(Buffer.from('data'), { title: 'T' });
+    await flush();
+    const up = lastUpload();
+
+    (up.options.onAfterResponse as (req: unknown, res: unknown) => void)(
+      {},
+      {
+        getHeader: (name: string) =>
+          name === 'Upload-Metadata' ? metadataHeader('asset-9') : undefined,
+      },
+    );
+
+    await expect(handle.assetId).resolves.toBe('asset-9');
+
+    (up.options.onSuccess as () => void)();
+    await handle;
+  });
+
+  it('reports progress as percent plus raw bytes, and resolves on success', async () => {
+    const onProgress = vi.fn();
+    const onSuccess = vi.fn();
+    const handle = make().upload(Buffer.from('data'), { title: 'T', onProgress, onSuccess });
+    await flush();
+    const up = lastUpload();
+
+    (up.options.onProgress as (a: number, b: number) => void)(50, 200);
     expect(onProgress).toHaveBeenCalledWith(25, 50, 200);
 
-    up.options.onSuccess();
+    (up.options.onSuccess as () => void)();
     await expect(handle).resolves.toBeUndefined();
     expect(onSuccess).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects and calls onError on unrecoverable failure', async () => {
-    const manager = new UploadManager(mockFetch, 'sluby_key');
-    const onError = vi.fn();
-    const handle = manager.uploadFile('https://tus/upload', Buffer.from('data'), { onError });
+  it('rejects the handle and assetId on unrecoverable error', async () => {
+    const handle = make().upload(Buffer.from('data'), { title: 'T' });
     await flush();
-
     const up = lastUpload();
+
     const boom = new Error('network down');
-    up.options.onError(boom);
+    (up.options.onError as (e: Error) => void)(boom);
 
     await expect(handle).rejects.toThrow('network down');
-    expect(onError).toHaveBeenCalledWith(boom);
+    await expect(handle.assetId).rejects.toThrow('network down');
   });
 
-  it('pause() aborts without terminating and flips isPaused; resume() restarts', async () => {
-    const manager = new UploadManager(mockFetch, 'sluby_key');
-    const handle = manager.uploadFile('https://tus/upload', Buffer.from('data'));
+  it('supports pause / resume / abort', async () => {
+    const handle = make().upload(Buffer.from('data'), { title: 'T' });
     await flush();
-
     const up = lastUpload();
-    expect(handle.isPaused).toBe(false);
 
+    expect(handle.isPaused).toBe(false);
     await handle.pause();
     expect(up.abort).toHaveBeenCalledWith(false);
     expect(handle.isPaused).toBe(true);
 
     handle.resume();
     expect(handle.isPaused).toBe(false);
-    // start(): once on initial launch, once on resume.
     expect(up.start).toHaveBeenCalledTimes(2);
 
-    // Settle the pending promise so the test does not leak it.
-    up.options.onSuccess();
-    await handle;
-  });
-
-  it('abort() terminates the upload', async () => {
-    const manager = new UploadManager(mockFetch, 'sluby_key');
-    const handle = manager.uploadFile('https://tus/upload', Buffer.from('data'));
-    await flush();
-
-    const up = lastUpload();
     await handle.abort();
     expect(up.abort).toHaveBeenCalledWith(true);
 
-    up.options.onSuccess();
+    (up.options.onSuccess as () => void)();
     await handle;
   });
 });
 
-describe('UploadManager.cancel()', () => {
-  it('should DELETE /api/v1/uploads/:id', async () => {
-    mockFetch.mockResolvedValueOnce(makeJsonResponse({}));
+describe('UploadManager.getStatus()', () => {
+  it('reads the snake_case status the server sends', async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        id: 'session-1',
+        video_asset_id: 'vid-1',
+        status: 'uploading',
+        progress_percent: 45,
+        file_size: 1000,
+        uploaded_bytes: 450,
+      }),
+    );
 
-    const manager = new UploadManager(mockFetch, 'sluby_key');
-    await manager.cancel('upload_1');
+    const result = await new UploadManager(mockFetch, 'k', 'https://api.test').getStatus(
+      'session-1',
+    );
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/upload_1', {
-      method: 'DELETE',
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/session-1');
+    expect(result).toEqual({
+      id: 'session-1',
+      videoAssetId: 'vid-1',
+      status: 'uploading',
+      progressPercent: 45,
+      fileSize: 1000,
+      uploadedBytes: 450,
     });
   });
+});
 
-  it('should encode the upload ID', async () => {
-    mockFetch.mockResolvedValueOnce(makeJsonResponse({}));
-
-    const manager = new UploadManager(mockFetch, 'sluby_key');
-    await manager.cancel('id with spaces');
-
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/id%20with%20spaces', {
-      method: 'DELETE',
-    });
+describe('UploadManager.cancel()', () => {
+  it('DELETEs the session', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    await new UploadManager(mockFetch, 'k', 'https://api.test').cancel('session-1');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/session-1', { method: 'DELETE' });
   });
 });

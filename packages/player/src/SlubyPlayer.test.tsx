@@ -351,5 +351,67 @@ describe('SlubyPlayer', () => {
       );
       expect(client.playback.getSignedUrl).toHaveBeenCalledWith('abc', { expiresIn: 120 });
     });
+
+    it('Retry re-runs a failed URL resolution (not stuck on the spinner)', async () => {
+      const getUrl = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('resolve failed'))
+        .mockResolvedValueOnce({ playbackUrl: 'https://cache.test/ok.m3u8', posterUrl: null });
+      const client = {
+        resolveDeliveryUrl: (p: string) => p,
+        playback: { getUrl, getSignedUrl: vi.fn() },
+      };
+
+      const { container } = render(<SlubyPlayer client={client} assetId="abc" />);
+
+      // First resolution rejects → error overlay with a Retry button.
+      const retry = await waitFor(() => {
+        const btn = container.querySelector('[data-sluby-overlay="error"] button');
+        if (!btn) throw new Error('no error overlay yet');
+        return btn as HTMLButtonElement;
+      });
+
+      act(() => retry.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+      // Retry re-resolves and this time loads the source.
+      await waitFor(() =>
+        expect(mockLoadSource).toHaveBeenCalledWith('https://cache.test/ok.m3u8'),
+      );
+      expect(getUrl).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('timer safety', () => {
+    it('does not fire a scheduled reload after a later fatal error destroys hls', () => {
+      vi.useFakeTimers();
+      try {
+        const onError = vi.fn();
+        render(<SlubyPlayer src={SRC} onError={onError} maxNetworkRetries={3} />);
+
+        // A network error schedules a backoff reload (startLoad via setTimeout).
+        fireHls(MockHlsEvents.ERROR, {
+          fatal: true,
+          type: MockHlsErrorTypes.NETWORK_ERROR,
+          details: 'net',
+        });
+        // Before the backoff fires, an unrecoverable error gives up + destroys.
+        fireHls(MockHlsEvents.ERROR, {
+          fatal: true,
+          type: MockHlsErrorTypes.OTHER_ERROR,
+          details: 'boom',
+        });
+        expect(mockDestroy).toHaveBeenCalledTimes(1);
+
+        // Advancing past the backoff must NOT call startLoad on the destroyed
+        // instance (the timer was cleared on give-up).
+        act(() => {
+          vi.advanceTimersByTime(5000);
+        });
+        expect(mockStartLoad).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
