@@ -307,13 +307,25 @@ function bytesToStream(data: Uint8Array): ReadableStream<Uint8Array> {
   });
 }
 
+/**
+ * Erasure-coding options for uploads. Only pass a shard ratio when the
+ * operator explicitly configured BOTH; otherwise omit it so the indexer uses
+ * its account default. A below-policy ratio (e.g. the Zen testnet's 2/4) makes
+ * a mainnet / sia.storage upload fail immediately with "cannot add object to a
+ * finalized upload".
+ */
+function erasureOptions(): NapiUploadOptions | undefined {
+  if (env.SIA_DATA_SHARDS != null && env.SIA_PARITY_SHARDS != null) {
+    return { dataShards: env.SIA_DATA_SHARDS, parityShards: env.SIA_PARITY_SHARDS };
+  }
+  return undefined;
+}
+
 /** Upload a single Uint8Array as one packed object. */
 export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
   const sdk = await getClient();
-  const packed = sdk.uploadPacked({
-    dataShards: env.SIA_DATA_SHARDS,
-    parityShards: env.SIA_PARITY_SHARDS,
-  });
+  const opts = erasureOptions();
+  const packed = opts ? sdk.uploadPacked(opts) : sdk.uploadPacked();
   await packed.add(bytesToStream(data));
   const objects = await packed.finalize();
   if (objects.length !== 1) {
@@ -334,10 +346,8 @@ export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
 export async function uploadAndPinPacked(items: Uint8Array[]): Promise<UploadResult[]> {
   if (items.length === 0) return [];
   const sdk = await getClient();
-  const packed = sdk.uploadPacked({
-    dataShards: env.SIA_DATA_SHARDS,
-    parityShards: env.SIA_PARITY_SHARDS,
-  });
+  const opts = erasureOptions();
+  const packed = opts ? sdk.uploadPacked(opts) : sdk.uploadPacked();
   for (const data of items) {
     await packed.add(bytesToStream(data));
   }
