@@ -43,8 +43,16 @@ export interface UploadSession {
 
 /** Playback information for a video asset. */
 export interface PlaybackInfo {
+  /**
+   * Absolute HLS master manifest URL, resolved against the client's delivery
+   * base URL. This is what you hand to the player; the browser fetches the
+   * manifest and every segment directly from Sia-backed delivery.
+   */
   playbackUrl: string;
-  posterUrl: string;
+  /** The raw server-relative manifest path, before delivery-base resolution. */
+  playbackPath: string;
+  /** Absolute poster image URL, or null when the asset has no thumbnail. */
+  posterUrl: string | null;
   durationMs: number;
   resolution: string;
   accessTier: AccessTier;
@@ -52,7 +60,11 @@ export interface PlaybackInfo {
 
 /** Time-limited signed playback URL for gated content. */
 export interface SignedPlaybackInfo {
+  /** Absolute signed HLS master manifest URL, resolved against delivery base. */
   signedUrl: string;
+  /** The raw server-relative signed path, before delivery-base resolution. */
+  signedPath: string;
+  /** ISO-8601 timestamp at which the signed URL stops working. */
   expiresAt: string;
 }
 
@@ -101,10 +113,30 @@ export interface UploadFileOptions {
   /** Retry delay sequence in milliseconds. Default: [0, 1000, 3000, 5000]. */
   retryDelays?: number[];
   /** Called periodically with the upload progress percentage (0-100). */
-  onProgress?: (percent: number) => void;
+  onProgress?: (percent: number, bytesUploaded: number, bytesTotal: number) => void;
+  /** Called once when the upload finishes successfully. */
+  onSuccess?: () => void;
   /** Called when an unrecoverable upload error occurs. */
   onError?: (error: Error) => void;
 }
+
+/**
+ * Awaitable upload handle returned by `uploads.uploadFile`.
+ *
+ * `await`-ing the handle resolves when the upload completes (or rejects on an
+ * unrecoverable error / termination). The control methods let you pause,
+ * resume, and abort a resumable upload while it is in flight.
+ */
+export type UploadHandle = Promise<void> & {
+  /** Pause the upload; the partial upload is retained and can be resumed. */
+  pause: () => Promise<void>;
+  /** Resume a paused upload from where it stopped. */
+  resume: () => void;
+  /** Abort and terminate the upload permanently (discards server-side state). */
+  abort: () => Promise<void>;
+  /** Whether the upload is currently paused. */
+  readonly isPaused: boolean;
+};
 
 /** Options for listing video assets. */
 export interface ListAssetsOptions {
@@ -126,8 +158,17 @@ export interface PaginatedResponse<T> {
 export interface SlubyConfig {
   /** API key (Bearer token). */
   apiKey: string;
-  /** Base URL of the Sluby API (e.g. "https://api.sluby.app"). */
+  /** Base URL of the Sluby REST API (e.g. "https://api.sluby.app"). */
   baseUrl: string;
+  /**
+   * Base URL the browser fetches HLS bytes from directly: the delivery /
+   * object gateway, optionally an nginx cache in front of it. Playback URLs
+   * are resolved against this so the player retrieves manifests and segments
+   * straight from Sia-backed delivery instead of through the REST API.
+   *
+   * Defaults to `baseUrl` when omitted.
+   */
+  deliveryBaseUrl?: string;
 }
 
 /** Webhook event payload delivered to registered endpoints. */

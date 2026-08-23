@@ -4,7 +4,6 @@
 
 // Primary client
 export { SlubyClient } from './client.js';
-export { SlubyClient as default } from './client.js';
 
 // Sub-managers (for advanced typing or standalone use)
 export { UploadManager } from './uploads.js';
@@ -34,6 +33,7 @@ export type {
   CreateUploadOptions,
   CreateUploadResult,
   UploadFileOptions,
+  UploadHandle,
   ListAssetsOptions,
   PaginatedResponse,
   SlubyConfig,

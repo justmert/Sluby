@@ -101,6 +101,55 @@ describe('SlubyClient constructor', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tests: delivery URL resolution
+// ---------------------------------------------------------------------------
+
+describe('SlubyClient.resolveDeliveryUrl', () => {
+  it('defaults the delivery base to the API base', () => {
+    const client = new SlubyClient({ apiKey: 'k', baseUrl: 'https://api.sluby.app' });
+    expect(client.resolveDeliveryUrl('/v1/objects/x')).toBe('https://api.sluby.app/v1/objects/x');
+  });
+
+  it('uses a distinct delivery base when provided (and trims its slash)', () => {
+    const client = new SlubyClient({
+      apiKey: 'k',
+      baseUrl: 'https://api.sluby.app',
+      deliveryBaseUrl: 'https://cache.sluby.app/',
+    });
+    expect(client.resolveDeliveryUrl('/v1/objects/x')).toBe('https://cache.sluby.app/v1/objects/x');
+  });
+
+  it('passes an already-absolute URL through unchanged', () => {
+    const client = new SlubyClient({ apiKey: 'k', baseUrl: 'https://api.sluby.app' });
+    expect(client.resolveDeliveryUrl('https://other.example/x')).toBe('https://other.example/x');
+  });
+
+  it('resolves playback URLs through the delivery base', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      makeResponse(200, {
+        playback_url: '/v1/objects/abc?type=manifest',
+        poster_url: null,
+        duration_ms: 1,
+        resolution: '1x1',
+        access_tier: 'public',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new SlubyClient({
+      apiKey: 'k',
+      baseUrl: 'https://api.sluby.app',
+      deliveryBaseUrl: 'https://cache.sluby.app',
+    });
+    const info = await client.playback.getUrl('abc');
+    expect(info.playbackUrl).toBe('https://cache.sluby.app/v1/objects/abc?type=manifest');
+    expect(info.playbackPath).toBe('/v1/objects/abc?type=manifest');
+
+    vi.unstubAllGlobals();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests: _fetch (via sub-managers)
 // ---------------------------------------------------------------------------
 

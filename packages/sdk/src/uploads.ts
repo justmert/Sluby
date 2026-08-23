@@ -7,6 +7,7 @@ import type {
   CreateUploadOptions,
   CreateUploadResult,
   UploadFileOptions,
+  UploadHandle,
   UploadSession,
 } from './types.js';
 
@@ -67,18 +68,38 @@ export class UploadManager {
    * support, progress reporting, and configurable retry behaviour.
    *
    * Works in both browser (File / Blob) and Node.js (Buffer) environments.
+   *
+   * Returns an awaitable {@link UploadHandle}: `await` it to wait for the
+   * upload to finish, or use `pause()` / `resume()` / `abort()` to control an
+   * in-flight upload.
+   *
+   * @example
+   * ```ts
+   * const upload = client.uploads.uploadFile(uploadUrl, file, {
+   *   onProgress: (pct) => console.log(`${pct}%`),
+   * });
+   * pauseButton.onclick = () => upload.pause();
+   * resumeButton.onclick = () => upload.resume();
+   * await upload; // resolves when complete
+   * ```
    */
   uploadFile(
     uploadUrl: string,
     file: File | Blob | Buffer,
     options?: UploadFileOptions,
-  ): Promise<void> {
+  ): UploadHandle {
     const chunkSize = options?.chunkSize ?? DEFAULT_CHUNK_SIZE;
     const parallelUploads = options?.parallelUploads ?? DEFAULT_PARALLEL_UPLOADS;
     const retryDelays = options?.retryDelays ?? DEFAULT_RETRY_DELAYS;
 
-    return new Promise<void>((resolve, reject) => {
-      const upload = new tus.Upload(file as tus.Upload['file'], {
+    let paused = false;
+
+    // The Upload is constructed synchronously inside the executor, so `upload`
+    // is assigned before uploadFile returns and the control methods are safe.
+    let upload!: tus.Upload;
+
+    const done = new Promise<void>((resolve, reject) => {
+      upload = new tus.Upload(file as tus.Upload['file'], {
         endpoint: uploadUrl,
         chunkSize,
         parallelUploads,
@@ -91,30 +112,54 @@ export class UploadManager {
         onProgress: (bytesUploaded: number, bytesTotal: number) => {
           if (options?.onProgress && bytesTotal > 0) {
             const percent = Math.round((bytesUploaded / bytesTotal) * 100);
-            options.onProgress(percent);
+            options.onProgress(percent, bytesUploaded, bytesTotal);
           }
         },
 
         onSuccess: () => {
+          options?.onSuccess?.();
           resolve();
         },
 
         onError: (error: Error) => {
-          if (options?.onError) {
-            options.onError(error);
-          }
+          options?.onError?.(error);
           reject(error);
         },
       });
 
       // Check for a previous incomplete upload that can be resumed.
       upload.findPreviousUploads().then((previousUploads) => {
+        // If the caller paused before we got here, do not auto-start.
+        if (paused) return;
         if (previousUploads.length > 0) {
           upload.resumeFromPreviousUpload(previousUploads[0]);
         }
         upload.start();
       });
     });
+
+    const handle = done as UploadHandle;
+    handle.pause = async () => {
+      paused = true;
+      // abort(false) stops uploading but keeps the partial upload resumable.
+      await upload.abort(false);
+    };
+    handle.resume = () => {
+      if (!paused) return;
+      paused = false;
+      upload.start();
+    };
+    handle.abort = async () => {
+      paused = false;
+      // abort(true) terminates the upload and discards server-side state.
+      await upload.abort(true);
+    };
+    Object.defineProperty(handle, 'isPaused', {
+      get: () => paused,
+      enumerable: true,
+    });
+
+    return handle;
   }
 
   // -----------------------------------------------------------------------

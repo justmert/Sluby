@@ -63,11 +63,13 @@ export class SlubyClient {
       throw new Error('SlubyClient requires a non-empty baseUrl.');
     }
 
-    // Normalise the base URL: remove trailing slash to simplify path
-    // concatenation.
+    // Normalise the base URLs: remove trailing slashes to simplify path
+    // concatenation. The delivery base defaults to the API base.
+    const baseUrl = config.baseUrl.replace(/\/+$/, '');
     this._config = {
       ...config,
-      baseUrl: config.baseUrl.replace(/\/+$/, ''),
+      baseUrl,
+      deliveryBaseUrl: (config.deliveryBaseUrl ?? baseUrl).replace(/\/+$/, ''),
     };
 
     // Bind the internal fetch helper and pass it to each sub-manager so
@@ -76,8 +78,27 @@ export class SlubyClient {
 
     this.uploads = new UploadManager(boundFetch, this._config.apiKey);
     this.assets = new AssetManager(boundFetch);
-    this.playback = new PlaybackManager(boundFetch);
+    this.playback = new PlaybackManager(boundFetch, this.resolveDeliveryUrl.bind(this));
     this.webhooks = new WebhookManager();
+  }
+
+  // -----------------------------------------------------------------------
+  // Delivery URL resolution
+  // -----------------------------------------------------------------------
+
+  /**
+   * Resolve a server-relative delivery path (e.g. `/v1/objects/abc?type=manifest`)
+   * into an absolute URL the browser fetches directly from Sia-backed delivery.
+   *
+   * Absolute URLs are returned unchanged, so it is safe to call on values that
+   * may already be fully qualified.
+   */
+  resolveDeliveryUrl(pathOrUrl: string): string {
+    if (/^https?:\/\//i.test(pathOrUrl)) {
+      return pathOrUrl;
+    }
+    const base = this._config.deliveryBaseUrl ?? this._config.baseUrl;
+    return `${base}${pathOrUrl.startsWith('/') ? '' : '/'}${pathOrUrl}`;
   }
 
   // -----------------------------------------------------------------------

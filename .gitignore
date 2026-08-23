@@ -52,3 +52,6 @@ reference-app/
 !README.md
 !CONTRIBUTING.md
 sia/
+
+# internal working artifacts (plans, notes, scratch)
+resources/

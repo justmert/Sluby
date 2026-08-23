@@ -1,6 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as tus from 'tus-js-client';
 import { UploadManager } from './uploads.js';
 import type { FetchFn } from './uploads.js';
+
+// Fake tus Upload capturing the options and exposing spy control methods, so
+// we can drive progress/success and assert pause/resume/abort wiring.
+vi.mock('tus-js-client', () => {
+  class Upload {
+    static instances: Upload[] = [];
+    options: Record<string, (...args: unknown[]) => void>;
+    start = vi.fn();
+    abort = vi.fn<(shouldTerminate?: boolean) => Promise<void>>().mockResolvedValue(undefined);
+    findPreviousUploads = vi.fn().mockResolvedValue([]);
+    resumeFromPreviousUpload = vi.fn();
+    constructor(_file: unknown, options: Record<string, (...args: unknown[]) => void>) {
+      this.options = options;
+      Upload.instances.push(this);
+    }
+  }
+  return { Upload };
+});
+
+function lastUpload() {
+  const instances = (tus as unknown as { Upload: { instances: unknown[] } }).Upload.instances;
+  return instances[instances.length - 1] as {
+    options: Record<string, (...args: unknown[]) => void>;
+    start: ReturnType<typeof vi.fn>;
+    abort: ReturnType<typeof vi.fn>;
+  };
+}
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
 // ---------------------------------------------------------------------------
 // Mock fetch function (the internal _fetch passed from the client)
@@ -19,6 +49,7 @@ function makeJsonResponse(body: unknown): Response {
 
 beforeEach(() => {
   mockFetch = vi.fn<FetchFn>();
+  (tus as unknown as { Upload: { instances: unknown[] } }).Upload.instances = [];
 });
 
 // ---------------------------------------------------------------------------
@@ -131,6 +162,81 @@ describe('UploadManager.getStatus()', () => {
     await manager.getStatus('a/b');
 
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/a%2Fb');
+  });
+});
+
+describe('UploadManager.uploadFile()', () => {
+  it('starts the upload, reports progress, and resolves on success', async () => {
+    const manager = new UploadManager(mockFetch, 'sluby_key');
+    const onProgress = vi.fn();
+    const onSuccess = vi.fn();
+
+    const handle = manager.uploadFile('https://tus/upload', Buffer.from('data'), {
+      onProgress,
+      onSuccess,
+    });
+    await flush(); // let findPreviousUploads().then(start) run
+
+    const up = lastUpload();
+    expect(up.start).toHaveBeenCalledTimes(1);
+    expect(up.options.headers).toMatchObject({ Authorization: 'Bearer sluby_key' });
+
+    // tus reports raw bytes; the SDK forwards percent + raw bytes.
+    up.options.onProgress(50, 200);
+    expect(onProgress).toHaveBeenCalledWith(25, 50, 200);
+
+    up.options.onSuccess();
+    await expect(handle).resolves.toBeUndefined();
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects and calls onError on unrecoverable failure', async () => {
+    const manager = new UploadManager(mockFetch, 'sluby_key');
+    const onError = vi.fn();
+    const handle = manager.uploadFile('https://tus/upload', Buffer.from('data'), { onError });
+    await flush();
+
+    const up = lastUpload();
+    const boom = new Error('network down');
+    up.options.onError(boom);
+
+    await expect(handle).rejects.toThrow('network down');
+    expect(onError).toHaveBeenCalledWith(boom);
+  });
+
+  it('pause() aborts without terminating and flips isPaused; resume() restarts', async () => {
+    const manager = new UploadManager(mockFetch, 'sluby_key');
+    const handle = manager.uploadFile('https://tus/upload', Buffer.from('data'));
+    await flush();
+
+    const up = lastUpload();
+    expect(handle.isPaused).toBe(false);
+
+    await handle.pause();
+    expect(up.abort).toHaveBeenCalledWith(false);
+    expect(handle.isPaused).toBe(true);
+
+    handle.resume();
+    expect(handle.isPaused).toBe(false);
+    // start(): once on initial launch, once on resume.
+    expect(up.start).toHaveBeenCalledTimes(2);
+
+    // Settle the pending promise so the test does not leak it.
+    up.options.onSuccess();
+    await handle;
+  });
+
+  it('abort() terminates the upload', async () => {
+    const manager = new UploadManager(mockFetch, 'sluby_key');
+    const handle = manager.uploadFile('https://tus/upload', Buffer.from('data'));
+    await flush();
+
+    const up = lastUpload();
+    await handle.abort();
+    expect(up.abort).toHaveBeenCalledWith(true);
+
+    up.options.onSuccess();
+    await handle;
   });
 });
 

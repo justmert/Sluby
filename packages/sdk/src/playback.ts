@@ -10,9 +10,11 @@ import type { FetchFn } from './uploads.js';
  */
 export class PlaybackManager {
   private readonly _fetch: FetchFn;
+  private readonly _resolveDeliveryUrl: (pathOrUrl: string) => string;
 
-  constructor(fetchFn: FetchFn) {
+  constructor(fetchFn: FetchFn, resolveDeliveryUrl: (pathOrUrl: string) => string) {
     this._fetch = fetchFn;
+    this._resolveDeliveryUrl = resolveDeliveryUrl;
   }
 
   // -----------------------------------------------------------------------
@@ -27,9 +29,13 @@ export class PlaybackManager {
     const res = await this._fetch(`/api/v1/playback/${encodeURIComponent(videoAssetId)}`);
     const body = await res.json();
 
+    const playbackPath = body.playback_url as string;
+    const posterPath = (body.poster_url as string | null) ?? null;
+
     return {
-      playbackUrl: body.playback_url as string,
-      posterUrl: body.poster_url as string,
+      playbackUrl: this._resolveDeliveryUrl(playbackPath),
+      playbackPath,
+      posterUrl: posterPath ? this._resolveDeliveryUrl(posterPath) : null,
       durationMs: body.duration_ms as number,
       resolution: body.resolution as string,
       accessTier: body.access_tier as AccessTier,
@@ -65,8 +71,11 @@ export class PlaybackManager {
     const res = await this._fetch(path);
     const body = await res.json();
 
+    const signedPath = body.signed_url as string;
+
     return {
-      signedUrl: body.signed_url as string,
+      signedUrl: this._resolveDeliveryUrl(signedPath),
+      signedPath,
       expiresAt: body.expires_at as string,
     };
   }
