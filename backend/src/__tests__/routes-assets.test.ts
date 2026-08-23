@@ -265,11 +265,11 @@ describe('asset routes', () => {
   });
 
   describe('DELETE /:id', () => {
-    it('should delete an asset and return success', async () => {
+    it('should delete an asset and report the async deletion status', async () => {
       const res = await request(createApp()).delete('/asset-1');
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ success: true });
+      expect(res.body).toEqual({ success: true, status: 'deleting' });
       expect(deps.deleteAsset).toHaveBeenCalledWith('asset-1', '0xabc123');
     });
 

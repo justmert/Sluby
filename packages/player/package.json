@@ -1,0 +1,65 @@
+{
+  "name": "@sluby/player",
+  "version": "0.1.0",
+  "description": "Production-ready React player for Sluby: hls.js with adaptive quality, bounded error recovery, loading states, and Safari native HLS fallback.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "sluby",
+    "sia",
+    "video",
+    "hls",
+    "hls.js",
+    "react",
+    "player"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justmert/sluby.git",
+    "directory": "packages/player"
+  },
+  "homepage": "https://github.com/justmert/sluby/tree/main/packages/player#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "hls.js": "^1.7.1"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19",
+    "react-dom": "^18 || ^19"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^28.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  }
+}

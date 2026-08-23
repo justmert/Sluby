@@ -17,6 +17,7 @@ import { transcode } from '../transcode/ffmpeg-runner.js';
 import { extractThumbnails } from '../transcode/thumbnail-extractor.js';
 import { uploadSegments } from '../storage/segment-uploader.js';
 import { warmObjects } from '../storage/blob-manager.js';
+import { deleteObject } from '../storage/sia-client.js';
 import { updateVideoAsset, getVideoAssetById } from '../db/queries/assets.js';
 import { persistStorageRecords } from '../db/queries/storage-records.js';
 import {
@@ -155,13 +156,19 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
 
     // Enqueue the segment upload job, passing thumbnail file paths so
     // the upload-segments worker can pack them with the manifests.
-    await uploadSegmentsQueue.add('upload-segments', {
-      videoAssetId,
-      uploadSessionId,
-      outputDir,
-      accessTier: videoAsset?.accessTier ?? 'public',
-      thumbnailPaths,
-    });
+    // Deterministic jobId so a stalled/re-run transcode does not enqueue a
+    // second upload-segments job (which would double-pin objects).
+    await uploadSegmentsQueue.add(
+      'upload-segments',
+      {
+        videoAssetId,
+        uploadSessionId,
+        outputDir,
+        accessTier: videoAsset?.accessTier ?? 'public',
+        thumbnailPaths,
+      },
+      { jobId: `upload-${videoAssetId}` },
+    );
 
     logger.info(
       { videoAssetId, jobId: job.id, thumbnailCount: thumbnailPaths.length },
@@ -270,18 +277,24 @@ export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
     const resolution = videoAsset?.resolution ?? '';
 
     // Enqueue the finalize job
-    await finalizeQueue.add('finalize', {
-      videoAssetId,
-      uploadSessionId,
-      manifestObjectId: masterManifestObjectId,
-      thumbnailObjectIds,
-      durationMs,
-      resolution,
-      segmentCount: totalSegments,
-      totalStorageBytes,
-      storageRecords: result.storageRecords,
-      ...(result.allObjectIds ? { siaObjectIds: result.allObjectIds } : {}),
-    });
+    // Deterministic jobId so a re-run upload-segments does not enqueue a
+    // duplicate finalize (which would re-fire the asset.ready webhook).
+    await finalizeQueue.add(
+      'finalize',
+      {
+        videoAssetId,
+        uploadSessionId,
+        manifestObjectId: masterManifestObjectId,
+        thumbnailObjectIds,
+        durationMs,
+        resolution,
+        segmentCount: totalSegments,
+        totalStorageBytes,
+        storageRecords: result.storageRecords,
+        ...(result.allObjectIds ? { siaObjectIds: result.allObjectIds } : {}),
+      },
+      { jobId: `finalize-${videoAssetId}` },
+    );
 
     if (processingJob) {
       await appendProcessingLog(
@@ -351,6 +364,39 @@ export const finalizeWorker = new Worker<FinalizeJobData>(
     } = job.data;
     logger.info({ videoAssetId, jobId: job.id }, 'Starting finalize job');
 
+    // If the asset was deleted while it was still processing, do not resurrect
+    // it. Unpin everything this finalize produced (otherwise those objects are
+    // orphaned on Sia, since the delete worker captured its id list before they
+    // existed) and stop without any DB writes or cache warming.
+    const liveAsset = await getVideoAssetById(videoAssetId);
+    if (!liveAsset) {
+      const orphanIds = [
+        ...new Set(
+          [
+            manifestObjectId,
+            ...thumbnailObjectIds,
+            ...(siaObjectIds ?? []),
+            ...(storageRecords?.artifacts.map((a) => a.objectId) ?? []),
+          ].filter(Boolean),
+        ),
+      ];
+      logger.warn(
+        { videoAssetId, orphanCount: orphanIds.length },
+        'Asset was deleted during processing; unpinning finalize output',
+      );
+      for (const id of orphanIds) {
+        try {
+          await deleteObject(id);
+        } catch (err) {
+          logger.warn(
+            { videoAssetId, objectId: id, err },
+            'Failed to unpin object for deleted asset',
+          );
+        }
+      }
+      return;
+    }
+
     // Look up the processing job for logging
     const processingJob = await getProcessingJobByUploadSessionId(uploadSessionId);
 
@@ -406,6 +452,12 @@ export const finalizeWorker = new Worker<FinalizeJobData>(
         ...new Set([manifestObjectId, ...playlistIds, ...thumbnailObjectIds].filter(Boolean)),
       ];
       await warmObjects(warmIds);
+      // The master manifest is also read from the MANIFEST cache by
+      // GET /v1/stream/:id/master.m3u8, so warm it there too (the call above
+      // only warmed the object cache).
+      if (manifestObjectId) {
+        await warmObjects([manifestObjectId], { isManifest: true });
+      }
       if (processingJob) {
         await appendProcessingLog(
           processingJob.id,

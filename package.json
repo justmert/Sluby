@@ -5,21 +5,22 @@
   "workspaces": [
     "backend",
     "packages/sdk",
-    "packages/react",
-    "frontend"
+    "packages/player",
+    "frontend",
+    "examples/quickstart"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=backend",
     "build": "npm run build --workspaces",
     "build:backend": "npm run build --workspace=backend",
     "build:sdk": "npm run build --workspace=@sluby/sdk",
-    "build:react": "npm run build --workspace=@sluby/react",
+    "build:player": "npm run build --workspace=@sluby/player",
     "dev:frontend": "npm run dev --workspace=sluby-frontend",
     "build:frontend": "npm run build --workspace=sluby-frontend",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit --workspaces"
+    "typecheck": "tsc --noEmit -p backend/tsconfig.json && tsc --noEmit -p packages/sdk/tsconfig.json && tsc --noEmit -p packages/player/tsconfig.json && tsc --noEmit -p frontend/tsconfig.json"
   },
   "engines": {
     "node": ">=20"
@@ -34,6 +35,7 @@
   "dependencies": {},
   "overrides": {
     "esbuild": "0.27.3",
-    "@esbuild/darwin-arm64": "0.27.3"
+    "@esbuild/darwin-arm64": "0.27.3",
+    "typescript": "5.9.3"
   }
 }

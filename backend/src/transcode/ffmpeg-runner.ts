@@ -92,7 +92,7 @@ export async function transcode(
 
   const keyframeInterval = 2;
 
-  const variants = [
+  const fullLadder = [
     {
       name: '1080p',
       width: 1920,
@@ -130,6 +130,18 @@ export async function transcode(
       audioBitrate: '96k',
     },
   ];
+
+  // Do not upscale: keep only rungs at or below the source height, so a small
+  // source is not padded up into a fake "1080p" rung with a misleading bitrate.
+  // Always keep at least the smallest rung so tiny sources still transcode.
+  const sourceHeight = probe.height ?? 0;
+  const capped = sourceHeight > 0 ? fullLadder.filter((v) => v.height <= sourceHeight) : fullLadder;
+  const variants = capped.length > 0 ? capped : [fullLadder[fullLadder.length - 1]];
+
+  logger.info(
+    { sourceHeight, renditions: variants.map((v) => v.name) },
+    'Selected rendition ladder',
+  );
 
   // Create variant directories
   for (const v of variants) {

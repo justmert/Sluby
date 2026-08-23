@@ -3,118 +3,186 @@
 // ---------------------------------------------------------------------------
 
 import * as tus from 'tus-js-client';
-import type {
-  CreateUploadOptions,
-  CreateUploadResult,
-  UploadFileOptions,
-  UploadSession,
-} from './types.js';
+import type { AccessTier, UploadFileOptions, UploadHandle, UploadSession } from './types.js';
 
 /** Internal fetch helper signature shared from the client. */
 export type FetchFn = (path: string, init?: RequestInit) => Promise<Response>;
 
 const DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
-const DEFAULT_PARALLEL_UPLOADS = 3;
 const DEFAULT_RETRY_DELAYS = [0, 1000, 3000, 5000];
 
+/** Options for creating and uploading a video in one call. */
+export interface UploadOptions extends UploadFileOptions {
+  title: string;
+  description?: string;
+  accessTier?: AccessTier;
+}
+
 /**
- * Manages video upload creation, TUS file upload, status polling, and
- * cancellation.
+ * The upload handle plus a promise that resolves with the created video
+ * asset id (read back from the TUS creation response), so a caller can start
+ * polling `assets.waitForReady` as soon as the upload begins.
+ */
+export type AssetUploadHandle = UploadHandle & { assetId: Promise<string> };
+
+/**
+ * Decode a base64 value from a TUS `Upload-Metadata` header, in both the
+ * browser (atob) and Node (Buffer).
+ */
+function decodeBase64(value: string): string {
+  if (typeof atob === 'function') return atob(value);
+  return Buffer.from(value, 'base64').toString('utf8');
+}
+
+/** Parse a TUS `Upload-Metadata` header ("key b64val, key2 b64val2"). */
+function parseUploadMetadata(header: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pair of header.split(',')) {
+    const [key, b64] = pair.trim().split(' ');
+    if (!key) continue;
+    out[key] = b64 ? decodeBase64(b64) : '';
+  }
+  return out;
+}
+
+/**
+ * Manages video uploads: creating and sending a file with resumable TUS
+ * upload, plus status polling and cancellation.
  */
 export class UploadManager {
   private readonly _fetch: FetchFn;
   private readonly _apiKey: string;
+  private readonly _baseUrl: string;
 
-  constructor(fetchFn: FetchFn, apiKey: string) {
+  constructor(fetchFn: FetchFn, apiKey: string, baseUrl: string) {
     this._fetch = fetchFn;
     this._apiKey = apiKey;
+    this._baseUrl = baseUrl;
   }
 
   // -----------------------------------------------------------------------
-  // POST /api/v1/uploads
+  // Resumable upload (TUS)
   // -----------------------------------------------------------------------
 
   /**
-   * Create a new upload session on the backend.
+   * Upload a video in one step: creates the asset and streams the file to the
+   * TUS endpoint with resumable support, progress reporting, and pause /
+   * resume / abort control.
    *
-   * Returns the TUS upload URL and the video asset ID.
+   * The video asset is created by the server as the upload begins; read the
+   * returned handle's `assetId` promise to learn its id and poll for
+   * readiness. Works in the browser (File / Blob) and Node (Buffer / stream).
+   *
+   * @example
+   * ```ts
+   * const upload = client.uploads.upload(file, {
+   *   title: 'My Video',
+   *   onProgress: (pct) => console.log(`${pct}%`),
+   * });
+   * const videoAssetId = await upload.assetId;
+   * await upload; // resolves when the bytes finish uploading
+   * const asset = await client.assets.waitForReady(videoAssetId);
+   * ```
    */
-  async create(options: CreateUploadOptions): Promise<CreateUploadResult> {
-    const res = await this._fetch('/api/v1/uploads', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: options.title,
-        description: options.description,
-        access_tier: options.accessTier,
-      }),
+  upload(file: File | Blob | Buffer, options: UploadOptions): AssetUploadHandle {
+    const chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
+    const retryDelays = options.retryDelays ?? DEFAULT_RETRY_DELAYS;
+    // The TUS collection endpoint mints exactly one asset per upload, so a
+    // single stream is required — parallelUploads would create N assets.
+    const endpoint = `${this._baseUrl}/api/v1/uploads`;
+
+    const fileName = (file as File).name ?? 'video';
+    const fileType = (file as File).type ?? '';
+
+    let paused = false;
+    let upload!: tus.Upload;
+
+    let resolveAssetId!: (id: string) => void;
+    let rejectAssetId!: (err: Error) => void;
+    let assetIdSettled = false;
+    const assetId = new Promise<string>((resolve, reject) => {
+      resolveAssetId = (id) => {
+        assetIdSettled = true;
+        resolve(id);
+      };
+      rejectAssetId = reject;
     });
 
-    const body = await res.json();
-
-    return {
-      videoAssetId: body.video_asset_id,
-      uploadUrl: body.upload_url,
-    };
-  }
-
-  // -----------------------------------------------------------------------
-  // TUS resumable upload
-  // -----------------------------------------------------------------------
-
-  /**
-   * Upload a file to the provided TUS endpoint with resumable upload
-   * support, progress reporting, and configurable retry behaviour.
-   *
-   * Works in both browser (File / Blob) and Node.js (Buffer) environments.
-   */
-  uploadFile(
-    uploadUrl: string,
-    file: File | Blob | Buffer,
-    options?: UploadFileOptions,
-  ): Promise<void> {
-    const chunkSize = options?.chunkSize ?? DEFAULT_CHUNK_SIZE;
-    const parallelUploads = options?.parallelUploads ?? DEFAULT_PARALLEL_UPLOADS;
-    const retryDelays = options?.retryDelays ?? DEFAULT_RETRY_DELAYS;
-
-    return new Promise<void>((resolve, reject) => {
-      const upload = new tus.Upload(file as tus.Upload['file'], {
-        endpoint: uploadUrl,
+    const done = new Promise<void>((resolve, reject) => {
+      upload = new tus.Upload(file as tus.Upload['file'], {
+        endpoint,
         chunkSize,
-        parallelUploads,
         retryDelays,
-        headers: {
-          Authorization: `Bearer ${this._apiKey}`,
+        headers: { Authorization: `Bearer ${this._apiKey}` },
+        metadata: {
+          filename: fileName,
+          filetype: fileType,
+          title: options.title,
+          description: options.description ?? '',
+          accessTier: options.accessTier ?? 'public',
         },
-        metadata: {},
+
+        onAfterResponse: (_req, res) => {
+          if (assetIdSettled) return;
+          const header = res.getHeader('Upload-Metadata');
+          if (header) {
+            const id = parseUploadMetadata(header).videoAssetId;
+            if (id) resolveAssetId(id);
+          }
+        },
 
         onProgress: (bytesUploaded: number, bytesTotal: number) => {
-          if (options?.onProgress && bytesTotal > 0) {
+          if (options.onProgress && bytesTotal > 0) {
             const percent = Math.round((bytesUploaded / bytesTotal) * 100);
-            options.onProgress(percent);
+            options.onProgress(percent, bytesUploaded, bytesTotal);
           }
         },
 
         onSuccess: () => {
+          options.onSuccess?.();
           resolve();
         },
 
         onError: (error: Error) => {
-          if (options?.onError) {
-            options.onError(error);
-          }
+          if (!assetIdSettled) rejectAssetId(error);
+          options.onError?.(error);
           reject(error);
         },
       });
 
-      // Check for a previous incomplete upload that can be resumed.
       upload.findPreviousUploads().then((previousUploads) => {
+        if (paused) return;
         if (previousUploads.length > 0) {
           upload.resumeFromPreviousUpload(previousUploads[0]);
         }
         upload.start();
       });
     });
+
+    // Avoid an unhandled rejection on assetId if the caller only awaits done.
+    assetId.catch(() => {});
+
+    const handle = done as AssetUploadHandle;
+    handle.assetId = assetId;
+    handle.pause = async () => {
+      paused = true;
+      await upload.abort(false);
+    };
+    handle.resume = () => {
+      if (!paused) return;
+      paused = false;
+      upload.start();
+    };
+    handle.abort = async () => {
+      paused = false;
+      await upload.abort(true);
+    };
+    Object.defineProperty(handle, 'isPaused', {
+      get: () => paused,
+      enumerable: true,
+    });
+
+    return handle;
   }
 
   // -----------------------------------------------------------------------
@@ -131,7 +199,6 @@ export class UploadManager {
     return {
       id: body.id,
       videoAssetId: body.video_asset_id,
-      uploadUrl: body.upload_url,
       status: body.status,
       progressPercent: body.progress_percent,
       fileSize: body.file_size,

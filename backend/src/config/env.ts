@@ -118,6 +118,30 @@ const envSchema = z.object({
    *  reconciliation. */
   RECONCILE_PAGE_SIZE: z.coerce.number().int().positive().default(500),
 
+  /** Whether the deletion garbage-collector sweep runs. It re-drives assets
+   *  that were soft-deleted but whose objects were never fully unpinned (e.g.
+   *  the worker crashed mid-way). */
+  DELETION_GC_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+
+  /** How often the deletion GC sweep runs, in milliseconds. Defaults to
+   *  every 15 minutes. */
+  DELETION_GC_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
+
+  /** How long an asset may sit soft-deleted before the GC re-enqueues its
+   *  deletion, in milliseconds. Defaults to 10 minutes. */
+  DELETION_STUCK_THRESHOLD_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10 * 60 * 1000),
+
   /** Optional bootstrap API key (raw sluby_ value).
    *  If set and no API keys exist in the DB, this key is auto-seeded on startup
    *  with full scopes (upload, read, manage). Solves the bootstrap problem. */
@@ -192,6 +216,13 @@ function loadEnv(): Env {
         '  Set a strong SESSION_SECRET, e.g.\n' +
         "  node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\"",
     );
+    process.exit(1);
+  }
+
+  // AUTH_DISABLED grants every request full manage scope with no key; it must
+  // never be on in production. Mirror the SESSION_SECRET guard and refuse boot.
+  if (process.env.NODE_ENV === 'production' && result.data.AUTH_DISABLED) {
+    console.error('Refusing to start: AUTH_DISABLED=true while NODE_ENV=production.');
     process.exit(1);
   }
 

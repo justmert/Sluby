@@ -1,7 +1,8 @@
-import { eq, and, desc, sql, type SQL } from 'drizzle-orm';
+import { eq, and, desc, lt, sql, isNull, isNotNull, inArray, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import { videoAssets, type VideoAsset, type NewVideoAsset } from '../schema.js';
+import { videoAssets, artifacts, type VideoAsset, type NewVideoAsset } from '../schema.js';
 import { decodeCursor, paginateRows } from '../../api/pagination.js';
+import { collectAssetObjectIds } from '../../deletion/collect.js';
 
 /**
  * Create a new video asset record.
@@ -23,10 +24,16 @@ export async function getVideoAssetById(
   id: string,
   owner?: string,
 ): Promise<VideoAsset | undefined> {
+  // Soft-deleted assets are invisible to every read: once deletion starts the
+  // asset no longer exists as far as the API and the delivery gateway care.
   return db.query.videoAssets.findFirst({
     where: owner
-      ? and(eq(videoAssets.id, id), eq(videoAssets.creatorAddress, owner))
-      : eq(videoAssets.id, id),
+      ? and(
+          eq(videoAssets.id, id),
+          eq(videoAssets.creatorAddress, owner),
+          isNull(videoAssets.deletedAt),
+        )
+      : and(eq(videoAssets.id, id), isNull(videoAssets.deletedAt)),
   });
 }
 
@@ -60,8 +67,9 @@ export async function listVideoAssets(opts?: {
 }> {
   const { status, accessTier, creatorAddress, limit = 20, offset = 0, cursor } = opts ?? {};
 
-  // Filters apply to both the data page and the total count.
-  const filters: SQL[] = [];
+  // Filters apply to both the data page and the total count. Soft-deleted
+  // assets are excluded from every listing and from the total.
+  const filters: SQL[] = [isNull(videoAssets.deletedAt)];
   if (status) filters.push(eq(videoAssets.status, status));
   if (accessTier) filters.push(eq(videoAssets.accessTier, accessTier));
   if (creatorAddress) filters.push(eq(videoAssets.creatorAddress, creatorAddress));
@@ -142,7 +150,10 @@ export async function updateVideoAsset(
 }
 
 /**
- * Delete a video asset by ID, optionally constrained to its owner.
+ * Physically remove a video asset row (cascading to its renditions,
+ * artifacts, jobs, and playback ids). Used by the deletion worker AFTER the
+ * asset's Sia objects have been unpinned; API callers use
+ * {@link softDeleteVideoAsset} instead.
  */
 export async function deleteVideoAsset(
   id: string,
@@ -157,4 +168,100 @@ export async function deleteVideoAsset(
     )
     .returning();
   return deleted;
+}
+
+/**
+ * Mark an asset for deletion: set `deletedAt` so it disappears from every
+ * read, without touching its Sia objects yet. Only rows not already being
+ * deleted match, so a repeated DELETE is a no-op (the route answers 404).
+ * Returns the row when it transitioned, undefined otherwise.
+ */
+export async function softDeleteVideoAsset(
+  id: string,
+  owner?: string,
+): Promise<VideoAsset | undefined> {
+  const scope = owner
+    ? and(
+        eq(videoAssets.id, id),
+        eq(videoAssets.creatorAddress, owner),
+        isNull(videoAssets.deletedAt),
+      )
+    : and(eq(videoAssets.id, id), isNull(videoAssets.deletedAt));
+
+  const [updated] = await db
+    .update(videoAssets)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(scope)
+    .returning();
+  return updated;
+}
+
+/**
+ * Gather every Sia object id belonging to one asset, so the deletion worker
+ * can unpin each. Reads the authoritative `artifacts` rows plus the
+ * denormalized ids on the asset itself (covering assets that predate artifact
+ * normalization). Deliberately does NOT filter on `deletedAt`: it must see
+ * the just-soft-deleted row.
+ */
+export async function getAssetObjectIds(assetId: string): Promise<string[]> {
+  const [artifactRows, asset] = await Promise.all([
+    db
+      .select({ objectId: artifacts.objectId })
+      .from(artifacts)
+      .where(eq(artifacts.videoAssetId, assetId)),
+    db.query.videoAssets.findFirst({
+      where: eq(videoAssets.id, assetId),
+      columns: { manifestObjectId: true, thumbnailObjectIds: true, siaObjectIds: true },
+    }),
+  ]);
+
+  return collectAssetObjectIds({
+    artifactObjectIds: artifactRows.map((r) => r.objectId),
+    manifestObjectId: asset?.manifestObjectId ?? null,
+    thumbnailObjectIds: asset?.thumbnailObjectIds ?? [],
+    siaObjectIds: (asset?.siaObjectIds ?? []) as string[],
+  });
+}
+
+/**
+ * Record that specific objects have been unpinned during a deletion: remove
+ * their artifact rows and strip them from the asset's denormalized id fields.
+ * This is what lets a retried or GC-re-driven deletion converge — the next
+ * `getAssetObjectIds` returns only the objects that still need unpinning.
+ */
+export async function markObjectsUnpinned(assetId: string, unpinnedIds: string[]): Promise<void> {
+  if (unpinnedIds.length === 0) return;
+  const set = new Set(unpinnedIds);
+
+  await db
+    .delete(artifacts)
+    .where(and(eq(artifacts.videoAssetId, assetId), inArray(artifacts.objectId, unpinnedIds)));
+
+  const asset = await db.query.videoAssets.findFirst({
+    where: eq(videoAssets.id, assetId),
+    columns: { manifestObjectId: true, thumbnailObjectIds: true, siaObjectIds: true },
+  });
+  if (!asset) return;
+
+  await db
+    .update(videoAssets)
+    .set({
+      manifestObjectId:
+        asset.manifestObjectId && set.has(asset.manifestObjectId) ? null : asset.manifestObjectId,
+      thumbnailObjectIds: (asset.thumbnailObjectIds ?? []).filter((t) => !set.has(t)),
+      siaObjectIds: ((asset.siaObjectIds ?? []) as string[]).filter((s) => !set.has(s)),
+    })
+    .where(eq(videoAssets.id, assetId));
+}
+
+/**
+ * Find assets that have been soft-deleted for longer than `olderThanMs` and
+ * still exist (their worker never finished). The GC sweep re-drives these.
+ */
+export async function listAssetsPendingDeletion(olderThanMs: number): Promise<{ id: string }[]> {
+  const cutoff = new Date(Date.now() - olderThanMs);
+  return db
+    .select({ id: videoAssets.id })
+    .from(videoAssets)
+    .where(and(isNotNull(videoAssets.deletedAt), lt(videoAssets.deletedAt, cutoff)));
 }

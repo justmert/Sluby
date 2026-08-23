@@ -164,7 +164,9 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
       throw new AppError(404, 'Video asset not found');
     }
 
-    res.json({ success: true });
+    // The asset is soft-deleted synchronously; its Sia objects are unpinned by
+    // a background worker. `deleting` tells the caller the async part is queued.
+    res.json({ success: true, status: 'deleting' });
   });
 
   /**

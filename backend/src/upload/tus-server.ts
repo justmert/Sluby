@@ -24,6 +24,8 @@ export interface TusServerDeps {
     creatorAddress: string;
     accessTier: string;
   }) => Promise<void>;
+  /** Mark an asset failed so a finish-time error does not leave it stuck. */
+  markAssetFailed: (videoAssetId: string) => Promise<void>;
   dispatchWebhook: (event: string, data: Record<string, unknown>) => Promise<void>;
 }
 
@@ -159,46 +161,59 @@ export function createTusServer(deps: TusServerDeps): Server {
         return {};
       }
 
-      // Compute SHA-256 of the completed file by streaming it. Reading the
-      // whole upload into a Buffer would use memory proportional to the file
-      // and throws outright past Node's max Buffer length, which uploads up
-      // to MAX_UPLOAD_SIZE (10 GB by default) can easily exceed.
-      const filePath = `${env.UPLOAD_DIR}/${upload.id}`;
-      const sha256 = await computeFileHash(filePath);
+      try {
+        // Compute SHA-256 of the completed file by streaming it. Reading the
+        // whole upload into a Buffer would use memory proportional to the file
+        // and throws outright past Node's max Buffer length, which uploads up
+        // to MAX_UPLOAD_SIZE (10 GB by default) can easily exceed.
+        const filePath = `${env.UPLOAD_DIR}/${upload.id}`;
+        const sha256 = await computeFileHash(filePath);
 
-      // Mark upload as complete
-      await deps.completeUpload(sessionId, filePath, sha256);
+        // Mark upload as complete
+        await deps.completeUpload(sessionId, filePath, sha256);
 
-      logger.info(
-        {
-          uploadId: upload.id,
-          sessionId,
+        logger.info(
+          { uploadId: upload.id, sessionId, sha256, fileSize: upload.size },
+          'Upload completed, enqueueing transcoding',
+        );
+
+        // Enqueue transcoding job
+        if (videoAssetId) {
+          await deps.enqueueTranscoding({
+            videoAssetId,
+            uploadSessionId: sessionId,
+            filePath,
+            creatorAddress: creatorAddress ?? '',
+            accessTier,
+          });
+        }
+
+        await deps.dispatchWebhook('upload.completed', {
+          upload_id: upload.id,
+          session_id: sessionId,
+          video_asset_id: videoAssetId,
           sha256,
-          fileSize: upload.size,
-        },
-        'Upload completed, enqueueing transcoding',
-      );
-
-      // Enqueue transcoding job
-      if (videoAssetId) {
-        await deps.enqueueTranscoding({
-          videoAssetId,
-          uploadSessionId: sessionId,
-          filePath,
-          creatorAddress: creatorAddress ?? '',
-          accessTier,
+          file_size: upload.size,
         });
+
+        return {};
+      } catch (err) {
+        // A failure here (hashing, completion, enqueue) would otherwise leave
+        // the asset stuck in 'created' with no job. Mark it failed so it is
+        // visible and retryable, then rethrow so TUS surfaces the error.
+        logger.error(
+          { uploadId: upload.id, sessionId, videoAssetId, err },
+          'onUploadFinish failed',
+        );
+        if (videoAssetId) {
+          try {
+            await deps.markAssetFailed(videoAssetId);
+          } catch (markErr) {
+            logger.error({ videoAssetId, markErr }, 'Failed to mark asset failed');
+          }
+        }
+        throw err;
       }
-
-      await deps.dispatchWebhook('upload.completed', {
-        upload_id: upload.id,
-        session_id: sessionId,
-        video_asset_id: videoAssetId,
-        sha256,
-        file_size: upload.size,
-      });
-
-      return {};
     },
   });
 

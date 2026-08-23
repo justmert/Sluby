@@ -40,9 +40,9 @@ jobs:
           - package: sdk
             workspace: '@sluby/sdk'
             path: packages/sdk
-          - package: react
-            workspace: '@sluby/react'
-            path: packages/react
+          - package: player
+            workspace: '@sluby/player'
+            path: packages/player
 
     steps:
       - uses: actions/checkout@v4
@@ -65,3 +65,26 @@ jobs:
 
       - name: Test
         run: npm test --workspace=${{ matrix.workspace }} --if-present
+
+  example-build:
+    name: Quickstart example builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The example consumes the built packages, so build them first.
+      - name: Build SDK and player
+        run: |
+          npm run build:sdk
+          npm run build:player
+
+      - name: Build example
+        run: npm run build --workspace=@sluby/example-quickstart

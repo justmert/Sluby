@@ -7,7 +7,12 @@ import { mkdirSync, existsSync } from 'node:fs';
 import { env } from './config/env.js';
 import { db } from './config/database.js';
 import { closeDatabase } from './config/database.js';
-import { closeQueues, transcodeQueue, uploadSegmentsQueue } from './queue/bull-config.js';
+import {
+  closeQueues,
+  transcodeQueue,
+  uploadSegmentsQueue,
+  deletionQueue,
+} from './queue/bull-config.js';
 import { closeWorkers } from './queue/processors.js';
 
 // ── Real module imports ──
@@ -31,8 +36,10 @@ import {
   getVideoAssetById,
   listVideoAssets,
   updateVideoAsset,
-  deleteVideoAsset,
+  softDeleteVideoAsset,
+  getAssetObjectIds,
 } from './db/queries/assets.js';
+import { invalidateObjectAccessTier } from './delivery/access-control.js';
 
 import {
   createProcessingJob,
@@ -71,6 +78,11 @@ import {
   triggerReconciliation,
   closeReconcileWorker,
 } from './reconcile/worker.js';
+
+// Importing the deletion worker module starts its BullMQ worker (same
+// in-process model as the transcode/reconcile workers).
+import { scheduleDeletionGc, closeDeletionWorker } from './deletion/worker.js';
+import { buildDeleteAsset } from './deletion/service.js';
 
 // Other imports
 import { SessionManager } from './upload/session-manager.js';
@@ -330,6 +342,10 @@ const tusServerDeps: TusServerDeps = {
     );
   },
 
+  markAssetFailed: async (videoAssetId) => {
+    await updateVideoAsset(videoAssetId, { status: 'failed' });
+  },
+
   dispatchWebhook: async (event, data) => {
     await webhookDispatcher.dispatch(event, data);
   },
@@ -384,43 +400,14 @@ function toAssetRecord(asset: VideoAsset) {
 
 const apiRouterDeps: ApiRouterDeps = {
   // ── UploadRouteDeps ──
-  createUploadSession: async (params) => {
-    // Create a video asset in DB
-    const videoAsset = await createVideoAsset({
-      title: params.title,
-      description: params.description,
-      creatorAddress: params.creatorAddress,
-      accessTier: params.accessTier as 'public' | 'private',
-    });
-
-    // Create an upload session
-    const session = await sessionManager.create({
-      apiKeyId: params.apiKeyId,
-      fileSize: 0,
-      metadata: {
-        title: params.title,
-        description: params.description,
-        accessTier: params.accessTier,
-      },
-      videoAssetId: videoAsset.id,
-      // The upload URL is handed to a browser, so it must be the public
-      // origin. Deriving it from HOST/PORT hardcodes http:// and the
-      // internal port, which breaks behind TLS or a reverse proxy.
-      uploadBaseUrl: env.PUBLIC_URL.replace(/\/$/, ''),
-    });
-
-    return {
-      videoAssetId: videoAsset.id,
-      uploadUrl: session.uploadUrl,
-    };
+  // Upload creation happens through the TUS protocol (see tusServer); the REST
+  // surface only exposes owner-scoped status and cancellation.
+  getUploadStatus: async (id, owner) => {
+    return sessionManager.getStatus(id, owner);
   },
 
-  getUploadStatus: async (id) => {
-    return sessionManager.getStatus(id);
-  },
-
-  cancelUpload: async (id) => {
-    await sessionManager.cancel(id);
+  cancelUpload: async (id, owner) => {
+    return sessionManager.cancel(id, owner);
   },
 
   // ── AssetRouteDeps ──
@@ -462,13 +449,30 @@ const apiRouterDeps: ApiRouterDeps = {
       owner,
     );
     if (!updated) return null;
+
+    // A tier change must take effect on the delivery path at once: drop the
+    // cached tier for every object of this asset so the gateway re-resolves
+    // (otherwise a just-privatized asset is served unsigned for up to 60s).
+    if (data.accessTier !== undefined) {
+      const objectIds = await getAssetObjectIds(id);
+      for (const objectId of objectIds) invalidateObjectAccessTier(objectId);
+    }
+
     return toAssetRecord(updated);
   },
 
-  deleteAsset: async (id, owner) => {
-    const deleted = await deleteVideoAsset(id, owner);
-    return Boolean(deleted);
-  },
+  // Soft-delete the asset (it vanishes from the API immediately), capture its
+  // Sia object ids, and enqueue the async unpin-and-remove job.
+  deleteAsset: buildDeleteAsset({
+    softDelete: (id, owner) => softDeleteVideoAsset(id, owner),
+    enqueue: async (videoAssetId) => {
+      await deletionQueue.add(
+        'delete',
+        { kind: 'delete', videoAssetId },
+        { jobId: `delete-${videoAssetId}` },
+      );
+    },
+  }),
 
   // ── SiaInfoRouteDeps ──
   getAssetWithSiaIds: async (id, owner) => {
@@ -513,6 +517,12 @@ const apiRouterDeps: ApiRouterDeps = {
           errorMessage: null,
         });
       }
+      // Re-attach any thumbnails still on disk from the transcode stage, so a
+      // retried upload does not end up with an empty thumbnailObjectIds.
+      const thumbnailPaths = [25, 50, 75]
+        .map((p) => path.join(outputDir, `thumb_${p}.jpg`))
+        .filter((tp) => existsSync(tp));
+
       await uploadSegmentsQueue.add(
         'upload-segments',
         {
@@ -520,6 +530,7 @@ const apiRouterDeps: ApiRouterDeps = {
           uploadSessionId,
           outputDir,
           accessTier: asset.accessTier,
+          thumbnailPaths,
         },
         { jobId: `retry-upload-${id}-${Date.now()}` },
       );
@@ -850,6 +861,11 @@ scheduleReconciliation().catch((err) => {
   logger.warn({ err }, 'Failed to schedule reconciliation sweep (non-fatal)');
 });
 
+// Register the periodic deletion GC sweep (non-fatal if Redis is down).
+scheduleDeletionGc().catch((err) => {
+  logger.warn({ err }, 'Failed to schedule deletion GC sweep (non-fatal)');
+});
+
 const server = app.listen(env.PORT, env.HOST, () => {
   logger.info({ host: env.HOST, port: env.PORT }, 'Sluby backend is running');
 });
@@ -869,7 +885,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   try {
     // Close workers first (stop processing new jobs)
     logger.info('Closing queue workers...');
-    await Promise.all([closeWorkers(), closeReconcileWorker()]);
+    await Promise.all([closeWorkers(), closeReconcileWorker(), closeDeletionWorker()]);
 
     // Close queue connections
     logger.info('Closing queue connections...');

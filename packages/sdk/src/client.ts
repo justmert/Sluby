@@ -21,17 +21,15 @@ import { WebhookManager } from './webhooks.js';
  *   baseUrl: 'https://api.sluby.app',
  * });
  *
- * // Create an upload session
- * const { videoAssetId, uploadUrl } = await client.uploads.create({
+ * // Upload a video via resumable TUS (creates the asset as it starts)
+ * const upload = client.uploads.upload(file, {
  *   title: 'My Video',
  *   description: 'Demo upload',
  *   accessTier: 'public',
- * });
- *
- * // Upload a file via TUS
- * await client.uploads.uploadFile(uploadUrl, file, {
  *   onProgress: (pct) => console.log(`${pct}%`),
  * });
+ * const videoAssetId = await upload.assetId;
+ * await upload;
  *
  * // Wait until processing finishes
  * const asset = await client.assets.waitForReady(videoAssetId);
@@ -41,7 +39,7 @@ import { WebhookManager } from './webhooks.js';
  * ```
  */
 export class SlubyClient {
-  /** Video upload management (create session, TUS upload, status, cancel). */
+  /** Video upload management (resumable TUS upload, status, cancel). */
   readonly uploads: UploadManager;
 
   /** Video asset CRUD and lifecycle polling. */
@@ -63,21 +61,42 @@ export class SlubyClient {
       throw new Error('SlubyClient requires a non-empty baseUrl.');
     }
 
-    // Normalise the base URL: remove trailing slash to simplify path
-    // concatenation.
+    // Normalise the base URLs: remove trailing slashes to simplify path
+    // concatenation. The delivery base defaults to the API base.
+    const baseUrl = config.baseUrl.replace(/\/+$/, '');
     this._config = {
       ...config,
-      baseUrl: config.baseUrl.replace(/\/+$/, ''),
+      baseUrl,
+      deliveryBaseUrl: (config.deliveryBaseUrl ?? baseUrl).replace(/\/+$/, ''),
     };
 
     // Bind the internal fetch helper and pass it to each sub-manager so
     // they share authentication and error-handling logic.
     const boundFetch = this._fetch.bind(this);
 
-    this.uploads = new UploadManager(boundFetch, this._config.apiKey);
+    this.uploads = new UploadManager(boundFetch, this._config.apiKey, this._config.baseUrl);
     this.assets = new AssetManager(boundFetch);
-    this.playback = new PlaybackManager(boundFetch);
+    this.playback = new PlaybackManager(boundFetch, this.resolveDeliveryUrl.bind(this));
     this.webhooks = new WebhookManager();
+  }
+
+  // -----------------------------------------------------------------------
+  // Delivery URL resolution
+  // -----------------------------------------------------------------------
+
+  /**
+   * Resolve a server-relative delivery path (e.g. `/v1/objects/abc?type=manifest`)
+   * into an absolute URL the browser fetches directly from Sia-backed delivery.
+   *
+   * Absolute URLs are returned unchanged, so it is safe to call on values that
+   * may already be fully qualified.
+   */
+  resolveDeliveryUrl(pathOrUrl: string): string {
+    if (/^https?:\/\//i.test(pathOrUrl)) {
+      return pathOrUrl;
+    }
+    const base = this._config.deliveryBaseUrl ?? this._config.baseUrl;
+    return `${base}${pathOrUrl.startsWith('/') ? '' : '/'}${pathOrUrl}`;
   }
 
   // -----------------------------------------------------------------------

@@ -293,6 +293,14 @@ deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) 
     // Objects belonging to a private asset require a valid, unexpired signed
     // URL. Public objects stay open so plain hls.js playback works.
     const tier = await getObjectAccessTier(objectId);
+
+    // The owning asset is being deleted: stop serving its bytes immediately,
+    // even though the objects may not be unpinned from Sia yet.
+    if (tier === 'gone') {
+      res.status(404).set(COMMON_CORS).json({ error: 'Object not found', objectId });
+      return;
+    }
+
     const isPrivate = tier === 'private';
     let signManifest: ((text: string) => string) | undefined;
 

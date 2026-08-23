@@ -106,6 +106,11 @@ export const videoAssets = pgTable(
     segmentCount: integer('segment_count').notNull().default(0),
     totalStorageBytes: bigint('total_storage_bytes', { mode: 'number' }).notNull().default(0),
     siaObjectIds: jsonb('sia_object_ids').$type<string[]>().default([]),
+    // Soft-delete marker. When set, the asset is hidden from every API read
+    // and a background worker unpins its Sia objects, then removes the row.
+    // A non-null value means "deletion in progress"; the row is gone once the
+    // objects are unpinned.
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -115,6 +120,8 @@ export const videoAssets = pgTable(
     index('video_assets_status_idx').on(t.status),
     // Matches the listing's stable sort key (createdAt desc, id desc).
     index('video_assets_created_at_id_idx').on(t.createdAt, t.id),
+    // Lets the deletion GC sweep find rows stuck mid-deletion cheaply.
+    index('video_assets_deleted_at_idx').on(t.deletedAt),
   ],
 );
 

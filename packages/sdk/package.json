@@ -1,29 +1,54 @@
 {
   "name": "@sluby/sdk",
   "version": "0.1.0",
+  "description": "TypeScript SDK for Sluby: typed asset management, resumable TUS uploads, and playback URL retrieval.",
+  "license": "Apache-2.0",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.cjs"
     }
   },
+  "sideEffects": false,
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
+  "keywords": [
+    "sluby",
+    "sia",
+    "video",
+    "hls",
+    "tus",
+    "upload",
+    "sdk"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justmert/sluby.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/justmert/sluby/tree/main/packages/sdk#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "tus-js-client": "^4.2.0"
+    "tus-js-client": "^4.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.7.0",
     "vitest": "^4.0.18"
   }

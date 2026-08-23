@@ -29,6 +29,13 @@
       "when": 1784911622030,
       "tag": "0003_indexes_and_reconcile_failed",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787495730517,
+      "tag": "0004_wide_omega_red",
+      "breakpoints": true
     }
   ]
 }
