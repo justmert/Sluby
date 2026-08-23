@@ -402,9 +402,12 @@ export const openapiDocument = {
       delete: {
         tags: ['Assets'],
         summary: 'Delete an asset.',
+        description:
+          'Soft-deletes the asset so it disappears from the API immediately, then ' +
+          'asynchronously unpins its Sia objects and removes the record.',
         'x-required-scope': 'manage',
         parameters: [idParam('id', 'Asset id.')],
-        responses: { '200': { description: 'Deleted.' } },
+        responses: { '200': { description: 'Deletion accepted; unpin runs in the background.' } },
       },
     },
     '/api/v1/assets/{id}/processing': {

@@ -118,6 +118,30 @@ const envSchema = z.object({
    *  reconciliation. */
   RECONCILE_PAGE_SIZE: z.coerce.number().int().positive().default(500),
 
+  /** Whether the deletion garbage-collector sweep runs. It re-drives assets
+   *  that were soft-deleted but whose objects were never fully unpinned (e.g.
+   *  the worker crashed mid-way). */
+  DELETION_GC_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+
+  /** How often the deletion GC sweep runs, in milliseconds. Defaults to
+   *  every 15 minutes. */
+  DELETION_GC_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
+
+  /** How long an asset may sit soft-deleted before the GC re-enqueues its
+   *  deletion, in milliseconds. Defaults to 10 minutes. */
+  DELETION_STUCK_THRESHOLD_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10 * 60 * 1000),
+
   /** Optional bootstrap API key (raw sluby_ value).
    *  If set and no API keys exist in the DB, this key is auto-seeded on startup
    *  with full scopes (upload, read, manage). Solves the bootstrap problem. */

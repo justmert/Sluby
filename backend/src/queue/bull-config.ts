@@ -60,6 +60,14 @@ export interface ReconcileJobData {
   trigger: 'scheduled' | 'manual';
 }
 
+/**
+ * Deletion queue jobs. `delete` unpins one asset's objects and removes its
+ * row; `gc` sweeps for soft-deleted assets whose deletion never finished and
+ * re-enqueues a `delete` for each.
+ */
+export type DeletionJobData =
+  { kind: 'delete'; videoAssetId: string; objectIds: string[] } | { kind: 'gc' };
+
 export type VideoProcessingJobData = TranscodeJobData | UploadSegmentsJobData | FinalizeJobData;
 
 // ──────────────────────────────────────────
@@ -133,6 +141,24 @@ export const reconcileQueue = new Queue<ReconcileJobData>('reconcile', {
 });
 
 /**
+ * Queue for asynchronous asset deletion: unpinning an asset's Sia objects,
+ * pruning slabs, and removing its row, plus a repeatable GC sweep that
+ * re-drives deletions that never finished.
+ */
+export const deletionQueue = new Queue<DeletionJobData>('deletion', {
+  connection: redisConnection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 30_000,
+    },
+    removeOnComplete: { count: 1000 },
+    removeOnFail: { count: 5000 },
+  },
+});
+
+/**
  * Gracefully close all queue connections.
  * Call during server shutdown.
  */
@@ -142,5 +168,6 @@ export async function closeQueues(): Promise<void> {
     uploadSegmentsQueue.close(),
     finalizeQueue.close(),
     reconcileQueue.close(),
+    deletionQueue.close(),
   ]);
 }

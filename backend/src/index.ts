@@ -7,7 +7,12 @@ import { mkdirSync, existsSync } from 'node:fs';
 import { env } from './config/env.js';
 import { db } from './config/database.js';
 import { closeDatabase } from './config/database.js';
-import { closeQueues, transcodeQueue, uploadSegmentsQueue } from './queue/bull-config.js';
+import {
+  closeQueues,
+  transcodeQueue,
+  uploadSegmentsQueue,
+  deletionQueue,
+} from './queue/bull-config.js';
 import { closeWorkers } from './queue/processors.js';
 
 // ── Real module imports ──
@@ -31,7 +36,8 @@ import {
   getVideoAssetById,
   listVideoAssets,
   updateVideoAsset,
-  deleteVideoAsset,
+  softDeleteVideoAsset,
+  getAssetObjectIds,
 } from './db/queries/assets.js';
 
 import {
@@ -71,6 +77,11 @@ import {
   triggerReconciliation,
   closeReconcileWorker,
 } from './reconcile/worker.js';
+
+// Importing the deletion worker module starts its BullMQ worker (same
+// in-process model as the transcode/reconcile workers).
+import { scheduleDeletionGc, closeDeletionWorker } from './deletion/worker.js';
+import { buildDeleteAsset } from './deletion/service.js';
 
 // Other imports
 import { SessionManager } from './upload/session-manager.js';
@@ -465,10 +476,19 @@ const apiRouterDeps: ApiRouterDeps = {
     return toAssetRecord(updated);
   },
 
-  deleteAsset: async (id, owner) => {
-    const deleted = await deleteVideoAsset(id, owner);
-    return Boolean(deleted);
-  },
+  // Soft-delete the asset (it vanishes from the API immediately), capture its
+  // Sia object ids, and enqueue the async unpin-and-remove job.
+  deleteAsset: buildDeleteAsset({
+    softDelete: (id, owner) => softDeleteVideoAsset(id, owner),
+    collectObjectIds: (id) => getAssetObjectIds(id),
+    enqueue: async ({ videoAssetId, objectIds }) => {
+      await deletionQueue.add(
+        'delete',
+        { kind: 'delete', videoAssetId, objectIds },
+        { jobId: `delete-${videoAssetId}` },
+      );
+    },
+  }),
 
   // ── SiaInfoRouteDeps ──
   getAssetWithSiaIds: async (id, owner) => {
@@ -850,6 +870,11 @@ scheduleReconciliation().catch((err) => {
   logger.warn({ err }, 'Failed to schedule reconciliation sweep (non-fatal)');
 });
 
+// Register the periodic deletion GC sweep (non-fatal if Redis is down).
+scheduleDeletionGc().catch((err) => {
+  logger.warn({ err }, 'Failed to schedule deletion GC sweep (non-fatal)');
+});
+
 const server = app.listen(env.PORT, env.HOST, () => {
   logger.info({ host: env.HOST, port: env.PORT }, 'Sluby backend is running');
 });
@@ -869,7 +894,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   try {
     // Close workers first (stop processing new jobs)
     logger.info('Closing queue workers...');
-    await Promise.all([closeWorkers(), closeReconcileWorker()]);
+    await Promise.all([closeWorkers(), closeReconcileWorker(), closeDeletionWorker()]);
 
     // Close queue connections
     logger.info('Closing queue connections...');

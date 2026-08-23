@@ -1,4 +1,4 @@
-import { and, eq, desc, inArray } from 'drizzle-orm';
+import { and, eq, desc, inArray, isNull } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { playbackIds, videoAssets, type PlaybackId } from '../schema.js';
 import { generatePlaybackId, isPlaybackId } from '../../api/playback-id.js';
@@ -13,8 +13,12 @@ import { generatePlaybackId, isPlaybackId } from '../../api/playback-id.js';
 async function assetIsOwned(assetId: string, owner?: string): Promise<boolean> {
   const asset = await db.query.videoAssets.findFirst({
     where: owner
-      ? and(eq(videoAssets.id, assetId), eq(videoAssets.creatorAddress, owner))
-      : eq(videoAssets.id, assetId),
+      ? and(
+          eq(videoAssets.id, assetId),
+          eq(videoAssets.creatorAddress, owner),
+          isNull(videoAssets.deletedAt),
+        )
+      : and(eq(videoAssets.id, assetId), isNull(videoAssets.deletedAt)),
     columns: { id: true },
   });
   return Boolean(asset);
@@ -84,7 +88,7 @@ export async function deletePlaybackIdByPublicId(
     const ownedAssetIds = db
       .select({ id: videoAssets.id })
       .from(videoAssets)
-      .where(eq(videoAssets.creatorAddress, owner));
+      .where(and(eq(videoAssets.creatorAddress, owner), isNull(videoAssets.deletedAt)));
     const deleted = await db
       .delete(playbackIds)
       .where(
