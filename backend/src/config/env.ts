@@ -60,11 +60,13 @@ const envSchema = z.object({
    *  uploads to the same registered application row. */
   SIA_APP_ID: z.string().default(''),
 
-  /** Erasure-coding shards per slab. Adjust to fit the host pool of
-   *  the network being used: 2-of-6 works for the Zen testnet's small
-   *  pool; 10-of-30 is the typical mainnet ratio. */
-  SIA_DATA_SHARDS: z.coerce.number().int().positive().default(2),
-  SIA_PARITY_SHARDS: z.coerce.number().int().positive().default(4),
+  /** Erasure-coding shards per slab. Leave BOTH unset to use the indexer
+   *  account's default redundancy, which is what mainnet / the hosted
+   *  sia.storage indexer requires (passing a below-policy ratio like 2/4 there
+   *  makes the upload fail immediately). Set both only to fit a specific host
+   *  pool, e.g. 2-of-6 for the Zen testnet's small pool. */
+  SIA_DATA_SHARDS: z.coerce.number().int().positive().optional(),
+  SIA_PARITY_SHARDS: z.coerce.number().int().positive().optional(),
 
   /** Which Sia network the connected indexd runs against. Used for
    *  UI labelling only (badge on the asset detail page, etc). */
