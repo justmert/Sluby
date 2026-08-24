@@ -95,6 +95,7 @@ export class UploadManager {
     const fileType = (file as File).type ?? '';
 
     let paused = false;
+    let headedForMetadata = false;
     let upload!: tus.Upload;
 
     let resolveAssetId!: (id: string) => void;
@@ -124,10 +125,35 @@ export class UploadManager {
 
         onAfterResponse: (_req, res) => {
           if (assetIdSettled) return;
+          // Some servers echo Upload-Metadata directly on a response; use it.
           const header = res.getHeader('Upload-Metadata');
           if (header) {
             const id = parseUploadMetadata(header).videoAssetId;
-            if (id) resolveAssetId(id);
+            if (id) {
+              resolveAssetId(id);
+              return;
+            }
+          }
+          // The tus creation POST only returns Location; the asset id lives in
+          // the upload's metadata, which tus exposes via HEAD. Fetch it once,
+          // non-blocking, so `assetId` resolves without waiting for the upload.
+          const location = res.getHeader('Location');
+          if (location && !headedForMetadata) {
+            headedForMetadata = true;
+            fetch(location, {
+              method: 'HEAD',
+              headers: { Authorization: `Bearer ${this._apiKey}`, 'Tus-Resumable': '1.0.0' },
+            })
+              .then((r) => {
+                const meta = r.headers.get('Upload-Metadata');
+                if (meta) {
+                  const id = parseUploadMetadata(meta).videoAssetId;
+                  if (id) resolveAssetId(id);
+                }
+              })
+              .catch(() => {
+                /* leave assetId pending; the caller can still poll assets.list */
+              });
           }
         },
 
