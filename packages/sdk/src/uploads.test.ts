@@ -102,6 +102,34 @@ describe('UploadManager.upload()', () => {
     await handle;
   });
 
+  it('resolves assetId via a HEAD on Location when the POST omits Upload-Metadata', async () => {
+    // The tus creation POST only returns Location; the asset id is fetched from
+    // the upload metadata via a follow-up HEAD (what a real @tus/server does).
+    const fetchMock = vi.fn().mockResolvedValue({
+      headers: { get: (n: string) => (n === 'Upload-Metadata' ? metadataHeader('asset-head') : null) },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const handle = make().upload(Buffer.from('data'), { title: 'T' });
+    await flush();
+    const up = lastUpload();
+
+    (up.options.onAfterResponse as (req: unknown, res: unknown) => void)(
+      {},
+      { getHeader: (name: string) => (name === 'Location' ? 'http://api.test/files/abc' : undefined) },
+    );
+
+    await expect(handle.assetId).resolves.toBe('asset-head');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://api.test/files/abc',
+      expect.objectContaining({ method: 'HEAD' }),
+    );
+
+    (up.options.onSuccess as () => void)();
+    await handle;
+    vi.unstubAllGlobals();
+  });
+
   it('reports progress as percent plus raw bytes, and resolves on success', async () => {
     const onProgress = vi.fn();
     const onSuccess = vi.fn();
