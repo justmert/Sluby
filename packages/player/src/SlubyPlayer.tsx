@@ -145,6 +145,11 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       }
 
       let cancelled = false;
+      // Clear any prior delivery synchronously so a Retry (retryKey) cannot let
+      // the HLS effect re-initialise on a stale/expired share map before the
+      // fresh resolve below lands.
+      setResolvedSrc(null);
+      setSiaDelivery(null);
       setState('loading');
 
       (async () => {

@@ -31,7 +31,11 @@ vi.mock('sia-storage', () => {
 
 import { SiaSession } from './sia-session.js';
 
-const config = { indexerUrl: 'https://sia.storage', appId: 'app-id-hex', appKey: 'aabbccdd' };
+const APP_ID = 'ab'.repeat(32); // 64 hex chars (32 bytes)
+const APP_KEY = 'aabbccdd'.repeat(8); // 64 hex chars -> 32 bytes
+const EXPECTED_KEY = new Uint8Array(32);
+for (let i = 0; i < 32; i += 4) EXPECTED_KEY.set([0xaa, 0xbb, 0xcc, 0xdd], i);
+const config = { indexerUrl: 'https://sia.storage', appId: APP_ID, appKey: APP_KEY };
 
 function makeSession(fetchImpl?: FetchFn) {
   const fetchFn = (fetchImpl ?? vi.fn()) as ReturnType<typeof vi.fn<FetchFn>>;
@@ -85,16 +89,28 @@ describe('SiaSession.connect', () => {
 
     expect(h.initSia).toHaveBeenCalledTimes(1);
     expect(h.builderCtor).toHaveBeenCalledWith('https://sia.storage', {
-      appId: 'app-id-hex',
+      appId: APP_ID,
       name: 'Sluby Player',
       description: 'Sluby direct-from-Sia video player',
       serviceUrl: 'https://sia.storage',
       logoUrl: undefined,
       callbackUrl: undefined,
     });
-    // 'aabbccdd' -> [0xaa, 0xbb, 0xcc, 0xdd]
-    expect(h.appKeyCtor).toHaveBeenCalledWith(new Uint8Array([0xaa, 0xbb, 0xcc, 0xdd]));
+    expect(h.appKeyCtor).toHaveBeenCalledWith(EXPECTED_KEY);
     expect(sdk).toBe(h.fakeSdk);
+  });
+
+  it('rejects a non-32-byte app key', async () => {
+    const session = new SiaSession(vi.fn() as unknown as FetchFn, {
+      ...config,
+      appKey: 'aabbccdd',
+    });
+    await expect(session.connect()).rejects.toThrow(/32-byte/);
+  });
+
+  it('rejects a non-hex app id', async () => {
+    const session = new SiaSession(vi.fn() as unknown as FetchFn, { ...config, appId: 'not-hex' });
+    await expect(session.connect()).rejects.toThrow(/app id/);
   });
 
   it('memoizes: a second connect does not re-init', async () => {
