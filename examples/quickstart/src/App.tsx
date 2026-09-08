@@ -13,6 +13,13 @@ export function App() {
   const [deliveryUrl, setDeliveryUrl] = useState(ENV.VITE_SLUBY_DELIVERY_URL ?? '');
   const [apiKey, setApiKey] = useState(ENV.VITE_SLUBY_API_KEY ?? '');
 
+  // Optional viewer identity: when all three are set, playback streams directly
+  // from Sia (backend out of the byte path). Provision one with
+  // `npm run provision-viewer` in the backend. All three are publishable.
+  const [siaIndexerUrl, setSiaIndexerUrl] = useState(ENV.VITE_SLUBY_SIA_INDEXER_URL ?? '');
+  const [siaAppId, setSiaAppId] = useState(ENV.VITE_SLUBY_SIA_APP_ID ?? '');
+  const [siaAppKey, setSiaAppKey] = useState(ENV.VITE_SLUBY_SIA_APP_KEY ?? '');
+
   const [phase, setPhase] = useState<Phase>('config');
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -23,12 +30,17 @@ export function App() {
 
   const client = useMemo(() => {
     if (!apiKey || !baseUrl) return null;
+    const sia =
+      siaIndexerUrl && siaAppId && siaAppKey
+        ? { indexerUrl: siaIndexerUrl, appId: siaAppId, appKey: siaAppKey }
+        : undefined;
     return new SlubyClient({
       apiKey,
       baseUrl,
       deliveryBaseUrl: deliveryUrl || undefined,
+      sia,
     });
-  }, [apiKey, baseUrl, deliveryUrl]);
+  }, [apiKey, baseUrl, deliveryUrl, siaIndexerUrl, siaAppId, siaAppKey]);
 
   async function handleUpload(file: File) {
     if (!client) return;
@@ -109,6 +121,32 @@ export function App() {
           type="password"
           onChange={(e) => setApiKey(e.target.value)}
         />
+
+        <hr style={styles.hr} />
+        <p style={{ fontSize: 13, color: '#444', margin: '0 0 4px' }}>
+          Direct-from-Sia playback (optional). Set all three to stream bytes straight from Sia
+          instead of the gateway. Provision with <code>npm run provision-viewer</code> in the
+          backend. These are publishable.
+        </p>
+        <label style={styles.label}>Sia indexer URL</label>
+        <input
+          style={styles.input}
+          value={siaIndexerUrl}
+          placeholder="e.g. https://sia.storage"
+          onChange={(e) => setSiaIndexerUrl(e.target.value)}
+        />
+        <label style={styles.label}>Viewer app id (hex)</label>
+        <input
+          style={styles.input}
+          value={siaAppId}
+          onChange={(e) => setSiaAppId(e.target.value)}
+        />
+        <label style={styles.label}>Viewer app key (hex)</label>
+        <input
+          style={styles.input}
+          value={siaAppKey}
+          onChange={(e) => setSiaAppKey(e.target.value)}
+        />
       </section>
 
       {(phase === 'config' || phase === 'deleted') && (
@@ -156,7 +194,10 @@ export function App() {
           <SlubyPlayer client={client} assetId={asset.id} controls style={{ width: '100%' }} />
           <div style={{ marginTop: 12 }}>
             <strong>{asset.title}</strong> · {asset.resolution} ·{' '}
-            {(asset.totalStorageBytes / 1_000_000).toFixed(1)} MB
+            {(asset.totalStorageBytes / 1_000_000).toFixed(1)} MB ·{' '}
+            <span style={{ color: client.sia ? '#059669' : '#666' }}>
+              {client.sia ? 'direct from Sia' : 'gateway delivery'}
+            </span>
           </div>
           <button type="button" style={styles.deleteBtn} onClick={() => void handleDelete()}>
             Delete asset
@@ -188,6 +229,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   label: { display: 'block', fontSize: 13, color: '#444', marginTop: 8, marginBottom: 4 },
   input: { width: '100%', padding: 8, boxSizing: 'border-box', fontSize: 14 },
+  hr: { border: 'none', borderTop: '1px solid #eee', margin: '16px 0 8px' },
   error: {
     background: '#fee',
     border: '1px solid #f99',

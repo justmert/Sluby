@@ -32,3 +32,24 @@ you can point it at any Sluby backend without rebuilding.
 
 To verify cross-browser playback and recovery (Chrome, Firefox, Safari), open
 the same URL in each browser after the asset is ready.
+
+## Direct-from-Sia playback (optional)
+
+By default the player fetches HLS bytes from the delivery gateway. To stream
+them straight from Sia in the browser instead (the backend leaves the byte
+path), give the player a viewer identity.
+
+Provision one once from the backend (it prints a URL to approve in your indexer
+account, then the publishable config):
+
+```bash
+cd backend
+SIA_INDEXER_URL=https://sia.storage npm run provision-viewer
+```
+
+Put the three printed values in `examples/quickstart/.env`
+(`VITE_SLUBY_SIA_INDEXER_URL`, `VITE_SLUBY_SIA_APP_ID`, `VITE_SLUBY_SIA_APP_KEY`)
+or paste them into the form's "Direct-from-Sia playback" fields. They are
+publishable, like a public playback key. When set, the ready view shows "direct
+from Sia"; the player still falls back to the gateway on Safari-native playback
+or if the viewer session is unavailable.
