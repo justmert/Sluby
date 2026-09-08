@@ -381,6 +381,78 @@ describe('SlubyPlayer', () => {
     });
   });
 
+  describe('direct-from-Sia (client.sia)', () => {
+    const GATEWAY = 'https://cache.test/v1/objects/abc?type=manifest';
+    function gatewayClient(extra: Record<string, unknown> = {}) {
+      return {
+        resolveDeliveryUrl: (p: string) => p,
+        playback: {
+          getUrl: vi.fn().mockResolvedValue({ playbackUrl: GATEWAY, posterUrl: null }),
+          getSignedUrl: vi.fn(),
+        },
+        ...extra,
+      };
+    }
+    function viewerSession(over: Record<string, unknown> = {}) {
+      return {
+        getShareMap: vi.fn().mockResolvedValue({
+          masterObjectId: 'abc',
+          shares: { abc: 'sia://abc#k' },
+          expiresAt: 'x',
+        }),
+        connect: vi.fn().mockResolvedValue(undefined),
+        resolveObject: vi.fn(),
+        download: vi.fn(),
+        ...over,
+      };
+    }
+
+    it('injects a custom loader when a viewer session resolves', async () => {
+      const sia = viewerSession();
+      const client = gatewayClient({ sia });
+
+      render(<SlubyPlayer client={client} assetId="abc" />);
+
+      await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(GATEWAY));
+      expect(sia.getShareMap).toHaveBeenCalledWith('abc');
+      expect(sia.connect).toHaveBeenCalled();
+      expect(typeof hlsInstanceRef.current.config.loader).toBe('function');
+    });
+
+    it('uses the gateway (no custom loader) when the client has no viewer session', async () => {
+      const client = gatewayClient();
+
+      render(<SlubyPlayer client={client} assetId="abc" />);
+
+      await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(GATEWAY));
+      expect(hlsInstanceRef.current.config.loader).toBeUndefined();
+    });
+
+    it('falls back to the gateway when the share map cannot be fetched', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sia = viewerSession({ getShareMap: vi.fn().mockRejectedValue(new Error('boom')) });
+      const client = gatewayClient({ sia });
+
+      render(<SlubyPlayer client={client} assetId="abc" />);
+
+      await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(GATEWAY));
+      expect(hlsInstanceRef.current.config.loader).toBeUndefined();
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it('does not attempt Sia when hls.js is unsupported (Safari-native path)', async () => {
+      mockIsSupported.mockReturnValue(false);
+      const sia = viewerSession();
+      const client = gatewayClient({ sia });
+
+      render(<SlubyPlayer client={client} assetId="abc" />);
+
+      await waitFor(() => expect(client.playback.getUrl).toHaveBeenCalled());
+      expect(sia.getShareMap).not.toHaveBeenCalled();
+    });
+  });
+
   describe('timer safety', () => {
     it('does not fire a scheduled reload after a later fatal error destroys hls', () => {
       vi.useFakeTimers();
