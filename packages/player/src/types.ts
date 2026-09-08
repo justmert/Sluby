@@ -10,6 +10,30 @@ export interface QualityLevel {
 export type PlayerState = 'idle' | 'loading' | 'ready' | 'buffering' | 'error';
 
 /**
+ * Per-playback capability map: a short-lived sia:// share URL per object of an
+ * asset, plus which object is the HLS master.
+ */
+export interface SiaShareMap {
+  masterObjectId: string;
+  /** object id (hex) -> sia:// share URL */
+  shares: Record<string, string>;
+  expiresAt: string;
+}
+
+/**
+ * The `client.sia` viewer session the player drives for direct-from-Sia
+ * playback. Structural (no hard dependency on `@sluby/sdk` or the WASM SDK):
+ * resolved objects are opaque handles the loader passes straight back to
+ * `download`.
+ */
+export interface SiaPlaybackSession {
+  getShareMap(assetId: string): Promise<SiaShareMap>;
+  connect(): Promise<unknown>;
+  resolveObject(shareUrl: string): Promise<unknown>;
+  download(object: unknown, options?: { offset?: number; length?: number }): ReadableStream;
+}
+
+/**
  * Minimal structural interface a `SlubyClient` satisfies. The player accepts
  * it so it can resolve an absolute delivery URL from an asset id on its own,
  * without a hard dependency on `@sluby/sdk`.
@@ -20,6 +44,12 @@ export interface PlaybackResolver {
     getUrl(assetId: string): Promise<{ playbackUrl: string; posterUrl: string | null }>;
     getSignedUrl(assetId: string, options?: { expiresIn?: number }): Promise<{ signedUrl: string }>;
   };
+  /**
+   * Present when a viewer identity is configured. When available (and hls.js is
+   * used), the player streams bytes directly from Sia via a custom loader,
+   * with the backend out of the byte path. Absent for gateway-only clients.
+   */
+  sia?: SiaPlaybackSession;
 }
 
 export interface SlubyPlayerProps {

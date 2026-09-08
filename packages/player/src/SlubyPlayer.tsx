@@ -8,7 +8,14 @@ import React, {
 } from 'react';
 import Hls from 'hls.js';
 import type { HlsConfig } from 'hls.js';
-import type { SlubyPlayerProps, QualityLevel, PlayerState } from './types.js';
+import type {
+  SlubyPlayerProps,
+  QualityLevel,
+  PlayerState,
+  SiaPlaybackSession,
+  SiaShareMap,
+} from './types.js';
+import { createSiaLoader } from './SiaLoader.js';
 
 // ---------------------------------------------------------------------------
 // Public imperative handle exposed via ref
@@ -98,6 +105,11 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
     const [resolvedSrc, setResolvedSrc] = useState<string | null>(src ?? null);
     const [resolvedPoster, setResolvedPoster] = useState<string | undefined>(poster);
     const [retryKey, setRetryKey] = useState(0);
+    // Direct-from-Sia delivery for this asset, or null to use the gateway.
+    const [siaDelivery, setSiaDelivery] = useState<{
+      session: SiaPlaybackSession;
+      shareMap: SiaShareMap;
+    } | null>(null);
 
     // Keep the latest callbacks in refs so the HLS effect does not re-run (and
     // tear down playback) every time a parent re-renders with new closures.
@@ -122,10 +134,12 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
     useEffect(() => {
       if (src) {
+        setSiaDelivery(null);
         setResolvedSrc(src);
         return;
       }
       if (!client || !assetId) {
+        setSiaDelivery(null);
         setResolvedSrc(null);
         return;
       }
@@ -135,15 +149,39 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
       (async () => {
         try {
+          // The gateway URL is always resolved: it is the http fallback, and in
+          // Sia mode it is still the address the custom loader decodes the
+          // object id from (the loader never fetches it over HTTP).
+          let url: string;
+          let posterUrl: string | null = null;
           if (signed) {
-            const { signedUrl } = await client.playback.getSignedUrl(assetId, { expiresIn });
-            if (!cancelled) setResolvedSrc(signedUrl);
+            url = (await client.playback.getSignedUrl(assetId, { expiresIn })).signedUrl;
           } else {
             const info = await client.playback.getUrl(assetId);
-            if (cancelled) return;
-            setResolvedSrc(info.playbackUrl);
-            if (!poster && info.posterUrl) setResolvedPoster(info.posterUrl);
+            url = info.playbackUrl;
+            posterUrl = info.posterUrl;
           }
+
+          // Attempt direct-from-Sia delivery when a viewer session is
+          // configured and hls.js will drive playback (a custom loader cannot
+          // apply on the Safari-native path). Any failure (no share map, WASM
+          // init, connect) falls back to the gateway, surfaced via a warning
+          // rather than swallowed.
+          let sia: { session: SiaPlaybackSession; shareMap: SiaShareMap } | null = null;
+          if (client.sia && Hls.isSupported()) {
+            try {
+              const shareMap = await client.sia.getShareMap(assetId);
+              await client.sia.connect();
+              sia = { session: client.sia, shareMap };
+            } catch (err) {
+              console.warn('Sluby: direct-from-Sia delivery unavailable, using the gateway.', err);
+            }
+          }
+
+          if (cancelled) return;
+          setSiaDelivery(sia);
+          setResolvedSrc(url);
+          if (!poster && posterUrl) setResolvedPoster(posterUrl);
         } catch (err) {
           if (!cancelled) {
             fail(err instanceof Error ? err.message : 'Failed to resolve playback URL');
@@ -252,6 +290,14 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         startLevel: -1, // auto (adaptive)
       };
 
+      // Direct-from-Sia: a custom loader streams every playlist and segment
+      // from Sia via the viewer session (loaders run on the main thread, so
+      // this is compatible with enableWorker). Setting `loader` covers
+      // manifest, level, fragment, and key loads. Absent -> gateway HTTP.
+      if (siaDelivery) {
+        hlsConfig.loader = createSiaLoader(siaDelivery.session, siaDelivery.shareMap);
+      }
+
       const hls = new Hls(hlsConfig);
       hlsRef.current = hls;
 
@@ -343,7 +389,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         if (!destroyed) hls.destroy();
         hlsRef.current = null;
       };
-    }, [resolvedSrc, retryKey, autoPlay, maxNetworkRetries, maxMediaRetries, fail]);
+    }, [resolvedSrc, siaDelivery, retryKey, autoPlay, maxNetworkRetries, maxMediaRetries, fail]);
 
     // ── Retry (from the overlay button) ────────────────────────────────────
 
