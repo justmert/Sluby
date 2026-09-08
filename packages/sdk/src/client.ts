@@ -5,6 +5,7 @@
 import { AssetManager } from './assets.js';
 import { AuthenticationError, NotFoundError, RateLimitError, SlubyError } from './errors.js';
 import { PlaybackManager } from './playback.js';
+import { SiaSession } from './sia-session.js';
 import type { SlubyConfig } from './types.js';
 import { UploadManager } from './uploads.js';
 import { WebhookManager } from './webhooks.js';
@@ -51,6 +52,13 @@ export class SlubyClient {
   /** Webhook signature verification and event parsing utilities. */
   readonly webhooks: WebhookManager;
 
+  /**
+   * Direct-from-Sia viewer session (browser only). Present only when
+   * `config.sia` is set; the player uses it to stream bytes straight from Sia
+   * with the backend out of the byte path. Undefined for REST-only consumers.
+   */
+  readonly sia?: SiaSession;
+
   private readonly _config: SlubyConfig;
 
   constructor(config: SlubyConfig) {
@@ -78,6 +86,7 @@ export class SlubyClient {
     this.assets = new AssetManager(boundFetch);
     this.playback = new PlaybackManager(boundFetch, this.resolveDeliveryUrl.bind(this));
     this.webhooks = new WebhookManager();
+    this.sia = this._config.sia ? new SiaSession(boundFetch, this._config.sia) : undefined;
   }
 
   // -----------------------------------------------------------------------

@@ -44,6 +44,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "sia-storage": "^0.0.8",
     "tus-js-client": "^4.3.1"
   },
   "devDependencies": {

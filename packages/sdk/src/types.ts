@@ -139,6 +139,43 @@ export interface PaginatedResponse<T> {
   limit: number;
 }
 
+/**
+ * Publishable viewer identity for direct-from-Sia playback (browser only).
+ *
+ * The web SDK has no anonymous mode, so the browser needs its own registered
+ * Sia app key to construct an Sdk and download objects. This is a low-privilege
+ * "viewer" identity, separate from the uploader's key: it can resolve shared
+ * objects but never touches the uploader's content or key. Treat it like a
+ * publishable key (e.g. a Mux public key), not a secret. Provision it once with
+ * the viewer-provisioning script.
+ */
+export interface SiaViewerConfig {
+  /** Indexer base URL the viewer connects to (e.g. "https://sia.storage"). */
+  indexerUrl: string;
+  /** 32-byte app id, hex. */
+  appId: string;
+  /** 32-byte viewer app key, hex. Publishable, low-privilege. */
+  appKey: string;
+  /** App display name shown to the indexer. Defaults to "Sluby Player". */
+  name?: string;
+  /** App description shown to the indexer. */
+  description?: string;
+  /** App service URL shown to the indexer. */
+  serviceUrl?: string;
+}
+
+/**
+ * Per-playback capability map: a short-lived sia:// share URL per object of an
+ * asset, plus which object is the HLS master. Fetched from the backend's
+ * `GET /api/v1/playback/:id/share`.
+ */
+export interface SiaShareMap {
+  masterObjectId: string;
+  /** object id (hex) -> sia:// share URL */
+  shares: Record<string, string>;
+  expiresAt: string;
+}
+
 /** SDK client configuration. */
 export interface SlubyConfig {
   /** API key (Bearer token). */
@@ -154,6 +191,13 @@ export interface SlubyConfig {
    * Defaults to `baseUrl` when omitted.
    */
   deliveryBaseUrl?: string;
+  /**
+   * Viewer identity for direct-from-Sia playback. When set, `client.sia` is
+   * available and the player can stream bytes straight from Sia (backend out
+   * of the byte path). Omit for REST-only or gateway-delivery consumers; the
+   * WASM SDK is then never loaded.
+   */
+  sia?: SiaViewerConfig;
 }
 
 /** Webhook event payload delivered to registered endpoints. */
