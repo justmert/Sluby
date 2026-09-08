@@ -40,11 +40,6 @@ export class SiaSession {
     this._config = config;
   }
 
-  /** Whether a viewer identity is configured (always true once constructed). */
-  isConfigured(): boolean {
-    return Boolean(this._config.indexerUrl && this._config.appId && this._config.appKey);
-  }
-
   /**
    * Fetch the per-playback share map for an asset from the backend. This is a
    * REST call and does NOT require the WASM module, so the player can fetch it
@@ -73,8 +68,12 @@ export class SiaSession {
       this._sdkPromise = (async () => {
         const sia = await import('sia-storage');
         await sia.initSia();
+        const appId = this._config.appId.replace(/^0x/, '');
+        if (!/^[0-9a-fA-F]{64}$/.test(appId)) {
+          throw new Error('SiaSession: app id must be a 32-byte (64 hex char) string.');
+        }
         const appMeta = {
-          appId: this._config.appId,
+          appId,
           name: this._config.name ?? 'Sluby Player',
           description: this._config.description ?? 'Sluby direct-from-Sia video player',
           serviceUrl: this._config.serviceUrl ?? this._config.indexerUrl,
@@ -133,14 +132,14 @@ export class SiaSession {
   }
 }
 
-/** Decode a hex string (optionally `0x`-prefixed) into bytes. */
+/** Decode a 32-byte app key from hex (optionally `0x`-prefixed). */
 function hexToBytes(hex: string): Uint8Array {
   const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
-  if (clean.length === 0 || clean.length % 2 !== 0 || /[^0-9a-fA-F]/.test(clean)) {
-    throw new Error('SiaSession: app key must be a non-empty even-length hex string.');
+  if (clean.length !== 64 || /[^0-9a-fA-F]/.test(clean)) {
+    throw new Error('SiaSession: app key must be a 32-byte (64 hex char) string.');
   }
-  const out = new Uint8Array(clean.length / 2);
-  for (let i = 0; i < out.length; i++) {
+  const out = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
     out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   }
   return out;

@@ -142,6 +142,28 @@ describe('SiaLoader', () => {
     expect(download).toHaveBeenCalledWith({ handle: 'sia://data#k' }, {});
   });
 
+  it('treats hls.js rangeStart:0/rangeEnd:0 as a full download, not a zero-length read', async () => {
+    // hls.js emits 0/0 for a non-byterange fragment and means "download it all".
+    const { session, download } = makeSession();
+    const loader = newLoader(session);
+    const { cbs, onSuccess } = callbacks();
+
+    loader.load(
+      ctx({
+        url: 'https://cache.test/v1/objects/data',
+        responseType: 'arraybuffer',
+        type: 'media-fragment',
+        rangeStart: 0,
+        rangeEnd: 0,
+      }),
+      config,
+      cbs,
+    );
+
+    await vi.waitFor(() => expect(onSuccess).toHaveBeenCalled());
+    expect(download).toHaveBeenCalledWith({ handle: 'sia://data#k' }, {});
+  });
+
   it('errors when the URL has no share URL in the map', () => {
     const { session } = makeSession();
     const loader = newLoader(session);

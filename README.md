@@ -205,9 +205,13 @@ private or signed-policy assets).
 Verify the data path with `node scripts/e2e-sia-share.mjs` (opt-in; set the
 `SIA_E2E_*` vars it prints when skipped). For the browser, run the quickstart
 with the viewer config, open DevTools' Network tab filtered to your backend
-origin, and confirm that during playback only `GET /api/v1/playback/:id` and
-`.../share` hit the backend, not `/v1/objects` (segment fetches go to Sia
-hosts). Unset the config to see the gateway requests reappear.
+origin, and confirm that during playback the manifest and segments do **not**
+hit the backend's `/v1/objects` (they go to Sia hosts); the only backend calls
+are `GET /api/v1/playback/:id` and `.../share`. One exception: the
+`<video poster>` thumbnail is always served via the gateway, so you will see a
+single `/v1/objects/{thumbnail}` request for it. Unset the viewer config to see
+the manifest and segment requests reappear on `/v1/objects` (the gateway
+fallback).
 
 ## Project layout
 

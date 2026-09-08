@@ -85,12 +85,13 @@ export function createSiaLoader(
         this.timeoutId = setTimeout(() => this.onTimeout(), maxLoadTimeMs);
       }
 
-      // hls.js sets rangeEnd EXCLUSIVE; Sia wants an offset + length.
-      const hasRange =
-        typeof context.rangeStart === 'number' && typeof context.rangeEnd === 'number';
-      const options = hasRange
-        ? { offset: context.rangeStart, length: context.rangeEnd! - context.rangeStart! }
-        : {};
+      // hls.js sets rangeEnd EXCLUSIVE for a byte-ranged segment, but defaults
+      // both to 0 for a non-byterange fragment and treats a falsy rangeEnd as
+      // "no range, full download" (matching its own loaders). Mirror that so a
+      // plain fragment isn't asked from Sia as a zero-length read.
+      const start = context.rangeStart ?? 0;
+      const hasRange = typeof context.rangeEnd === 'number' && context.rangeEnd > start;
+      const options = hasRange ? { offset: start, length: context.rangeEnd! - start } : {};
       const wantText = context.responseType !== 'arraybuffer';
 
       void this.run(context, shareUrl, options, wantText);

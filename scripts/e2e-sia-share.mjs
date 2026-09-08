@@ -10,8 +10,8 @@
 //   3. so the backend serves only the small JSON share map, never the bytes.
 //
 // It does NOT exercise the browser SiaSession / SiaLoader themselves (those are
-// the WASM build and are covered by unit tests + the quickstart build); see
-// docs/direct-from-sia.md for the manual browser check.
+// the WASM build and are covered by unit tests + the quickstart build); see the
+// "Direct-from-Sia playback" section in the README for the manual browser check.
 //
 // Skips cleanly (exit 0) unless every env var below is set:
 //   SIA_E2E_BACKEND_URL     e.g. http://localhost:4500
