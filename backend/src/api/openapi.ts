@@ -178,6 +178,20 @@ export const openapiDocument = {
           expires_at: { type: 'string', format: 'date-time' },
         },
       },
+      SharePlaybackInfo: {
+        type: 'object',
+        properties: {
+          master_object_id: { type: 'string', description: 'The HLS master object id (hex).' },
+          shares: {
+            type: 'object',
+            additionalProperties: { type: 'string' },
+            description:
+              'Map of Sia object id (hex) to a short-lived sia:// share URL the ' +
+              'browser player resolves + downloads directly, no backend proxy.',
+          },
+          expires_at: { type: 'string', format: 'date-time' },
+        },
+      },
       PlaybackId: {
         type: 'object',
         properties: {
@@ -488,6 +502,22 @@ export const openapiDocument = {
         ],
         responses: {
           '200': jsonResponse('SignedUrl', 'Signed URL.'),
+          '404': errorResponse,
+          '409': errorResponse,
+        },
+      },
+    },
+    '/api/v1/playback/{id}/share': {
+      get: {
+        tags: ['Playback'],
+        summary: 'Per-object sia:// share URLs for direct-from-Sia playback.',
+        'x-required-scope': 'read',
+        parameters: [
+          idParam('id', 'Asset UUID or pb_ playback ID.'),
+          { name: 'expires_in', in: 'query', schema: { type: 'integer', default: 3600 } },
+        ],
+        responses: {
+          '200': jsonResponse('SharePlaybackInfo', 'Share URL map.'),
           '404': errorResponse,
           '409': errorResponse,
         },
