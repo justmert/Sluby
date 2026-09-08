@@ -153,11 +153,61 @@ each output artifact is pushed to Sia through `sia-storage`, and the resulting
 object references are persisted in Postgres. BullMQ (backed by Redis) drives
 the transcode queue.
 
-Playback path: the aggregator resolves a video asset's manifest and segment
-references from Postgres, pulls the bytes from Sia on demand (streaming byte
-ranges through), and keeps hot manifests and small objects in an in-memory
-LRU cache so repeat plays stay hot. The only on-disk cache is Nginx's
-`proxy_cache`, which sits in front of the aggregator.
+Playback path: the player can stream bytes **directly from Sia in the browser**
+(the backend leaves the byte path), or fetch them through the gateway. In
+direct mode the backend only mints a short-lived per-object share map and a
+custom hls.js loader pulls the byte ranges from Sia; in gateway mode the
+aggregator resolves the asset's object references from Postgres, pulls the bytes
+from Sia on demand, and keeps hot manifests and small objects in an in-memory
+LRU cache, with Nginx's `proxy_cache` in front. The same stored manifest serves
+both. See [Direct-from-Sia playback](#direct-from-sia-playback).
+
+## Direct-from-Sia playback
+
+By default the player fetches HLS bytes from the delivery gateway. It can
+instead stream them straight from Sia in the browser, with the backend out of
+the byte path (the model the proposal describes: the client retrieves content
+directly from Sia, no intermediary handles the playback data).
+
+Two modes, from one stored manifest (objects are referenced as
+`/v1/objects/{id}`, so no re-processing to switch):
+
+- **Direct from Sia** (default when a viewer identity is configured): the
+  player asks the backend for a short-lived, per-object share map, then a custom
+  hls.js loader resolves each object and downloads its byte ranges from Sia. The
+  backend serves only the small share-map JSON.
+- **Gateway** (fallback): used for Safari native HLS, when no viewer identity is
+  configured, or if the Sia session fails to start.
+
+Enable it by provisioning a low-privilege viewer identity once (separate from
+the uploader's key, safe to publish like a public playback key):
+
+```bash
+cd backend
+SIA_INDEXER_URL=https://sia.storage npm run provision-viewer
+```
+
+Approve the printed URL in your indexer account; it prints three publishable
+values. Pass them to the client (or set `VITE_SLUBY_SIA_*` in the quickstart):
+
+```ts
+const client = new SlubyClient({ apiKey, baseUrl, sia: { indexerUrl, appId, appKey } });
+// <SlubyPlayer client={client} assetId={id} /> now streams directly from Sia.
+```
+
+Trade-offs: egress is paid by the downloading account, so direct mode moves
+egress to the viewer account (fund it) and has no shared proxy cache (each
+viewer pulls independently); use gateway mode for the shared cache. A share URL
+carries the object's decryption key and bypasses the signed-URL gateway, so the
+backend mints them owner-scoped and short-lived (shorter and non-cacheable for
+private or signed-policy assets).
+
+Verify the data path with `node scripts/e2e-sia-share.mjs` (opt-in; set the
+`SIA_E2E_*` vars it prints when skipped). For the browser, run the quickstart
+with the viewer config, open DevTools' Network tab filtered to your backend
+origin, and confirm that during playback only `GET /api/v1/playback/:id` and
+`.../share` hit the backend, not `/v1/objects` (segment fetches go to Sia
+hosts). Unset the config to see the gateway requests reappear.
 
 ## Project layout
 
