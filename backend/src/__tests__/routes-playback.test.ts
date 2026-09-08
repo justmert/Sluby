@@ -31,6 +31,11 @@ describe('playback routes', () => {
         signedUrl: 'https://signed.url/manifest',
         expiresAt: '2025-06-01T00:00:00Z',
       }),
+      createShareUrls: vi.fn().mockResolvedValue({
+        masterObjectId: 'manifest-obj-1',
+        shares: { 'manifest-obj-1': 'sia://ref#key', 'data-obj-1': 'sia://ref2#key2' },
+        expiresAt: '2025-06-01T01:00:00Z',
+      }),
     };
   });
 
@@ -249,6 +254,100 @@ describe('playback routes', () => {
     });
   });
 
+  describe('GET /:id/share', () => {
+    const readyAsset = {
+      id: 'asset-1',
+      manifestObjectId: 'manifest-obj-1',
+      thumbnailObjectIds: [],
+      durationMs: 60000,
+      resolution: '1280x720',
+      accessTier: 'public' as const,
+      status: 'ready',
+    };
+
+    it('returns the share-url map with master + expiry', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
+
+      const res = await request(createApp()).get('/asset-1/share');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        master_object_id: 'manifest-obj-1',
+        shares: { 'manifest-obj-1': 'sia://ref#key', 'data-obj-1': 'sia://ref2#key2' },
+        expires_at: '2025-06-01T01:00:00Z',
+      });
+    });
+
+    it('mints against the resolved asset id and the default hour', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
+
+      await request(createApp()).get('/asset-1/share');
+
+      expect(deps.createShareUrls).toHaveBeenCalledWith('asset-1', 'manifest-obj-1', 3600);
+    });
+
+    it('clamps a public request to the six-hour ceiling', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
+
+      await request(createApp()).get('/asset-1/share?expires_in=999999');
+
+      expect(deps.createShareUrls).toHaveBeenCalledWith('asset-1', 'manifest-obj-1', 21600);
+    });
+
+    it('caps a private asset to one hour and marks the response no-store', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue({
+        ...readyAsset,
+        accessTier: 'private',
+      });
+
+      const res = await request(createApp()).get('/asset-1/share?expires_in=999999');
+
+      expect(deps.createShareUrls).toHaveBeenCalledWith('asset-1', 'manifest-obj-1', 3600);
+      expect(res.headers['cache-control']).toBe('private, no-store');
+    });
+
+    it('returns 404 when the asset is not found', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue(null);
+
+      const res = await request(createApp()).get('/asset-1/share');
+
+      expect(res.status).toBe(404);
+      expect(deps.createShareUrls).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 when the asset is not ready', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue({
+        ...readyAsset,
+        manifestObjectId: null,
+        status: 'processing',
+      });
+
+      const res = await request(createApp()).get('/asset-1/share');
+
+      expect(res.status).toBe(409);
+      expect(deps.createShareUrls).not.toHaveBeenCalled();
+    });
+
+    it('scopes the lookup to the calling tenant', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
+
+      await request(createApp()).get('/asset-1/share');
+
+      expect(deps.getPlaybackAsset).toHaveBeenCalledWith('asset-1', '0xabc123');
+    });
+
+    it('requires read scope', async () => {
+      const app = withApiKey(createTestApp(createPlaybackRoutes(deps)), {
+        ...defaultApiKey,
+        scopes: ['upload'],
+      });
+
+      const res = await request(app).get('/asset-1/share');
+
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe('cross-tenant isolation', () => {
     // Model the real ownership rule: the lookup resolves an asset only for its
     // owner, so another tenant's key sees a miss.
@@ -271,6 +370,11 @@ describe('playback routes', () => {
         generateSignedUrl: vi.fn().mockResolvedValue({
           signedUrl: 'https://signed.url/manifest',
           expiresAt: '2025-06-01T00:00:00Z',
+        }),
+        createShareUrls: vi.fn().mockResolvedValue({
+          masterObjectId: 'manifest-obj-1',
+          shares: { 'manifest-obj-1': 'sia://ref#key' },
+          expiresAt: '2025-06-01T01:00:00Z',
         }),
       };
       return withApiKey(createTestApp(createPlaybackRoutes(scoped)), {

@@ -100,6 +100,9 @@ interface NapiSdk {
   deleteObject(key: string): Promise<void>;
   pruneSlabs(): Promise<void>;
   account(): Promise<NapiAccount>;
+  // Mints a public, time-limited sia:// URL that carries the object's
+  // decryption key in its fragment. Local signing, no host round-trip.
+  shareObject(object: NapiPinnedObject, validUntil: Date): string;
 }
 interface NapiBuilder {
   connected(appKey: NapiAppKey): Promise<NapiSdk | null>;
@@ -446,6 +449,27 @@ export async function getObject(objectId: string): Promise<PinnedObject> {
   const obj = await sdk.object(objectId);
   const { contracts } = await refreshHostContracts();
   return adaptObject(obj, contracts);
+}
+
+// ---------------------------------------------------------------------------
+// Share URLs (direct-from-Sia playback)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mint a public, time-limited `sia://<ref>#<key>` share URL for a single
+ * object. The decryption key rides in the URL fragment, so ANY registered Sia
+ * app key (e.g. the browser player's low-privilege viewer key) can resolve and
+ * download the object until `validUntil` without holding the owner's key. This
+ * is what lets the player pull bytes directly from Sia with the backend out of
+ * the byte path. One object = one URL (the SDK has no graph share).
+ *
+ * Uses the raw `sdk.object(id)` handle — NOT the adapted {@link getObject},
+ * whose stand-in is shaped for the aggregator and is not a real SDK handle.
+ */
+export async function shareObjectUrl(objectId: string, validUntil: Date): Promise<string> {
+  const sdk = await getClient();
+  const obj = await sdk.object(objectId);
+  return sdk.shareObject(obj, validUntil);
 }
 
 // ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ import { createApiRouter, type ApiRouterDeps } from './api/router.js';
 import { createTusServer, type TusServerDeps } from './upload/tus-server.js';
 import { isTusRequest } from './upload/tus-dispatch.js';
 import { buildSignedObjectQuery } from './delivery/signed-url.js';
+import { createAssetShareUrls } from './delivery/share-urls.js';
 import { deliveryRouter } from './delivery/aggregator.js';
 import { registry, getMetrics } from './metrics/collector.js';
 
@@ -654,6 +655,9 @@ const apiRouterDeps: ApiRouterDeps = {
     const signedUrl = `${base}/v1/objects/${encodeURIComponent(manifestObjectId)}?type=manifest&${query}`;
     return { signedUrl, expiresAt: new Date(expiresAtSec * 1000).toISOString() };
   },
+
+  createShareUrls: (assetId, masterObjectId, expiresIn) =>
+    createAssetShareUrls(assetId, masterObjectId, expiresIn),
 
   // ── WebhookRouteDeps ──
   createWebhook: async (data) => {
