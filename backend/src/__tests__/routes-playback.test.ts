@@ -36,6 +36,7 @@ describe('playback routes', () => {
         shares: { 'manifest-obj-1': 'sia://ref#key', 'data-obj-1': 'sia://ref2#key2' },
         expiresAt: '2025-06-01T01:00:00Z',
       }),
+      resolveObjectTier: vi.fn().mockResolvedValue('public'),
     };
   });
 
@@ -306,6 +307,20 @@ describe('playback routes', () => {
       expect(res.headers['cache-control']).toBe('private, no-store');
     });
 
+    it('caps + no-stores a public asset that has a signed-policy playback id', async () => {
+      // Public tier, but the delivery tier resolves to private because a
+      // signed-policy playback id gates the object graph. The share route must
+      // treat it as gated, not hand it a long-lived cacheable capability map.
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
+      vi.mocked(deps.resolveObjectTier).mockResolvedValue('private');
+
+      const res = await request(createApp()).get('/asset-1/share?expires_in=999999');
+
+      expect(deps.resolveObjectTier).toHaveBeenCalledWith('manifest-obj-1');
+      expect(deps.createShareUrls).toHaveBeenCalledWith('asset-1', 'manifest-obj-1', 3600);
+      expect(res.headers['cache-control']).toBe('private, no-store');
+    });
+
     it('returns 404 when the asset is not found', async () => {
       vi.mocked(deps.getPlaybackAsset).mockResolvedValue(null);
 
@@ -313,6 +328,7 @@ describe('playback routes', () => {
 
       expect(res.status).toBe(404);
       expect(deps.createShareUrls).not.toHaveBeenCalled();
+      expect(deps.resolveObjectTier).not.toHaveBeenCalled();
     });
 
     it('returns 409 when the asset is not ready', async () => {
@@ -376,6 +392,7 @@ describe('playback routes', () => {
           shares: { 'manifest-obj-1': 'sia://ref#key' },
           expiresAt: '2025-06-01T01:00:00Z',
         }),
+        resolveObjectTier: vi.fn().mockResolvedValue('public'),
       };
       return withApiKey(createTestApp(createPlaybackRoutes(scoped)), {
         ...defaultApiKey,

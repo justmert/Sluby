@@ -38,13 +38,21 @@ describe('createAssetShareUrls', () => {
   it('serves a cached map for repeat calls in the same window (no re-mint)', async () => {
     mockedIds.mockResolvedValue(['a', 'b']);
 
-    const first = await createAssetShareUrls('asset-cache', 'a', 3600);
-    const second = await createAssetShareUrls('asset-cache', 'a', 3600);
+    // Freeze the clock mid-bucket so both calls key to the same 30s window;
+    // otherwise a rare boundary straddle would re-mint and flake the counts.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:15Z'));
+    try {
+      const first = await createAssetShareUrls('asset-cache', 'a', 3600);
+      const second = await createAssetShareUrls('asset-cache', 'a', 3600);
 
-    expect(second).toEqual(first);
-    // Two objects minted once, not twice.
-    expect(mockedShare).toHaveBeenCalledTimes(2);
-    expect(mockedIds).toHaveBeenCalledTimes(1);
+      expect(second).toEqual(first);
+      // Two objects minted once, not twice.
+      expect(mockedShare).toHaveBeenCalledTimes(2);
+      expect(mockedIds).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('re-mints for a different asset', async () => {

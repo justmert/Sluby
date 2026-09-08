@@ -38,15 +38,20 @@ export interface PlaybackRouteDeps {
     shares: Record<string, string>;
     expiresAt: string;
   }>;
+  // Delivery access tier for an object, so the share route gates the same way
+  // the gateway does. Returns 'private' for a private-tier asset OR a
+  // public-tier asset carrying a signed-policy playback id (a signed handle
+  // gates the whole object graph, not just the /v1/stream entry).
+  resolveObjectTier: (objectId: string) => Promise<'public' | 'private' | 'unknown' | 'gone'>;
 }
 
 // Share URLs are per-session capabilities. Default an hour, allow up to six so
 // a long watch (with mid-stream ABR rendition switches) stays resolvable, but
-// cap private/gated content shorter since a leaked URL bypasses the gateway.
+// cap gated content shorter since a leaked URL bypasses the gateway.
 const DEFAULT_SHARE_EXPIRES_IN = 3600;
 const MIN_SHARE_EXPIRES_IN = 60;
 const MAX_SHARE_EXPIRES_IN = 21600;
-const MAX_PRIVATE_SHARE_EXPIRES_IN = 3600;
+const MAX_GATED_SHARE_EXPIRES_IN = 3600;
 
 export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
   const router = Router();
@@ -134,15 +139,22 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
       throw new AppError(409, 'Video is not ready for playback');
     }
 
+    // Gate the same way the delivery gateway does: private tier OR a
+    // signed-policy playback id both mean the content is access-controlled, so
+    // its share URLs get the shorter cap and must not be cached. Checking only
+    // asset.accessTier would hand a public-tier-but-signed asset a long-lived,
+    // cacheable capability map that bypasses the gateway it opted into.
+    const tier = await deps.resolveObjectTier(asset.manifestObjectId);
+    const gated = tier === 'private' || asset.accessTier === 'private';
+
     const requested = parseInt(req.query.expires_in as string) || DEFAULT_SHARE_EXPIRES_IN;
-    const cap =
-      asset.accessTier === 'private' ? MAX_PRIVATE_SHARE_EXPIRES_IN : MAX_SHARE_EXPIRES_IN;
+    const cap = gated ? MAX_GATED_SHARE_EXPIRES_IN : MAX_SHARE_EXPIRES_IN;
     const expiresIn = Math.min(Math.max(requested, MIN_SHARE_EXPIRES_IN), cap);
 
     const result = await deps.createShareUrls(asset.id, asset.manifestObjectId, expiresIn);
 
-    // A private asset's capability map must not sit in a shared/proxy cache.
-    if (asset.accessTier === 'private') {
+    // A gated asset's capability map must not sit in a shared/proxy cache.
+    if (gated) {
       res.setHeader('Cache-Control', 'private, no-store');
     }
 

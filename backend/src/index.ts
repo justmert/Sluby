@@ -40,7 +40,7 @@ import {
   softDeleteVideoAsset,
   getAssetObjectIds,
 } from './db/queries/assets.js';
-import { invalidateObjectAccessTier } from './delivery/access-control.js';
+import { getObjectAccessTier, invalidateObjectAccessTier } from './delivery/access-control.js';
 
 import {
   createProcessingJob,
@@ -658,6 +658,8 @@ const apiRouterDeps: ApiRouterDeps = {
 
   createShareUrls: (assetId, masterObjectId, expiresIn) =>
     createAssetShareUrls(assetId, masterObjectId, expiresIn),
+
+  resolveObjectTier: (objectId) => getObjectAccessTier(objectId),
 
   // ── WebhookRouteDeps ──
   createWebhook: async (data) => {
