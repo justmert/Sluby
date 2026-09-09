@@ -395,13 +395,8 @@ describe('SlubyPlayer', () => {
     }
     function viewerSession(over: Record<string, unknown> = {}) {
       return {
-        getShareMap: vi.fn().mockResolvedValue({
-          masterObjectId: 'abc',
-          shares: { abc: 'sia://abc#k' },
-          expiresAt: 'x',
-        }),
-        connect: vi.fn().mockResolvedValue(undefined),
-        resolveObject: vi.fn(),
+        prepare: vi.fn().mockResolvedValue(undefined),
+        resolveObjectId: vi.fn(),
         download: vi.fn(),
         ...over,
       };
@@ -414,8 +409,7 @@ describe('SlubyPlayer', () => {
       render(<SlubyPlayer client={client} assetId="abc" />);
 
       await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(GATEWAY));
-      expect(sia.getShareMap).toHaveBeenCalledWith('abc');
-      expect(sia.connect).toHaveBeenCalled();
+      expect(sia.prepare).toHaveBeenCalledWith('abc');
       expect(typeof hlsInstanceRef.current.config.loader).toBe('function');
     });
 
@@ -430,7 +424,7 @@ describe('SlubyPlayer', () => {
 
     it('falls back to the gateway when the share map cannot be fetched', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const sia = viewerSession({ getShareMap: vi.fn().mockRejectedValue(new Error('boom')) });
+      const sia = viewerSession({ prepare: vi.fn().mockRejectedValue(new Error('boom')) });
       const client = gatewayClient({ sia });
 
       render(<SlubyPlayer client={client} assetId="abc" />);
@@ -449,7 +443,7 @@ describe('SlubyPlayer', () => {
       render(<SlubyPlayer client={client} assetId="abc" />);
 
       await waitFor(() => expect(client.playback.getUrl).toHaveBeenCalled());
-      expect(sia.getShareMap).not.toHaveBeenCalled();
+      expect(sia.prepare).not.toHaveBeenCalled();
     });
   });
 

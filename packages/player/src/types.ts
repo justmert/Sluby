@@ -27,9 +27,8 @@ export interface SiaShareMap {
  * `download`.
  */
 export interface SiaPlaybackSession {
-  getShareMap(assetId: string): Promise<SiaShareMap>;
-  connect(): Promise<unknown>;
-  resolveObject(shareUrl: string): Promise<unknown>;
+  prepare(assetId: string): Promise<void>;
+  resolveObjectId(assetId: string, objectId: string): Promise<unknown>;
   download(object: unknown, options?: { offset?: number; length?: number }): ReadableStream;
 }
 

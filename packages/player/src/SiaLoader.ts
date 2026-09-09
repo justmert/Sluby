@@ -6,12 +6,12 @@ import type {
   LoaderContext,
   LoaderStats,
 } from 'hls.js';
-import type { SiaPlaybackSession, SiaShareMap } from './types.js';
+import type { SiaPlaybackSession } from './types.js';
 
 // hls.js addresses every HLS child as `{base}/v1/objects/{hexId}` (see the
 // backend manifest rewriter). The loader pulls the object id out of that URL
-// and maps it to a sia:// share URL, so the same stored manifest serves both
-// the gateway and this direct-from-Sia path.
+// and hands it to the session, so the same stored manifest serves both the
+// gateway and this direct-from-Sia path.
 const OBJECT_URL_RE = /\/v1\/objects\/([^/?#]+)/;
 
 function parseObjectId(url: string): string | null {
@@ -37,14 +37,15 @@ function emptyStats(): LoaderStats {
  * Build an hls.js `Loader` class that streams every segment and playlist
  * directly from Sia via the SDK's viewer session, instead of fetching the
  * gateway over HTTP. hls.js constructs a loader with only the `HlsConfig`, so
- * the session and the per-playback share map are captured here by closure.
+ * the session and asset id are captured here by closure. The session owns the
+ * share map (fetching and refreshing it as needed).
  *
  * One instance is created per load; hls.js calls `load` once, then `abort` or
  * `destroy` on teardown.
  */
 export function createSiaLoader(
   session: SiaPlaybackSession,
-  shareMap: SiaShareMap,
+  assetId: string,
 ): { new (config: HlsConfig): Loader<LoaderContext> } {
   return class SiaLoader implements Loader<LoaderContext> {
     context: LoaderContext | null = null;
@@ -74,11 +75,6 @@ export function createSiaLoader(
         this.failNow(`SiaLoader: no object id in "${context.url}"`);
         return;
       }
-      const shareUrl = shareMap.shares[objectId];
-      if (!shareUrl) {
-        this.failNow(`SiaLoader: no share URL for object ${objectId}`);
-        return;
-      }
 
       const maxLoadTimeMs = config?.loadPolicy?.maxLoadTimeMs;
       if (typeof maxLoadTimeMs === 'number' && maxLoadTimeMs > 0) {
@@ -94,18 +90,18 @@ export function createSiaLoader(
       const options = hasRange ? { offset: start, length: context.rangeEnd! - start } : {};
       const wantText = context.responseType !== 'arraybuffer';
 
-      void this.run(context, shareUrl, options, wantText);
+      void this.run(context, objectId, options, wantText);
     }
 
     private async run(
       context: LoaderContext,
-      shareUrl: string,
+      objectId: string,
       options: { offset?: number; length?: number },
       wantText: boolean,
     ): Promise<void> {
       const stats = this.stats;
       try {
-        const object = await session.resolveObject(shareUrl);
+        const object = await session.resolveObjectId(assetId, objectId);
         if (this.aborted) return;
 
         const stream = session.download(object, options);
