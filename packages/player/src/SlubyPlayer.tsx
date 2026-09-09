@@ -8,13 +8,7 @@ import React, {
 } from 'react';
 import Hls from 'hls.js';
 import type { HlsConfig } from 'hls.js';
-import type {
-  SlubyPlayerProps,
-  QualityLevel,
-  PlayerState,
-  SiaPlaybackSession,
-  SiaShareMap,
-} from './types.js';
+import type { SlubyPlayerProps, QualityLevel, PlayerState, SiaPlaybackSession } from './types.js';
 import { createSiaLoader } from './SiaLoader.js';
 
 // ---------------------------------------------------------------------------
@@ -108,7 +102,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
     // Direct-from-Sia delivery for this asset, or null to use the gateway.
     const [siaDelivery, setSiaDelivery] = useState<{
       session: SiaPlaybackSession;
-      shareMap: SiaShareMap;
+      assetId: string;
     } | null>(null);
 
     // Keep the latest callbacks in refs so the HLS effect does not re-run (and
@@ -172,12 +166,11 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
           // apply on the Safari-native path). Any failure (no share map, WASM
           // init, connect) falls back to the gateway, surfaced via a warning
           // rather than swallowed.
-          let sia: { session: SiaPlaybackSession; shareMap: SiaShareMap } | null = null;
+          let sia: { session: SiaPlaybackSession; assetId: string } | null = null;
           if (client.sia && Hls.isSupported()) {
             try {
-              const shareMap = await client.sia.getShareMap(assetId);
-              await client.sia.connect();
-              sia = { session: client.sia, shareMap };
+              await client.sia.prepare(assetId);
+              sia = { session: client.sia, assetId };
             } catch (err) {
               console.warn('Sluby: direct-from-Sia delivery unavailable, using the gateway.', err);
             }
@@ -300,7 +293,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       // this is compatible with enableWorker). Setting `loader` covers
       // manifest, level, fragment, and key loads. Absent -> gateway HTTP.
       if (siaDelivery) {
-        hlsConfig.loader = createSiaLoader(siaDelivery.session, siaDelivery.shareMap);
+        hlsConfig.loader = createSiaLoader(siaDelivery.session, siaDelivery.assetId);
       }
 
       const hls = new Hls(hlsConfig);

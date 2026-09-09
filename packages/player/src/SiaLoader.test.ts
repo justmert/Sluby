@@ -7,16 +7,9 @@ import type {
   LoaderContext,
 } from 'hls.js';
 import { createSiaLoader } from './SiaLoader.js';
-import type { SiaPlaybackSession, SiaShareMap } from './types.js';
+import type { SiaPlaybackSession } from './types.js';
 
-const shareMap: SiaShareMap = {
-  masterObjectId: 'master',
-  shares: {
-    master: 'sia://master#k',
-    data: 'sia://data#k',
-  },
-  expiresAt: '2026-01-01T00:00:00Z',
-};
+const ASSET_ID = 'asset-1';
 
 function streamFromBytes(bytes: Uint8Array): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -29,21 +22,22 @@ function streamFromBytes(bytes: Uint8Array): ReadableStream<Uint8Array> {
 
 function makeSession(over: Partial<SiaPlaybackSession> = {}): {
   session: SiaPlaybackSession;
-  resolveObject: ReturnType<typeof vi.fn>;
+  resolveObjectId: ReturnType<typeof vi.fn>;
   download: ReturnType<typeof vi.fn>;
 } {
-  const resolveObject = vi.fn(async (url: string) => ({ handle: url }));
+  const resolveObjectId = vi.fn(async (_assetId: string, objectId: string) => ({
+    handle: objectId,
+  }));
   const download = vi.fn(() => streamFromBytes(new Uint8Array([1, 2, 3, 4])));
   const session: SiaPlaybackSession = {
-    getShareMap: vi.fn(),
-    connect: vi.fn(async () => undefined),
-    resolveObject,
+    prepare: vi.fn(async () => undefined),
+    resolveObjectId,
     download,
     ...over,
   };
   return {
     session,
-    resolveObject: (over.resolveObject as ReturnType<typeof vi.fn>) ?? resolveObject,
+    resolveObjectId: (over.resolveObjectId as ReturnType<typeof vi.fn>) ?? resolveObjectId,
     download: (over.download as ReturnType<typeof vi.fn>) ?? download,
   };
 }
@@ -75,16 +69,16 @@ function callbacks() {
 }
 
 function newLoader(session: SiaPlaybackSession): Loader<LoaderContext> {
-  const Ctor = createSiaLoader(session, shareMap);
+  const Ctor = createSiaLoader(session, ASSET_ID);
   return new Ctor({} as HlsConfig);
 }
 
 describe('SiaLoader', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('resolves a manifest to a decoded string via the mapped share URL', async () => {
+  it('resolves a manifest object id to a decoded string', async () => {
     const manifest = '#EXTM3U\n#EXT-X-VERSION:7\n';
-    const { session, resolveObject } = makeSession({
+    const { session, resolveObjectId } = makeSession({
       download: vi.fn(() => streamFromBytes(new TextEncoder().encode(manifest))),
     });
     const loader = newLoader(session);
@@ -97,14 +91,14 @@ describe('SiaLoader', () => {
     );
 
     await vi.waitFor(() => expect(onSuccess).toHaveBeenCalled());
-    expect(resolveObject).toHaveBeenCalledWith('sia://master#k');
+    expect(resolveObjectId).toHaveBeenCalledWith(ASSET_ID, 'master');
     const [response] = onSuccess.mock.calls[0];
     expect(response.data).toBe(manifest);
     expect(typeof response.data).toBe('string');
   });
 
   it('downloads a byte range for a fragment and returns an ArrayBuffer', async () => {
-    const { session, download } = makeSession();
+    const { session, resolveObjectId, download } = makeSession();
     const loader = newLoader(session);
     const { cbs, onSuccess } = callbacks();
 
@@ -121,7 +115,8 @@ describe('SiaLoader', () => {
     );
 
     await vi.waitFor(() => expect(onSuccess).toHaveBeenCalled());
-    expect(download).toHaveBeenCalledWith({ handle: 'sia://data#k' }, { offset: 10, length: 20 });
+    expect(resolveObjectId).toHaveBeenCalledWith(ASSET_ID, 'data');
+    expect(download).toHaveBeenCalledWith({ handle: 'data' }, { offset: 10, length: 20 });
     const [response] = onSuccess.mock.calls[0];
     expect(response.data).toBeInstanceOf(ArrayBuffer);
     expect(new Uint8Array(response.data)).toEqual(new Uint8Array([1, 2, 3, 4]));
@@ -139,7 +134,7 @@ describe('SiaLoader', () => {
     );
 
     await vi.waitFor(() => expect(onSuccess).toHaveBeenCalled());
-    expect(download).toHaveBeenCalledWith({ handle: 'sia://data#k' }, {});
+    expect(download).toHaveBeenCalledWith({ handle: 'data' }, {});
   });
 
   it('treats hls.js rangeStart:0/rangeEnd:0 as a full download, not a zero-length read', async () => {
@@ -161,23 +156,7 @@ describe('SiaLoader', () => {
     );
 
     await vi.waitFor(() => expect(onSuccess).toHaveBeenCalled());
-    expect(download).toHaveBeenCalledWith({ handle: 'sia://data#k' }, {});
-  });
-
-  it('errors when the URL has no share URL in the map', () => {
-    const { session } = makeSession();
-    const loader = newLoader(session);
-    const { cbs, onError, onSuccess } = callbacks();
-
-    loader.load(ctx({ url: 'https://cache.test/v1/objects/unknown' }), config, cbs);
-
-    expect(onError).toHaveBeenCalledWith(
-      expect.objectContaining({ text: expect.stringContaining('no share URL') }),
-      expect.anything(),
-      null,
-      expect.anything(),
-    );
-    expect(onSuccess).not.toHaveBeenCalled();
+    expect(download).toHaveBeenCalledWith({ handle: 'data' }, {});
   });
 
   it('errors when the URL is not an object URL', () => {
@@ -195,9 +174,9 @@ describe('SiaLoader', () => {
     );
   });
 
-  it('maps a download failure to onError', async () => {
+  it('maps a resolve failure to onError', async () => {
     const { session } = makeSession({
-      resolveObject: vi.fn(async () => {
+      resolveObjectId: vi.fn(async () => {
         throw new Error('host unreachable');
       }),
     });
@@ -216,7 +195,7 @@ describe('SiaLoader', () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const { session } = makeSession({
-      resolveObject: vi.fn(async () => {
+      resolveObjectId: vi.fn(async () => {
         await gate;
         return { handle: 'x' };
       }),

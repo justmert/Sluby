@@ -136,19 +136,98 @@ describe('SiaSession.connect', () => {
   });
 });
 
-describe('SiaSession.resolveObject', () => {
-  it('resolves a share URL via the SDK and caches per URL', async () => {
-    const { session } = makeSession();
+function shareResponse(body: {
+  master_object_id: string;
+  shares: Record<string, string>;
+  expires_at: string;
+}): Response {
+  return { json: async () => body } as unknown as Response;
+}
+const inAnHour = () => new Date(Date.now() + 3600_000).toISOString();
 
-    const a1 = await session.resolveObject('sia://x#k');
-    const a2 = await session.resolveObject('sia://x#k');
-    await session.resolveObject('sia://y#k');
+describe('SiaSession.prepare', () => {
+  it('connects and fetches the asset share map', async () => {
+    const fetchFn = vi
+      .fn<FetchFn>()
+      .mockResolvedValue(
+        shareResponse({ master_object_id: 'm', shares: {}, expires_at: inAnHour() }),
+      );
+    const session = new SiaSession(fetchFn, config);
 
-    expect(a1).toBe(a2);
-    // 'x' resolved once (cached), 'y' once more.
-    expect(h.sharedObject).toHaveBeenCalledTimes(2);
-    expect(h.sharedObject).toHaveBeenCalledWith('sia://x#k');
-    expect(h.sharedObject).toHaveBeenCalledWith('sia://y#k');
+    await session.prepare('asset-1');
+
+    expect(h.initSia).toHaveBeenCalledTimes(1);
+    expect(fetchFn).toHaveBeenCalledWith('/api/v1/playback/asset-1/share');
+  });
+});
+
+describe('SiaSession.resolveObjectId', () => {
+  it('resolves an object via its share URL and caches per (asset, object)', async () => {
+    const fetchFn = vi.fn<FetchFn>().mockResolvedValue(
+      shareResponse({
+        master_object_id: 'm',
+        shares: { d: 'sia://d#k' },
+        expires_at: inAnHour(),
+      }),
+    );
+    const session = new SiaSession(fetchFn, config);
+
+    const o1 = await session.resolveObjectId('asset-1', 'd');
+    const o2 = await session.resolveObjectId('asset-1', 'd');
+
+    expect(o1).toBe(o2);
+    expect(h.sharedObject).toHaveBeenCalledTimes(1);
+    expect(h.sharedObject).toHaveBeenCalledWith('sia://d#k');
+    expect(fetchFn).toHaveBeenCalledTimes(1); // map cached, not refetched
+  });
+
+  it('refetches the share map when the object is absent, then resolves', async () => {
+    const fetchFn = vi
+      .fn<FetchFn>()
+      .mockResolvedValueOnce(
+        shareResponse({
+          master_object_id: 'm',
+          shares: { m: 'sia://m#k' },
+          expires_at: inAnHour(),
+        }),
+      )
+      .mockResolvedValueOnce(
+        shareResponse({
+          master_object_id: 'm',
+          shares: { m: 'sia://m#k', late: 'sia://late#k' },
+          expires_at: inAnHour(),
+        }),
+      );
+    const session = new SiaSession(fetchFn, config);
+
+    await session.prepare('asset-1'); // caches the first map (no 'late')
+    await session.resolveObjectId('asset-1', 'late');
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(h.sharedObject).toHaveBeenCalledWith('sia://late#k');
+  });
+
+  it('refetches an expired share map before resolving', async () => {
+    const past = new Date(Date.now() - 1000).toISOString();
+    const fetchFn = vi
+      .fn<FetchFn>()
+      .mockResolvedValueOnce(
+        shareResponse({ master_object_id: 'm', shares: { d: 'sia://old#k' }, expires_at: past }),
+      )
+      .mockResolvedValueOnce(
+        shareResponse({
+          master_object_id: 'm',
+          shares: { d: 'sia://new#k' },
+          expires_at: inAnHour(),
+        }),
+      );
+    const session = new SiaSession(fetchFn, config);
+
+    await session.prepare('asset-1'); // caches the already-expired map
+    await session.resolveObjectId('asset-1', 'd'); // sees expiry -> refetch -> new URL
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(h.sharedObject).toHaveBeenCalledWith('sia://new#k');
   });
 });
 
@@ -158,9 +237,16 @@ describe('SiaSession.download', () => {
     expect(() => session.download({} as never, { offset: 0, length: 1 })).toThrow(/before connect/);
   });
 
-  it('passes numeric offset/length to the SDK after resolve', async () => {
-    const { session } = makeSession();
-    const obj = await session.resolveObject('sia://x#k');
+  it('passes numeric offset/length to the SDK after resolveObjectId', async () => {
+    const fetchFn = vi.fn<FetchFn>().mockResolvedValue(
+      shareResponse({
+        master_object_id: 'm',
+        shares: { d: 'sia://d#k' },
+        expires_at: inAnHour(),
+      }),
+    );
+    const session = new SiaSession(fetchFn, config);
+    const obj = await session.resolveObjectId('asset-1', 'd');
 
     const stream = session.download(obj, { offset: 10, length: 20 });
 
