@@ -3,7 +3,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import cors from 'cors';
 import pino from 'pino';
 import path from 'node:path';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { env } from './config/env.js';
 import { db } from './config/database.js';
 import { closeDatabase } from './config/database.js';
@@ -73,6 +73,11 @@ import {
 } from './db/queries/playback-ids.js';
 
 import { getLatestReconciliationRun } from './db/queries/reconciliation.js';
+import { getAssetStats } from './db/queries/stats.js';
+import { createCachedSystemStatus } from './system/status.js';
+import { getAccountInfo, listHosts } from './storage/sia-client.js';
+import { getCacheStats } from './storage/blob-manager.js';
+import { sql } from 'drizzle-orm';
 
 import {
   scheduleReconciliation,
@@ -257,11 +262,22 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 
 // ── Health Check ──
 
+// read from package.json rather than npm_package_version, which is only set
+// when the process is started through npm
+const APP_VERSION = (
+  JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    version: string;
+  }
+).version;
+const STARTED_AT = new Date();
+
+// liveness only: answers while the process is up. dependency health lives in
+// GET /api/v1/system/status so a flaky indexer never restarts the container.
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: process.env.npm_package_version ?? '0.1.0',
+    version: APP_VERSION,
   });
 });
 
@@ -620,6 +636,47 @@ const apiRouterDeps: ApiRouterDeps = {
   deletePlaybackId: async (playbackId, owner) => {
     return deletePlaybackIdByPublicId(playbackId, owner);
   },
+
+  // ── StatsRouteDeps ──
+  getAssetStats: (owner) => getAssetStats(owner),
+  getSystemStatus: createCachedSystemStatus({
+    version: APP_VERSION,
+    startedAt: STARTED_AT,
+    indexerUrl: env.SIA_INDEXER_URL,
+    network: env.SIA_NETWORK,
+    pingDatabase: async () => {
+      await db.execute(sql`select 1`);
+    },
+    pingRedis: async () => {
+      // the bullmq client interface has no ping; any read is a real round trip
+      const client = await transcodeQueue.client;
+      await client.get('sluby:health');
+    },
+    getAccount: getAccountInfo,
+    listHosts,
+    getLatestReconciliation: async () => {
+      const run = await getLatestReconciliationRun();
+      if (!run) return null;
+      return {
+        status: run.status,
+        finishedAt: run.finishedAt.toISOString(),
+        inSyncCount: run.inSyncCount,
+        orphanCount: run.orphanCount,
+        missingCount: run.missingCount,
+      };
+    },
+    getCacheStats: () => {
+      const c = getCacheStats();
+      return {
+        hits: c.hits,
+        misses: c.misses,
+        objectBytes: c.object.size,
+        objectMaxBytes: c.object.maxSize,
+        objectItems: c.object.items,
+        manifestItems: c.manifest.items,
+      };
+    },
+  }),
 
   // ── ReconciliationRouteDeps ──
   getLatestRun: async () => {

@@ -78,7 +78,19 @@ interface NapiDownloadOptions {
 interface NapiAccount {
   accountKey: string;
   ready: boolean;
+  maxPinnedData: bigint;
   remainingStorage: bigint;
+  pinnedData: bigint;
+  pinnedSize: bigint;
+  app: { id: string; name: string };
+  lastUsed: Date;
+}
+interface NapiHost {
+  publicKey: string;
+  countryCode: string;
+  latitude: number;
+  longitude: number;
+  goodForUpload: boolean;
 }
 /** A single entry from the indexer's object change feed. */
 interface NapiObjectEvent {
@@ -100,6 +112,7 @@ interface NapiSdk {
   deleteObject(key: string): Promise<void>;
   pruneSlabs(): Promise<void>;
   account(): Promise<NapiAccount>;
+  hosts(): Promise<NapiHost[]>;
   // Mints a public, time-limited sia:// URL that carries the object's
   // decryption key in its fragment. Local signing, no host round-trip.
   shareObject(object: NapiPinnedObject, validUntil: Date): string;
@@ -470,6 +483,60 @@ export async function shareObjectUrl(objectId: string, validUntil: Date): Promis
   const sdk = await getClient();
   const obj = await sdk.object(objectId);
   return sdk.shareObject(obj, validUntil);
+}
+
+// ---------------------------------------------------------------------------
+// Account / hosts (studio dashboard)
+// ---------------------------------------------------------------------------
+
+/** The indexer account this backend stores under, with usage in bytes. */
+export interface IndexerAccount {
+  accountKey: string;
+  ready: boolean;
+  appName: string;
+  /** Logical bytes pinned (what was uploaded). */
+  pinnedData: number;
+  /** Bytes the pinned data occupies on hosts, after erasure coding. */
+  pinnedSize: number;
+  maxPinnedData: number;
+  remainingStorage: number;
+  lastUsed: string;
+}
+
+export async function getAccountInfo(): Promise<IndexerAccount> {
+  const sdk = await getClient();
+  const account = await sdk.account();
+  return {
+    accountKey: account.accountKey,
+    ready: account.ready,
+    appName: account.app?.name ?? '',
+    pinnedData: Number(account.pinnedData),
+    pinnedSize: Number(account.pinnedSize),
+    maxPinnedData: Number(account.maxPinnedData),
+    remainingStorage: Number(account.remainingStorage),
+    lastUsed: account.lastUsed.toISOString(),
+  };
+}
+
+/** A storage provider the indexer can place sectors on. */
+export interface IndexerHost {
+  publicKey: string;
+  countryCode: string;
+  latitude: number;
+  longitude: number;
+  goodForUpload: boolean;
+}
+
+export async function listHosts(): Promise<IndexerHost[]> {
+  const sdk = await getClient();
+  const hosts = await sdk.hosts();
+  return hosts.map((h) => ({
+    publicKey: h.publicKey,
+    countryCode: h.countryCode,
+    latitude: h.latitude,
+    longitude: h.longitude,
+    goodForUpload: h.goodForUpload,
+  }));
 }
 
 // ---------------------------------------------------------------------------

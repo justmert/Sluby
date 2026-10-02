@@ -226,6 +226,99 @@ export const openapiDocument = {
           created_at: { type: 'string', format: 'date-time' },
         },
       },
+      AssetStats: {
+        type: 'object',
+        properties: {
+          total: { type: 'integer' },
+          by_status: {
+            type: 'object',
+            properties: {
+              created: { type: 'integer' },
+              uploading: { type: 'integer' },
+              processing: { type: 'integer' },
+              ready: { type: 'integer' },
+              failed: { type: 'integer' },
+            },
+          },
+          stored_bytes: {
+            type: 'integer',
+            description: 'Bytes stored on Sia for these assets, before erasure coding.',
+          },
+          ready_duration_ms: { type: 'integer' },
+          object_count: { type: 'integer', description: 'Sia objects backing these assets.' },
+        },
+      },
+      Probe: {
+        type: 'object',
+        properties: {
+          ok: { type: 'boolean' },
+          latency_ms: { type: 'integer' },
+          error: { type: 'string' },
+        },
+      },
+      SystemStatus: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['ok', 'degraded', 'down'] },
+          checked_at: { type: 'string', format: 'date-time' },
+          version: { type: 'string' },
+          uptime_seconds: { type: 'integer' },
+          database: { $ref: '#/components/schemas/Probe' },
+          redis: { $ref: '#/components/schemas/Probe' },
+          indexer: {
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              latency_ms: { type: 'integer' },
+              error: { type: 'string' },
+              url: { type: 'string' },
+              network: { type: 'string' },
+              account: {
+                type: ['object', 'null'],
+                properties: {
+                  account_key: { type: 'string' },
+                  ready: { type: 'boolean' },
+                  app_name: { type: 'string' },
+                  pinned_data: { type: 'integer' },
+                  pinned_size: { type: 'integer' },
+                  max_pinned_data: { type: 'integer' },
+                  remaining_storage: { type: 'integer' },
+                  last_used: { type: 'string', format: 'date-time' },
+                },
+              },
+              hosts: {
+                type: ['object', 'null'],
+                properties: {
+                  total: { type: 'integer' },
+                  good_for_upload: { type: 'integer' },
+                  countries: { type: 'integer' },
+                },
+              },
+            },
+          },
+          reconciliation: {
+            type: ['object', 'null'],
+            properties: {
+              status: { type: 'string', enum: ['ok', 'drift', 'failed'] },
+              finished_at: { type: 'string', format: 'date-time' },
+              in_sync_count: { type: 'integer' },
+              orphan_count: { type: 'integer' },
+              missing_count: { type: 'integer' },
+            },
+          },
+          cache: {
+            type: 'object',
+            properties: {
+              hits: { type: 'integer' },
+              misses: { type: 'integer' },
+              object_bytes: { type: 'integer' },
+              object_max_bytes: { type: 'integer' },
+              object_items: { type: 'integer' },
+              manifest_items: { type: 'integer' },
+            },
+          },
+        },
+      },
       UploadSession: {
         type: 'object',
         properties: {
@@ -631,6 +724,22 @@ export const openapiDocument = {
     },
 
     // ── Ops ──
+    '/api/v1/stats': {
+      get: {
+        tags: ['Ops'],
+        summary: "Library totals for the caller's tenant.",
+        'x-required-scope': 'read',
+        responses: { '200': jsonResponse('AssetStats', 'Totals.') },
+      },
+    },
+    '/api/v1/system/status': {
+      get: {
+        tags: ['Ops'],
+        summary: 'Live platform status: database, redis, Sia indexer, reconciliation, cache.',
+        'x-required-scope': 'read',
+        responses: { '200': jsonResponse('SystemStatus', 'Status report.') },
+      },
+    },
     '/api/v1/metrics': {
       get: {
         tags: ['Ops'],
