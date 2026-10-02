@@ -830,7 +830,10 @@ export const openapiDocument = {
     '/api/v1/webhooks': {
       post: {
         tags: ['Webhooks'],
-        summary: 'Register a webhook endpoint.',
+        summary: 'Register a webhook endpoint for your account.',
+        description:
+          'Events are delivered only for assets owned by the same account, signed with ' +
+          'an HMAC-SHA256 of the raw body in X-Sluby-Signature. The secret is returned once.',
         'x-required-scope': 'manage',
         requestBody: {
           content: {
@@ -838,15 +841,32 @@ export const openapiDocument = {
               schema: {
                 type: 'object',
                 properties: {
-                  url: { type: 'string' },
-                  events: { type: 'array', items: { type: 'string' } },
+                  url: { type: 'string', format: 'uri', description: 'Absolute http(s) URL.' },
+                  events: {
+                    type: 'array',
+                    minItems: 1,
+                    items: {
+                      type: 'string',
+                      enum: [
+                        'upload.started',
+                        'upload.completed',
+                        'upload.failed',
+                        'processing.started',
+                        'asset.ready',
+                        'asset.errored',
+                      ],
+                    },
+                  },
                 },
-                required: ['url'],
+                required: ['url', 'events'],
               },
             },
           },
         },
-        responses: { '201': { description: 'Created.' }, '400': errorResponse },
+        responses: {
+          '201': { description: 'Created; includes the signing secret once.' },
+          '400': errorResponse,
+        },
       },
       get: {
         tags: ['Webhooks'],

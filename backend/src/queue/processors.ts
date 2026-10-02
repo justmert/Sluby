@@ -33,8 +33,8 @@ const logger = pino({ name: 'queue-processors' });
 
 // ── Webhook dispatcher singleton ──
 const webhookDispatcher = new WebhookDispatcher({
-  getActiveWebhooksForEvent: async (event: string) => {
-    const endpoints = await findEndpointsForEvent(event);
+  getActiveWebhooksForEvent: async (event: string, owner: string) => {
+    const endpoints = await findEndpointsForEvent(event, owner);
     return endpoints.map((ep) => ({
       id: ep.id,
       url: ep.url,
@@ -54,6 +54,27 @@ const webhookDispatcher = new WebhookDispatcher({
     });
   },
 });
+/**
+ * Send an asset event to the webhooks of the account that owns the asset.
+ * Best effort: a delivery problem must never fail the pipeline step.
+ */
+async function emitAssetEvent(
+  event: string,
+  videoAssetId: string,
+  data: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    const asset = await getVideoAssetById(videoAssetId);
+    if (!asset) return;
+    await webhookDispatcher.dispatch(
+      event,
+      { video_asset_id: videoAssetId, ...data },
+      asset.creatorAddress,
+    );
+  } catch (err) {
+    logger.warn({ event, videoAssetId, err }, 'Webhook event not sent');
+  }
+}
 
 // ──────────────────────────────────────────
 // Transcode Worker
@@ -83,6 +104,7 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
 
     // Update video asset status
     await updateVideoAsset(videoAssetId, { status: 'processing' });
+    await emitAssetEvent('processing.started', videoAssetId);
 
     if (processingJob) {
       await appendProcessingLog(
@@ -218,6 +240,10 @@ transcodeWorker.on('failed', async (job, error) => {
 
   if (job.attemptsMade >= (job.opts.attempts ?? 3)) {
     await updateVideoAsset(job.data.videoAssetId, { status: 'failed' });
+    await emitAssetEvent('asset.errored', job.data.videoAssetId, {
+      stage: 'transcode',
+      error: error.message,
+    });
   }
 });
 
@@ -339,6 +365,10 @@ uploadSegmentsWorker.on('failed', async (job, error) => {
 
   if (job.attemptsMade >= (job.opts.attempts ?? 3)) {
     await updateVideoAsset(job.data.videoAssetId, { status: 'failed' });
+    await emitAssetEvent('asset.errored', job.data.videoAssetId, {
+      stage: 'upload',
+      error: error.message,
+    });
   }
 });
 
@@ -473,8 +503,7 @@ export const finalizeWorker = new Worker<FinalizeJobData>(
     }
 
     // Dispatch "asset.ready" webhook
-    await webhookDispatcher.dispatch('asset.ready', {
-      video_asset_id: videoAssetId,
+    await emitAssetEvent('asset.ready', videoAssetId, {
       manifest_object_id: manifestObjectId,
       thumbnail_object_ids: thumbnailObjectIds,
       duration_ms: durationMs,
@@ -522,6 +551,10 @@ finalizeWorker.on('failed', async (job, error) => {
 
   if (job.attemptsMade >= (job.opts.attempts ?? 3)) {
     await updateVideoAsset(job.data.videoAssetId, { status: 'failed' });
+    await emitAssetEvent('asset.errored', job.data.videoAssetId, {
+      stage: 'finalize',
+      error: error.message,
+    });
   }
 });
 

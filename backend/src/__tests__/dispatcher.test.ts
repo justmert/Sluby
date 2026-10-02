@@ -55,12 +55,22 @@ describe('WebhookDispatcher', () => {
     vi.unstubAllGlobals();
   });
 
+  it("only asks for the owning account's endpoints, and drops ownerless events", async () => {
+    await dispatcher.dispatch('asset.ready', { id: 'a' }, 'github:alice');
+    expect(deps.getActiveWebhooksForEvent).toHaveBeenCalledWith('asset.ready', 'github:alice');
+
+    vi.mocked(deps.getActiveWebhooksForEvent).mockClear();
+    await dispatcher.dispatch('asset.ready', { id: 'a' }, '');
+    expect(deps.getActiveWebhooksForEvent).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('should do nothing when no endpoints match the event', async () => {
     vi.mocked(deps.getActiveWebhooksForEvent).mockResolvedValue([]);
 
-    await dispatcher.dispatch('upload.completed', { id: '123' });
+    await dispatcher.dispatch('upload.completed', { id: '123' }, 'github:owner');
 
-    expect(deps.getActiveWebhooksForEvent).toHaveBeenCalledWith('upload.completed');
+    expect(deps.getActiveWebhooksForEvent).toHaveBeenCalledWith('upload.completed', 'github:owner');
     expect(fetch).not.toHaveBeenCalled();
     expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ event: 'upload.completed' }),
@@ -74,7 +84,7 @@ describe('WebhookDispatcher', () => {
 
     vi.mocked(fetch).mockResolvedValue(new Response('OK', { status: 200 }));
 
-    await dispatcher.dispatch('upload.completed', { id: '123' });
+    await dispatcher.dispatch('upload.completed', { id: '123' }, 'github:owner');
 
     expect(fetch).toHaveBeenCalledOnce();
     const [url, options] = vi.mocked(fetch).mock.calls[0];
@@ -104,7 +114,7 @@ describe('WebhookDispatcher', () => {
     vi.mocked(deps.getActiveWebhooksForEvent).mockResolvedValue([endpoint]);
     vi.mocked(fetch).mockResolvedValue(new Response('OK', { status: 200 }));
 
-    await dispatcher.dispatch('upload.completed', { id: '123' });
+    await dispatcher.dispatch('upload.completed', { id: '123' }, 'github:owner');
 
     expect(generateSignature).toHaveBeenCalledWith(
       expect.any(String), // The JSON payload
@@ -117,7 +127,7 @@ describe('WebhookDispatcher', () => {
     vi.mocked(deps.getActiveWebhooksForEvent).mockResolvedValue([endpoint]);
     vi.mocked(fetch).mockResolvedValue(new Response('OK', { status: 200 }));
 
-    await dispatcher.dispatch('upload.completed', { id: '123' });
+    await dispatcher.dispatch('upload.completed', { id: '123' }, 'github:owner');
 
     expect(deps.recordDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -134,7 +144,7 @@ describe('WebhookDispatcher', () => {
     vi.mocked(deps.getActiveWebhooksForEvent).mockResolvedValue([endpoint]);
     vi.mocked(fetch).mockResolvedValue(new Response('Server Error', { status: 500 }));
 
-    await dispatcher.dispatch('upload.completed', { id: '123' });
+    await dispatcher.dispatch('upload.completed', { id: '123' }, 'github:owner');
 
     expect(deps.recordDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -158,7 +168,7 @@ describe('WebhookDispatcher', () => {
     vi.mocked(deps.getActiveWebhooksForEvent).mockResolvedValue([endpoint]);
     vi.mocked(fetch).mockRejectedValue(new Error('Network error'));
 
-    await dispatcher.dispatch('upload.completed', { id: '123' });
+    await dispatcher.dispatch('upload.completed', { id: '123' }, 'github:owner');
 
     expect(deps.recordDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -176,7 +186,7 @@ describe('WebhookDispatcher', () => {
     vi.mocked(deps.getActiveWebhooksForEvent).mockResolvedValue([endpoint1, endpoint2]);
     vi.mocked(fetch).mockResolvedValue(new Response('OK', { status: 200 }));
 
-    await dispatcher.dispatch('upload.completed', { id: '123' });
+    await dispatcher.dispatch('upload.completed', { id: '123' }, 'github:owner');
 
     expect(fetch).toHaveBeenCalledTimes(2);
     const urls = vi.mocked(fetch).mock.calls.map(([url]) => url);
@@ -190,7 +200,7 @@ describe('WebhookDispatcher', () => {
     const longBody = 'x'.repeat(2000);
     vi.mocked(fetch).mockResolvedValue(new Response(longBody, { status: 200 }));
 
-    await dispatcher.dispatch('upload.completed', { id: '123' });
+    await dispatcher.dispatch('upload.completed', { id: '123' }, 'github:owner');
 
     const recordedCall = vi.mocked(deps.recordDelivery).mock.calls[0][0];
     expect(recordedCall.responseBody!.length).toBeLessThanOrEqual(1000);
@@ -209,7 +219,9 @@ describe('WebhookDispatcher', () => {
     });
 
     // Should not throw even though one endpoint fails
-    await expect(dispatcher.dispatch('upload.completed', { id: '123' })).resolves.toBeUndefined();
+    await expect(
+      dispatcher.dispatch('upload.completed', { id: '123' }, 'github:owner'),
+    ).resolves.toBeUndefined();
 
     expect(deps.recordDelivery).toHaveBeenCalledTimes(2);
   });
@@ -219,7 +231,7 @@ describe('WebhookDispatcher', () => {
     vi.mocked(deps.getActiveWebhooksForEvent).mockResolvedValue([endpoint]);
     vi.mocked(fetch).mockResolvedValue(new Response('OK', { status: 200 }));
 
-    await dispatcher.dispatch('upload.completed', { id: '123' });
+    await dispatcher.dispatch('upload.completed', { id: '123' }, 'github:owner');
 
     const [, options] = vi.mocked(fetch).mock.calls[0];
     expect(options?.signal).toBeInstanceOf(AbortSignal);

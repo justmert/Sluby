@@ -31,13 +31,13 @@ export async function getWebhookEndpointById(id: string): Promise<WebhookEndpoin
 }
 
 /**
- * List all webhook endpoints for a given API key.
+ * List an account's webhook endpoints.
  */
-export async function listWebhookEndpointsByApiKeyId(
-  apiKeyId: string,
+export async function listWebhookEndpointsByOwner(
+  creatorAddress: string,
   opts?: { includeInactive?: boolean },
 ): Promise<WebhookEndpoint[]> {
-  const conditions = [eq(webhookEndpoints.apiKeyId, apiKeyId)];
+  const conditions = [eq(webhookEndpoints.creatorAddress, creatorAddress)];
   if (!opts?.includeInactive) {
     conditions.push(eq(webhookEndpoints.isActive, true));
   }
@@ -49,21 +49,24 @@ export async function listWebhookEndpointsByApiKeyId(
 }
 
 /**
- * Find all active webhook endpoints subscribed to a given event type.
- * Used by the webhook dispatcher to determine delivery targets.
+ * Active endpoints of one account subscribed to an event. Events are only
+ * ever delivered to the account that owns the asset they describe.
  */
-export async function findEndpointsForEvent(eventType: string): Promise<WebhookEndpoint[]> {
+export async function findEndpointsForEvent(
+  eventType: string,
+  creatorAddress: string,
+): Promise<WebhookEndpoint[]> {
   // SQL array containment: events @> ARRAY[eventType]
-  const result = await db
+  return db
     .select()
     .from(webhookEndpoints)
     .where(
       and(
         eq(webhookEndpoints.isActive, true),
+        eq(webhookEndpoints.creatorAddress, creatorAddress),
         sql`${webhookEndpoints.events} @> ARRAY[${eventType}]::text[]`,
       ),
     );
-  return result;
 }
 
 /**
@@ -96,20 +99,16 @@ export async function deactivateWebhookEndpoint(id: string): Promise<WebhookEndp
 /**
  * Permanently delete a webhook endpoint and all its delivery records.
  *
- * `apiKeyId` constrains the delete to the endpoint's owning key so one
- * caller cannot remove another's webhook by guessing its UUID.
+ * `creatorAddress` constrains the delete to the owning account so one caller
+ * cannot remove another's webhook by guessing its UUID.
  */
 export async function deleteWebhookEndpoint(
   id: string,
-  apiKeyId?: string,
+  creatorAddress: string,
 ): Promise<WebhookEndpoint | undefined> {
   const [deleted] = await db
     .delete(webhookEndpoints)
-    .where(
-      apiKeyId
-        ? and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.apiKeyId, apiKeyId))
-        : eq(webhookEndpoints.id, id),
-    )
+    .where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.creatorAddress, creatorAddress)))
     .returning();
   return deleted;
 }

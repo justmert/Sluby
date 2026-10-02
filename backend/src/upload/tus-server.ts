@@ -29,7 +29,8 @@ export interface TusServerDeps {
   markAssetFailed: (videoAssetId: string) => Promise<void>;
   /** Delete the asset an upload created, when the uploader cancels it. */
   discardAsset: (videoAssetId: string) => Promise<void>;
-  dispatchWebhook: (event: string, data: Record<string, unknown>) => Promise<void>;
+  /** Deliver an event to the webhooks of `owner`, the uploading account. */
+  dispatchWebhook: (event: string, data: Record<string, unknown>, owner: string) => Promise<void>;
 }
 
 export function createTusServer(deps: TusServerDeps): Server {
@@ -99,11 +100,16 @@ export function createTusServer(deps: TusServerDeps): Server {
         creatorAddress,
       };
 
-      await deps.dispatchWebhook('upload.started', {
-        upload_id: upload.id,
-        session_id: session.id,
-        file_size: upload.size,
-      });
+      await deps.dispatchWebhook(
+        'upload.started',
+        {
+          upload_id: upload.id,
+          session_id: session.id,
+          video_asset_id: session.videoAssetId ?? null,
+          file_size: upload.size,
+        },
+        creatorAddress,
+      );
 
       return { metadata: updatedMetadata };
     },
@@ -148,13 +154,17 @@ export function createTusServer(deps: TusServerDeps): Server {
           });
         }
 
-        await deps.dispatchWebhook('upload.completed', {
-          upload_id: upload.id,
-          session_id: sessionId,
-          video_asset_id: videoAssetId,
-          sha256,
-          file_size: upload.size,
-        });
+        await deps.dispatchWebhook(
+          'upload.completed',
+          {
+            upload_id: upload.id,
+            session_id: sessionId,
+            video_asset_id: videoAssetId,
+            sha256,
+            file_size: upload.size,
+          },
+          creatorAddress ?? '',
+        );
 
         return {};
       } catch (err) {
@@ -172,6 +182,18 @@ export function createTusServer(deps: TusServerDeps): Server {
             logger.error({ videoAssetId, markErr }, 'Failed to mark asset failed');
           }
         }
+        await deps
+          .dispatchWebhook(
+            'upload.failed',
+            {
+              upload_id: upload.id,
+              session_id: sessionId,
+              video_asset_id: videoAssetId ?? null,
+              error: err instanceof Error ? err.message : String(err),
+            },
+            creatorAddress ?? '',
+          )
+          .catch((hookErr) => logger.warn({ hookErr }, 'upload.failed webhook not sent'));
         throw err;
       }
     },

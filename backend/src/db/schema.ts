@@ -286,16 +286,22 @@ export const webhookEndpoints = pgTable(
   'webhook_endpoints',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    apiKeyId: uuid('api_key_id')
-      .notNull()
-      .references(() => apiKeys.id, { onDelete: 'cascade' }),
+    // the account the endpoint belongs to; events are only ever delivered for
+    // that account's own assets
+    creatorAddress: text('creator_address').notNull(),
+    // the key it was registered with, when it was a key (null for a studio
+    // session); kept for audit, not ownership, so revoking a key keeps the hook
+    apiKeyId: uuid('api_key_id').references(() => apiKeys.id, { onDelete: 'set null' }),
     url: text('url').notNull(),
     events: text('events').array().notNull().default([]),
     secret: text('secret').notNull(),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('webhook_endpoints_api_key_id_idx').on(t.apiKeyId)],
+  (t) => [
+    index('webhook_endpoints_api_key_id_idx').on(t.apiKeyId),
+    index('webhook_endpoints_creator_address_idx').on(t.creatorAddress),
+  ],
 );
 
 /**
