@@ -1,6 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
-  Key,
   Plus,
   Trash2,
   Copy,
@@ -39,280 +38,13 @@ import {
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageContainer } from '@/components/layout/PageContainer';
-import { useApiKeys, useCreateApiKey, useDeleteApiKey } from '@/hooks/useApiKeys';
 import { useWebhooks, useCreateWebhook, useDeleteWebhook } from '@/hooks/useWebhooks';
 import { getStoredApiKey } from '@/lib/api-key-store';
 import { sdkTemplates, type SdkTemplate, webhookVerify } from '@/lib/code-snippets';
-import { formatRelativeTime } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
 // API Keys Tab
-// ---------------------------------------------------------------------------
-
-const SCOPE_DESCRIPTIONS: Record<string, string> = {
-  upload: 'Create upload sessions and upload video files',
-  read: 'Read assets, playback info, metrics, and cache stats',
-  manage: 'Update/delete assets, manage API keys and webhooks',
-};
-
-function ApiKeysTab() {
-  const apiKeys = useApiKeys();
-  const createApiKey = useCreateApiKey();
-  const deleteApiKey = useDeleteApiKey();
-
-  const [name, setName] = useState('');
-  const [scopes, setScopes] = useState<string[]>(['upload', 'read']);
-  const [rateLimit, setRateLimit] = useState(100);
-  const [newKey, setNewKey] = useState<{ id: string; key: string } | null>(null);
-  const [copiedKey, setCopiedKey] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-
-  const toggleScope = (scope: string) => {
-    setScopes((prev) =>
-      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope],
-    );
-  };
-
-  const handleCreate = async () => {
-    const result = await createApiKey.mutateAsync({ name, scopes, rate_limit: rateLimit });
-    setNewKey({ id: result.id, key: result.key });
-    setName('');
-    setScopes(['upload', 'read']);
-    setRateLimit(100);
-  };
-
-  const handleCopyKey = async () => {
-    if (!newKey) return;
-    await navigator.clipboard.writeText(newKey.key);
-    setCopiedKey(true);
-    setTimeout(() => setCopiedKey(false), 2000);
-  };
-
-  const handleDelete = (id: string) => {
-    deleteApiKey.mutate(id);
-    setDeleteConfirm(null);
-  };
-
-  const keys = apiKeys.data?.data ?? [];
-
-  return (
-    <div className="space-y-4">
-      {/* Create form */}
-      <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
-        <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading flex items-center gap-2 mb-4">
-          <Key className="w-4 h-4 text-teal-400" />
-          Create API Key
-        </h3>
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Key Name</label>
-            <Input
-              placeholder="e.g. production-backend"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="h-10"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-zinc-400 font-medium mb-2 block">Scopes</label>
-            <div className="space-y-2">
-              {Object.entries(SCOPE_DESCRIPTIONS).map(([scope, desc]) => (
-                <label key={scope} className="flex items-start gap-3 cursor-pointer group">
-                  <Checkbox
-                    checked={scopes.includes(scope)}
-                    onCheckedChange={() => toggleScope(scope)}
-                    className="mt-0.5"
-                  />
-                  <div>
-                    <span className="text-sm text-zinc-200 font-medium group-hover:text-zinc-100">
-                      {scope}
-                    </span>
-                    <p className="text-xs text-zinc-400">{desc}</p>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="text-xs text-zinc-400 font-medium mb-1.5 block">
-              Rate Limit (req/min)
-            </label>
-            <Input
-              type="number"
-              value={rateLimit}
-              onChange={(e) => setRateLimit(Number(e.target.value))}
-              className="w-32 h-10"
-            />
-          </div>
-          <Button
-            onClick={handleCreate}
-            disabled={!name || scopes.length === 0 || createApiKey.isPending}
-            className="gap-2"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            {createApiKey.isPending ? 'Creating...' : 'Create API Key'}
-          </Button>
-          {createApiKey.error && (
-            <div className="flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/20 px-3 py-2">
-              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-              <p className="text-xs text-red-400">{createApiKey.error.message}</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* New key alert */}
-      {newKey && (
-        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <Key className="w-4 h-4 text-emerald-400" />
-            <span className="text-sm font-semibold text-emerald-300">API Key Created</span>
-          </div>
-          <p className="text-xs text-amber-400 font-medium">
-            Copy this key now -- it will not be shown again.
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-xs font-mono text-emerald-400 bg-[#0a0a0f]/80 border border-white/[0.08] rounded-lg px-2.5 py-2 truncate block overflow-hidden">
-              {newKey.key}
-            </code>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleCopyKey}
-              className="shrink-0 h-8 w-8 p-0"
-              aria-label="Copy to clipboard"
-            >
-              {copiedKey ? (
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-              ) : (
-                <Copy className="w-3.5 h-3.5" />
-              )}
-            </Button>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setNewKey(null)}
-            className="text-xs bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300"
-          >
-            I've saved this key
-          </Button>
-        </div>
-      )}
-
-      {/* Key list */}
-      {apiKeys.isLoading ? (
-        <div className="space-y-2">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-14 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : keys.length > 0 ? (
-        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/[0.08] text-left bg-white/[0.03]">
-                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
-                    Name
-                  </th>
-                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
-                    Scopes
-                  </th>
-                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
-                    Rate Limit
-                  </th>
-                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider">
-                    Created
-                  </th>
-                  <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase tracking-wider text-right">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {keys.map((k) => (
-                  <tr
-                    key={k.id}
-                    className="border-b border-white/[0.04] hover:bg-white/[0.05] transition-colors duration-200"
-                  >
-                    <td className="px-4 py-3 text-zinc-200 font-medium">{k.name}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-1 flex-wrap">
-                        {k.scopes.map((s) => (
-                          <Badge key={s} variant="secondary" className="text-[10px]">
-                            {s}
-                          </Badge>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-zinc-400 font-mono">
-                      {k.rate_limit}/min
-                    </td>
-                    <td className="px-4 py-3 text-xs text-zinc-400">
-                      {formatRelativeTime(k.created_at)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteConfirm(k.id)}
-                        className="h-7 px-2 text-xs text-red-400 hover:text-red-300 gap-1"
-                      >
-                        <Trash2 className="w-3 h-3" /> Revoke
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl flex flex-col items-center justify-center py-12 text-center">
-          <Key className="w-6 h-6 text-zinc-500 mb-3" />
-          <p className="text-sm font-medium text-zinc-300">No API keys yet</p>
-          <p className="text-xs text-zinc-500 mt-1">
-            Create your first key above to authenticate API requests
-          </p>
-        </div>
-      )}
-
-      {/* Delete confirm dialog */}
-      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Revoke API Key</DialogTitle>
-            <DialogDescription>
-              This action cannot be undone. The key will immediately stop working for all API
-              requests.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setDeleteConfirm(null)}
-              className="bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
-              className="gap-2"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Revoke Key
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Webhooks Tab
 // ---------------------------------------------------------------------------
 
 const WEBHOOK_EVENT_GROUPS = [
@@ -779,18 +511,12 @@ export default function DeveloperPage() {
             Developer Tools
           </h1>
           <p className="text-sm text-zinc-400">
-            Manage API keys, configure webhooks, and explore the API
+            Configure webhooks and explore the API. API keys live in Settings.
           </p>
         </div>
 
-        <Tabs defaultValue="keys">
+        <Tabs defaultValue="webhooks">
           <TabsList className="bg-white/[0.04] rounded-lg p-0.5 mb-6">
-            <TabsTrigger
-              value="keys"
-              className="gap-1.5 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-zinc-100"
-            >
-              <Key className="w-3.5 h-3.5" /> API Keys
-            </TabsTrigger>
             <TabsTrigger
               value="webhooks"
               className="gap-1.5 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-zinc-100"
@@ -805,9 +531,6 @@ export default function DeveloperPage() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="keys">
-            <ApiKeysTab />
-          </TabsContent>
           <TabsContent value="webhooks">
             <WebhooksTab />
           </TabsContent>

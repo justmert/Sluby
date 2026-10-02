@@ -53,6 +53,7 @@ import {
   getApiKeyByHash,
   listApiKeys as dbListApiKeys,
   deleteApiKey as dbDeleteApiKey,
+  rotateApiKey as dbRotateApiKey,
 } from './db/queries/api-keys.js';
 
 import { apiKeys as apiKeysTable, type VideoAsset } from './db/schema.js';
@@ -814,7 +815,26 @@ const apiRouterDeps: ApiRouterDeps = {
       rateLimit: k.rateLimit,
       isActive: k.isActive,
       createdAt: k.createdAt,
+      expiresAt: k.expiresAt,
     }));
+  },
+
+  rotateApiKey: async (id, owner, { keyHash }, retireAt) => {
+    const result = await dbRotateApiKey(id, owner, keyHash, retireAt);
+    if (!result) return null;
+    const k = result.replacement;
+    return {
+      replacement: {
+        id: k.id,
+        name: k.name,
+        scopes: k.scopes,
+        rateLimit: k.rateLimit,
+        isActive: k.isActive,
+        createdAt: k.createdAt,
+        expiresAt: k.expiresAt,
+      },
+      retiredAt: result.retiredAt,
+    };
   },
 
   deleteApiKey: async (id, owner) => {

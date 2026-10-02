@@ -10,12 +10,10 @@ import {
 } from './routes/reconciliation.js';
 import { createWebhookRoutes, type WebhookRouteDeps } from './routes/webhooks.js';
 import { createStatsRoutes, type StatsRouteDeps } from './routes/stats.js';
+import { createKeyRoutes, type KeyRouteDeps } from './routes/keys.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createApiKeyMiddleware, type ApiKeyMiddlewareDeps } from './middleware/api-key.js';
 import { rateLimiter } from './rate-limiter.js';
-import { ownerFilter } from './ownership.js';
-import { generateApiKey } from './auth.js';
-import { requireScope } from './middleware/api-key.js';
 import { getMetricsJson } from '../metrics/collector.js';
 import { openapiDocument } from './openapi.js';
 import type { Request, Response } from 'express';
@@ -45,27 +43,8 @@ export interface ApiRouterDeps
     ReconciliationRouteDeps,
     WebhookRouteDeps,
     StatsRouteDeps,
-    ApiKeyMiddlewareDeps {
-  createApiKey: (data: {
-    keyHash: string;
-    name: string;
-    scopes: string[];
-    rateLimit: number;
-    creatorAddress: string;
-  }) => Promise<{ id: string }>;
-  listApiKeys: (creatorAddress: string) => Promise<
-    Array<{
-      id: string;
-      name: string;
-      scopes: string[];
-      rateLimit: number;
-      isActive: boolean;
-      createdAt: Date;
-    }>
-  >;
-  /** Deletes only if the key belongs to `owner`; false when it does not. */
-  deleteApiKey: (id: string, owner?: string) => Promise<boolean>;
-}
+    KeyRouteDeps,
+    ApiKeyMiddlewareDeps {}
 
 export function createApiRouter(deps: ApiRouterDeps): Router {
   const router = Router();
@@ -106,82 +85,7 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   router.use('/', createReconciliationRoutes(deps));
   router.use('/', createStatsRoutes(deps));
 
-  // API key management routes
-  router.post('/keys', requireScope('manage'), async (req: Request, res: Response) => {
-    const { name, scopes, rate_limit } = req.body;
-
-    if (!name || typeof name !== 'string') {
-      res.status(400).json({ error: 'Name is required' });
-      return;
-    }
-
-    const validScopes = ['upload', 'read', 'manage'];
-    const requestedScopes = scopes ?? ['upload', 'read'];
-    // Guard the type before filtering: a non-array `scopes` (e.g. a bare
-    // string) would otherwise throw on .filter and surface as a 500.
-    if (!Array.isArray(requestedScopes)) {
-      res.status(400).json({ error: 'scopes must be an array of strings' });
-      return;
-    }
-    const invalidScopes = requestedScopes.filter((s: string) => !validScopes.includes(s));
-    if (invalidScopes.length > 0) {
-      res.status(400).json({ error: `Invalid scopes: ${invalidScopes.join(', ')}` });
-      return;
-    }
-
-    // rate_limit reaches an integer DB column, so reject junk up front
-    // rather than letting Postgres raise a 500.
-    const rateLimit = rate_limit ?? 100;
-    if (!Number.isInteger(rateLimit) || rateLimit <= 0) {
-      res.status(400).json({ error: 'rate_limit must be a positive integer' });
-      return;
-    }
-
-    const { key, hash } = generateApiKey();
-
-    const result = await deps.createApiKey({
-      keyHash: hash,
-      name,
-      scopes: requestedScopes,
-      rateLimit,
-      creatorAddress: req.apiKey!.creatorAddress,
-    });
-
-    res.status(201).json({
-      id: result.id,
-      key, // Only shown once
-      name,
-      scopes: requestedScopes,
-    });
-  });
-
-  router.get('/keys', requireScope('manage'), async (req: Request, res: Response) => {
-    const keys = await deps.listApiKeys(req.apiKey!.creatorAddress);
-
-    res.json({
-      data: keys.map((k) => ({
-        id: k.id,
-        name: k.name,
-        scopes: k.scopes,
-        rate_limit: k.rateLimit,
-        is_active: k.isActive,
-        created_at: k.createdAt.toISOString(),
-      })),
-    });
-  });
-
-  router.delete('/keys/:id', requireScope('manage'), async (req: Request, res: Response) => {
-    // Scoped to the caller's tenant so one creator cannot revoke another's key.
-    const deleted = await deps.deleteApiKey(
-      String(req.params.id),
-      ownerFilter(req.apiKey!.creatorAddress),
-    );
-    if (!deleted) {
-      res.status(404).json({ error: 'API key not found' });
-      return;
-    }
-    res.json({ success: true });
-  });
+  router.use('/keys', createKeyRoutes(deps));
 
   // Metrics endpoint (JSON format)
   router.get('/metrics', async (_req: Request, res: Response) => {

@@ -114,3 +114,48 @@ export async function deleteApiKey(id: string, owner?: string): Promise<ApiKey |
     .returning();
   return deleted;
 }
+
+/**
+ * Replace key `id` with a new secret carrying the same name, scopes and rate
+ * limit, and retire the old one at `retireAt`. Runs in a transaction with the
+ * old row locked, so two concurrent rotations cannot both mint a replacement.
+ * An existing, earlier expiry is never pushed out.
+ */
+export async function rotateApiKey(
+  id: string,
+  owner: string | undefined,
+  replacementHash: string,
+  retireAt: Date,
+): Promise<{ replacement: ApiKey; retiredAt: Date } | null> {
+  return db.transaction(async (tx) => {
+    const now = new Date();
+    const conditions = [
+      eq(apiKeys.id, id),
+      eq(apiKeys.isActive, true),
+      or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, now)),
+    ];
+    if (owner) conditions.push(eq(apiKeys.creatorAddress, owner));
+
+    const [old] = await tx
+      .select()
+      .from(apiKeys)
+      .where(and(...conditions))
+      .for('update');
+    if (!old) return null;
+
+    const [replacement] = await tx
+      .insert(apiKeys)
+      .values({
+        keyHash: replacementHash,
+        name: old.name,
+        scopes: old.scopes,
+        rateLimit: old.rateLimit,
+        creatorAddress: old.creatorAddress,
+      })
+      .returning();
+
+    const retiredAt = old.expiresAt && old.expiresAt < retireAt ? old.expiresAt : retireAt;
+    await tx.update(apiKeys).set({ expiresAt: retiredAt }).where(eq(apiKeys.id, old.id));
+    return { replacement, retiredAt };
+  });
+}
