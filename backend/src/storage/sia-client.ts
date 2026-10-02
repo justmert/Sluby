@@ -30,6 +30,7 @@
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { initSia, AppKey, Builder, setLogger } from 'sia-storage';
+import type { ObjectSnapshot } from './sia-breakdown.js';
 
 // sia-storage 0.0.8 has a packaging quirk: its `exports` map puts the
 // `types` key at the root of the conditional fork instead of inside the
@@ -59,6 +60,7 @@ interface NapiSlab {
 interface NapiPinnedObject {
   id(): string;
   size(): bigint;
+  encodedSize(): bigint;
   slabs(): NapiSlab[];
   createdAt(): Date;
   updatedAt(): Date;
@@ -238,6 +240,14 @@ let hostContractCache: HostContractMap | null = null;
 
 const ADMIN_AUTH = `Basic ${Buffer.from(`:${env.SIA_ADMIN_PASSWORD}`).toString('base64')}`;
 
+/**
+ * The indexd admin API (contracts, wallet) only exists on a self-hosted
+ * indexd, which needs its admin password configured. A hosted indexer such as
+ * sia.storage exposes only the app API, so without a password the admin
+ * lookups are skipped instead of failing on every call.
+ */
+export const ADMIN_API_CONFIGURED = env.SIA_ADMIN_PASSWORD !== '';
+
 interface AdminContractResponse {
   id: string;
   hostKey: string;
@@ -250,6 +260,7 @@ interface AdminWalletResponse {
 }
 
 async function refreshHostContracts(): Promise<HostContractMap> {
+  if (!ADMIN_API_CONFIGURED) return { contracts: new Map(), fetchedAt: Date.now() };
   if (hostContractCache && Date.now() - hostContractCache.fetchedAt < HOST_CONTRACT_TTL_MS) {
     return hostContractCache;
   }
@@ -275,8 +286,23 @@ async function refreshHostContracts(): Promise<HostContractMap> {
     return hostContractCache;
   } catch (err) {
     logger.warn({ err }, 'Failed to refresh host→contract map');
-    return hostContractCache ?? { contracts: new Map(), fetchedAt: Date.now() };
+    // keep serving the last good map, and back off for a ttl instead of
+    // retrying on every object lookup
+    hostContractCache = {
+      contracts: hostContractCache?.contracts ?? new Map(),
+      fetchedAt: Date.now(),
+    };
+    return hostContractCache;
   }
+}
+
+/**
+ * Active file contracts per host, from the indexd admin API. Null when no
+ * admin API is configured, so callers can tell "none" from "unknown".
+ */
+export async function getHostContracts(): Promise<Map<string, string[]> | null> {
+  if (!ADMIN_API_CONFIGURED) return null;
+  return (await refreshHostContracts()).contracts;
 }
 
 // ---------------------------------------------------------------------------
@@ -464,6 +490,28 @@ export async function getObject(objectId: string): Promise<PinnedObject> {
   return adaptObject(obj, contracts);
 }
 
+/**
+ * Everything the indexer reports about one object, as plain data: sizes
+ * (including the erasure-coded size), and each slab's shard config, byte range
+ * and sector placement. Used for the per-asset storage breakdown.
+ */
+export async function inspectObject(objectId: string): Promise<ObjectSnapshot> {
+  const sdk = await getClient();
+  const obj = await sdk.object(objectId);
+  return {
+    id: obj.id(),
+    size: Number(obj.size()),
+    encodedSize: Number(obj.encodedSize()),
+    slabs: obj.slabs().map((slab) => ({
+      minShards: slab.minShards,
+      offset: slab.offset,
+      length: slab.length,
+      sectors: slab.sectors.map((sec) => ({ root: sec.root, hostKey: sec.hostKey })),
+    })),
+    createdAt: obj.createdAt().toISOString(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Share URLs (direct-from-Sia playback)
 // ---------------------------------------------------------------------------
@@ -567,6 +615,7 @@ export async function pruneSlabs(): Promise<void> {
  */
 let walletAddressCache: string | null = null;
 export async function getWalletAddress(): Promise<string | null> {
+  if (!ADMIN_API_CONFIGURED) return null;
   if (walletAddressCache) return walletAddressCache;
   try {
     const url = `${env.SIA_ADMIN_URL.replace(/\/$/, '')}/api/wallet`;

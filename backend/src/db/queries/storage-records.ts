@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { renditions, artifacts } from '../schema.js';
 import { resolveArtifactRows, type StorageRecords } from '../../storage/artifact-records.js';
@@ -47,4 +47,55 @@ export async function persistStorageRecords(
       await tx.insert(artifacts).values(rows);
     }
   });
+}
+
+export interface RenditionRecord {
+  name: string;
+  width: number | null;
+  height: number | null;
+  videoBitrateKbps: number | null;
+  segmentCount: number;
+  byteSize: number;
+  dataObjectId: string;
+  playlistObjectId: string;
+}
+
+export interface ArtifactRecord {
+  objectId: string;
+  role: 'master_manifest' | 'variant_playlist' | 'rendition_data' | 'thumbnail';
+  renditionName: string | null;
+  byteSize: number;
+}
+
+/** The asset's renditions, tallest first, as the pipeline recorded them. */
+export async function getRenditions(videoAssetId: string): Promise<RenditionRecord[]> {
+  const rows = await db
+    .select({
+      name: renditions.name,
+      width: renditions.width,
+      height: renditions.height,
+      videoBitrateKbps: renditions.videoBitrateKbps,
+      segmentCount: renditions.segmentCount,
+      byteSize: renditions.byteSize,
+      dataObjectId: renditions.dataObjectId,
+      playlistObjectId: renditions.playlistObjectId,
+    })
+    .from(renditions)
+    .where(eq(renditions.videoAssetId, videoAssetId))
+    .orderBy(desc(renditions.height), desc(renditions.videoBitrateKbps));
+  return rows;
+}
+
+/** Every stored object of an asset with its role and rendition. */
+export async function getArtifacts(videoAssetId: string): Promise<ArtifactRecord[]> {
+  return db
+    .select({
+      objectId: artifacts.objectId,
+      role: artifacts.role,
+      renditionName: renditions.name,
+      byteSize: artifacts.byteSize,
+    })
+    .from(artifacts)
+    .leftJoin(renditions, eq(artifacts.renditionId, renditions.id))
+    .where(eq(artifacts.videoAssetId, videoAssetId));
 }

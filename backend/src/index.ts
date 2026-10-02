@@ -75,7 +75,14 @@ import {
 import { getLatestReconciliationRun } from './db/queries/reconciliation.js';
 import { getAssetStats } from './db/queries/stats.js';
 import { createCachedSystemStatus } from './system/status.js';
-import { getAccountInfo, listHosts } from './storage/sia-client.js';
+import {
+  getAccountInfo,
+  listHosts,
+  inspectObject,
+  getHostContracts,
+  getWalletAddress,
+} from './storage/sia-client.js';
+import { getArtifacts, getRenditions } from './db/queries/storage-records.js';
 import { getCacheStats } from './storage/blob-manager.js';
 import { sql } from 'drizzle-orm';
 
@@ -503,6 +510,17 @@ const apiRouterDeps: ApiRouterDeps = {
   deleteAsset,
 
   // ── SiaInfoRouteDeps ──
+  getAssetArtifacts: (assetId) => getArtifacts(assetId),
+  inspectSiaObject: inspectObject,
+  listSiaHosts: listHosts,
+  getHostContracts,
+  getWalletAddress,
+  siaIndexer: { url: env.SIA_INDEXER_URL, network: env.SIA_NETWORK },
+  getAssetRenditions: async (id, owner) => {
+    const asset = await getVideoAssetById(id, owner);
+    if (!asset) return null;
+    return getRenditions(id);
+  },
   getAssetWithSiaIds: async (id, owner) => {
     const asset = await getVideoAssetById(id, owner);
     if (!asset) return null;
@@ -511,7 +529,6 @@ const apiRouterDeps: ApiRouterDeps = {
       manifestObjectId: asset.manifestObjectId,
       thumbnailObjectIds: asset.thumbnailObjectIds,
       siaObjectIds: (asset.siaObjectIds ?? []) as string[],
-      totalStorageBytes: asset.totalStorageBytes,
       status: asset.status,
     };
   },

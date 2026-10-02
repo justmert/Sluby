@@ -51,6 +51,7 @@ describe('asset routes', () => {
       updateAsset: vi.fn().mockResolvedValue(null),
       deleteAsset: vi.fn().mockResolvedValue(true),
       getProcessingJob: vi.fn().mockResolvedValue(undefined),
+      getAssetRenditions: vi.fn().mockResolvedValue(null),
       retryAsset: vi.fn().mockResolvedValue({ stage: 'upload-segments' }),
     };
   });
@@ -355,5 +356,63 @@ describe('processingStage', () => {
     expect(processingStage('failed', [{ stage: 'transcode' }])).toBe('failed');
     expect(processingStage('queued', [])).toBe('queued');
     expect(processingStage('retrying', [{ stage: 'finalize' }])).toBe('finalize');
+  });
+});
+
+describe('GET /:id/renditions', () => {
+  const key = {
+    id: 'k',
+    name: 'k',
+    scopes: ['read'],
+    rateLimit: 100,
+    creatorAddress: 'github:me',
+  };
+
+  it('lists renditions in snake_case, scoped to the caller', async () => {
+    const getAssetRenditions = vi.fn().mockResolvedValue([
+      {
+        name: '720p',
+        width: 1280,
+        height: 720,
+        videoBitrateKbps: 3500,
+        segmentCount: 12,
+        byteSize: 9_000_000,
+        dataObjectId: 'data-720',
+        playlistObjectId: 'pl-720',
+      },
+    ]);
+    const app = withApiKey(
+      createTestApp(createAssetRoutes({ getAssetRenditions } as unknown as AssetRouteDeps)),
+      key,
+    );
+
+    const res = await request(app).get('/asset-1/renditions');
+
+    expect(res.status).toBe(200);
+    expect(getAssetRenditions).toHaveBeenCalledWith('asset-1', 'github:me');
+    expect(res.body.data).toEqual([
+      {
+        name: '720p',
+        width: 1280,
+        height: 720,
+        video_bitrate_kbps: 3500,
+        segment_count: 12,
+        byte_size: 9_000_000,
+        data_object_id: 'data-720',
+        playlist_object_id: 'pl-720',
+      },
+    ]);
+  });
+
+  it('answers 404 for an asset the caller does not own', async () => {
+    const app = withApiKey(
+      createTestApp(
+        createAssetRoutes({
+          getAssetRenditions: vi.fn().mockResolvedValue(null),
+        } as unknown as AssetRouteDeps),
+      ),
+      key,
+    );
+    expect((await request(app).get('/asset-1/renditions')).status).toBe(404);
   });
 });
