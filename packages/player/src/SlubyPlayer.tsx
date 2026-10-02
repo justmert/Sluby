@@ -20,6 +20,12 @@ export interface SlubyPlayerHandle {
   getVideoElement: () => HTMLVideoElement | null;
   /** The underlying hls.js instance, or null when using native playback. */
   getHlsInstance: () => Hls | null;
+  /** Renditions in the loaded manifest. Empty on native (Safari) playback. */
+  getQualities: () => QualityLevel[];
+  /** Pin a rendition by its `index`, or pass -1 to go back to adaptive. */
+  setQuality: (levelIndex: number) => void;
+  /** Whether hls.js is picking the rendition adaptively. */
+  isAutoQuality: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +91,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       onEnd,
       onError,
       onQualityChange,
+      onQualitiesChange,
       onStateChange,
     } = props;
 
@@ -107,9 +114,27 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
     // Keep the latest callbacks in refs so the HLS effect does not re-run (and
     // tear down playback) every time a parent re-renders with new closures.
-    const cb = useRef({ onReady, onPlay, onPause, onEnd, onError, onQualityChange, onStateChange });
+    const cb = useRef({
+      onReady,
+      onPlay,
+      onPause,
+      onEnd,
+      onError,
+      onQualityChange,
+      onQualitiesChange,
+      onStateChange,
+    });
     useEffect(() => {
-      cb.current = { onReady, onPlay, onPause, onEnd, onError, onQualityChange, onStateChange };
+      cb.current = {
+        onReady,
+        onPlay,
+        onPause,
+        onEnd,
+        onError,
+        onQualityChange,
+        onQualitiesChange,
+        onStateChange,
+      };
     });
 
     // ── State transitions notify the consumer once, on change ──────────────
@@ -207,6 +232,15 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       () => ({
         getVideoElement: () => videoRef.current,
         getHlsInstance: () => hlsRef.current,
+        getQualities: () =>
+          hlsRef.current?.levels.map((level, i) => toQualityLevel(level, i)) ?? [],
+        setQuality: (levelIndex: number) => {
+          const hls = hlsRef.current;
+          if (!hls) return;
+          // -1 hands the choice back to hls.js's abr controller
+          hls.currentLevel = levelIndex >= 0 && levelIndex < hls.levels.length ? levelIndex : -1;
+        },
+        isAutoQuality: () => hlsRef.current?.autoLevelEnabled ?? true,
       }),
       [],
     );
@@ -320,6 +354,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       };
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        cb.current.onQualitiesChange?.(hls.levels.map((level, i) => toQualityLevel(level, i)));
         if (hls.currentLevel >= 0 && hls.currentLevel < hls.levels.length) {
           cb.current.onQualityChange?.(
             toQualityLevel(hls.levels[hls.currentLevel], hls.currentLevel),

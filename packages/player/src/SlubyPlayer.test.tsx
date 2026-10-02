@@ -171,6 +171,36 @@ describe('SlubyPlayer', () => {
       expect(ref.current!.getVideoElement()).toBeInstanceOf(HTMLVideoElement);
       expect(ref.current!.getHlsInstance()).toBe(hlsInstanceRef.current);
     });
+
+    it('lists renditions and pins or releases one', () => {
+      const ref = React.createRef<SlubyPlayerHandle>();
+      const onQualitiesChange = vi.fn();
+      render(<SlubyPlayer ref={ref} src={SRC} onQualitiesChange={onQualitiesChange} />);
+      const hls = hlsInstanceRef.current;
+      hls.levels = [
+        { width: 1280, height: 720, bitrate: 3_500_000 },
+        { width: 640, height: 360, bitrate: 800_000 },
+      ];
+      hls.autoLevelEnabled = true;
+
+      fireHls(MockHlsEvents.MANIFEST_PARSED);
+
+      const levels = [
+        { index: 0, width: 1280, height: 720, bitrate: 3_500_000, name: '720p' },
+        { index: 1, width: 640, height: 360, bitrate: 800_000, name: '360p' },
+      ];
+      expect(onQualitiesChange).toHaveBeenCalledWith(levels);
+      expect(ref.current!.getQualities()).toEqual(levels);
+      expect(ref.current!.isAutoQuality()).toBe(true);
+
+      ref.current!.setQuality(1);
+      expect(hls.currentLevel).toBe(1);
+      ref.current!.setQuality(-1);
+      expect(hls.currentLevel).toBe(-1);
+      // out of range falls back to adaptive rather than a bogus level
+      ref.current!.setQuality(7);
+      expect(hls.currentLevel).toBe(-1);
+    });
   });
 
   describe('state & callbacks', () => {

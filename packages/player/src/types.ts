@@ -87,7 +87,10 @@ export interface SlubyPlayerProps {
   onPause?: () => void;
   onEnd?: () => void;
   onError?: (error: Error) => void;
+  /** The rendition now playing, on load and on every switch. */
   onQualityChange?: (level: QualityLevel) => void;
+  /** Every rendition in the manifest, once it is parsed (hls.js path only). */
+  onQualitiesChange?: (levels: QualityLevel[]) => void;
   onStateChange?: (state: PlayerState) => void;
 }
 
