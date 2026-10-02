@@ -12,7 +12,11 @@ import { createWebhookRoutes, type WebhookRouteDeps } from './routes/webhooks.js
 import { createStatsRoutes, type StatsRouteDeps } from './routes/stats.js';
 import { createKeyRoutes, type KeyRouteDeps } from './routes/keys.js';
 import { createAuthRoutes } from './routes/auth.js';
-import { createApiKeyMiddleware, type ApiKeyMiddlewareDeps } from './middleware/api-key.js';
+import {
+  createApiKeyMiddleware,
+  requireScope,
+  type ApiKeyMiddlewareDeps,
+} from './middleware/api-key.js';
 import { rateLimiter } from './rate-limiter.js';
 import { getMetricsJson } from '../metrics/collector.js';
 import { openapiDocument } from './openapi.js';
@@ -88,7 +92,7 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   router.use('/keys', createKeyRoutes(deps));
 
   // Metrics endpoint (JSON format)
-  router.get('/metrics', async (_req: Request, res: Response) => {
+  router.get('/metrics', requireScope('read'), async (_req: Request, res: Response) => {
     const metrics = await getMetricsJson();
     res.json(metrics);
   });

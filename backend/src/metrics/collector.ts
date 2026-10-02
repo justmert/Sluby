@@ -31,39 +31,66 @@ export const processingDurationSeconds = new Histogram({
   registers: [registry],
 });
 
+// sources are registered at startup (setMetricSources) so this module does
+// not import the queue or cache layers
+let queueDepthSource: (() => Promise<number>) | null = null;
+let cacheCountsSource: (() => { hits: number; misses: number }) | null = null;
+
+export function setMetricSources(sources: {
+  queueDepth: () => Promise<number>;
+  cacheCounts: () => { hits: number; misses: number };
+}): void {
+  queueDepthSource = sources.queueDepth;
+  cacheCountsSource = sources.cacheCounts;
+}
+
 export const processingQueueDepth = new Gauge({
   name: 'sluby_processing_queue_depth',
-  help: 'Number of jobs in the processing queue',
+  help: 'Jobs waiting or running across the transcode, upload and finalize queues',
   registers: [registry],
+  async collect() {
+    if (queueDepthSource) this.set(await queueDepthSource());
+  },
 });
 
 // Playback metrics
+// no per-asset labels: one series per asset would grow without bound
 export const playbackInitiationTotal = new Counter({
   name: 'sluby_playback_initiation_total',
-  help: 'Total number of playback initiations',
-  labelNames: ['video_asset_id'] as const,
+  help: 'Playback urls handed out (public, signed and sia share maps)',
+  labelNames: ['mode'] as const,
   registers: [registry],
 });
 
 export const segmentRequestsTotal = new Counter({
   name: 'sluby_segment_requests_total',
-  help: 'Total number of segment fetch requests',
-  labelNames: ['quality'] as const,
+  help: 'Objects served by the delivery gateway',
+  labelNames: ['kind'] as const,
   registers: [registry],
 });
 
 export const bandwidthBytesTotal = new Counter({
   name: 'sluby_bandwidth_bytes_total',
-  help: 'Total bandwidth served in bytes',
-  labelNames: ['video_asset_id'] as const,
+  help: 'Bytes served by the delivery gateway',
   registers: [registry],
 });
+
+/** Count one gateway response and its body size. */
+export function recordDelivery(kind: 'manifest' | 'media' | 'object', bytes: number): void {
+  segmentRequestsTotal.inc({ kind });
+  bandwidthBytesTotal.inc(bytes);
+}
 
 // Cache metrics
 export const cacheHitRatio = new Gauge({
   name: 'sluby_cache_hit_ratio',
-  help: 'Ratio of cache hits to total requests',
+  help: 'Gateway cache hits over all cache lookups since start (0 before any lookup)',
   registers: [registry],
+  collect() {
+    if (!cacheCountsSource) return;
+    const { hits, misses } = cacheCountsSource();
+    this.set(hits + misses > 0 ? hits / (hits + misses) : 0);
+  },
 });
 
 // Sia storage metrics

@@ -31,6 +31,7 @@ import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { initSia, AppKey, Builder, setLogger } from 'sia-storage';
 import type { ObjectSnapshot } from './sia-breakdown.js';
+import { siaUploadDurationSeconds } from '../metrics/collector.js';
 
 // sia-storage 0.0.8 has a packaging quirk: its `exports` map puts the
 // `types` key at the root of the conditional fork instead of inside the
@@ -366,6 +367,7 @@ function erasureOptions(): NapiUploadOptions | undefined {
 /** Upload a single Uint8Array as one packed object. */
 export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
   const sdk = await getClient();
+  const endTimer = siaUploadDurationSeconds.startTimer();
   const opts = erasureOptions();
   const packed = opts ? sdk.uploadPacked(opts) : sdk.uploadPacked();
   await packed.add(bytesToStream(data));
@@ -376,6 +378,7 @@ export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
   const obj = objects[0];
   await sdk.pinObject(obj);
   const objectId = obj.id();
+  endTimer();
   logger.info({ objectId, size: data.length }, 'Object uploaded + pinned to Sia');
   return { objectId, size: data.length };
 }
@@ -388,6 +391,7 @@ export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
 export async function uploadAndPinPacked(items: Uint8Array[]): Promise<UploadResult[]> {
   if (items.length === 0) return [];
   const sdk = await getClient();
+  const endTimer = siaUploadDurationSeconds.startTimer();
   const opts = erasureOptions();
   const packed = opts ? sdk.uploadPacked(opts) : sdk.uploadPacked();
   for (const data of items) {
@@ -399,6 +403,7 @@ export async function uploadAndPinPacked(items: Uint8Array[]): Promise<UploadRes
   }
   // Pin in parallel — each pin is an indexd HTTP call, no host round-trip.
   await Promise.all(objects.map((obj) => sdk.pinObject(obj)));
+  endTimer();
   const results = objects.map((obj, i) => ({
     objectId: obj.id(),
     size: items[i].length,

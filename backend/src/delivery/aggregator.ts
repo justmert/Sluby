@@ -6,6 +6,7 @@ import { getObjectAccessTier } from './access-control.js';
 import { verifyObjectAccess, signManifestObjectUrls } from './signed-url.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
+import { recordDelivery } from '../metrics/collector.js';
 
 export const deliveryRouter = Router();
 
@@ -225,6 +226,7 @@ async function serveRange(
     ...COMMON_CORS,
   });
   res.send(Buffer.from(bytes));
+  recordDelivery('media', bytes.length);
 }
 
 /**
@@ -267,6 +269,7 @@ async function serveFull(
       ...COMMON_CORS,
     });
     res.send(body);
+    recordDelivery('manifest', body.length);
     return;
   }
 
@@ -279,6 +282,7 @@ async function serveFull(
     ...COMMON_CORS,
   });
   res.send(Buffer.from(data));
+  recordDelivery('object', data.length);
 }
 
 /**
@@ -419,6 +423,7 @@ deliveryRouter.get('/v1/stream/:videoAssetId/master.m3u8', async (req: Request, 
       ...COMMON_CORS,
     });
     res.send(body);
+    recordDelivery('manifest', body.length);
   } catch (err) {
     logger.error({ param, err }, 'Failed to serve manifest');
     res.status(500).json({ error: 'Failed to serve manifest' });
