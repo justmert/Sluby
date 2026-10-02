@@ -95,13 +95,13 @@ const GRACE_OPTIONS = [
   { value: '604800', label: 'After 7 days' },
 ];
 
-function timeLeft(iso: string): string {
-  const ms = new Date(iso).getTime() - Date.now();
-  if (ms <= 0) return 'now';
-  const hours = Math.floor(ms / 3_600_000);
+export function timeLeft(iso: string, now = Date.now()): string {
+  const minutes = Math.ceil((new Date(iso).getTime() - now) / 60_000);
+  if (minutes <= 0) return 'now';
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
   if (hours >= 24) return `in ${Math.floor(hours / 24)}d ${hours % 24}h`;
-  if (hours >= 1) return `in ${hours}h ${Math.floor((ms % 3_600_000) / 60_000)}m`;
-  return `in ${Math.max(1, Math.round(ms / 60_000))}m`;
+  return `in ${hours}h ${minutes % 60}m`;
 }
 
 // ---------------------------------------------------------------------------

@@ -113,13 +113,13 @@ export default function AnalyticsPage() {
               icon={Cpu}
               label="Processing"
               value={seconds(m.processing.avgSeconds)}
-              hint={`average over ${m.processing.completed} jobs, ${m.processing.queueDepth} in queue`}
+              hint={`average over ${m.processing.completed} job${m.processing.completed === 1 ? '' : 's'}, ${m.processing.queueDepth} in queue`}
             />
             <Stat
               icon={Clock}
               label="Sia upload"
               value={seconds(m.sia.avgSeconds)}
-              hint={`average over ${m.sia.uploads} packed uploads`}
+              hint={`average over ${m.sia.uploads} packed upload${m.sia.uploads === 1 ? '' : 's'}`}
             />
             <Stat
               icon={Play}
