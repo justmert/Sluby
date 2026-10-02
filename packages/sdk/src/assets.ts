@@ -38,6 +38,9 @@ export class AssetManager {
     if (options?.limit != null) params.set('limit', String(options.limit));
     if (options?.status) params.set('status', options.status);
     if (options?.accessTier) params.set('access_tier', options.accessTier);
+    if (options?.search) params.set('search', options.search);
+    if (options?.sort) params.set('sort', options.sort);
+    if (options?.order) params.set('order', options.order);
 
     const query = params.toString();
     const path = `/api/v1/assets${query ? `?${query}` : ''}`;

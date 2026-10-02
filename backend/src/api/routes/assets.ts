@@ -2,6 +2,14 @@ import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
 import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
+import {
+  ASSET_SORT_FIELDS,
+  isDefaultAssetOrder,
+  type AssetSortField,
+  type SortOrder,
+} from '../asset-sort.js';
+
+const ASSET_STATUSES = ['created', 'uploading', 'processing', 'ready', 'failed'];
 
 export interface ProcessingJobRecord {
   id: string;
@@ -23,6 +31,9 @@ export interface AssetRouteDeps {
     status?: string;
     accessTier?: string;
     creatorAddress?: string;
+    search?: string;
+    sort?: AssetSortField;
+    order?: SortOrder;
   }) => Promise<{
     data: VideoAssetRecord[];
     total: number;
@@ -81,8 +92,32 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
     const cursor = (req.query.cursor as string | undefined) || undefined;
-    const status = req.query.status as string | undefined;
-    const accessTier = req.query.access_tier as string | undefined;
+    const status = (req.query.status as string | undefined) || undefined;
+    const accessTier = (req.query.access_tier as string | undefined) || undefined;
+    const search = ((req.query.search as string | undefined) ?? '').trim() || undefined;
+    const sort = ((req.query.sort as string | undefined) || 'created_at') as AssetSortField;
+    const order = ((req.query.order as string | undefined) || 'desc') as SortOrder;
+
+    // reject bad values up front; passed through, an unknown enum value would
+    // surface as a database error instead of a clear 400
+    if (status && !ASSET_STATUSES.includes(status)) {
+      throw new AppError(400, `status must be one of: ${ASSET_STATUSES.join(', ')}`);
+    }
+    if (accessTier && accessTier !== 'public' && accessTier !== 'private') {
+      throw new AppError(400, 'access_tier must be public or private');
+    }
+    if (!ASSET_SORT_FIELDS.includes(sort)) {
+      throw new AppError(400, `sort must be one of: ${ASSET_SORT_FIELDS.join(', ')}`);
+    }
+    if (order !== 'asc' && order !== 'desc') {
+      throw new AppError(400, 'order must be asc or desc');
+    }
+    if (search && search.length > 200) {
+      throw new AppError(400, 'search must be at most 200 characters');
+    }
+    if (cursor && !isDefaultAssetOrder(sort, order)) {
+      throw new AppError(400, 'cursor paging only supports the default order; use page instead');
+    }
 
     const result = await deps.listAssets({
       page,
@@ -90,6 +125,9 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
       cursor,
       status,
       accessTier,
+      search,
+      sort,
+      order,
       creatorAddress: ownerFilter(req.apiKey!.creatorAddress),
     });
 
