@@ -838,6 +838,7 @@ export const openapiDocument = {
           '200': jsonResponse('SharePlaybackInfo', 'Share URL map.'),
           '404': errorResponse,
           '409': errorResponse,
+          '502': errorResponse,
         },
       },
     },

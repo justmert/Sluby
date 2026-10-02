@@ -99,7 +99,7 @@ describe('DashboardPage', () => {
     renderPage(<DashboardPage />);
     expect(await screen.findByText('Degraded')).toBeInTheDocument();
     expect(screen.getByText('indexer account is not ready yet')).toBeInTheDocument();
-    expect(screen.getByText('31 of 40 accepting uploads, 12 countries')).toBeInTheDocument();
+    expect(screen.getByText('31 of 40 listed accepting uploads, 12 countries')).toBeInTheDocument();
   });
 
   it('shows account usage and cache hit ratio', async () => {

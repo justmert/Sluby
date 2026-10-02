@@ -247,7 +247,7 @@ function IndexerCard({ status }: { status?: SystemStatus }) {
         </Row>
         <Row label="Hosts">
           {indexer.hosts
-            ? `${indexer.hosts.good_for_upload} of ${indexer.hosts.total} accepting uploads, ${indexer.hosts.countries} countries`
+            ? `${indexer.hosts.good_for_upload} of ${indexer.hosts.total} listed accepting uploads, ${indexer.hosts.countries} countries`
             : 'unknown'}
         </Row>
         <Row label="Last reconciliation">

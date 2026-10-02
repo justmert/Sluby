@@ -279,6 +279,16 @@ describe('playback routes', () => {
       });
     });
 
+    it('answers 502 when the indexer fails while minting', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
+      vi.mocked(deps.createShareUrls).mockRejectedValue(new Error('app error: Reqwest(...)'));
+
+      const res = await request(createApp()).get('/asset-1/share');
+
+      expect(res.status).toBe(502);
+      expect(res.body.error).toMatch(/Sia indexer/);
+    });
+
     it('mints against the resolved asset id and the default hour', async () => {
       vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
 

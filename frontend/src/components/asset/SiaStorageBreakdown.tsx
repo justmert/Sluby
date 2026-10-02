@@ -255,7 +255,8 @@ export function SiaStorageBreakdown({
             )}
             {info.hosts.some((h) => !h.country_code) && (
               <p className="text-xs text-muted-foreground">
-                Hosts without a reported location are listed as unknown.
+                Unknown means the host is not in the host list the indexer returns, so its
+                location was not reported.
               </p>
             )}
           </CardContent>
