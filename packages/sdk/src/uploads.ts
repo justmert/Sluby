@@ -45,19 +45,32 @@ function parseUploadMetadata(header: string): Record<string, string> {
   return out;
 }
 
+/** How uploads authenticate: an API key, or the browser's cookie session. */
+export interface UploadAuth {
+  apiKey?: string;
+  baseUrl: string;
+  credentials?: RequestCredentials;
+}
+
 /**
  * Manages video uploads: creating and sending a file with resumable TUS
  * upload, plus status polling and cancellation.
  */
 export class UploadManager {
   private readonly _fetch: FetchFn;
-  private readonly _apiKey: string;
+  private readonly _apiKey: string | undefined;
   private readonly _baseUrl: string;
+  private readonly _credentials: RequestCredentials | undefined;
 
-  constructor(fetchFn: FetchFn, apiKey: string, baseUrl: string) {
+  constructor(fetchFn: FetchFn, auth: UploadAuth) {
     this._fetch = fetchFn;
-    this._apiKey = apiKey;
-    this._baseUrl = baseUrl;
+    this._apiKey = auth.apiKey;
+    this._baseUrl = auth.baseUrl;
+    this._credentials = auth.credentials;
+  }
+
+  private _authHeaders(): Record<string, string> {
+    return this._apiKey ? { Authorization: `Bearer ${this._apiKey}` } : {};
   }
 
   // -----------------------------------------------------------------------
@@ -94,6 +107,8 @@ export class UploadManager {
     const fileName = (file as File).name ?? 'video';
     const fileType = (file as File).type ?? '';
 
+    const withCredentials = this._credentials === 'include';
+
     let paused = false;
     let headedForMetadata = false;
     let upload!: tus.Upload;
@@ -114,7 +129,15 @@ export class UploadManager {
         endpoint,
         chunkSize,
         retryDelays,
-        headers: { Authorization: `Bearer ${this._apiKey}` },
+        headers: this._authHeaders(),
+        // tus uses XHR in the browser, which only sends cookies cross-origin
+        // when withCredentials is set; same-origin requests send them anyway
+        onBeforeRequest: withCredentials
+          ? (req) => {
+              const xhr = req.getUnderlyingObject() as { withCredentials?: boolean } | undefined;
+              if (xhr && 'withCredentials' in xhr) xhr.withCredentials = true;
+            }
+          : undefined,
         metadata: {
           filename: fileName,
           filetype: fileType,
@@ -142,7 +165,8 @@ export class UploadManager {
             headedForMetadata = true;
             fetch(location, {
               method: 'HEAD',
-              headers: { Authorization: `Bearer ${this._apiKey}`, 'Tus-Resumable': '1.0.0' },
+              headers: { ...this._authHeaders(), 'Tus-Resumable': '1.0.0' },
+              ...(this._credentials ? { credentials: this._credentials } : {}),
             })
               .then((r) => {
                 const meta = r.headers.get('Upload-Metadata');

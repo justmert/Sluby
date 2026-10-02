@@ -35,10 +35,14 @@ function getStatusText(status: number): string {
 // ---------------------------------------------------------------------------
 
 describe('SlubyClient constructor', () => {
-  it('should throw if apiKey is empty', () => {
+  it('should throw if apiKey is provided but empty', () => {
     expect(() => new SlubyClient({ apiKey: '', baseUrl: 'https://api.example.com' })).toThrow(
-      'SlubyClient requires a non-empty apiKey.',
+      /apiKey must be non-empty when provided/,
     );
+  });
+
+  it('allows omitting apiKey for a cookie session', () => {
+    expect(() => new SlubyClient({ baseUrl: 'https://api.example.com' })).not.toThrow();
   });
 
   it('should throw if baseUrl is empty', () => {
@@ -174,6 +178,30 @@ describe('SlubyClient._fetch', () => {
     const [, init] = fetchMock.mock.calls[0];
     const headers = init.headers as Headers;
     expect(headers.get('Authorization')).toBe('Bearer sluby_test_key');
+  });
+
+  it('omits Authorization and keeps default credentials without an apiKey', async () => {
+    const sessionClient = new SlubyClient({ baseUrl: 'https://api.sluby.app' });
+    fetchMock.mockResolvedValueOnce(makeResponse(200, { id: '123' }));
+
+    await sessionClient.assets.get('123');
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect((init.headers as Headers).has('Authorization')).toBe(false);
+    expect(init.credentials).toBeUndefined();
+  });
+
+  it('passes the configured credentials policy to fetch', async () => {
+    const sessionClient = new SlubyClient({
+      baseUrl: 'https://api.sluby.app',
+      credentials: 'include',
+    });
+    fetchMock.mockResolvedValueOnce(makeResponse(200, { id: '123' }));
+
+    await sessionClient.assets.get('123');
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.credentials).toBe('include');
   });
 
   it('should set Accept: application/json by default', async () => {

@@ -42,6 +42,19 @@ const asset = await client.assets.waitForReady(videoAssetId);
 const { playbackUrl } = await client.playback.getUrl(asset.id);
 ```
 
+### Cookie session (same-origin browser apps)
+
+A browser app served from the same origin as the API (the Studio does this)
+can skip the API key. Requests and TUS uploads then carry the signed-in
+session cookie:
+
+```ts
+const client = new SlubyClient({ baseUrl: window.location.origin });
+```
+
+If the cookie session has to cross origins, pass `credentials: 'include'` and
+allow credentialed CORS for your origin on the API.
+
 ## API
 
 - `client.uploads` — `upload()` (resumable TUS; returns an awaitable handle with

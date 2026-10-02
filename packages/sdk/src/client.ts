@@ -62,8 +62,12 @@ export class SlubyClient {
   private readonly _config: SlubyConfig;
 
   constructor(config: SlubyConfig) {
-    if (!config.apiKey) {
-      throw new Error('SlubyClient requires a non-empty apiKey.');
+    // an empty string usually means an unset env var, so fail loudly instead
+    // of quietly falling back to cookie auth
+    if (config.apiKey !== undefined && !config.apiKey) {
+      throw new Error(
+        'SlubyClient apiKey must be non-empty when provided; omit it to use a cookie session.',
+      );
     }
     if (!config.baseUrl) {
       throw new Error('SlubyClient requires a non-empty baseUrl.');
@@ -82,7 +86,11 @@ export class SlubyClient {
     // they share authentication and error-handling logic.
     const boundFetch = this._fetch.bind(this);
 
-    this.uploads = new UploadManager(boundFetch, this._config.apiKey, this._config.baseUrl);
+    this.uploads = new UploadManager(boundFetch, {
+      apiKey: this._config.apiKey,
+      baseUrl: this._config.baseUrl,
+      credentials: this._config.credentials,
+    });
     this.assets = new AssetManager(boundFetch);
     this.playback = new PlaybackManager(boundFetch, this.resolveDeliveryUrl.bind(this));
     this.webhooks = new WebhookManager();
@@ -116,7 +124,8 @@ export class SlubyClient {
    * Perform an HTTP request against the Sluby API.
    *
    * - Automatically prepends the base URL.
-   * - Injects the `Authorization: Bearer <apiKey>` header.
+   * - Injects the `Authorization: Bearer <apiKey>` header when an API key is
+   *   configured; otherwise the request rides on the session cookie.
    * - Inspects the response status and throws typed errors for common
    *   failure modes (401/403, 404, 429, 5xx).
    */
@@ -124,7 +133,9 @@ export class SlubyClient {
     const url = `${this._config.baseUrl}${path}`;
 
     const headers = new Headers(init?.headers);
-    headers.set('Authorization', `Bearer ${this._config.apiKey}`);
+    if (this._config.apiKey) {
+      headers.set('Authorization', `Bearer ${this._config.apiKey}`);
+    }
 
     // Set a default Accept header when not already provided.
     if (!headers.has('Accept')) {
@@ -134,6 +145,7 @@ export class SlubyClient {
     const response = await fetch(url, {
       ...init,
       headers,
+      ...(this._config.credentials ? { credentials: this._config.credentials } : {}),
     });
 
     if (response.ok) {
