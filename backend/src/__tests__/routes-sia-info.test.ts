@@ -79,7 +79,7 @@ describe('GET /assets/:id/sia', () => {
     expect(res.body.totals).toMatchObject({
       object_count: 2,
       raw_bytes: 200,
-      encoded_bytes: 600,
+      encoded_bytes: 4 * 4 * 1024 * 1024,
       unique_slab_count: 2,
       unique_sector_count: 4,
     });

@@ -6,7 +6,7 @@ import DashboardPage from './DashboardPage';
 const stats = {
   total: 7,
   by_status: { created: 0, uploading: 1, processing: 1, ready: 4, failed: 1 },
-  stored_bytes: 5 * 1024 * 1024,
+  stored_bytes: 5_000_000,
   ready_duration_ms: 125_000,
   object_count: 42,
 };
@@ -28,10 +28,10 @@ const status = {
       account_key: 'ak',
       ready: false,
       app_name: 'Sluby',
-      pinned_data: 1024 * 1024 * 1024,
-      pinned_size: 3 * 1024 * 1024 * 1024,
-      max_pinned_data: 50 * 1024 * 1024 * 1024,
-      remaining_storage: 49 * 1024 * 1024 * 1024,
+      pinned_data: 1_000_000_000,
+      pinned_size: 3_000_000_000,
+      max_pinned_data: 50_000_000_000,
+      remaining_storage: 49_000_000_000,
       last_used: '2026-10-01T00:00:00.000Z',
     },
     hosts: { total: 40, good_for_upload: 31, countries: 12 },

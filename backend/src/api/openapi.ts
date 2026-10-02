@@ -377,7 +377,11 @@ export const openapiDocument = {
                 },
                 rendition: { type: ['string', 'null'] },
                 size: { type: 'integer' },
-                encoded_size: { type: 'integer' },
+                encoded_size: {
+                  type: 'integer',
+                  description:
+                    'Encoded size of the slabs it references; shared slabs counted in full.',
+                },
                 slab_count: { type: 'integer' },
                 sector_count: { type: 'integer' },
                 shared_slab_count: { type: 'integer' },
@@ -396,7 +400,10 @@ export const openapiDocument = {
             properties: {
               object_count: { type: 'integer' },
               raw_bytes: { type: 'integer' },
-              encoded_bytes: { type: 'integer' },
+              encoded_bytes: {
+                type: 'integer',
+                description: 'Bytes on hosts after erasure coding, each unique slab once.',
+              },
               unique_slab_count: { type: 'integer' },
               unique_sector_count: { type: 'integer' },
               sector_bytes: { type: 'integer', description: 'Unique sectors x 4 MiB.' },

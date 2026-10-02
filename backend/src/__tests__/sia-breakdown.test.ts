@@ -60,9 +60,11 @@ describe('buildSiaBreakdown', () => {
     expect(byId['data-720'].sharedSlabCount).toBe(0);
   });
 
-  it('sums sizes and the indexer-reported encoded sizes', () => {
+  it('sums sizes, and counts encoded bytes once per unique slab', () => {
     expect(b.totals.rawBytes).toBe(5500);
-    expect(b.totals.encodedBytes).toBe(16500);
+    // per-object encoded sizes (900 + 600 + 15000) would count the shared slab twice
+    expect(b.totals.encodedBytes).toBe(12 * SECTOR_SIZE_BYTES);
+    expect(b.totals.encodedBytes).toBe(b.totals.sectorBytes);
   });
 
   it('reads redundancy from the shard config', () => {
