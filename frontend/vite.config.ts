@@ -1,36 +1,43 @@
-import { defineConfig } from 'vite';
+/// <reference types="vitest/config" />
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { resolve } from 'path';
+import { fileURLToPath } from 'node:url';
 
-const backendUrl = process.env.VITE_API_BASE_URL ?? 'http://localhost:4500';
+const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, './src'),
-    },
-  },
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: backendUrl,
-        changeOrigin: true,
-      },
-      '/v1': {
-        target: backendUrl,
-        changeOrigin: true,
-      },
-      '/health': {
-        target: backendUrl,
-        changeOrigin: true,
-      },
-      '/metrics': {
-        target: backendUrl,
-        changeOrigin: true,
+export default defineConfig(({ mode }) => {
+  // the studio talks to the api on its own origin; in dev, vite proxies to it
+  const env = loadEnv(mode, here('.'), '');
+  const target = env.STUDIO_API_PROXY_TARGET || 'http://localhost:4500';
+  // keep the browser's Host so the oauth callback and tus upload urls the
+  // backend builds point back at the studio origin, not the proxy target
+  const proxy = { target, changeOrigin: false, xfwd: true };
+
+  return {
+    plugins: [react(), tailwindcss()],
+    resolve: {
+      alias: {
+        '@': here('./src'),
+        // build the workspace packages from source, so the studio never runs
+        // against a stale dist and needs no prebuild step
+        '@sluby/sdk': here('../packages/sdk/src/index.ts'),
+        '@sluby/player': here('../packages/player/src/index.ts'),
       },
     },
-  },
+    server: {
+      port: 5173,
+      proxy: {
+        '/api': proxy,
+        '/v1': proxy,
+        '/health': proxy,
+      },
+    },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      include: ['src/**/*.test.{ts,tsx}'],
+      setupFiles: ['./src/test/setup.ts'],
+    },
+  };
 });

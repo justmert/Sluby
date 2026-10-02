@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install root dependencies
@@ -43,13 +43,16 @@ jobs:
           - package: player
             workspace: '@sluby/player'
             path: packages/player
+          - package: studio
+            workspace: sluby-frontend
+            path: frontend
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       # A single root `npm ci` installs every workspace's dependencies
@@ -66,6 +69,25 @@ jobs:
       - name: Test
         run: npm test --workspace=${{ matrix.workspace }} --if-present
 
+  studio-build:
+    name: Studio builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # the studio builds the sdk and player from source (vite alias), so it
+      # needs no package prebuild
+      - name: Build studio
+        run: npm run build --workspace=sluby-frontend
+
   example-build:
     name: Quickstart example builds
     runs-on: ubuntu-latest
@@ -74,7 +96,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies

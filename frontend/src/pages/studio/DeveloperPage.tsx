@@ -15,7 +15,7 @@ import {
   Shield,
   Webhook,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -44,8 +44,7 @@ import { useWebhooks, useCreateWebhook, useDeleteWebhook } from '@/hooks/useWebh
 import { getStoredApiKey } from '@/lib/api-key-store';
 import { sdkTemplates, type SdkTemplate, webhookVerify } from '@/lib/code-snippets';
 import { formatRelativeTime } from '@/lib/formatters';
-import { cn } from '@/lib/cn';
-import { BASE_URL } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
 // API Keys Tab
@@ -597,7 +596,7 @@ function ApiExplorerTab() {
       if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
       if (body) headers['Content-Type'] = 'application/json';
 
-      const fullUrl = path.startsWith('http') ? path : `${BASE_URL}${path}`;
+      const fullUrl = path.startsWith('http') ? path : `${window.location.origin}${path}`;
       const res = await fetch(fullUrl, {
         method,
         headers,

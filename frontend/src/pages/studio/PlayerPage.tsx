@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import Hls, { type HlsConfig } from 'hls.js';
 import {
   Play,
@@ -19,7 +19,7 @@ import {
   Film,
   ArrowLeft,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Select,
   SelectTrigger,
@@ -35,8 +35,7 @@ import { PageContainer } from '@/components/layout/PageContainer';
 import { useAssets } from '@/hooks/useAssets';
 import { usePlayback } from '@/hooks/usePlayback';
 import { formatBitrate, formatBytes, formatDuration } from '@/lib/formatters';
-import { BASE_URL } from '@/lib/api-client';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -169,7 +168,7 @@ function AssetCard({ asset, onSelect }: { asset: VideoAsset; onSelect: (id: stri
       <div className="relative aspect-video bg-zinc-900 overflow-hidden flex items-center justify-center">
         {asset.thumbnail_object_ids?.[0] ? (
           <img
-            src={`${BASE_URL}/v1/objects/${asset.thumbnail_object_ids[0]}`}
+            src={`${window.location.origin}/v1/objects/${asset.thumbnail_object_ids[0]}`}
             alt={asset.title}
             className="w-full h-full object-cover"
             loading="lazy"

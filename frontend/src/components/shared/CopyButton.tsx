@@ -1,48 +1,43 @@
-import { useState, useCallback } from 'react';
-import { Copy, Check } from 'lucide-react';
-import { cn } from '@/lib/cn';
+import { useEffect, useRef, useState } from 'react';
+import { Check, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 export interface CopyButtonProps {
   value: string;
   className?: string;
+  label?: string;
 }
 
-export function CopyButton({ value, className }: CopyButtonProps) {
-  const [copied, setCopied] = useState(false);
+export function CopyButton({ value, className, label = 'Copy to clipboard' }: CopyButtonProps) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const handleCopy = useCallback(async () => {
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const copy = async () => {
     try {
       await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setState('copied');
     } catch {
-      // Fallback for older browsers
-      const textarea = document.createElement('textarea');
-      textarea.value = value;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      // clipboard needs a secure context; say so instead of pretending
+      setState('failed');
     }
-  }, [value]);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setState('idle'), 2000);
+  };
 
   return (
     <Button
+      type="button"
       variant="ghost"
-      size="icon"
-      className={cn(
-        'h-9 w-9 min-w-[44px] min-h-[44px] text-zinc-500 hover:text-zinc-300 transition-all duration-200',
-        className,
-      )}
-      onClick={handleCopy}
-      aria-label={copied ? 'Copied' : 'Copy to clipboard'}
+      size="icon-sm"
+      className={cn('text-muted-foreground', className)}
+      onClick={copy}
+      aria-label={state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : label}
+      title={state === 'failed' ? 'Copy failed: clipboard unavailable' : label}
     >
-      {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+      {state === 'copied' ? <Check className="text-success" /> : <Copy />}
     </Button>
   );
 }

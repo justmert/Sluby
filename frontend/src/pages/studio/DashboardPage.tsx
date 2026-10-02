@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { Link } from 'react-router';
+import { motion } from 'motion/react';
 import {
   Waves,
   Upload,
@@ -25,7 +25,7 @@ import { useHealthCheck } from '@/hooks/useHealthCheck';
 import { useMetrics } from '@/hooks/useMetrics';
 import { useAssets, type VideoAsset } from '@/hooks/useAssets';
 import { formatBytes, formatRelativeTime } from '@/lib/formatters';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import {
   EXPLORER_BASE_URL,
   EXPLORER_LABEL,

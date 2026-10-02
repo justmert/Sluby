@@ -23,19 +23,18 @@
     "typecheck": "tsc --noEmit -p backend/tsconfig.json && tsc --noEmit -p packages/sdk/tsconfig.json && tsc --noEmit -p packages/player/tsconfig.json && tsc --noEmit -p frontend/tsconfig.json"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "esbuild": "^0.28.2",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "prettier": "^3.8.1",
     "typescript-eslint": "^8.56.0"
   },
-  "dependencies": {},
   "overrides": {
-    "esbuild": "0.27.3",
-    "@esbuild/darwin-arm64": "0.27.3",
     "typescript": "5.9.3"
   }
 }

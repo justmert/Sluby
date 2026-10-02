@@ -13,7 +13,7 @@ import {
   ChevronUp,
   XCircle,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { AreaChart, Area, PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   Select,
@@ -156,10 +156,13 @@ function DonutChart({ data, centerLabel }: { data: DonutSlice[]; centerLabel?: s
               boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
             }}
             itemStyle={{ color: '#e4e4e7', padding: 0 }}
-            formatter={(value: number, name: string) => [
-              `${value.toLocaleString()} (${total > 0 ? Math.round((value / total) * 100) : 0}%)`,
-              name,
-            ]}
+            formatter={(raw, name) => {
+              const value = Number(raw ?? 0);
+              return [
+                `${value.toLocaleString()} (${total > 0 ? Math.round((value / total) * 100) : 0}%)`,
+                String(name),
+              ];
+            }}
           />
         </PieChart>
       </ResponsiveContainer>

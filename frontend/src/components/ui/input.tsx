@@ -1,18 +1,18 @@
-import { forwardRef, type InputHTMLAttributes } from 'react';
-import { cn } from '@/lib/cn';
+import * as React from 'react';
+import { cn } from '@/lib/utils';
 
-export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
-  ({ className, ...props }, ref) => {
-    return (
-      <input
-        ref={ref}
-        className={cn(
-          'flex h-10 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-zinc-100 shadow-sm shadow-black/10 placeholder:text-zinc-500 transition-all duration-200 hover:border-white/[0.12] focus-visible:outline-none focus-visible:border-teal-500/40 focus-visible:ring-2 focus-visible:ring-teal-500/20 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f] focus-visible:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40',
-          className,
-        )}
-        {...props}
-      />
-    );
-  },
-);
-Input.displayName = 'Input';
+function Input({ className, type, ...props }: React.ComponentProps<'input'>) {
+  return (
+    <input
+      type={type}
+      data-slot="input"
+      className={cn(
+        'h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40',
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export { Input };

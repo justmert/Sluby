@@ -1,10 +1,11 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ThemeProvider } from '@/lib/theme';
-import { ApiKeyProvider } from '@/lib/api-key-provider';
+import { ThemeProvider } from '@/components/theme-provider';
 import { AuthGate } from '@/components/AuthGate';
+import { Toaster } from '@/components/ui/sonner';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { App } from '@/App';
 import './index.css';
 
@@ -13,11 +14,6 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000,
       retry: 1,
-    },
-    mutations: {
-      onError: (error: Error) => {
-        console.error('Mutation failed:', error);
-      },
     },
   },
 });
@@ -28,15 +24,16 @@ if (!root) throw new Error('Root element not found');
 createRoot(root).render(
   <StrictMode>
     <ThemeProvider>
-      <AuthGate>
-        <QueryClientProvider client={queryClient}>
-          <ApiKeyProvider>
+      <TooltipProvider>
+        <AuthGate>
+          <QueryClientProvider client={queryClient}>
             <BrowserRouter>
               <App />
             </BrowserRouter>
-          </ApiKeyProvider>
-        </QueryClientProvider>
-      </AuthGate>
+          </QueryClientProvider>
+        </AuthGate>
+        <Toaster richColors />
+      </TooltipProvider>
     </ThemeProvider>
   </StrictMode>,
 );

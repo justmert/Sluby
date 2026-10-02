@@ -188,10 +188,14 @@ export function useVideo(
 
   // ── Cleanup animation frame on unmount ───────────────────────────────────
 
+  // the ref holds a frame id, not a dom node, so reading it at cleanup time is
+  // exactly what we want: cancel whichever frame is pending on unmount
   useEffect(() => {
     return () => {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const pending = rafIdRef.current;
+      if (pending !== null) {
+        cancelAnimationFrame(pending);
       }
     };
   }, []);

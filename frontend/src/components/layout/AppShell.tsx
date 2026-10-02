@@ -1,19 +1,18 @@
-import { Sidebar } from './Sidebar';
-import { TopBar } from './TopBar';
-import { Toaster } from '@/components/ui/toaster';
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { AppSidebar } from './Sidebar';
+import { TopBar } from './TopBar';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-screen overflow-hidden bg-[#0a0a0f]">
-      <Sidebar />
-      <div className="relative z-10 flex-1 flex flex-col min-w-0 transition-all duration-300 ease-out">
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
         <TopBar />
-        <main className="flex-1 overflow-y-auto scroll-smooth">
+        <main className="flex-1">
           <ErrorBoundary>{children}</ErrorBoundary>
         </main>
-      </div>
-      <Toaster />
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

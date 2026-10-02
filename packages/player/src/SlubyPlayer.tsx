@@ -193,6 +193,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       // `retryKey` is included so the overlay Retry button re-runs a failed
       // resolution. `poster` is intentionally excluded (a dedicated effect
       // handles poster changes) so updating it does not re-mint a signed URL.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [src, client, assetId, signed, expiresIn, retryKey, fail]);
 
     useEffect(() => {
