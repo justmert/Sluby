@@ -530,7 +530,54 @@ export const openapiDocument = {
     // Uploads are created through the TUS protocol at POST /api/v1/uploads,
     // which the TUS server handles directly (not a REST JSON route). The REST
     // surface documented here is status polling and cancellation.
+    '/api/v1/uploads': {
+      post: {
+        tags: ['Uploads'],
+        summary: 'Start a resumable upload (tus 1.0.0 creation).',
+        description:
+          'Creates the video asset and returns its tus upload url in Location. Send the bytes with ' +
+          'PATCH to that url; a HEAD on it returns Upload-Metadata with videoAssetId. Metadata keys: ' +
+          'filename, filetype, title, description, accessTier (values base64).',
+        'x-required-scope': 'upload',
+        'x-handled-by': 'tus',
+        parameters: [
+          { name: 'Tus-Resumable', in: 'header', required: true, schema: { const: '1.0.0' } },
+          { name: 'Upload-Length', in: 'header', required: true, schema: { type: 'integer' } },
+          { name: 'Upload-Metadata', in: 'header', schema: { type: 'string' } },
+        ],
+        responses: {
+          '201': { description: 'Created; the upload url is in Location.' },
+          '401': errorResponse,
+          '413': { description: 'Larger than MAX_UPLOAD_SIZE.' },
+          '415': { description: 'Not a video file type.' },
+        },
+      },
+    },
     '/api/v1/uploads/{id}': {
+      patch: {
+        tags: ['Uploads'],
+        summary: 'Send upload bytes (tus).',
+        'x-required-scope': 'upload',
+        'x-handled-by': 'tus',
+        parameters: [
+          idParam('id', 'tus upload id, the last segment of Location.'),
+          { name: 'Tus-Resumable', in: 'header', required: true, schema: { const: '1.0.0' } },
+          { name: 'Upload-Offset', in: 'header', required: true, schema: { type: 'integer' } },
+        ],
+        requestBody: { content: { 'application/offset+octet-stream': {} } },
+        responses: { '204': { description: 'Accepted; Upload-Offset is the new offset.' } },
+      },
+      head: {
+        tags: ['Uploads'],
+        summary: 'Upload offset and metadata (tus).',
+        'x-required-scope': 'upload',
+        'x-handled-by': 'tus',
+        parameters: [
+          idParam('id', 'tus upload id.'),
+          { name: 'Tus-Resumable', in: 'header', required: true, schema: { const: '1.0.0' } },
+        ],
+        responses: { '200': { description: 'Upload-Offset and Upload-Metadata headers.' } },
+      },
       get: {
         tags: ['Uploads'],
         summary: 'Upload session status.',
