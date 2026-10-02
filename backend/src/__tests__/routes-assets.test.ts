@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-import { createAssetRoutes, type AssetRouteDeps } from '../api/routes/assets.js';
+import { createAssetRoutes, processingStage, type AssetRouteDeps } from '../api/routes/assets.js';
 import { createTestApp, withApiKey } from './helpers/express-helpers.js';
 
 // Mock logger
@@ -291,5 +291,44 @@ describe('asset routes', () => {
 
       expect(res.status).toBe(403);
     });
+  });
+
+  describe('GET /:id/processing', () => {
+    it('reports the pipeline stage from the latest log line', async () => {
+      vi.mocked(deps.getProcessingJob).mockResolvedValue({
+        id: 'job-1',
+        status: 'processing',
+        progressPercent: 72,
+        retryCount: 0,
+        errorMessage: null,
+        startedAt: new Date('2026-10-01T00:00:00Z'),
+        completedAt: null,
+        createdAt: new Date('2026-10-01T00:00:00Z'),
+        logs: [
+          { timestamp: 't1', stage: 'transcode', message: 'Transcode complete' },
+          { timestamp: 't2', stage: 'upload', message: 'Uploading segments to Sia' },
+        ],
+      });
+
+      const res = await request(createApp()).get('/asset-1/processing');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        status: 'processing',
+        stage: 'upload',
+        progress_percent: 72,
+        retry_count: 0,
+      });
+      expect(deps.getProcessingJob).toHaveBeenCalledWith('asset-1', '0xabc123');
+    });
+  });
+});
+
+describe('processingStage', () => {
+  it('prefers terminal job states and defaults to queued', () => {
+    expect(processingStage('completed', [{ stage: 'upload' }])).toBe('completed');
+    expect(processingStage('failed', [{ stage: 'transcode' }])).toBe('failed');
+    expect(processingStage('queued', [])).toBe('queued');
+    expect(processingStage('retrying', [{ stage: 'finalize' }])).toBe('finalize');
   });
 });

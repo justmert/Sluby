@@ -152,8 +152,17 @@ export const openapiDocument = {
         type: 'object',
         properties: {
           id: { type: 'string' },
-          status: { type: 'string' },
+          status: {
+            type: 'string',
+            enum: ['queued', 'processing', 'completed', 'failed', 'retrying'],
+          },
+          stage: {
+            type: 'string',
+            enum: ['queued', 'transcode', 'upload', 'finalize', 'completed', 'failed'],
+            description: 'Pipeline step, from the latest stage-tagged log line.',
+          },
           progress_percent: { type: 'integer' },
+          retry_count: { type: 'integer' },
           error_message: { type: ['string', 'null'] },
           started_at: { type: ['string', 'null'], format: 'date-time' },
           completed_at: { type: ['string', 'null'], format: 'date-time' },

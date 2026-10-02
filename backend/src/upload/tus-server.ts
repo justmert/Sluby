@@ -1,9 +1,10 @@
-import { Server } from '@tus/server';
+import { Server, EVENTS, type Upload } from '@tus/server';
 import { FileStore } from '@tus/file-store';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { computeFileHash } from './chunk-verifier.js';
 import { SESSION_COOKIE_NAME, parseCookieHeader, verifySession } from '../api/auth/session.js';
+import { PLATFORM_ADDRESS } from '../api/ownership.js';
 
 export interface TusServerDeps {
   validateApiKey: (
@@ -26,6 +27,8 @@ export interface TusServerDeps {
   }) => Promise<void>;
   /** Mark an asset failed so a finish-time error does not leave it stuck. */
   markAssetFailed: (videoAssetId: string) => Promise<void>;
+  /** Delete the asset an upload created, when the uploader cancels it. */
+  discardAsset: (videoAssetId: string) => Promise<void>;
   dispatchWebhook: (event: string, data: Record<string, unknown>) => Promise<void>;
 }
 
@@ -42,52 +45,8 @@ export function createTusServer(deps: TusServerDeps): Server {
       return `${protocol}://${host}${path}/${id}`;
     },
 
-    async onIncomingRequest(req, _uploadId: string) {
-      // Validate API key for all requests except OPTIONS
-      if (req.method === 'OPTIONS') return;
-
-      // Session cookie path: when the Studio UI drives the upload, the
-      // browser sends the signed session cookie. We materialise an
-      // identity with full upload scope that downstream hooks can treat
-      // identically to an API-key caller.
-      const cookies = parseCookieHeader(req.headers.get('cookie') ?? undefined);
-      const session = verifySession(cookies[SESSION_COOKIE_NAME], env.SESSION_SECRET);
-      if (session) {
-        (req as unknown as Record<string, unknown>).__apiKey = {
-          id: `session:${session.login}`,
-          creatorAddress: `github:${session.login.toLowerCase()}`,
-          scopes: ['upload', 'read', 'manage'],
-        };
-        return;
-      }
-
-      // Dev bypass.
-      if (env.AUTH_DISABLED) {
-        (req as unknown as Record<string, unknown>).__apiKey = {
-          id: 'session:dev',
-          creatorAddress: 'github:dev',
-          scopes: ['upload', 'read', 'manage'],
-        };
-        return;
-      }
-
-      const authHeader = req.headers.get('authorization');
-      if (!authHeader?.startsWith('Bearer ')) {
-        throw { status_code: 401, body: 'Missing or invalid Authorization header' };
-      }
-
-      const token = authHeader.slice(7);
-      const apiKey = await deps.validateApiKey(token);
-      if (!apiKey) {
-        throw { status_code: 401, body: 'Invalid API key' };
-      }
-
-      if (!apiKey.scopes.includes('upload')) {
-        throw { status_code: 403, body: 'API key does not have upload scope' };
-      }
-
-      // Attach API key info to request for downstream hooks
-      (req as unknown as Record<string, unknown>).__apiKey = apiKey;
+    async onIncomingRequest(req, uploadId: string) {
+      await authorizeTusRequest(req, uploadId, deps, (id) => server.datastore.getUpload(id));
     },
 
     async onUploadCreate(req, upload) {
@@ -168,6 +127,7 @@ export function createTusServer(deps: TusServerDeps): Server {
         // to MAX_UPLOAD_SIZE (10 GB by default) can easily exceed.
         const filePath = `${env.UPLOAD_DIR}/${upload.id}`;
         const sha256 = await computeFileHash(filePath);
+        if (upload.size != null) await deps.updateUploadProgress(sessionId, upload.size);
 
         // Mark upload as complete
         await deps.completeUpload(sessionId, filePath, sha256);
@@ -217,5 +177,97 @@ export function createTusServer(deps: TusServerDeps): Server {
     },
   });
 
+  // keep the REST upload status (GET /uploads/:id) in step with the bytes
+  // actually received; tus throttles this event per postReceiveInterval
+  server.on(EVENTS.POST_RECEIVE, (_req, upload: Upload) => {
+    const sessionId = upload.metadata?.sessionId;
+    if (!sessionId || upload.offset == null) return;
+    deps.updateUploadProgress(sessionId, upload.offset).catch((err) => {
+      logger.warn({ uploadId: upload.id, err }, 'Failed to record upload progress');
+    });
+  });
+
   return server;
+}
+
+type Identity = { id: string; creatorAddress: string; scopes: string[] };
+
+/** A tus hook failure, in the shape @tus/server turns into a response. */
+const tusError = (status_code: number, body: string) => ({ status_code, body });
+
+async function resolveIdentity(req: Request, deps: TusServerDeps): Promise<Identity> {
+  // Session cookie path: when the Studio UI drives the upload, the browser
+  // sends the signed session cookie. We materialise an identity with full
+  // upload scope that downstream hooks treat like an API-key caller.
+  const cookies = parseCookieHeader(req.headers.get('cookie') ?? undefined);
+  const session = verifySession(cookies[SESSION_COOKIE_NAME], env.SESSION_SECRET);
+  if (session) {
+    return {
+      id: `session:${session.login}`,
+      creatorAddress: `github:${session.login.toLowerCase()}`,
+      scopes: ['upload', 'read', 'manage'],
+    };
+  }
+
+  if (env.AUTH_DISABLED) {
+    return {
+      id: 'session:dev',
+      creatorAddress: 'github:dev',
+      scopes: ['upload', 'read', 'manage'],
+    };
+  }
+
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw tusError(401, 'Missing or invalid Authorization header');
+  }
+  const apiKey = await deps.validateApiKey(authHeader.slice(7));
+  if (!apiKey) throw tusError(401, 'Invalid API key');
+  if (!apiKey.scopes.includes('upload')) {
+    throw tusError(403, 'API key does not have upload scope');
+  }
+  return apiKey;
+}
+
+/**
+ * Authenticate a tus request and, for requests on an existing upload, check
+ * the caller owns it. On termination (DELETE) the upload's session is
+ * cancelled and the asset it created is discarded, so a cancelled upload does
+ * not leave an empty asset behind in the library.
+ */
+export async function authorizeTusRequest(
+  req: Request,
+  uploadId: string,
+  deps: TusServerDeps,
+  getUpload: (id: string) => Promise<Upload>,
+): Promise<void> {
+  if (req.method === 'OPTIONS') return;
+
+  const identity = await resolveIdentity(req, deps);
+  (req as unknown as Record<string, unknown>).__apiKey = identity;
+
+  // creation (POST) has no upload yet; every other method targets one
+  if (req.method === 'POST' || !uploadId) return;
+
+  let upload: Upload;
+  try {
+    upload = await getUpload(uploadId);
+  } catch {
+    // unknown id: let the tus handler answer with its own 404/410
+    return;
+  }
+
+  const owner = upload.metadata?.creatorAddress;
+  if (identity.creatorAddress !== PLATFORM_ADDRESS && owner !== identity.creatorAddress) {
+    // same answer as a missing upload, so ids cannot be probed across tenants
+    throw tusError(404, 'Upload not found');
+  }
+
+  if (req.method === 'DELETE') {
+    const sessionId = upload.metadata?.sessionId;
+    const videoAssetId = upload.metadata?.videoAssetId;
+    if (sessionId) await deps.cancelUpload(sessionId);
+    if (videoAssetId) await deps.discardAsset(videoAssetId);
+    logger.info({ uploadId, sessionId, videoAssetId }, 'Upload cancelled by the uploader');
+  }
 }

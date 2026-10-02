@@ -240,6 +240,52 @@ describe('AssetManager.delete()', () => {
   });
 });
 
+describe('AssetManager.processing()', () => {
+  it('maps the processing job to camelCase', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeJsonResponse({
+        id: 'job_1',
+        status: 'failed',
+        stage: 'failed',
+        progress_percent: 65,
+        retry_count: 3,
+        error_message: 'ffmpeg exited with code 1',
+        started_at: '2025-01-01T00:00:00Z',
+        completed_at: null,
+        created_at: '2025-01-01T00:00:00Z',
+        logs: [{ timestamp: 't', stage: 'transcode', message: 'Starting transcode' }],
+      }),
+    );
+
+    const job = await new AssetManager(mockFetch).processing('asset_1');
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset_1/processing');
+    expect(job).toEqual({
+      id: 'job_1',
+      status: 'failed',
+      stage: 'failed',
+      progressPercent: 65,
+      retryCount: 3,
+      errorMessage: 'ffmpeg exited with code 1',
+      startedAt: '2025-01-01T00:00:00Z',
+      completedAt: null,
+      createdAt: '2025-01-01T00:00:00Z',
+      logs: [{ timestamp: 't', stage: 'transcode', message: 'Starting transcode' }],
+    });
+  });
+});
+
+describe('AssetManager.retry()', () => {
+  it('POSTs to /retry and returns the restart stage', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ success: true, stage: 'upload' }));
+
+    const result = await new AssetManager(mockFetch).retry('asset_1');
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset_1/retry', { method: 'POST' });
+    expect(result).toEqual({ stage: 'upload' });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tests: waitForReady()
 // ---------------------------------------------------------------------------

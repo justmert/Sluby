@@ -29,6 +29,8 @@ export type {
   VideoAssetStatus,
   AccessTier,
   UploadSession,
+  ProcessingJob,
+  ProcessingStage,
   PlaybackInfo,
   SignedPlaybackInfo,
   WebhookEndpoint,
