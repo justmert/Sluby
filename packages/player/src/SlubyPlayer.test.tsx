@@ -452,6 +452,33 @@ describe('SlubyPlayer', () => {
       expect(hlsInstanceRef.current.config.loader).toBeUndefined();
     });
 
+    it('reports which delivery path the load took', async () => {
+      const onDeliveryChange = vi.fn();
+      render(
+        <SlubyPlayer
+          client={gatewayClient({ sia: viewerSession() })}
+          assetId="abc"
+          onDeliveryChange={onDeliveryChange}
+        />,
+      );
+      await waitFor(() => expect(onDeliveryChange).toHaveBeenCalledWith('sia'));
+
+      cleanup();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fallback = vi.fn();
+      render(
+        <SlubyPlayer
+          client={gatewayClient({
+            sia: viewerSession({ prepare: vi.fn().mockRejectedValue(new Error('boom')) }),
+          })}
+          assetId="abc"
+          onDeliveryChange={fallback}
+        />,
+      );
+      await waitFor(() => expect(fallback).toHaveBeenCalledWith('gateway'));
+      warn.mockRestore();
+    });
+
     it('falls back to the gateway when the share map cannot be fetched', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const sia = viewerSession({ prepare: vi.fn().mockRejectedValue(new Error('boom')) });

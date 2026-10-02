@@ -49,6 +49,7 @@ const client = new SlubyClient({ apiKey: 'sluby_...', baseUrl: 'https://api.slub
 | `maxNetworkRetries`, `maxMediaRetries`                                                 | `number`                | Recovery caps. Defaults 3 and 2.                                              |
 | `onReady`, `onPlay`, `onPause`, `onEnd`, `onError`, `onQualityChange`, `onStateChange` | callbacks               | `onStateChange` reports `idle` / `loading` / `ready` / `buffering` / `error`. |
 | `onQualitiesChange`                                                                    | callback                | Every rendition in the manifest, once parsed (hls.js path).                   |
+| `onDeliveryChange`                                                                     | callback                | `sia` (bytes straight from Sia hosts) or `gateway` for the current load.      |
 
 ## Quality switching
 

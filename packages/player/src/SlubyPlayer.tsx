@@ -92,6 +92,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       onError,
       onQualityChange,
       onQualitiesChange,
+      onDeliveryChange,
       onStateChange,
     } = props;
 
@@ -122,6 +123,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       onError,
       onQualityChange,
       onQualitiesChange,
+      onDeliveryChange,
       onStateChange,
     });
     useEffect(() => {
@@ -133,6 +135,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         onError,
         onQualityChange,
         onQualitiesChange,
+        onDeliveryChange,
         onStateChange,
       };
     });
@@ -286,6 +289,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       // ------------------------------------------------------------------
       if (!Hls.isSupported() && video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = resolvedSrc;
+        cb.current.onDeliveryChange?.('gateway');
 
         const onNativeLoaded = () => {
           setState('ready');
@@ -333,6 +337,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
       const hls = new Hls(hlsConfig);
       hlsRef.current = hls;
+      cb.current.onDeliveryChange?.(siaDelivery ? 'sia' : 'gateway');
 
       // Bounded recovery counters. Reset once real data buffers so that
       // intermittent, well-separated errors do not exhaust the budget.
