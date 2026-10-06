@@ -36,9 +36,10 @@ if (!HAS_FFMPEG) {
       'ffmpeg/ffprobe not found on PATH, but CI must run the ffmpeg integration test',
     );
   }
-  console.warn(
+  // straight to stderr: vitest drops console output of a file whose tests all skip
+  process.stderr.write(
     '\n[ffmpeg.integration] ffmpeg/ffprobe not found on PATH: skipping the real ' +
-      'transcode test. Install ffmpeg to run it locally; CI installs it.\n',
+      'transcode test. Install ffmpeg to run it locally; CI installs it.\n\n',
   );
 }
 
