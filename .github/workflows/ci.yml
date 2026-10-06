@@ -40,17 +40,19 @@ jobs:
           - package: sdk
             workspace: '@sluby/sdk'
             path: packages/sdk
+            script: test:coverage
           - package: player
             workspace: '@sluby/player'
             path: packages/player
+            script: test:coverage
           - package: studio
             workspace: sluby-frontend
             path: frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -66,8 +68,30 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit --project ${{ matrix.path }}/tsconfig.json
 
+      # sdk and player run under coverage, which prints the summary to the log
       - name: Test
-        run: npm test --workspace=${{ matrix.workspace }} --if-present
+        run: npm run ${{ matrix.script || 'test' }} --workspace=${{ matrix.workspace }} --if-present
+
+  player-browser:
+    name: Player browser tests (chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install chromium
+        run: npx playwright install --with-deps chromium
+
+      # real hls.js playback in chromium against a checked-in hls fixture
+      - name: Browser tests
+        run: npm run test:browser --workspace=@sluby/player
 
   studio-build:
     name: Studio builds
