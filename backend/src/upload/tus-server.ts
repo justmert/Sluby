@@ -1,8 +1,8 @@
 import { Server, EVENTS, type Upload } from '@tus/server';
-import { FileStore } from '@tus/file-store';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { computeFileHash } from './chunk-verifier.js';
+import { UPLOAD_EXPIRY_MS, UploadFileStore } from './upload-store.js';
 import { resolveSession, type FindActiveSession } from '../api/auth/session.js';
 import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import { uploadBytesTotal, uploadFailureTotal, uploadSuccessTotal } from '../metrics/collector.js';
@@ -16,6 +16,8 @@ export interface TusServerDeps {
   createUploadSession: (data: {
     apiKeyId: string;
     fileSize: number;
+    /** where tus writes the upload, recorded up front so a deleted asset can remove a partial one */
+    filePath: string;
     metadata: Record<string, string>;
   }) => Promise<{ id: string; videoAssetId?: string }>;
   updateUploadProgress: (uploadId: string, uploadedBytes: number) => Promise<void>;
@@ -36,10 +38,17 @@ export interface TusServerDeps {
   dispatchWebhook: (event: string, data: Record<string, unknown>, owner: string) => Promise<void>;
 }
 
+/** Where the file store keeps the data of upload `id`. */
+export const uploadFilePath = (id: string) => `${env.UPLOAD_DIR}/${id}`;
+
 export function createTusServer(deps: TusServerDeps): Server {
   const server = new Server({
     path: '/api/v1/uploads',
-    datastore: new FileStore({ directory: env.UPLOAD_DIR }),
+    datastore: new UploadFileStore({
+      directory: env.UPLOAD_DIR,
+      expirationPeriodInMilliseconds: UPLOAD_EXPIRY_MS,
+      log: logger,
+    }),
     maxSize: env.MAX_UPLOAD_SIZE,
     respectForwardedHeaders: true,
     generateUrl(req, { proto, host, path, id }) {
@@ -78,6 +87,7 @@ export function createTusServer(deps: TusServerDeps): Server {
       const session = await deps.createUploadSession({
         apiKeyId: apiKey.id,
         fileSize: upload.size ?? 0,
+        filePath: uploadFilePath(upload.id),
         metadata: {
           ...(metadata as Record<string, string>),
           creatorAddress,
@@ -134,7 +144,7 @@ export function createTusServer(deps: TusServerDeps): Server {
         // whole upload into a Buffer would use memory proportional to the file
         // and throws outright past Node's max Buffer length, which uploads up
         // to MAX_UPLOAD_SIZE (10 GB by default) can easily exceed.
-        const filePath = `${env.UPLOAD_DIR}/${upload.id}`;
+        const filePath = uploadFilePath(upload.id);
         const sha256 = await computeFileHash(filePath);
         if (upload.size != null) await deps.updateUploadProgress(sessionId, upload.size);
 

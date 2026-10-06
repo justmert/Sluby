@@ -224,6 +224,28 @@ describe.skipIf(!hasTestDatabase)('pipeline record queries (postgres)', () => {
       expect(await uploads.getUploadSessionById(unknown)).toBeUndefined();
       expect(await uploads.updateUploadSession(unknown, { status: 'failed' })).toBeUndefined();
     });
+
+    it('lists the upload file paths of one asset, skipping sessions without one', async () => {
+      const a = await newAsset();
+      const other = await newAsset();
+      const session = (filePath: string, videoAssetId: string) =>
+        uploads.createUploadSession({
+          uploadUrl: 'https://x/api/v1/uploads/s',
+          filePath,
+          fileSize: 1,
+          videoAssetId,
+        });
+      await session('/uploads/first', a.id);
+      await session('/uploads/second', a.id);
+      await session('', a.id);
+      await session('/uploads/other', other.id);
+
+      expect((await uploads.listUploadFilePaths(a.id)).sort()).toEqual([
+        '/uploads/first',
+        '/uploads/second',
+      ]);
+      expect(await uploads.listUploadFilePaths(other.id)).toEqual(['/uploads/other']);
+    });
   });
 
   describe('processing jobs', () => {

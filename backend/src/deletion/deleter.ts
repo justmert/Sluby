@@ -3,10 +3,12 @@
  * without Redis, Postgres, or a live indexer. The queue worker wires the real
  * Sia client + DB + cache into it.
  *
- * Order: unpin each object, record the ones that succeeded (so a retry or the
- * GC sweep re-drives only the remainder), evict them from the delivery cache,
- * prune slabs, and — only when every object was unpinned — remove the asset
- * row (cascading to renditions, artifacts, jobs, and playback ids).
+ * Order: remove the source upload still on disk (a failed asset kept it for a
+ * retry, or the upload was still in flight), unpin each object, record the
+ * ones that succeeded (so a retry or the GC sweep re-drives only the
+ * remainder), evict them from the delivery cache, prune slabs, and, only when
+ * every object was unpinned, remove the asset row (cascading to renditions,
+ * artifacts, jobs, and playback ids).
  *
  * Unpinning is best-effort per object so one wedged host cannot block the
  * others, but if ANY object could not be unpinned the function throws WITHOUT
@@ -21,6 +23,8 @@ export interface DeletionDeps {
   /** Drop unpinned objects from the delivery caches (LRU + tier). */
   evictCache: (objectIds: string[]) => void;
   removeAsset: (videoAssetId: string) => Promise<void>;
+  /** Delete the asset's source upload files. Logs file errors instead of throwing. */
+  removeSources: (videoAssetId: string) => Promise<void>;
   logger: Pick<import('pino').Logger, 'info' | 'warn'>;
 }
 
@@ -42,6 +46,9 @@ export async function runAssetDeletion(
   const { videoAssetId, objectIds } = job;
   const unpinned: string[] = [];
   const failed: string[] = [];
+
+  // before the row goes: the asset's upload sessions are how the files are found
+  await deps.removeSources(videoAssetId);
 
   for (const objectId of objectIds) {
     try {

@@ -49,3 +49,15 @@ export async function updateUploadSession(
     .returning();
   return updated;
 }
+
+/**
+ * The upload file paths of every session that fed an asset. Sessions created
+ * before the path was recorded at creation hold '' until they complete.
+ */
+export async function listUploadFilePaths(videoAssetId: string): Promise<string[]> {
+  const rows = await db
+    .select({ filePath: uploadSessions.filePath })
+    .from(uploadSessions)
+    .where(eq(uploadSessions.videoAssetId, videoAssetId));
+  return rows.map((r) => r.filePath).filter(Boolean);
+}
