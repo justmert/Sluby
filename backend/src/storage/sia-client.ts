@@ -31,11 +31,7 @@ import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { initSia, AppKey, Builder, setLogger } from '@siafoundation/sia-storage';
 import type {
-  Account,
-  DownloadOptions,
   Host,
-  ObjectEvent,
-  ObjectsCursor,
   PackedUploadOptions,
   PinnedObject as SdkPinnedObject,
   Sdk,
