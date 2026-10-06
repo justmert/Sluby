@@ -151,7 +151,7 @@ erDiagram
 - **`api_keys`** stores only the SHA-256 of each key. `expires_at` is how rotation retires the old key after its grace period.
 - **`webhook_endpoints`** belong to an owner through `creator_address`. `api_key_id` records which key registered the endpoint (null when it was the Studio) and is kept for audit only: revoking the key leaves the endpoint working. The `secret` is stored in plain text because the backend needs it to sign every delivery; it is returned once, when the endpoint is created.
 - **`webhook_deliveries`** logs every delivery attempt, one row per try.
-- **`reconciliation_runs`** keeps one row per run, including failed ones, with the full lists of orphaned and missing object ids.
+- **`reconciliation_runs`** keeps one row per run, including failed ones, with the full lists of orphaned and missing object ids. The API only returns those lists in full to the platform identity; a tenant gets the missing ids of its own assets (see [what each caller sees](./deletion-and-reconciliation#what-each-caller-sees)).
 
 ## Enums
 

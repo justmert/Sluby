@@ -73,5 +73,5 @@ Ownership is also enforced where data enters and leaves:
 Some things are deliberately not per tenant:
 
 - **The delivery gateway** (`/v1/objects`, `/v1/stream`) has no identity at all. Public objects are served to anyone with the id, and private ones to anyone with a valid signature.
-- **Reconciliation** is global: a run covers every tenant's objects, and any identity with `manage` can read the latest run and trigger one.
+- **Reconciliation** is global: a run covers every tenant's objects, and any identity with `manage` can read the latest run and trigger one (only one run is ever pending). The counts and status are deployment-wide, but the object ids are scoped: a tenant gets only the missing ids of its own assets and no orphaned ids, and only the platform identity gets the full lists (see [what each caller sees](./deletion-and-reconciliation#what-each-caller-sees)).
 - **System status** (`GET /api/v1/system/status`, scope `read`) reports the shared indexer account, hosts and caches. `GET /api/v1/stats` is owner-scoped.
