@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SlubyClient } from './client.js';
-import { AuthenticationError, NotFoundError, RateLimitError, SlubyError } from './errors.js';
+import {
+  AuthenticationError,
+  NotFoundError,
+  PermissionError,
+  RateLimitError,
+  SlubyError,
+} from './errors.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,7 +69,7 @@ describe('SlubyClient constructor', () => {
     expect(client.webhooks).toBeDefined();
   });
 
-  it('should strip trailing slash from baseUrl', () => {
+  it('should strip trailing slash from baseUrl', async () => {
     const mockFetch = vi
       .fn()
       .mockResolvedValueOnce(makeResponse(200, { data: [], total: 0, page: 1, limit: 20 }));
@@ -74,7 +80,7 @@ describe('SlubyClient constructor', () => {
       baseUrl: 'https://api.example.com/',
     });
 
-    client.assets.list();
+    await client.assets.list();
     expect(mockFetch).toHaveBeenCalledWith(
       'https://api.example.com/api/v1/assets',
       expect.any(Object),
@@ -83,7 +89,7 @@ describe('SlubyClient constructor', () => {
     vi.unstubAllGlobals();
   });
 
-  it('should strip multiple trailing slashes', () => {
+  it('should strip multiple trailing slashes', async () => {
     const mockFetch = vi
       .fn()
       .mockResolvedValueOnce(makeResponse(200, { data: [], total: 0, page: 1, limit: 20 }));
@@ -94,7 +100,7 @@ describe('SlubyClient constructor', () => {
       baseUrl: 'https://api.example.com///',
     });
 
-    client.assets.list();
+    await client.assets.list();
     expect(mockFetch).toHaveBeenCalledWith(
       'https://api.example.com/api/v1/assets',
       expect.any(Object),
@@ -245,10 +251,10 @@ describe('SlubyClient._fetch', () => {
     await expect(client.assets.get('x')).rejects.toThrow(AuthenticationError);
   });
 
-  it('should throw AuthenticationError on 403', async () => {
+  it('should throw PermissionError on 403', async () => {
     fetchMock.mockResolvedValueOnce(makeResponse(403, { error: 'Forbidden' }));
 
-    await expect(client.assets.get('x')).rejects.toThrow(AuthenticationError);
+    await expect(client.assets.get('x')).rejects.toThrow(PermissionError);
   });
 
   it('should throw NotFoundError on 404', async () => {
@@ -357,7 +363,11 @@ describe('SlubyClient direct-from-Sia share maps', () => {
     appId: 'ab'.repeat(32),
     appKey: 'cd'.repeat(32),
   };
-  const shareBody = { master_object_id: 'm', shares: { m: 'sia://m#k' }, expires_at: 'x' };
+  const shareBody = {
+    master_object_id: 'm',
+    shares: { m: 'sia://m#k' },
+    expires_at: '2099-01-01T00:00:00Z',
+  };
 
   it('fetches the public share map from the delivery base with no key, even when one is set', async () => {
     const mockFetch = vi.fn().mockResolvedValue(makeResponse(200, shareBody));
@@ -385,7 +395,7 @@ describe('SlubyClient direct-from-Sia share maps', () => {
     }
   });
 
-  it('turns a 403 from the public share map into an AuthenticationError', async () => {
+  it('turns a 403 from the public share map into a PermissionError', async () => {
     const mockFetch = vi
       .fn()
       .mockResolvedValue(
@@ -397,7 +407,7 @@ describe('SlubyClient direct-from-Sia share maps', () => {
 
       await expect(
         client.sia!.getShareMap('a', { src: '/v1/stream/a/master.m3u8' }),
-      ).rejects.toBeInstanceOf(AuthenticationError);
+      ).rejects.toBeInstanceOf(PermissionError);
       expect(mockFetch.mock.calls[0][0]).toBe('https://api.example.com/v1/share/a');
     } finally {
       vi.unstubAllGlobals();

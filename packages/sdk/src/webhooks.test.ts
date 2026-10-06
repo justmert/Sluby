@@ -108,6 +108,12 @@ describe('WebhookManager.verifySignatureAsync()', () => {
     const asyncResult = await manager.verifySignatureAsync(payload, validSignature, secret);
     expect(syncResult).toBe(asyncResult);
   });
+
+  it('accepts an uppercase hex signature, as the sync method does', async () => {
+    const upper = validSignature.toUpperCase();
+    expect(manager.verifySignature(payload, upper, secret)).toBe(true);
+    expect(await manager.verifySignatureAsync(payload, upper, secret)).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

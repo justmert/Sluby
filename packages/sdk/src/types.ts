@@ -20,8 +20,10 @@ export interface VideoAsset {
   /** Null until the asset finishes processing. */
   manifestObjectId: string | null;
   thumbnailObjectIds: string[];
-  durationMs: number;
-  resolution: string;
+  /** Null or 0 until processing has probed the source. */
+  durationMs: number | null;
+  /** Source resolution such as `1920x1080`; null or empty until probed. */
+  resolution: string | null;
   status: VideoAssetStatus;
   accessTier: AccessTier;
   creatorAddress: string;
@@ -51,11 +53,18 @@ export interface ProcessingJob {
   logs: Array<{ timestamp: string; stage: string; message: string }>;
 }
 
+/** Where an asset's failed processing restarted: the whole run, or only the Sia upload. */
+export type RetryStage = 'transcode' | 'upload-segments';
+
+/** State of an upload session. */
+export type UploadSessionStatus = 'uploading' | 'completed' | 'cancelled' | 'failed';
+
 /** Upload session tracking TUS upload progress. */
 export interface UploadSession {
   id: string;
-  videoAssetId: string;
-  status: string;
+  /** Null when the session has no asset (it was discarded). */
+  videoAssetId: string | null;
+  status: UploadSessionStatus;
   progressPercent: number;
   fileSize: number;
   uploadedBytes: number;
@@ -73,8 +82,8 @@ export interface PlaybackInfo {
   playbackPath: string;
   /** Absolute poster image URL, or null when the asset has no thumbnail. */
   posterUrl: string | null;
-  durationMs: number;
-  resolution: string;
+  durationMs: number | null;
+  resolution: string | null;
   accessTier: AccessTier;
 }
 
@@ -88,28 +97,18 @@ export interface SignedPlaybackInfo {
   expiresAt: string;
 }
 
-/** Registered webhook endpoint. */
-export interface WebhookEndpoint {
-  id: string;
-  url: string;
-  events: string[];
-  isActive: boolean;
-  createdAt: string;
-}
-
-/** Developer API key. */
-export interface ApiKey {
-  id: string;
-  name: string;
-  scopes: string[];
-  rateLimit: number;
-  isActive: boolean;
-  createdAt: string;
-}
-
 // ---------------------------------------------------------------------------
 // Request / option types
 // ---------------------------------------------------------------------------
+
+/** Per-call options every request method takes. */
+export interface RequestOptions {
+  /**
+   * Cancels the request. The call then rejects with an `AbortError` (whose
+   * `cause` is the signal's reason).
+   */
+  signal?: AbortSignal;
+}
 
 /** Options controlling the TUS file upload behaviour. */
 export interface UploadFileOptions {
@@ -121,8 +120,17 @@ export interface UploadFileOptions {
   onProgress?: (percent: number, bytesUploaded: number, bytesTotal: number) => void;
   /** Called once when the upload finishes successfully. */
   onSuccess?: () => void;
-  /** Called when an unrecoverable upload error occurs. */
+  /** Called when an unrecoverable upload error occurs, with the same `SlubyError` the handle rejects with. */
   onError?: (error: Error) => void;
+  /**
+   * Resume an unfinished upload of the same file with the same metadata by
+   * the same key, from a previous page load (browser only; tus keeps the
+   * upload URL in localStorage). An upload that already finished is never
+   * resumed: the file is uploaded again as a new asset. Default `true`.
+   */
+  resume?: boolean;
+  /** Aborts the upload like `handle.abort()` when it fires. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -137,7 +145,12 @@ export type UploadHandle = Promise<void> & {
   pause: () => Promise<void>;
   /** Resume a paused upload from where it stopped. */
   resume: () => void;
-  /** Abort and terminate the upload permanently (discards server-side state). */
+  /**
+   * Cancel an unfinished upload: stop sending, terminate it on the server
+   * (which discards the asset it created) and reject the handle with an
+   * `AbortError`. Once the upload has finished this does nothing, so cleanup
+   * code that always calls it never deletes a finished upload's asset.
+   */
   abort: () => Promise<void>;
   /** Whether the upload is currently paused. */
   readonly isPaused: boolean;
@@ -147,9 +160,14 @@ export type UploadHandle = Promise<void> & {
 export type AssetSortField = 'created_at' | 'title' | 'duration' | 'size';
 
 /** Options for listing video assets. */
-export interface ListAssetsOptions {
+export interface ListAssetsOptions extends RequestOptions {
   page?: number;
   limit?: number;
+  /**
+   * Keyset paging: the `nextCursor` of the previous page. Only works with the
+   * default order (`created_at`, `desc`); use `page` for other orders.
+   */
+  cursor?: string;
   status?: VideoAssetStatus;
   accessTier?: AccessTier;
   /** Case-insensitive match on title or description, or an exact asset id. */
@@ -166,6 +184,10 @@ export interface PaginatedResponse<T> {
   total: number;
   page: number;
   limit: number;
+  /** Pass as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null;
+  /** Whether there is a page after this one. */
+  hasMore: boolean;
 }
 
 /**
@@ -254,16 +276,37 @@ export interface SlubyConfig {
    * gateway-delivery consumers; the WASM SDK is then never loaded.
    */
   sia?: SiaViewerConfig;
+  /**
+   * Abort any API request that has not finished (headers and body) within
+   * this many milliseconds; it then rejects with a `TimeoutError`. Unset by
+   * default: requests wait as long as the platform's fetch does. Uploads are
+   * not covered, since tus retries on its own.
+   */
+  timeoutMs?: number;
 }
 
-/** Webhook event payload delivered to registered endpoints. */
+/** Event names the backend sends. */
+export type WebhookEventName =
+  | 'upload.started'
+  | 'upload.completed'
+  | 'upload.failed'
+  | 'processing.started'
+  | 'asset.ready'
+  | 'asset.errored';
+
+/**
+ * Webhook event payload delivered to registered endpoints. `data` is the
+ * payload exactly as sent, with the backend's snake_case keys (such as
+ * `video_asset_id`); it is not converted like the REST responses are.
+ */
 export interface WebhookEvent {
   /**
    * The event's id, the same on every retry of it: drop an id already
    * handled. Absent from events sent by backends before it was added.
    */
   id?: string;
-  event: string;
+  /** One of `WebhookEventName`; typed as a string so a newer backend's events still parse. */
+  event: WebhookEventName | (string & {});
   timestamp: string;
   data: Record<string, unknown>;
 }

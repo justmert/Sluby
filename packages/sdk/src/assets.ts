@@ -2,12 +2,14 @@
 // @sluby/sdk - AssetManager
 // ---------------------------------------------------------------------------
 
-import { TimeoutError } from './errors.js';
+import { AbortError, ProcessingFailedError, TimeoutError, readJson } from './errors.js';
 import type {
   AccessTier,
   ListAssetsOptions,
   PaginatedResponse,
   ProcessingJob,
+  RequestOptions,
+  RetryStage,
   VideoAsset,
 } from './types.js';
 import type { FetchFn } from './uploads.js';
@@ -30,12 +32,14 @@ export class AssetManager {
   // -----------------------------------------------------------------------
 
   /**
-   * List video assets with optional filtering and pagination.
+   * List video assets with optional filtering and pagination: by `page`, or
+   * by passing each page's `nextCursor` back as `cursor`.
    */
   async list(options?: ListAssetsOptions): Promise<PaginatedResponse<VideoAsset>> {
     const params = new URLSearchParams();
     if (options?.page != null) params.set('page', String(options.page));
     if (options?.limit != null) params.set('limit', String(options.limit));
+    if (options?.cursor) params.set('cursor', options.cursor);
     if (options?.status) params.set('status', options.status);
     if (options?.accessTier) params.set('access_tier', options.accessTier);
     if (options?.search) params.set('search', options.search);
@@ -44,14 +48,16 @@ export class AssetManager {
 
     const query = params.toString();
     const path = `/api/v1/assets${query ? `?${query}` : ''}`;
-    const res = await this._fetch(path);
-    const body = await res.json();
+    const res = await this._fetch(path, { signal: options?.signal });
+    const body = await readJson(res);
 
     return {
       data: (body.data as Array<Record<string, unknown>>).map(mapAsset),
       total: body.total as number,
       page: body.page as number,
       limit: body.limit as number,
+      nextCursor: (body.next_cursor as string | null | undefined) ?? null,
+      hasMore: body.has_more === true,
     };
   }
 
@@ -62,10 +68,11 @@ export class AssetManager {
   /**
    * Retrieve a single video asset by ID.
    */
-  async get(videoAssetId: string): Promise<VideoAsset> {
-    const res = await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}`);
-    const body = await res.json();
-    return mapAsset(body);
+  async get(videoAssetId: string, options?: RequestOptions): Promise<VideoAsset> {
+    const res = await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}`, {
+      signal: options?.signal,
+    });
+    return mapAsset(await readJson(res));
   }
 
   // -----------------------------------------------------------------------
@@ -78,6 +85,7 @@ export class AssetManager {
   async update(
     videoAssetId: string,
     data: Partial<Pick<VideoAsset, 'title' | 'description' | 'accessTier'>>,
+    options?: RequestOptions,
   ): Promise<VideoAsset> {
     const payload: Record<string, unknown> = {};
     if (data.title !== undefined) payload.title = data.title;
@@ -88,10 +96,10 @@ export class AssetManager {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: options?.signal,
     });
 
-    const body = await res.json();
-    return mapAsset(body);
+    return mapAsset(await readJson(res));
   }
 
   // -----------------------------------------------------------------------
@@ -101,9 +109,10 @@ export class AssetManager {
   /**
    * Delete a video asset.
    */
-  async delete(videoAssetId: string): Promise<void> {
+  async delete(videoAssetId: string, options?: RequestOptions): Promise<void> {
     await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}`, {
       method: 'DELETE',
+      signal: options?.signal,
     });
   }
 
@@ -115,9 +124,22 @@ export class AssetManager {
    * Processing progress for an asset: pipeline stage, percent, the error when
    * it failed, and the worker's log lines.
    */
-  async processing(videoAssetId: string): Promise<ProcessingJob> {
-    const res = await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}/processing`);
-    const raw = await res.json();
+  async processing(videoAssetId: string, options?: RequestOptions): Promise<ProcessingJob> {
+    const res = await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}/processing`, {
+      signal: options?.signal,
+    });
+    const raw = await readJson<{
+      id: string;
+      status: ProcessingJob['status'];
+      stage: ProcessingJob['stage'];
+      progress_percent: number;
+      retry_count?: number;
+      error_message?: string | null;
+      started_at?: string | null;
+      completed_at?: string | null;
+      created_at: string;
+      logs?: ProcessingJob['logs'] | null;
+    }>(res);
     return {
       id: raw.id,
       status: raw.status,
@@ -141,12 +163,13 @@ export class AssetManager {
    * furthest step it can (e.g. skips the transcode when its output survived).
    * Returns the step it restarted from.
    */
-  async retry(videoAssetId: string): Promise<{ stage: string }> {
+  async retry(videoAssetId: string, options?: RequestOptions): Promise<{ stage: RetryStage }> {
     const res = await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}/retry`, {
       method: 'POST',
+      signal: options?.signal,
     });
-    const body = await res.json();
-    return { stage: body.stage };
+    const body = await readJson(res);
+    return { stage: body.stage as RetryStage };
   }
 
   // -----------------------------------------------------------------------
@@ -155,41 +178,44 @@ export class AssetManager {
 
   /**
    * Poll the asset status until it reaches `ready` or the timeout elapses.
+   * The asset is always read at least once, even with `timeout: 0`.
    *
-   * If the asset transitions to `failed`, the promise is rejected
-   * immediately with the current asset state.
+   * Rejects with a `ProcessingFailedError` carrying the asset as soon as it is
+   * `failed`, with a `TimeoutError` when the timeout elapses first, and with
+   * an `AbortError` when `signal` fires (which also stops the polling).
    *
    * @param videoAssetId - Asset identifier.
    * @param options.pollInterval - Milliseconds between polls. Default 5 000.
    * @param options.timeout - Maximum wait in milliseconds. Default 600 000.
+   * @param options.signal - Stops polling and rejects when it fires.
    * @returns The asset once its status is `ready`.
    */
   async waitForReady(
     videoAssetId: string,
-    options?: { pollInterval?: number; timeout?: number },
+    options?: { pollInterval?: number; timeout?: number; signal?: AbortSignal },
   ): Promise<VideoAsset> {
     const interval = options?.pollInterval ?? DEFAULT_POLL_INTERVAL_MS;
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
+    const signal = options?.signal;
 
     const deadline = Date.now() + timeout;
 
-    while (Date.now() < deadline) {
-      const asset = await this.get(videoAssetId);
+    for (;;) {
+      const asset = await this.get(videoAssetId, { signal });
 
       if (asset.status === 'ready') {
         return asset;
       }
 
       if (asset.status === 'failed') {
-        throw new Error(`Video asset ${videoAssetId} entered "failed" status during processing.`);
+        throw new ProcessingFailedError(asset);
       }
 
       // Wait before the next poll, but do not exceed the deadline.
-      const remaining = deadline - Date.now();
-      const delay = Math.min(interval, remaining);
+      const delay = Math.min(interval, deadline - Date.now());
       if (delay <= 0) break;
 
-      await sleep(delay);
+      await sleep(delay, signal);
     }
 
     throw new TimeoutError(
@@ -211,10 +237,10 @@ function mapAsset(raw: Record<string, unknown>): VideoAsset {
     id: raw.id as string,
     title: raw.title as string,
     description: raw.description as string,
-    manifestObjectId: raw.manifest_object_id as string,
+    manifestObjectId: (raw.manifest_object_id as string | null | undefined) ?? null,
     thumbnailObjectIds: (raw.thumbnail_object_ids ?? []) as string[],
-    durationMs: raw.duration_ms as number,
-    resolution: raw.resolution as string,
+    durationMs: (raw.duration_ms as number | null | undefined) ?? null,
+    resolution: (raw.resolution as string | null | undefined) ?? null,
     status: raw.status as VideoAsset['status'],
     accessTier: raw.access_tier as AccessTier,
     creatorAddress: raw.creator_address as string,
@@ -225,6 +251,20 @@ function mapAsset(raw: Record<string, unknown>): VideoAsset {
   };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new AbortError('Stopped waiting: the signal was aborted.', { cause: signal.reason }));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new AbortError('Stopped waiting: the signal was aborted.', { cause: signal?.reason }));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }

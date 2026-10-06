@@ -2,7 +2,8 @@
 // @sluby/sdk - PlaybackManager
 // ---------------------------------------------------------------------------
 
-import type { AccessTier, PlaybackInfo, SignedPlaybackInfo } from './types.js';
+import { readJson } from './errors.js';
+import type { AccessTier, PlaybackInfo, RequestOptions, SignedPlaybackInfo } from './types.js';
 import type { FetchFn } from './uploads.js';
 
 /**
@@ -40,9 +41,11 @@ export class PlaybackManager {
    * Retrieve the public playback information for a video asset including
    * the HLS manifest URL, poster image, duration, and resolution.
    */
-  async getUrl(videoAssetId: string): Promise<PlaybackInfo> {
-    const res = await this._fetch(`/api/v1/playback/${encodeURIComponent(videoAssetId)}`);
-    const body = await res.json();
+  async getUrl(videoAssetId: string, options?: RequestOptions): Promise<PlaybackInfo> {
+    const res = await this._fetch(`/api/v1/playback/${encodeURIComponent(videoAssetId)}`, {
+      signal: options?.signal,
+    });
+    const body = await readJson(res);
 
     const playbackPath = body.playback_url as string;
     const posterPath = (body.poster_url as string | null) ?? null;
@@ -51,8 +54,8 @@ export class PlaybackManager {
       playbackUrl: this._resolveDeliveryUrl(playbackPath),
       playbackPath,
       posterUrl: posterPath ? this._resolveDeliveryUrl(posterPath) : null,
-      durationMs: body.duration_ms as number,
-      resolution: body.resolution as string,
+      durationMs: (body.duration_ms as number | null | undefined) ?? null,
+      resolution: (body.resolution as string | null | undefined) ?? null,
       accessTier: body.access_tier as AccessTier,
     };
   }
@@ -67,14 +70,23 @@ export class PlaybackManager {
    *
    * @param videoAssetId - Asset identifier.
    * @param options.expiresIn - Lifetime of the signed URL in seconds.
-   *   Defaults to the server-side default (typically 3600).
+   *   Defaults to the server-side default (typically 3600). The manifest and
+   *   every playlist and segment it lists stop working at `expiresAt`, so a
+   *   player has to fetch a new URL before then to keep playing.
+   * @param options.signal - Cancels the request.
    */
   async getSignedUrl(
     videoAssetId: string,
-    options?: { expiresIn?: number },
+    options?: { expiresIn?: number; signal?: AbortSignal },
   ): Promise<SignedPlaybackInfo> {
     const params = new URLSearchParams();
     if (options?.expiresIn != null) {
+      // the backend reads 0 or a fraction as "use the default", which is not what was asked for
+      if (!Number.isInteger(options.expiresIn) || options.expiresIn <= 0) {
+        throw new RangeError(
+          `expiresIn must be a positive whole number of seconds, got ${options.expiresIn}.`,
+        );
+      }
       params.set('expires_in', String(options.expiresIn));
     }
 
@@ -83,8 +95,8 @@ export class PlaybackManager {
       query ? `?${query}` : ''
     }`;
 
-    const res = await this._fetch(path);
-    const body = await res.json();
+    const res = await this._fetch(path, { signal: options?.signal });
+    const body = await readJson(res);
 
     const signedPath = body.signed_url as string;
 

@@ -10,11 +10,15 @@ import type { AddressInfo } from 'node:net';
 import { SlubyClient } from './client.js';
 import { SiaSession } from './sia-session.js';
 import {
+  AbortError,
   AuthenticationError,
+  ConflictError,
   NotFoundError,
+  PermissionError,
   RateLimitError,
   SlubyError,
   TimeoutError,
+  ValidationError,
 } from './errors.js';
 
 interface Seen {
@@ -151,13 +155,13 @@ describe('status to error class', () => {
   const client = () => new SlubyClient({ apiKey: 'k', baseUrl: origin });
 
   it.each([
-    [400, SlubyError],
+    [400, ValidationError],
     [401, AuthenticationError],
-    [403, AuthenticationError],
+    [403, PermissionError],
     [404, NotFoundError],
-    [409, SlubyError],
-    [410, SlubyError],
-    [422, SlubyError],
+    [409, ConflictError],
+    [410, NotFoundError],
+    [422, ValidationError],
     [429, RateLimitError],
     [500, SlubyError],
     [502, SlubyError],
@@ -276,5 +280,74 @@ describe('network failures', () => {
     const err = await client.assets.get('a1').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(TypeError);
     expect(seen).toHaveLength(1);
+  });
+});
+
+describe('timeouts, cancellation and bodies', () => {
+  it('rejects with a TimeoutError when the response does not arrive within timeoutMs', async () => {
+    respond = (_req, res) => {
+      setTimeout(() => json(200, ASSET_ROW)(_req, res), 500);
+    };
+    const client = new SlubyClient({ apiKey: 'k', baseUrl: origin, timeoutMs: 50 });
+
+    const err = await client.assets.get('a1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TimeoutError);
+    expect((err as TimeoutError).message).toMatch(/timed out after 50 ms/);
+  });
+
+  it('covers the body too: headers in time but a stalled body still times out', async () => {
+    respond = (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write('{"id":');
+      // the rest never comes
+    };
+    const client = new SlubyClient({ apiKey: 'k', baseUrl: origin, timeoutMs: 100 });
+
+    await expect(client.assets.get('a1')).rejects.toBeInstanceOf(TimeoutError);
+  });
+
+  it('rejects with an AbortError carrying the reason when the caller aborts', async () => {
+    respond = (_req, res) => {
+      setTimeout(() => json(200, ASSET_ROW)(_req, res), 500);
+    };
+    const client = new SlubyClient({ apiKey: 'k', baseUrl: origin });
+    const controller = new AbortController();
+
+    const pending = client.assets.get('a1', { signal: controller.signal });
+    setTimeout(() => controller.abort('user left'), 20);
+
+    const err = await pending.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AbortError);
+    expect(err).toBeInstanceOf(SlubyError);
+    expect((err as AbortError).name).toBe('AbortError');
+    expect((err as AbortError).cause).toBe('user left');
+  });
+
+  it('does not send a request for an already aborted signal', async () => {
+    const client = new SlubyClient({ apiKey: 'k', baseUrl: origin });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(client.assets.get('a1', { signal: controller.signal })).rejects.toBeInstanceOf(
+      AbortError,
+    );
+    expect(seen).toHaveLength(0);
+  });
+
+  it('turns a 2xx with a body that is not JSON into a SlubyError with the text', async () => {
+    respond = text(200, '<html>proxy login</html>');
+    const client = new SlubyClient({ apiKey: 'k', baseUrl: origin });
+
+    const err = await client.assets.get('a1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SlubyError);
+    expect(err).not.toBeInstanceOf(SyntaxError);
+    expect((err as SlubyError).statusCode).toBe(200);
+    expect((err as SlubyError).responseBody).toBe('<html>proxy login</html>');
+    expect((err as SlubyError).cause).toBeInstanceOf(SyntaxError);
+  });
+
+  it('rejects a timeoutMs that is not a positive number', () => {
+    expect(() => new SlubyClient({ baseUrl: origin, timeoutMs: 0 })).toThrow(/timeoutMs/);
+    expect(() => new SlubyClient({ baseUrl: origin, timeoutMs: Number.NaN })).toThrow(/timeoutMs/);
   });
 });
