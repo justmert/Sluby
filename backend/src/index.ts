@@ -78,6 +78,7 @@ import { getLatestReconciliationRun } from './db/queries/reconciliation.js';
 import { getAssetStats } from './db/queries/stats.js';
 import { createCachedSystemStatus } from './system/status.js';
 import {
+  getClient,
   getAccountInfo,
   listHosts,
   inspectObject,
@@ -996,6 +997,16 @@ scheduleDeletionGc().catch((err) => {
 
 const server = app.listen(env.PORT, env.HOST, () => {
   logger.info({ host: env.HOST, port: env.PORT }, 'Sluby backend is running');
+  // connecting to the indexer takes a while on a cold start; do it now rather
+  // than inside the first upload or status check. a failure here is only
+  // logged: getClient retries on the next call.
+  if (env.SIA_APP_KEY) {
+    getClient().catch((err) =>
+      logger.warn({ err }, 'Could not connect to the Sia indexer at startup'),
+    );
+  } else {
+    logger.warn('SIA_APP_KEY is not set: uploads need an indexer connection (see connect-indexer)');
+  }
 });
 
 // ──────────────────────────────────────────
