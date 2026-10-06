@@ -7,11 +7,19 @@ export type AssetStatus = (typeof videoAssets.status.enumValues)[number];
 export interface AssetStats {
   total: number;
   byStatus: Record<AssetStatus, number>;
-  /** Bytes the pipeline stored on Sia for these assets (before erasure coding). */
+  /**
+   * Bytes the pipeline stored on Sia for these assets (before erasure coding).
+   * Failed assets count too: only finalize records bytes, so a failed asset
+   * with bytes failed after its objects were pinned and recorded, and they stay
+   * pinned until it is retried or deleted.
+   */
   storedBytes: number;
   /** Playable minutes live in ready assets, so only those count. */
   readyDurationMs: number;
-  /** Sia objects backing these assets (one artifact row per stored object). */
+  /**
+   * Sia objects backing these assets: one artifacts row per stored object,
+   * which since the legacy backfill covers the ids on the asset row as well.
+   */
   objectCount: number;
 }
 

@@ -64,6 +64,13 @@
       "when": 1791319516721,
       "tag": "0008_listing_and_foreign_key_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791319923265,
+      "tag": "0009_backfill_legacy_artifacts",
+      "breakpoints": true
     }
   ]
 }

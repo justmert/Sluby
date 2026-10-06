@@ -206,7 +206,11 @@ export const renditions = pgTable(
  * artifacts is the authoritative mapping between every stored Sia Object
  * ID and its parent asset, rendition (when applicable), and role. This is
  * what lets the platform reconcile against the indexer, render a per-asset
- * storage breakdown, and unpin precisely on delete.
+ * storage breakdown, and unpin precisely on delete. Every id in an asset's
+ * manifest_object_id, thumbnail_object_ids and sia_object_ids has a row here
+ * too: finalize writes these rows before the columns (every finalize job made
+ * since this table exists carries them), and migration 0009 backfilled the
+ * assets stored before it.
  */
 export const artifacts = pgTable(
   'artifacts',
@@ -218,7 +222,10 @@ export const artifacts = pgTable(
     renditionId: uuid('rendition_id').references(() => renditions.id, {
       onDelete: 'cascade',
     }),
-    role: artifactRoleEnum('role').notNull(),
+    // null only for ids carried over from sia_object_ids of assets stored
+    // before this table existed: a playlist or a data file, which the asset
+    // row cannot tell apart
+    role: artifactRoleEnum('role'),
     objectId: text('object_id').notNull(),
     byteSize: bigint('byte_size', { mode: 'number' }).notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
