@@ -1831,9 +1831,43 @@ export const openapiDocument = {
           },
         ],
         responses: {
-          '200': { description: 'Attempts.' },
+          '200': jsonSchemaResponse(
+            {
+              type: 'object',
+              required: ['data'],
+              properties: {
+                data: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: [
+                      'id',
+                      'event',
+                      'status_code',
+                      'delivered',
+                      'error',
+                      'attempt',
+                      'created_at',
+                    ],
+                    properties: {
+                      id: { type: 'string' },
+                      event_id: nullable('string'),
+                      event: { type: 'string' },
+                      status_code: nullable('integer'),
+                      delivered: { type: 'boolean' },
+                      error: nullable('string'),
+                      attempt: { type: 'integer', minimum: 1 },
+                      created_at: { type: 'string', format: 'date-time' },
+                    },
+                  },
+                },
+              },
+            },
+            'Attempts.',
+          ),
           '400': errorResponse,
           '404': errorResponse,
+          ...authFailures,
         },
       },
     },

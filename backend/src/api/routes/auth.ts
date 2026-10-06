@@ -1,4 +1,4 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Request, type Response } from 'express';
 import crypto from 'node:crypto';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
@@ -186,10 +186,12 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
     return current;
   };
 
-  /** The provider named in the path; unknown names fall through to the 404. */
-  const providerOf = (req: Request, next: NextFunction): SignInProvider | null => {
+  /** The provider named in the path, or null after answering 404 for an unknown one. */
+  const providerOf = (req: Request, res: Response): SignInProvider | null => {
     const provider = getProvider(String(req.params.provider));
-    if (!provider) next();
+    // answered here rather than passed on, or the request would reach the
+    // api-key check below and read as a missing key instead of a bad path
+    if (!provider) res.status(404).json({ error: 'No such sign-in provider' });
     return provider ?? null;
   };
 
@@ -198,8 +200,8 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
    * Starts a sign-in: remembers a fresh state and where to land afterwards in
    * this browser's handshake cookie, and sends the browser to the provider.
    */
-  router.get('/:provider/login', (req: Request, res: Response, next: NextFunction) => {
-    const provider = providerOf(req, next);
+  router.get('/:provider/login', (req: Request, res: Response) => {
+    const provider = providerOf(req, res);
     if (!provider) return;
     if (!provider.isConfigured()) {
       res.status(500).json({ error: `${provider.label} sign-in is not configured` });
@@ -223,8 +225,8 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
    * handshake cookie, lets the provider verify the person, applies the
    * allowlist, signs the account in and redirects into the Studio.
    */
-  router.get('/:provider/callback', async (req: Request, res: Response, next: NextFunction) => {
-    const provider = providerOf(req, next);
+  router.get('/:provider/callback', async (req: Request, res: Response) => {
+    const provider = providerOf(req, res);
     if (!provider) return;
 
     // the handshake is single use whatever happens next

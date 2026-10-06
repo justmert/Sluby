@@ -640,25 +640,65 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
   // ── webhooks (responses only; their rules belong to the webhook code) ──
 
   describe('webhooks', () => {
-    it('creates, lists and deletes an endpoint with documented responses', async () => {
-      const created = await call('POST', '/api/v1/webhooks', 'a', {
-        url: 'https://hooks.example.com/sluby',
-        events: ['asset.ready'],
+    it('creates, lists, tests and deletes an endpoint with documented responses', async () => {
+      // receivers must be public unless the operator allows a network, so the
+      // local receiver below is allowed for this test only
+      const { env } = await import('../config/env.js');
+      const { createServer } = await import('node:http');
+      const hits: string[] = [];
+      const receiver = createServer((req, res) => {
+        hits.push(String(req.headers['x-sluby-event']));
+        res.writeHead(204).end();
       });
-      check('POST', '/api/v1/webhooks', created);
-      expect(created.status).toBe(201);
-      const bad = await call('POST', '/api/v1/webhooks', 'a', { url: 'nope', events: [] });
-      check('POST', '/api/v1/webhooks', bad);
-      expect(bad.status).toBe(400);
-      const list = await call('GET', '/api/v1/webhooks', 'a');
-      check('GET', '/api/v1/webhooks', list);
-      expect(list.body.data).toHaveLength(1);
-      const byB = await call('DELETE', `/api/v1/webhooks/${created.body.id}`, 'b');
-      check('DELETE', '/api/v1/webhooks/{id}', byB);
-      expect(byB.status).toBe(404);
-      const byA = await call('DELETE', `/api/v1/webhooks/${created.body.id}`, 'a');
-      check('DELETE', '/api/v1/webhooks/{id}', byA);
-      expect(byA.status).toBe(200);
+      await new Promise<void>((r) => receiver.listen(0, '127.0.0.1', r));
+      const port = (receiver.address() as { port: number }).port;
+      const previous = env.WEBHOOK_ALLOWED_NETWORKS;
+      env.WEBHOOK_ALLOWED_NETWORKS = '127.0.0.0/8';
+      try {
+        const created = await call('POST', '/api/v1/webhooks', 'a', {
+          url: `http://127.0.0.1:${port}/sluby`,
+          events: ['asset.ready'],
+        });
+        check('POST', '/api/v1/webhooks', created);
+        expect(created.status).toBe(201);
+        const bad = await call('POST', '/api/v1/webhooks', 'a', { url: 'nope', events: [] });
+        check('POST', '/api/v1/webhooks', bad);
+        expect(bad.status).toBe(400);
+        const list = await call('GET', '/api/v1/webhooks', 'a');
+        check('GET', '/api/v1/webhooks', list);
+        expect(list.body.data).toHaveLength(1);
+
+        const testedByB = await call('POST', `/api/v1/webhooks/${created.body.id}/test`, 'b');
+        check('POST', '/api/v1/webhooks/{id}/test', testedByB);
+        expect(testedByB.status).toBe(404);
+        const tested = await call('POST', `/api/v1/webhooks/${created.body.id}/test`, 'a');
+        check('POST', '/api/v1/webhooks/{id}/test', tested);
+        expect(tested.status).toBe(200);
+        expect(tested.body).toMatchObject({ delivered: true, status_code: 204 });
+        expect(hits).toEqual(['webhook.test']);
+
+        const deliveriesByB = await call(
+          'GET',
+          `/api/v1/webhooks/${created.body.id}/deliveries`,
+          'b',
+        );
+        check('GET', '/api/v1/webhooks/{id}/deliveries', deliveriesByB);
+        expect(deliveriesByB.status).toBe(404);
+        const deliveries = await call('GET', `/api/v1/webhooks/${created.body.id}/deliveries`, 'a');
+        check('GET', '/api/v1/webhooks/{id}/deliveries', deliveries);
+        expect(deliveries.status).toBe(200);
+        expect(deliveries.body.data).toHaveLength(1);
+
+        const byB = await call('DELETE', `/api/v1/webhooks/${created.body.id}`, 'b');
+        check('DELETE', '/api/v1/webhooks/{id}', byB);
+        expect(byB.status).toBe(404);
+        const byA = await call('DELETE', `/api/v1/webhooks/${created.body.id}`, 'a');
+        check('DELETE', '/api/v1/webhooks/{id}', byA);
+        expect(byA.status).toBe(200);
+      } finally {
+        env.WEBHOOK_ALLOWED_NETWORKS = previous;
+        await new Promise((r) => receiver.close(r));
+      }
     });
   });
 
@@ -1106,13 +1146,16 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
 
     it('documents the github login redirect and the callback refusals', async () => {
       const login = await call('GET', '/api/v1/auth/github/login', 'none');
-      check('GET', '/api/v1/auth/github/login', login);
+      check('GET', '/api/v1/auth/{provider}/login', login);
       expect(login.status).toBe(302);
+      const unknown = await call('GET', '/api/v1/auth/nope/login', 'none');
+      check('GET', '/api/v1/auth/{provider}/login', unknown);
+      expect(unknown.status).toBe(404);
       const missing = await call('GET', '/api/v1/auth/github/callback', 'none');
-      check('GET', '/api/v1/auth/github/callback', missing);
+      check('GET', '/api/v1/auth/{provider}/callback', missing);
       expect(missing.status).toBe(400);
       const badState = await call('GET', '/api/v1/auth/github/callback?code=x&state=nope', 'none');
-      check('GET', '/api/v1/auth/github/callback', badState);
+      check('GET', '/api/v1/auth/{provider}/callback', badState);
       expect(badState.status).toBe(400);
     });
   });

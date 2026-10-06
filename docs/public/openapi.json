@@ -4039,7 +4039,71 @@
         ],
         "responses": {
           "200": {
-            "description": "Attempts."
+            "description": "Attempts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "event",
+                          "status_code",
+                          "delivered",
+                          "error",
+                          "attempt",
+                          "created_at"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "event_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "event": {
+                            "type": "string"
+                          },
+                          "status_code": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "delivered": {
+                            "type": "boolean"
+                          },
+                          "error": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "attempt": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
             "description": "Error",
@@ -4051,6 +4115,12 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "404": {
             "description": "Error",
             "content": {
@@ -4060,6 +4130,9 @@
                 }
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
           }
         }
       }
