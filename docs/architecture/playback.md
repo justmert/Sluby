@@ -69,9 +69,7 @@ sequenceDiagram
 
 Response caching headers: manifests are `public, max-age=60`, thumbnails and media `public, max-age=86400`, and anything private is `no-store`.
 
-::: warning Cross-origin players and the bundled nginx
-The backend sets `Access-Control-Allow-Origin: *` on gateway responses, and `nginx/conf.d/sia-aggregator.conf` adds the same header again. Browsers reject a response with two values for it, so a player on another origin cannot currently read gateway responses that pass through the bundled nginx. Pages served from the same origin, such as the Studio, are not affected.
-:::
+Both the backend and `nginx/conf.d/sia-aggregator.conf` set `Access-Control-Allow-Origin: *` on gateway responses. nginx drops the backend's CORS headers before adding its own, so a response carries each header once and players on other origins can read it.
 
 `GET /v1/stream/:id/master.m3u8` serves the master manifest for an asset id or a `pb_...` playback id from a separate manifest cache (1000 entries, 60 seconds). It applies the same gate: a private asset, or a playback id with the `signed` policy, needs a signature over the master manifest's object id.
 

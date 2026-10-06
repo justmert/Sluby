@@ -173,10 +173,6 @@ export function Watch({
 
 The player uses the browser's native HLS when hls.js is not supported (no Media Source Extensions) and the browser can play HLS itself, and retries network errors up to `maxNetworkRetries` times (3 by default) before it shows an error with a Retry button.
 
-::: warning
-If the page is on a different origin than Sluby, gateway responses that pass through the bundled nginx currently carry `Access-Control-Allow-Origin` twice, which browsers reject. See [Playback](./playback#serving-objects).
-:::
-
 ### Signed playback for private assets
 
 For a private asset, mint a signed URL on the server, after checking that the viewer may watch it:
