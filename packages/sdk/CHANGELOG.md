@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- `webhooks.verifySignature()` works from the ESM build. It used `require`, which ESM does not have, so it threw on Node; it now loads `node:crypto` through `process.getBuiltinModule`.
 - `upload.abort()` now rejects the upload handle (it used to stay pending forever), and aborting before the upload starts no longer uploads the file anyway.
 - `RateLimitError.retryAfter` reads a `Retry-After` given as an HTTP date instead of returning `NaN`.
 - CommonJS consumers now get CommonJS type declarations (`index.d.cts`) instead of the ESM ones.

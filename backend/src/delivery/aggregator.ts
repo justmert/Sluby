@@ -166,7 +166,7 @@ export function parseRange(
  *     no host fetch) to learn totalSize.
  *  2. Parse the Range header against totalSize.
  *  3. Call `downloadObject(id, {offset, length})` — Sia fetches only
- *     the overlapping slabs (~12 MiB each). Decoded bytes return.
+ *     the overlapping slabs (40 MiB of data each with the default 10 data shards). Decoded bytes return.
  *  4. Respond `206 Partial Content` with proper Content-Range.
  *
  * No caching of partial bytes. The cache layer is bypassed entirely

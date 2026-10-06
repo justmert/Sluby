@@ -60,11 +60,11 @@ export const envSchema = z.object({
    *  uploads to the same registered application row. */
   SIA_APP_ID: z.string().default(''),
 
-  /** Erasure-coding shards per slab. Leave BOTH unset to use the indexer
-   *  account's default redundancy, which is what mainnet / the hosted
-   *  sia.storage indexer requires (passing a below-policy ratio like 2/4 there
-   *  makes the upload fail immediately). Set both only to fit a specific host
-   *  pool, e.g. 2-of-6 for the Zen testnet's small pool. */
+  /** Erasure-coding shards per slab. Leave BOTH unset for the SDK default of
+   *  10 data + 20 parity shards (30 hosts per slab). Set both only to fit a
+   *  smaller host pool such as the Zen testnet's; the SDK and indexd reject
+   *  ratios whose recovery probability is under 99.99% or whose redundancy is
+   *  outside 1.5x to 4x. */
   SIA_DATA_SHARDS: z.coerce.number().int().positive().optional(),
   SIA_PARITY_SHARDS: z.coerce.number().int().positive().optional(),
 

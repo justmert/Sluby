@@ -259,10 +259,9 @@ function bytesToStream(data: Uint8Array): ReadableStream<Uint8Array> {
 
 /**
  * Erasure-coding options for uploads. Only pass a shard ratio when the
- * operator explicitly configured BOTH; otherwise omit it so the indexer uses
- * its account default. A below-policy ratio (e.g. the Zen testnet's 2/4) makes
- * a mainnet / sia.storage upload fail immediately with "cannot add object to a
- * finalized upload".
+ * operator configured BOTH; otherwise omit it so the SDK uses its default of
+ * 10 data + 20 parity shards. A ratio meant for a small testnet pool (e.g. the
+ * Zen 2/4) fails on sia.storage, so it must never leak into a mainnet setup.
  */
 function erasureOptions(): PackedUploadOptions | undefined {
   if (env.SIA_DATA_SHARDS != null && env.SIA_PARITY_SHARDS != null) {

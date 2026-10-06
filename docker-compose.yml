@@ -80,7 +80,7 @@ services:
       # wallet address to the storage breakdown
       SIA_ADMIN_URL: ${SIA_ADMIN_URL:-}
       SIA_ADMIN_PASSWORD: ${SIA_ADMIN_PASSWORD:-}
-      # unset means the indexer account's own redundancy, which mainnet requires
+      # unset means the sdk default of 10 data + 20 parity shards
       SIA_DATA_SHARDS: ${SIA_DATA_SHARDS:-}
       SIA_PARITY_SHARDS: ${SIA_PARITY_SHARDS:-}
       # studio sign-in. AUTH_DISABLED signs everyone in as a local dev user and
