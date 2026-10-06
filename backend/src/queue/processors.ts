@@ -9,6 +9,7 @@ import {
   type UploadSegmentsJobData,
   type FinalizeJobData,
 } from './bull-config.js';
+import { stageJobId } from './job-ids.js';
 import { env } from '../config/env.js';
 import pino from 'pino';
 
@@ -192,8 +193,9 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
         outputDir,
         accessTier: videoAsset?.accessTier ?? 'public',
         thumbnailPaths,
+        ...(job.data.runId ? { runId: job.data.runId } : {}),
       },
-      { jobId: `upload-${videoAssetId}` },
+      { jobId: stageJobId('upload', videoAssetId, job.data.runId) },
     );
 
     logger.info(
@@ -317,7 +319,7 @@ export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
         storageRecords: result.storageRecords,
         ...(result.allObjectIds ? { siaObjectIds: result.allObjectIds } : {}),
       },
-      { jobId: `finalize-${videoAssetId}` },
+      { jobId: stageJobId('finalize', videoAssetId, job.data.runId) },
     );
 
     if (processingJob) {

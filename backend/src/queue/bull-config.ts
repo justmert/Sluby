@@ -26,6 +26,8 @@ export interface TranscodeJobData {
   videoAssetId: string;
   uploadSessionId: string;
   filePath: string;
+  /** The processing attempt this job belongs to, see stageJobId. */
+  runId?: string;
 }
 
 export interface UploadSegmentsJobData {
@@ -33,6 +35,8 @@ export interface UploadSegmentsJobData {
   uploadSessionId: string;
   outputDir: string;
   accessTier: string;
+  /** The processing attempt this job belongs to, see stageJobId. */
+  runId?: string;
   /**
    * Local file paths of thumbnails extracted by the transcode worker.
    * Uploaded as part of the same packed Sia batch as the variant

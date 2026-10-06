@@ -47,6 +47,9 @@ export function buildRetryAsset(deps: RetryAssetDeps) {
     const processingJob = await deps.getProcessingJob(id);
     const uploadSessionId = processingJob?.uploadSessionId ?? '';
 
+    // a fresh run, so the stages after this one get job ids the failed
+    // attempt never used
+    const runId = `retry-${now()}`;
     const outputDir = path.join(deps.transcodeOutputDir, id);
     const hasTranscodedOutput = existsSync(path.join(outputDir, 'master.m3u8'));
 
@@ -66,8 +69,9 @@ export function buildRetryAsset(deps: RetryAssetDeps) {
           outputDir,
           accessTier: asset.accessTier,
           thumbnailPaths,
+          runId,
         },
-        `retry-upload-${id}-${now()}`,
+        `upload-${id}-${runId}`,
       );
       return { stage: 'upload-segments' };
     }
@@ -80,8 +84,8 @@ export function buildRetryAsset(deps: RetryAssetDeps) {
     await deps.markAssetProcessing(id);
     if (processingJob) await deps.markJobProcessing(processingJob.id);
     await deps.enqueueTranscode(
-      { videoAssetId: id, uploadSessionId, filePath: session.filePath },
-      `retry-transcode-${id}-${now()}`,
+      { videoAssetId: id, uploadSessionId, filePath: session.filePath, runId },
+      `transcode-${id}-${runId}`,
     );
     return { stage: 'transcode' };
   };
