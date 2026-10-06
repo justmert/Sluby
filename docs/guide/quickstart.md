@@ -84,7 +84,7 @@ curl -H "Authorization: Bearer $SLUBY_API_KEY" http://localhost:8080/api/v1/asse
 curl -H "Authorization: Bearer $SLUBY_API_KEY" http://localhost:8080/api/v1/playback/<asset id>
 ```
 
-The interactive API reference is served by the backend at [http://localhost:8080/api/v1/docs](http://localhost:8080/api/v1/docs).
+Your server renders an interactive API reference at [http://localhost:8080/api/v1/docs](http://localhost:8080/api/v1/docs), where you can send requests with your key. The [API overview](/api/) covers keys and scopes, pagination, errors and rate limits.
 
 ## Build times
 

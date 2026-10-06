@@ -27,6 +27,7 @@ export default defineConfig({
     logo: '/favicon.svg',
     nav: [
       { text: 'Guide', link: '/guide/quickstart' },
+      { text: 'API', link: '/api/' },
       { text: 'GitHub', link: repo },
     ],
     sidebar: [
@@ -37,6 +38,13 @@ export default defineConfig({
           { text: 'Quickstart', link: '/guide/quickstart' },
           { text: 'Production deployment', link: '/guide/production' },
           { text: 'Configuration', link: '/guide/configuration' },
+        ],
+      },
+      {
+        text: 'API',
+        items: [
+          { text: 'Overview', link: '/api/' },
+          { text: 'Reference', link: '/api/reference' },
         ],
       },
     ],

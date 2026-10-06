@@ -161,7 +161,15 @@ pointed at your own server.
 The REST API is described by an OpenAPI 3.1 document, served by the backend:
 
 - Spec (JSON): `http://localhost:8080/api/v1/openapi.json`
-- Interactive docs: `http://localhost:8080/api/v1/docs`
+- Interactive reference: `http://localhost:8080/api/v1/docs`, which sends
+  requests to the same server with your API key
+
+The docs site renders the same document as an
+[API reference](./docs/api/reference.md), next to an
+[API overview](./docs/api/index.md) of keys and scopes, pagination, errors and
+rate limits. Its copy lives in `docs/public/openapi.json`; after changing
+`backend/src/api/openapi.ts`, run `npm run openapi:export --workspace=backend`
+(a backend test fails while the copy is stale).
 
 Programmatic calls authenticate with a `Bearer` API key; each key carries
 `upload`, `read`, and `manage` scopes. Asset listing uses cursor pagination
