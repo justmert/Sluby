@@ -43,6 +43,7 @@ let nextAsset = 0;
 
 function makeDeps(world: Omit<World, 'deps'>): TusServerDeps {
   return {
+    findActiveSession: vi.fn(async () => undefined),
     validateApiKey: vi.fn(),
     createUploadSession: vi.fn(async (data) => {
       const id = `session-${++nextAsset}`;
