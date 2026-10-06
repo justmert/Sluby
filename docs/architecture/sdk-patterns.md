@@ -133,15 +133,15 @@ app.post('/hooks/sluby', express.text({ type: 'application/json' }), async (req,
 - Use `verifySignatureAsync`: it runs on Web Crypto and works in Node, browsers and edge runtimes. The synchronous `verifySignature` relies on CommonJS `require` and throws when the SDK is loaded as an ES module.
 - There is no timestamp or nonce in the signature beyond the `timestamp` field inside the signed body. Check that field if replayed deliveries matter to you.
 - Answer within 10 seconds with a 2xx. Failed deliveries are retried after 10 seconds, 1 minute and 5 minutes with the same body; make handling idempotent (key on `video_asset_id` and `event`).
-- Retries are held in memory by the backend and lost if it restarts. For anything that must not be missed, keep a slow poll as a backstop, for example re-checking assets that have been processing for longer than expected.
+- Pending deliveries and retries are kept in the backend's Redis queue and survive a backend restart. After the last retry fails, the event is not sent again, so for anything that must not be missed while your receiver is down for more than a few minutes, keep a slow poll as a backstop, for example re-checking assets that have been processing for longer than expected.
 
-|                | Polling                             | Webhooks                                        |
-| -------------- | ----------------------------------- | ----------------------------------------------- |
-| Needs          | outbound HTTP only                  | a public HTTPS endpoint                         |
-| Latency        | up to one poll interval             | seconds after finalize                          |
-| Cost           | one API call per interval per asset | one request per event                           |
-| Missed results | none, the next poll sees them       | possible if the backend restarts during retries |
-| Detail         | full asset and processing log       | the event payload                               |
+|                | Polling                             | Webhooks                           |
+| -------------- | ----------------------------------- | ---------------------------------- |
+| Needs          | outbound HTTP only                  | a public HTTPS endpoint            |
+| Latency        | up to one poll interval             | seconds after finalize             |
+| Cost           | one API call per interval per asset | one request per event              |
+| Missed results | none, the next poll sees them       | possible if all four attempts fail |
+| Detail         | full asset and processing log       | the event payload                  |
 
 ## Playing in the browser
 
