@@ -323,7 +323,7 @@ function LatestUploads() {
                     <p className="truncate text-sm font-medium">{asset.title}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatRelativeTime(asset.createdAt)}
-                      {asset.durationMs > 0 && ` · ${formatDuration(asset.durationMs)}`}
+                      {!!asset.durationMs && ` · ${formatDuration(asset.durationMs)}`}
                       {asset.totalStorageBytes > 0 && ` · ${formatBytes(asset.totalStorageBytes)}`}
                     </p>
                   </div>

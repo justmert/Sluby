@@ -292,7 +292,7 @@ function DetailsCard({ asset }: { asset: VideoAsset }) {
     ['Asset ID', <ObjectIdBadge key="id" value={asset.id} truncate={8} />],
     ['Status', <AssetStatusBadge key="s" status={asset.status} />],
     ['Access', asset.accessTier === 'private' ? 'Private (signed URLs)' : 'Public'],
-    ['Duration', asset.durationMs > 0 ? formatDuration(asset.durationMs) : '-'],
+    ['Duration', asset.durationMs ? formatDuration(asset.durationMs) : '-'],
     ['Source resolution', asset.resolution || '-'],
     ['Stored on Sia', asset.totalStorageBytes > 0 ? formatBytes(asset.totalStorageBytes) : '-'],
     [
@@ -407,7 +407,7 @@ export default function AssetDetailPage() {
                 Private
               </Badge>
             )}
-            {a.durationMs > 0 && <span>{formatDuration(a.durationMs)}</span>}
+            {!!a.durationMs && <span>{formatDuration(a.durationMs)}</span>}
             {a.resolution && <span>{a.resolution}</span>}
           </div>
         </div>
