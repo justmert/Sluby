@@ -58,8 +58,17 @@ export interface TusContractServer {
   close(): Promise<void>;
 }
 
-export async function startTusContractServer(apiKey: string): Promise<TusContractServer> {
-  const directory = await mkdtemp(path.join(tmpdir(), 'sluby-sdk-tus-'));
+/** The contract on its own, for mounting on any node http handler (such as a vite dev server). */
+export interface TusContract {
+  /** Record and answer one request under /api/v1/uploads. */
+  handle(req: http.IncomingMessage, res: http.ServerResponse): void;
+  requests: RecordedRequest[];
+  created: CreatedUpload[];
+  finished: string[];
+  datastore: FileStore;
+}
+
+export function createTusContract(apiKey: string, directory: string): TusContract {
   const datastore = new FileStore({ directory });
   const requests: RecordedRequest[] = [];
   const created: CreatedUpload[] = [];
@@ -99,17 +108,31 @@ export async function startTusContractServer(apiKey: string): Promise<TusContrac
     },
   });
 
-  const server = http.createServer((req, res) => {
-    const offset = req.headers['upload-offset'];
-    requests.push({
-      method: req.method ?? '',
-      url: req.url ?? '',
-      authorization: req.headers.authorization ?? null,
-      tusResumable: (req.headers['tus-resumable'] as string | undefined) ?? null,
-      uploadOffset: offset === undefined ? null : Number(offset),
-    });
-    void tus.handle(req, res);
-  });
+  return {
+    handle(req, res) {
+      const offset = req.headers['upload-offset'];
+      requests.push({
+        method: req.method ?? '',
+        url: req.url ?? '',
+        authorization: req.headers.authorization ?? null,
+        tusResumable: (req.headers['tus-resumable'] as string | undefined) ?? null,
+        uploadOffset: offset === undefined ? null : Number(offset),
+      });
+      void tus.handle(req, res);
+    },
+    requests,
+    created,
+    finished,
+    datastore,
+  };
+}
+
+export async function startTusContractServer(apiKey: string): Promise<TusContractServer> {
+  const directory = await mkdtemp(path.join(tmpdir(), 'sluby-sdk-tus-'));
+  const contract = createTusContract(apiKey, directory);
+  const { requests, created, finished, datastore } = contract;
+
+  const server = http.createServer((req, res) => contract.handle(req, res));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const upstreamPort = (server.address() as AddressInfo).port;
 

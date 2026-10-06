@@ -1,4 +1,4 @@
-// Direct-from-Sia playback in a real Chromium: SlubyPlayer hands hls.js the
+// Direct-from-Sia playback in real browsers: SlubyPlayer hands hls.js the
 // real SiaLoader, and every playlist and segment comes out of a Sia session
 // instead of the HTTP gateway. The Sia network is the one thing faked here: a
 // session that holds the fixture's objects by id and serves byte ranges the
@@ -42,7 +42,12 @@ class FakeSiaSession implements SiaPlaybackSession {
 
   constructor(
     private readonly catalog: FixtureCatalog,
-    private readonly opts: { failPrepare?: Error; missing?: Set<string> } = {},
+    private readonly opts: {
+      failPrepare?: Error;
+      missing?: Set<string>;
+      // break the first read of this range mid-stream, as a host dropping out does
+      failOnce?: { objectId: string; offset: number };
+    } = {},
   ) {}
 
   async prepare(assetId: string): Promise<void> {
@@ -58,7 +63,10 @@ class FakeSiaSession implements SiaPlaybackSession {
   async resolveObjectId(assetId: string, objectId: string): Promise<unknown> {
     if (assetId !== ASSET_ID) throw new Error(`no share map for asset ${assetId}`);
     if (!this.objects.has(objectId)) {
-      throw new Error(`SiaSession: no share URL for object ${objectId}`);
+      // the sdk's session rejects with a NotFoundError here
+      throw Object.assign(new Error(`SiaSession: no share URL for object ${objectId}`), {
+        statusCode: 404,
+      });
     }
     return { objectId };
   }
@@ -70,8 +78,15 @@ class FakeSiaSession implements SiaPlaybackSession {
     const start = options?.offset ?? 0;
     const end = options?.length === undefined ? bytes.length : start + options.length;
     let pos = start;
+    const fault = this.opts.failOnce;
+    const failHere = fault && fault.objectId === objectId && fault.offset === start;
+    if (failHere) this.opts.failOnce = undefined;
     return new ReadableStream<Uint8Array>({
       pull(controller) {
+        if (failHere && pos > start) {
+          controller.error(new Error('host closed the connection'));
+          return;
+        }
         if (end > bytes.length) {
           controller.error(new Error(`range ${start}-${end} past object end ${bytes.length}`));
           return;
@@ -234,5 +249,34 @@ describe('SiaLoader through SlubyPlayer with real hls.js', () => {
     expect(container.querySelector('[data-sluby-overlay="error"]')).not.toBeNull();
     expect(session.downloads).toEqual([]);
     expect(await gatewayRequests()).toEqual([]);
+  });
+
+  it('retries a read that failed mid-stream on the same rendition, even when it is pinned', async () => {
+    const pinned = catalog.renditions[0];
+    const broken = pinned.segments[1];
+    const session = new FakeSiaSession(catalog, {
+      failOnce: { objectId: pinned.dataId, offset: broken.offset },
+    });
+    const levels: number[] = [];
+    const { ref, events, video } = renderSiaPlayer(session, {
+      onQualitiesChange: () => ref.current!.setQuality(0),
+      onQualityChange: (q) => levels.push(q.index),
+    });
+
+    await vi.waitFor(() => expect(video().currentTime).toBeGreaterThan(2), {
+      timeout: 20_000,
+      interval: 50,
+    });
+
+    const reads = session.downloads.filter(
+      (d) => d.objectId === pinned.dataId && d.offset === broken.offset,
+    );
+    // the failed range was read again, not given up on
+    expect(reads).toHaveLength(2);
+    expect(events.errors).toEqual([]);
+    // and hls.js stayed on the pinned rendition instead of switching away
+    expect(ref.current!.isAutoQuality()).toBe(false);
+    expect(ref.current!.getHlsInstance()!.currentLevel).toBe(0);
+    expect(levels.filter((i) => i !== 0)).toEqual([]);
   });
 });

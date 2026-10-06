@@ -1,4 +1,4 @@
-// SlubyPlayer driving the real hls.js in a real Chromium: MSE, real network
+// SlubyPlayer driving the real hls.js in real browsers: MSE, real network
 // requests to the fixture gateway, real decode and playback.
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';

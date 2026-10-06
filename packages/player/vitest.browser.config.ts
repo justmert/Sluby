@@ -3,7 +3,8 @@ import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { hlsFixtureGateway } from './src/__browser__/gateway.ts';
 
-// real-browser tests: hls.js plays a real HLS fixture through MSE in chromium.
+// real-browser tests: hls.js plays a real HLS fixture through MSE in chromium,
+// firefox and webkit (safari's engine; it has MSE, so hls.js drives it too).
 // the jsdom unit tests stay in vitest.config.ts.
 export default defineConfig({
   plugins: [
@@ -28,7 +29,7 @@ export default defineConfig({
       enabled: true,
       provider: playwright(),
       headless: true,
-      instances: [{ browser: 'chromium' }],
+      instances: [{ browser: 'chromium' }, { browser: 'firefox' }, { browser: 'webkit' }],
     },
   },
 });
