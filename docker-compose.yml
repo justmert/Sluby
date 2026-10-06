@@ -1,102 +1,126 @@
+# sluby on one machine: postgres, redis, the backend and the web front door
+# (the studio plus a caching proxy for api and delivery). everything is bound
+# to localhost, which is what the quickstart uses.
+#
+#   cp .env.example .env
+#   docker compose run --rm backend node scripts/connect-indexer.mjs   # once, writes SIA_APP_* for you to paste
+#   docker compose up -d
+#   open http://localhost:8080
+#
+# for a public server with tls, layer the production override on top:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
 services:
-  backend:
-    build: ./backend
-    container_name: sluby-backend
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: sluby
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sluby}
+      POSTGRES_DB: sluby
+    volumes:
+      # postgres 18 keeps its data under a versioned dir inside this path
+      - pgdata:/var/lib/postgresql
     ports:
-      - '4500:3000'
+      # published on localhost only, so the backend can also run from source
+      - '127.0.0.1:5433:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sluby -d sluby']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    # bullmq needs keys to never be evicted, and the queue should survive a restart
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - redis-data:/data
+    ports:
+      - '127.0.0.1:6380:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        SIA_STORAGE_NATIVE: ${SIA_STORAGE_NATIVE:-}
+    image: sluby-backend
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql://sluby:sluby@postgres:5432/sluby
-      - REDIS_URL=redis://redis:6379
-      # indexd is brought up by docker-compose.sia.yml. Both files live in the
-      # same directory, so both compose projects share the same default
-      # network and the container hostname `sia-indexd` resolves from here.
-      # 9982 is the application API the backend SDK talks to. 9980 is the
-      # password-protected admin API (wallet address, contract list).
-      # `localhost` would resolve to the backend container itself, not indexd.
-      - SIA_INDEXER_URL=${SIA_INDEXER_URL:-http://sia-indexd:9982}
-      - SIA_ADMIN_URL=${SIA_ADMIN_URL:-http://sia-indexd:9980}
-      - SIA_ADMIN_PASSWORD=${SIA_ADMIN_PASSWORD}
-      - SIA_APP_ID=${SIA_APP_ID}
-      - SIA_APP_KEY=${SIA_APP_KEY}
-      - SIA_DATA_SHARDS=${SIA_DATA_SHARDS:-2}
-      - SIA_PARITY_SHARDS=${SIA_PARITY_SHARDS:-4}
-      - SIA_NETWORK=${SIA_NETWORK:-zen}
-      - PORT=3000
-      - HOST=0.0.0.0
-      - UPLOAD_DIR=/app/uploads
-      - TRANSCODE_OUTPUT_DIR=/app/transcode-output
-      - CACHE_DIR=/app/cache
-      # Auth. SESSION_SECRET signs session cookies, so it must come from the
-      # environment rather than falling back to the dev default baked into
-      # backend/src/config/env.ts. `cp .env.example .env` populates it.
-      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:4500}
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
-      - GITHUB_ALLOWED_USERS=${GITHUB_ALLOWED_USERS:-}
-      - SESSION_SECRET=${SESSION_SECRET}
-      - CORS_ORIGIN=${CORS_ORIGIN:-}
-      - BOOTSTRAP_API_KEY=${BOOTSTRAP_API_KEY:-}
-      - AUTH_DISABLED=${AUTH_DISABLED:-false}
+      DATABASE_URL: postgresql://sluby:${POSTGRES_PASSWORD:-sluby}@postgres:5432/sluby
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: '3000'
+      HOST: 0.0.0.0
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      UPLOAD_DIR: /app/uploads
+      TRANSCODE_OUTPUT_DIR: /app/transcode-output
+      CACHE_DIR: /app/cache
+      MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-}
+      CACHE_MAX_SIZE_MB: ${CACHE_MAX_SIZE_MB:-}
+      # sia indexer. defaults to the hosted mainnet indexer; see the
+      # production guide for a self-hosted indexd on the zen testnet.
+      SIA_INDEXER_URL: ${SIA_INDEXER_URL:-https://sia.storage}
+      SIA_NETWORK: ${SIA_NETWORK:-mainnet}
+      SIA_APP_ID: ${SIA_APP_ID:-}
+      SIA_APP_KEY: ${SIA_APP_KEY:-}
+      # only for a self-hosted indexd: the admin api adds contract ids and the
+      # wallet address to the storage breakdown
+      SIA_ADMIN_URL: ${SIA_ADMIN_URL:-}
+      SIA_ADMIN_PASSWORD: ${SIA_ADMIN_PASSWORD:-}
+      # unset means the indexer account's own redundancy, which mainnet requires
+      SIA_DATA_SHARDS: ${SIA_DATA_SHARDS:-}
+      SIA_PARITY_SHARDS: ${SIA_PARITY_SHARDS:-}
+      # studio sign-in. AUTH_DISABLED signs everyone in as a local dev user and
+      # is only safe because this stack listens on localhost; production
+      # refuses to start with it.
+      AUTH_DISABLED: ${AUTH_DISABLED:-false}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_ALLOWED_USERS: ${GITHUB_ALLOWED_USERS:-}
+      BOOTSTRAP_API_KEY: ${BOOTSTRAP_API_KEY:-}
+      RECONCILE_ENABLED: ${RECONCILE_ENABLED:-}
     volumes:
       - uploads:/app/uploads
       - transcode-output:/app/transcode-output
       - cache:/app/cache
     restart: unless-stopped
 
-  nginx:
-    image: nginx:alpine
-    container_name: sluby-nginx
-    ports:
-      - '80:80'
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_SLUBY_SIA_INDEXER_URL: ${VITE_SLUBY_SIA_INDEXER_URL:-}
+        VITE_SLUBY_SIA_APP_ID: ${VITE_SLUBY_SIA_APP_ID:-}
+        VITE_SLUBY_SIA_APP_KEY: ${VITE_SLUBY_SIA_APP_KEY:-}
+        VITE_SIA_EXPLORER_URL: ${VITE_SIA_EXPLORER_URL:-}
+    image: sluby-web
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${WEB_PORT:-8080}:80'
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - nginx-cache:/var/cache/nginx/sia
     restart: unless-stopped
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: sluby-postgres
-    environment:
-      POSTGRES_USER: sluby
-      POSTGRES_PASSWORD: sluby
-      POSTGRES_DB: sluby
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - '5433:5432'
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U sluby -d sluby']
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    container_name: sluby-redis
-    volumes:
-      - redis-data:/data
-    ports:
-      - '6380:6379'
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
 volumes:
+  pgdata:
+  redis-data:
   uploads:
   transcode-output:
   cache:
   nginx-cache:
-  pgdata:
-  redis-data:

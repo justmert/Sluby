@@ -28,7 +28,7 @@ for (const envPath of envPaths) {
  */
 const DEV_SESSION_SECRET = 'dev-only-do-not-use-in-production-change-me';
 
-const envSchema = z.object({
+export const envSchema = z.object({
   /** PostgreSQL connection string */
   DATABASE_URL: z.string().url().default('postgresql://sluby:sluby@localhost:5432/sluby'),
 
@@ -178,8 +178,22 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * Docker compose turns `${VAR:-}` for an unset variable into an empty string,
+ * which is not the same as unset: an empty SIA_DATA_SHARDS would fail the
+ * number check and an empty URL would fail the url check instead of taking the
+ * default. Treat empty values as unset.
+ */
+export function withoutEmpty(source: NodeJS.ProcessEnv): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined && value !== '') out[key] = value;
+  }
+  return out;
+}
+
 function loadEnv(): Env {
-  const result = envSchema.safeParse(process.env);
+  const result = envSchema.safeParse(withoutEmpty(process.env));
   if (!result.success) {
     const formatted = result.error.format();
     const messages: string[] = [];

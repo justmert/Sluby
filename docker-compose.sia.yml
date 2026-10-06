@@ -44,9 +44,8 @@
 #   6. Open the admin UI in a browser: http://localhost:9980
 #      Log in with the admin password from step 3.
 #
-# After indexd is synced:
-#   - `npm run sia:onboard` (from backend/) now points at http://localhost:9982
-#     and will work end-to-end for the app registration flow.
+# After indexd is synced, connect sluby to it (approve in the admin ui):
+#   SIA_INDEXER_URL=http://localhost:9982 npm run connect-indexer --workspace=backend
 #
 # Funding for actual uploads:
 #   - Zen testnet requires Siacoin to form storage contracts with hosts.
