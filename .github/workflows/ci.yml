@@ -27,6 +27,52 @@ jobs:
       - name: Lint
         run: npm run lint
 
+  # the backend has its own job: its tests need a postgres server and the
+  # ffmpeg binaries, and they refuse to skip under CI when either is missing
+  backend:
+    name: 'backend - Typecheck & Test'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: sluby-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # each test file creates, migrates and drops its own database on this server
+      SLUBY_TEST_DATABASE_URL: postgres://postgres:sluby-test@localhost:5432/postgres
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -n 1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit --project backend/tsconfig.json
+
+      # runs the whole suite once, with v8 coverage; the per-file table and
+      # the totals are printed to this log
+      - name: Test with coverage
+        run: npm run test:coverage --workspace=backend
+
   typecheck-and-test:
     name: '${{ matrix.package }} - Typecheck & Test'
     runs-on: ubuntu-latest
@@ -34,9 +80,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - package: backend
-            workspace: backend
-            path: backend
           - package: sdk
             workspace: '@sluby/sdk'
             path: packages/sdk
