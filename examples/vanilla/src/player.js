@@ -9,20 +9,25 @@ import { createSiaLoader } from '@sluby/player/hls';
  */
 
 /**
- * Resolve an asset's playback url and start it on a <video> element.
+ * Pick an asset's playback url and start it on a <video> element.
  *
  * @param {HTMLVideoElement} video
  * @param {import('@sluby/sdk').SlubyClient} client
- * @param {string} assetId
- * @param {{ signed?: boolean, onFatalError?: (message: string) => void }} [options]
+ * @param {string} assetId asset id or pb_ playback id
+ * @param {{ src?: string, signed?: boolean, onFatalError?: (message: string) => void }} [options]
+ *   `src` plays a url you already have, such as a signed url your server
+ *   minted; `signed` has the client mint one, which needs an api key
  * @returns {Promise<Playback>}
  */
 export async function playAsset(video, client, assetId, options = {}) {
-  // a private asset only plays from a signed url; the gateway signs every
+  // a public asset plays from its stream url, built without a request or a
+  // key. a private one only plays from a signed url; the gateway signs every
   // playlist and segment url inside the manifest it serves
-  const url = options.signed
-    ? (await client.playback.getSignedUrl(assetId, { expiresIn: 3600 })).signedUrl
-    : (await client.playback.getUrl(assetId)).playbackUrl;
+  const url =
+    options.src ??
+    (options.signed
+      ? (await client.playback.getSignedUrl(assetId, { expiresIn: 3600 })).signedUrl
+      : client.playback.streamUrl(assetId));
 
   if (Hls.isSupported()) {
     /** @type {Partial<import('hls.js').HlsConfig>} */
@@ -31,9 +36,11 @@ export async function playAsset(video, client, assetId, options = {}) {
     let delivery = 'gateway';
     if (client.sia) {
       // connect the viewer session and fetch the share map up front, so a
-      // broken viewer key shows up here and not halfway into playback
-      await client.sia.prepare(assetId);
-      config.loader = createSiaLoader(client.sia, assetId);
+      // broken viewer key shows up here and not halfway into playback. with
+      // { src } the map comes from the public share endpoint for that url,
+      // carrying its signature if it has one, so no api key is involved
+      await client.sia.prepare(assetId, { src: url });
+      config.loader = createSiaLoader(client.sia, assetId, { src: url });
       delivery = 'sia';
     }
 

@@ -12,6 +12,8 @@ type Phase = 'idle' | 'uploading' | 'processing';
 interface Playing {
   assetId: string;
   signed: boolean;
+  /** A playback URL to play as given, such as a signed URL from your server. */
+  src?: string;
   /** Present when this page uploaded the asset; absent for a pasted id. */
   asset?: VideoAsset;
 }
@@ -38,6 +40,7 @@ export function App() {
 
   const [assetIdInput, setAssetIdInput] = useState('');
   const [signedInput, setSignedInput] = useState(false);
+  const [srcInput, setSrcInput] = useState('');
   const [playing, setPlaying] = useState<Playing | null>(null);
 
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
@@ -58,7 +61,8 @@ export function App() {
         ? { indexerUrl: siaIndexerUrl, appId: siaAppId, appKey: siaAppKey }
         : undefined;
     return new SlubyClient({
-      // no key means the base url is a server of yours that adds it
+      // public playback, direct from Sia included, needs no key; uploading,
+      // deleting and minting signed urls do
       apiKey: apiKey || undefined,
       baseUrl,
       deliveryBaseUrl: deliveryUrl || undefined,
@@ -181,7 +185,7 @@ export function App() {
           onChange={(e) => setDeliveryUrl(e.target.value)}
         />
         <label style={styles.label}>
-          API key (leave empty when the base URL is your own playback server)
+          API key (for uploading and deleting; playback needs none)
         </label>
         <input
           style={styles.input}
@@ -263,11 +267,20 @@ export function App() {
       )}
 
       <section style={styles.card}>
-        <label style={styles.label}>Play an asset by id</label>
+        <label style={styles.label}>Play an asset by id (or pb_ playback id)</label>
         <input
           style={styles.input}
           value={assetIdInput}
           onChange={(e) => setAssetIdInput(e.target.value)}
+        />
+        <label style={styles.label}>
+          Playback URL (optional: a signed URL your server minted for a private asset)
+        </label>
+        <input
+          style={styles.input}
+          value={srcInput}
+          placeholder="empty plays the public stream URL, no key needed"
+          onChange={(e) => setSrcInput(e.target.value)}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
           <label style={{ fontSize: 13 }}>
@@ -281,7 +294,13 @@ export function App() {
           <button
             type="button"
             disabled={!client || !assetIdInput.trim()}
-            onClick={() => play({ assetId: assetIdInput.trim(), signed: signedInput })}
+            onClick={() =>
+              play({
+                assetId: assetIdInput.trim(),
+                signed: signedInput,
+                src: srcInput.trim() || undefined,
+              })
+            }
           >
             Play
           </button>
@@ -291,8 +310,15 @@ export function App() {
       {playing && client && (
         <section style={styles.card}>
           <SlubyPlayer
-            key={`${playing.assetId}:${playing.signed}`}
+            key={`${playing.assetId}:${playing.signed}:${playing.src ?? ''}`}
             ref={playerRef}
+            // a public asset plays from its stream url with no key, and with a
+            // viewer identity straight from Sia; "signed" without a url has the
+            // client mint one, which needs a key
+            src={
+              playing.src ??
+              (playing.signed ? undefined : client.playback.streamUrl(playing.assetId))
+            }
             client={client}
             assetId={playing.assetId}
             signed={playing.signed}

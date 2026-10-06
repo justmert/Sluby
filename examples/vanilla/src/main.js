@@ -27,6 +27,7 @@ function $(id) {
 /** @type {HTMLProgressElement} */ const progressBar = $('progress');
 /** @type {HTMLParagraphElement} */ const uploadStatus = $('upload-status');
 /** @type {HTMLInputElement} */ const assetIdInput = $('asset-id');
+/** @type {HTMLInputElement} */ const playbackUrlInput = $('playback-url');
 /** @type {HTMLInputElement} */ const signedInput = $('signed');
 /** @type {HTMLButtonElement} */ const playButton = $('play');
 /** @type {HTMLButtonElement} */ const deleteButton = $('delete');
@@ -64,7 +65,7 @@ function getClient() {
   const config = {
     baseUrl: baseUrlInput.value.trim(),
     deliveryBaseUrl: deliveryUrlInput.value.trim() || undefined,
-    // an empty key means the base url is a server of yours that adds the key
+    // playback needs no key; uploading, deleting and minting signed urls do
     apiKey: apiKeyInput.value.trim() || undefined,
     sia:
       siaIndexerInput.value && siaAppIdInput.value && siaAppKeyInput.value
@@ -167,6 +168,7 @@ playButton.addEventListener('click', async () => {
   qualitySelect.disabled = true;
   try {
     playback = await playAsset(video, getClient(), assetId, {
+      src: playbackUrlInput.value.trim() || undefined,
       signed: signedInput.checked,
       onFatalError: (message) => showError(new Error(`Playback failed: ${message}`)),
     });
