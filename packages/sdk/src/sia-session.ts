@@ -187,6 +187,15 @@ export class SiaSession {
     return publicShareMapUrl(assetId, this._resolveDeliveryUrl(src));
   }
 
+  /**
+   * The asset's HLS master object id, from its (cached) share map. The player's
+   * loader uses it when hls.js asks for a `/v1/stream/{id}/master.m3u8` URL,
+   * which names the asset rather than an object.
+   */
+  async masterObjectId(assetId: string, source?: SiaShareSource): Promise<string> {
+    return (await this.loadShareMap(assetId, source)).masterObjectId;
+  }
+
   // cache key for a (asset, source) pair; the public url already names the
   // asset and the signature, so two signed urls never share a map
   private sourceKey(assetId: string, source?: SiaShareSource): string {

@@ -334,6 +334,15 @@ describe('SiaSession with a playback url source', () => {
     expect(h.sharedObject).toHaveBeenCalledWith('sia://pub-d#k');
   });
 
+  it('names the master object from the cached map', async () => {
+    const { session, fetchPublic } = publicSession();
+
+    await session.prepare('asset-1', { src: SRC });
+
+    expect(await session.masterObjectId('asset-1', { src: SRC })).toBe('m');
+    expect(fetchPublic).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the api map and the public map apart', async () => {
     const { session, fetchFn, fetchPublic } = publicSession();
     fetchFn.mockResolvedValue(
