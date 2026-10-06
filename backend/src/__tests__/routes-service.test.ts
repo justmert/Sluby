@@ -117,12 +117,12 @@ describe('api router public and guarded routes', () => {
     expect(res.body.openapi).toMatch(/^3\.1\./);
   });
 
-  it('serves the redoc page pointing at the served spec without a key', async () => {
+  it('serves the api reference page without a key, with no script from another host', async () => {
     const res = await request(app()).get('/api/v1/docs');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/^text\/html/);
-    expect(res.text).toContain('<redoc spec-url="/api/v1/openapi.json"></redoc>');
-    expect(res.text).toMatch(/<script src="https:\/\/cdn\.redoc\.ly\/redoc\/[^"]+"><\/script>/);
+    expect(res.text).toContain('<title>Sluby API Reference</title>');
+    expect(res.text).not.toMatch(/<script[^>]+src="https?:/);
   });
 
   it('lets /auth/me through without a key so the studio can ask', async () => {
