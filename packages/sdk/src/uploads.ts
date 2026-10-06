@@ -190,14 +190,17 @@ export class UploadManager {
   }
 
   /**
-   * Whether a stored upload URL is an upload the server still holds and has
-   * not received in full. A finished upload must not be resumed: tus would
+   * What the server says about a stored upload URL: `resume` when it holds
+   * the upload and has not received all of it, `stale` when it has all of it
+   * or no longer has it (the stored entry can go), `unknown` when it did not
+   * answer. Only `resume` is resumed. A finished upload must not be: tus would
    * report success without sending anything and the new metadata would be
-   * dropped, so the caller would get the old asset (possibly deleted).
-   * Anything uncertain counts as "do not resume": a new upload never loses
-   * data, a wrong resume does.
+   * dropped, so the caller would get the old asset (possibly deleted). A new
+   * upload never loses data, a wrong resume does.
    */
-  private async _isUnfinished(uploadUrl: string | null): Promise<'resume' | 'stale' | 'unknown'> {
+  private async _storedUploadState(
+    uploadUrl: string | null,
+  ): Promise<'resume' | 'stale' | 'unknown'> {
     if (!uploadUrl) return 'stale';
     let res: Response;
     try {
@@ -423,7 +426,7 @@ export class UploadManager {
       const previous = await upload.findPreviousUploads();
       for (const candidate of previous) {
         if (aborted) return;
-        const state = await this._isUnfinished(candidate.uploadUrl);
+        const state = await this._storedUploadState(candidate.uploadUrl);
         if (state === 'resume') {
           upload.resumeFromPreviousUpload(candidate);
           return;
