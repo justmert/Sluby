@@ -11,7 +11,7 @@ proxy cache in front.
 
 - **Resumable uploads** via the TUS protocol.
 - **Adaptive HLS transcode**: FFmpeg produces 1080p/720p/540p/360p fMP4
-  renditions with CMAF-style init segments and ~6s media segments.
+  renditions (1440p and 2160p optional, HDR tone-mapped to SDR) with CMAF-style init segments and ~6s media segments.
 - **Sia-backed object store**: every segment, init fragment, and playlist is
   an individual object on Sia, addressed by its storage key.
 - **Delivery gateway**: an aggregator route fetches objects from Sia, caches
@@ -61,7 +61,8 @@ npm run docs:dev
 ### Local development
 
 Run PostgreSQL and Redis from Compose and the backend and Studio from source
-(Node.js 22.12+ and FFmpeg 5+ on the host):
+(Node.js 22.12+ and FFmpeg 5+ on the host; HDR sources need an FFmpeg built
+with zimg, which Homebrew's is not):
 
 ```bash
 npm install

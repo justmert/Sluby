@@ -20,7 +20,7 @@ The root is an npm workspace for everything except `docs/`, which stays separate
 
 - Node.js 22.12 or newer and npm
 - Docker with Compose v2
-- FFmpeg 5 or newer, only if you run the backend outside Docker
+- FFmpeg 5 or newer, only if you run the backend outside Docker. HDR sources and the HDR cases of `ffmpeg.integration.test.ts` need it built with zimg (the `zscale` filter): Debian and Ubuntu packages are, Homebrew's is not, and the test skips those cases locally without it
 - a Sia indexer account (the free tier at [sia.storage](https://sia.storage) is enough) for anything that uploads. Unit tests do not need one.
 
 ## Setting up
