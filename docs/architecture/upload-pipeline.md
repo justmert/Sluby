@@ -1,0 +1,203 @@
+# Upload pipeline
+
+An upload goes through four steps: the file arrives over tus, FFmpeg turns it into an HLS ladder, the output is stored on Sia in three packed uploads, and a finalize step records everything in PostgreSQL and marks the asset ready. The last three steps are BullMQ jobs on the `transcode`, `upload-segments` and `finalize` queues, each enqueued by the step before it.
+
+## Receiving the file over tus
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Client (SDK or Studio)
+  participant T as backend: tus server
+  participant DB as PostgreSQL
+  participant Q as Redis (BullMQ)
+  participant W as Webhook endpoints
+
+  C->>T: POST /api/v1/uploads (Upload-Length, Upload-Metadata)
+  T->>T: authenticate (cookie, AUTH_DISABLED or Bearer key with upload scope)
+  T->>DB: insert video_assets (status created) and upload_sessions
+  T->>W: upload.started
+  T-->>C: 201 Location /api/v1/uploads/{uploadId}
+  C->>T: HEAD Location
+  T-->>C: Upload-Metadata incl. videoAssetId
+  loop every chunk (10 MB by default in the SDK)
+    C->>T: PATCH Location (Upload-Offset)
+    T->>DB: upload_sessions.uploaded_bytes
+  end
+  T->>T: SHA-256 of the complete file
+  T->>DB: upload_sessions completed, insert processing_jobs
+  T->>Q: add transcode job (jobId transcode-{assetId})
+  T->>W: upload.completed
+```
+
+The tus server (`backend/src/upload/tus-server.ts`, built on `@tus/server` with a `FileStore` in `UPLOAD_DIR`) shares the `/api/v1/uploads` path with two REST routes. A request goes to tus when it carries a `Tus-Resumable` header or uses `PATCH`, `HEAD` or `OPTIONS`; a plain `GET` or `DELETE` on `/api/v1/uploads/:id` falls through to the REST status and cancel routes (`backend/src/upload/tus-dispatch.ts`).
+
+Details worth knowing:
+
+- **Ownership comes from the caller, never from the metadata.** The asset's `creator_address` is the authenticated identity's address, even if the client puts a different one in `Upload-Metadata`. Requests on an existing upload by another tenant get a 404, the same answer as for an unknown id.
+- **Metadata.** The SDK sends `filename`, `filetype`, `title`, `description` and `accessTier`. A `filetype` that does not start with `video/` is rejected with 415. Uploads larger than `MAX_UPLOAD_SIZE` (10 GiB by default) are refused by tus.
+- **Asset id.** The asset and the upload session are created in the tus creation hook, and their ids are written back into the tus upload's metadata. The creation response only carries a `Location`, so the SDK sends one `HEAD` to read `videoAssetId` from `Upload-Metadata`; that is what resolves the `assetId` promise on the SDK's upload handle.
+- **Progress.** The upload session's `uploaded_bytes` is updated from tus's post-receive event, so `GET /api/v1/uploads/:id` reports progress while bytes arrive.
+- **Cancelling.** A tus `DELETE` on the upload cancels the session and soft-deletes the asset it created, which then goes through the normal [deletion](./deletion-and-reconciliation) path.
+- **Failure at the end.** If hashing, completing the session or enqueuing fails, the asset is marked `failed` and an `upload.failed` webhook is sent.
+- **The source file stays on disk.** The uploaded file remains in `UPLOAD_DIR` after processing; a manual retry that has to transcode again reads it from there. Nothing in the pipeline or the deletion worker removes it.
+
+## Processing
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Q as Redis (BullMQ)
+  participant TW as transcode worker
+  participant UW as upload-segments worker
+  participant FW as finalize worker
+  participant DB as PostgreSQL
+  participant SIA as Sia (indexer and hosts)
+  participant W as Webhook endpoints
+
+  Q->>TW: transcode job
+  TW->>DB: asset status processing
+  TW->>W: processing.started
+  TW->>TW: ffprobe, FFmpeg ladder, 3 thumbnails
+  TW->>DB: duration and resolution
+  TW->>Q: add upload-segments job (jobId upload-{assetId})
+  Q->>UW: upload-segments job
+  UW->>SIA: 1. packed upload: every data.m4s and the thumbnails, then pin
+  UW->>SIA: 2. packed upload: variant playlists rewritten to data object ids, then pin
+  UW->>SIA: 3. upload: master playlist rewritten to playlist object ids, then pin
+  UW->>Q: add finalize job (jobId finalize-{assetId})
+  Q->>FW: finalize job
+  FW->>DB: insert renditions and artifacts, asset status ready
+  FW->>FW: warm the gateway cache with manifests and thumbnails
+  FW->>W: asset.ready
+  FW->>FW: delete the transcode output directory
+```
+
+Progress is written to `processing_jobs.progress_percent` as the job moves: the transcode maps FFmpeg's progress onto 0 to 60 percent and reaches 65 once thumbnails exist, the Sia uploads move it from 65 to 90, and finalize takes it to 100.
+
+### Transcoding
+
+`backend/src/transcode/ffmpeg-runner.ts` probes the source with `ffprobe`, then runs a single FFmpeg command that scales the video into every rung of the ladder at once:
+
+| Rung  | Box       | Video bitrate (max) | Audio |
+| ----- | --------- | ------------------- | ----- |
+| 1080p | 1920x1080 | 6000k (6420k)       | 192k  |
+| 720p  | 1280x720  | 3500k (3745k)       | 128k  |
+| 540p  | 960x540   | 1800k (1926k)       | 128k  |
+| 360p  | 640x360   | 800k (856k)         | 96k   |
+
+Rungs taller than the source are dropped, so a 720p source produces 720p, 540p and 360p; the 360p rung is always kept. Each rung is scaled to fit its box and padded, encoded with libx264 (`ultrafast` preset, a keyframe forced every 2 seconds, no scene-cut keyframes) and, when the source has audio, AAC stereo at 48 kHz.
+
+The output is HLS with fMP4 segments of 6 seconds (`-hls_segment_type fmp4 -hls_time 6 -hls_playlist_type vod`) and the `single_file` flag. With `single_file`, each rung is one `data.m4s` file holding the init segment followed by every media segment, and its playlist addresses segments by byte range instead of by file name. For a 15 second 720p test clip the transcoder writes `master.m3u8`, three thumbnails, and for each rung a `playlist.m3u8` and a `data.m4s`. The 720p playlist looks like this:
+
+```
+#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-TARGETDURATION:6
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXT-X-INDEPENDENT-SEGMENTS
+#EXT-X-MAP:URI="data.m4s",BYTERANGE="1354@0"
+#EXTINF:6.000000,
+#EXT-X-BYTERANGE:2878578@1354
+data.m4s
+#EXTINF:6.000000,
+#EXT-X-BYTERANGE:2716869@2879932
+data.m4s
+#EXTINF:3.000000,
+#EXT-X-BYTERANGE:1347948@5596801
+data.m4s
+#EXT-X-ENDLIST
+```
+
+The thumbnails (`backend/src/transcode/thumbnail-extractor.ts`) are JPEG frames at 25, 50 and 75 percent of the duration, scaled and padded to 640x360. They stay on disk and go up to Sia with the media.
+
+### The Sia storage layout
+
+Every Sia upload sends at least one full slab, however little it holds. With the SDK's default of 10 data and 20 parity shards, a slab carries up to 40 MiB of data and is stored as 30 shards of 4 MiB each. A 400 byte playlist uploaded on its own still sends all 30 shards. For short videos the number of uploads, not the number of bytes, decides how long storage takes, so the uploader packs objects together: a packed upload puts several objects into the same slabs and returns one Sia object per input.
+
+Packing cannot go all the way down to one upload, because a manifest has to contain the object ids of what it points at, and an object id only exists once that object has been uploaded. That gives three dependent uploads (`backend/src/storage/segment-uploader.ts`):
+
+1. every rung's `data.m4s` plus the thumbnails, in one packed upload
+2. the variant playlists, rewritten to point at the data object ids, in one packed upload
+3. the master playlist, rewritten to point at the playlist object ids
+
+```mermaid
+flowchart TB
+  subgraph u3 [Upload 3]
+    master[master playlist]
+  end
+  subgraph u2 [Upload 2: packed]
+    p1[1080p playlist]
+    p2[720p playlist]
+    p3[...]
+  end
+  subgraph u1 [Upload 1: packed]
+    d1[1080p data.m4s]
+    d2[720p data.m4s]
+    d3[...]
+    th[3 thumbnails]
+  end
+  master -- "/v1/objects/{playlist id}" --> p1
+  master --> p2
+  master --> p3
+  p1 -- "/v1/objects/{data id} plus byte ranges" --> d1
+  p2 --> d2
+  p3 --> d3
+```
+
+After each upload the objects are pinned with the indexer, in parallel. If any pin in a packed batch fails, the objects of that batch that were pinned are unpinned again before the error is raised, since the caller never learns their ids.
+
+The erasure coding settings are left to the SDK unless both `SIA_DATA_SHARDS` and `SIA_PARITY_SHARDS` are set; then they are passed to every upload. A smaller ratio only makes sense for a small test network such as Zen.
+
+### Manifest rewriting
+
+`backend/src/transcode/manifest-rewriter.ts` replaces file names with gateway paths before a manifest is uploaded. In a variant playlist, `data.m4s` becomes `/v1/objects/{data object id}`, both in the `EXT-X-MAP` URI and on every segment line; the `BYTERANGE` attribute and the `EXT-X-BYTERANGE` lines are left exactly as FFmpeg wrote them. In the master playlist, each `720p/playlist.m3u8` style line becomes `/v1/objects/{playlist object id}`. The rewritten 720p playlist from the example above reads:
+
+```
+#EXT-X-MAP:URI="/v1/objects/<data-object-id>",BYTERANGE="1354@0"
+#EXTINF:6.000000,
+#EXT-X-BYTERANGE:2878578@1354
+/v1/objects/<data-object-id>
+```
+
+The paths are written without a host. A player resolves them against the URL it loaded the manifest from, so the same stored manifest works behind any domain, and the direct-from-Sia loader can read the object id straight out of each path (see [Playback](./playback)).
+
+### Finalize
+
+The finalize worker (`backend/src/queue/processors.ts`) writes the storage graph in one transaction: a `renditions` row per rung (name, dimensions and bandwidth from the master's `EXT-X-STREAM-INF` lines, segment count, data and playlist object ids) and an `artifacts` row per stored object with its role (`master_manifest`, `variant_playlist`, `rendition_data`, `thumbnail`). Earlier rows for the asset are deleted first, so a retried finalize writes a clean set. Only then is the asset updated to `ready` with its `manifest_object_id`, `thumbnail_object_ids` and `sia_object_ids`.
+
+It then loads the master playlist, the variant playlists and the thumbnails into the gateway's memory cache so the first playback does not wait on Sia, sends `asset.ready`, and deletes `TRANSCODE_OUTPUT_DIR/{assetId}`.
+
+## Retries and orphan cleanup
+
+| Queue             | Job id                | Attempts | Backoff               | Worker concurrency    |
+| ----------------- | --------------------- | -------- | --------------------- | --------------------- |
+| `transcode`       | `transcode-{assetId}` | 3        | exponential from 30 s | 2, at most 4 a minute |
+| `upload-segments` | `upload-{assetId}`    | 3        | exponential from 30 s | 4                     |
+| `finalize`        | `finalize-{assetId}`  | 3        | exponential from 10 s | 4                     |
+
+- **Deterministic job ids.** Each stage enqueues the next one under a job id derived from the asset id. BullMQ ignores an add whose job id already exists, so a stage that runs twice (after a stall, say) does not enqueue its successor twice: the media is not uploaded and pinned a second time, and `asset.ready` is not sent twice.
+- **Inner retries.** The first Sia upload, which carries all the media, is retried up to 5 times inside the job, waiting 2, 4, 8 and 16 seconds, before the job itself fails.
+- **Unpin on failure.** If anything fails after the first upload, the uploader unpins every object it pinned in that attempt before rethrowing, so the BullMQ retry starts clean. Unpin failures during this cleanup are logged, not raised.
+- **Deleted while processing.** If the asset was deleted while it was being processed, finalize finds no asset, unpins every object it was handed, and stops without writing anything.
+- **Giving up.** When a stage fails its last attempt, the asset becomes `failed`, the processing job records the error, and `asset.errored` is sent with the failing stage (`transcode`, `upload` or `finalize`). Earlier failed attempts set the processing job to `retrying`.
+- **Manual retry.** `POST /api/v1/assets/:id/retry` (SDK: `assets.retry`) restarts a failed asset. If the transcode output is still in `TRANSCODE_OUTPUT_DIR`, it re-enqueues the Sia upload with the thumbnails found on disk; otherwise it transcodes again from the source file in `UPLOAD_DIR`, or answers 410 when that file is gone.
+- **What can still leak.** Objects uploaded by a run whose finalize never succeeds are pinned but never recorded in PostgreSQL. The [reconciliation](./deletion-and-reconciliation#reconciliation) report lists them as orphans.
+
+## Webhooks and processing logs
+
+The pipeline emits six events, each delivered only to the webhook endpoints of the account that owns the asset (`backend/src/webhooks/dispatcher.ts`):
+
+| Event                | Sent when                                        | `data` fields                                                                                                                                 |
+| -------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload.started`     | tus creates the upload                           | `upload_id`, `session_id`, `video_asset_id`, `file_size`                                                                                      |
+| `upload.completed`   | the last byte arrived and transcoding was queued | `upload_id`, `session_id`, `video_asset_id`, `sha256`, `file_size`                                                                            |
+| `upload.failed`      | finishing the upload failed                      | `upload_id`, `session_id`, `video_asset_id`, `error`                                                                                          |
+| `processing.started` | a transcode attempt starts                       | `video_asset_id`                                                                                                                              |
+| `asset.ready`        | finalize completed                               | `video_asset_id`, `manifest_object_id`, `thumbnail_object_ids`, `duration_ms`, `resolution`, `segment_count`, `total_storage_bytes`, `status` |
+| `asset.errored`      | a stage failed its last attempt                  | `video_asset_id`, `stage`, `error`                                                                                                            |
+
+A delivery is a `POST` with the JSON body `{ "event", "timestamp", "data" }`, an `X-Sluby-Event` header, and an `X-Sluby-Signature` header holding the hex HMAC-SHA256 of the exact body under the endpoint's secret. The request times out after 10 seconds. A non-2xx answer or a network error is retried up to 3 more times, after 10 seconds, 1 minute and 5 minutes, with the same body. Those retries are timers inside the backend process, so a restart drops any that are pending. Every attempt is stored in `webhook_deliveries` with the status code and the first 1000 characters of the response. A failed delivery never fails the pipeline step that sent it.
+
+Each worker also appends `{ timestamp, stage, message }` entries to `processing_jobs.logs`, tagged `transcode`, `upload` or `finalize`. `GET /api/v1/assets/:id/processing` (SDK: `assets.processing`) returns the job status, the current stage (taken from the latest log entry, or `completed` and `failed` for finished jobs), the percentage, the error message and the full log.
