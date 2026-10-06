@@ -345,6 +345,9 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       let mediaRetries = 0;
       let backoffTimer: ReturnType<typeof setTimeout> | null = null;
       let destroyed = false;
+      // startLoad only resumes loading once a manifest has been parsed, so a
+      // failed manifest load has to be retried with loadSource instead
+      let manifestParsed = false;
 
       // Tear down after an unrecoverable error, exactly once: cancel any pending
       // reload so its callback cannot fire on a destroyed instance, mark the
@@ -359,6 +362,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       };
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        manifestParsed = true;
         cb.current.onQualitiesChange?.(hls.levels.map((level, i) => toQualityLevel(level, i)));
         if (hls.currentLevel >= 0 && hls.currentLevel < hls.levels.length) {
           cb.current.onQualityChange?.(
@@ -395,7 +399,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
               setState('buffering');
               if (backoffTimer) clearTimeout(backoffTimer);
               backoffTimer = setTimeout(
-                () => hls.startLoad(),
+                () => (manifestParsed ? hls.startLoad() : hls.loadSource(resolvedSrc)),
                 NETWORK_RETRY_BACKOFF_MS * networkRetries,
               );
             } else {
