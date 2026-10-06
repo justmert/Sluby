@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import { env } from '../config/env.js';
-import { createAuthRoutes } from '../api/routes/auth.js';
+import { createAuthRoutes, type AuthRouteDeps } from '../api/routes/auth.js';
 import { signSession, verifySession, SESSION_COOKIE_NAME } from '../api/auth/session.js';
 import { createTestApp } from './helpers/express-helpers.js';
 
@@ -44,8 +44,61 @@ function installGithubFake(): GithubFake {
   return fake;
 }
 
+// the session table is postgres in production (its queries have their own
+// postgres-backed tests); here an in-memory store with the same contract
+interface StoredSession {
+  id: string;
+  login: string;
+  userAgent: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+  revokedAt: Date | null;
+}
+
+function memoryStore() {
+  const rows: StoredSession[] = [];
+  let seq = 0;
+  const live = (r: StoredSession) => !r.revokedAt && r.expiresAt > new Date();
+  const deps: AuthRouteDeps = {
+    createSession: async ({ login, expiresAt, userAgent }) => {
+      const row = {
+        id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
+        login,
+        userAgent,
+        createdAt: new Date(Date.now() + seq),
+        expiresAt,
+        revokedAt: null,
+      };
+      rows.push(row);
+      return { id: row.id };
+    },
+    findActiveSession: async (id) => {
+      const r = rows.find((x) => x.id === id && live(x));
+      return r && { id: r.id, login: r.login, expiresAt: r.expiresAt };
+    },
+    listActiveSessions: async (login) =>
+      rows
+        .filter((r) => r.login === login && live(r))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
+    revokeSession: async (id, login) => {
+      const r = rows.find((x) => x.id === id && x.login === login && !x.revokedAt);
+      if (!r) return false;
+      r.revokedAt = new Date();
+      return true;
+    },
+    revokeAllSessions: async (login) => {
+      const mine = rows.filter((r) => r.login === login && !r.revokedAt);
+      for (const r of mine) r.revokedAt = new Date();
+      return mine.length;
+    },
+    pruneSessions: async () => {},
+  };
+  return { rows, deps };
+}
+
 const saved = { ...env };
 let github: GithubFake;
+let store: ReturnType<typeof memoryStore>;
 
 beforeEach(() => {
   env.GITHUB_CLIENT_ID = 'client-123';
@@ -55,6 +108,7 @@ beforeEach(() => {
   env.SESSION_SECRET = SECRET;
   env.AUTH_DISABLED = false;
   github = installGithubFake();
+  store = memoryStore();
 });
 
 afterEach(() => {
@@ -64,7 +118,18 @@ afterEach(() => {
 });
 
 function app() {
-  return createTestApp(createAuthRoutes(), '/api/v1/auth');
+  return createTestApp(createAuthRoutes(store.deps), '/api/v1/auth');
+}
+
+/** A stored session for `login` and its signed cookie header. */
+async function signedIn(login = 'octocat', ttlSec = 3600, secret = SECRET) {
+  const { id } = await store.deps.createSession({
+    login,
+    expiresAt: new Date(Date.now() + ttlSec * 1000),
+    userAgent: 'test-agent',
+  });
+  const token = signSession(id, login, secret, ttlSec);
+  return { id, cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}` };
 }
 
 function setCookies(res: request.Response): string[] {
@@ -184,7 +249,11 @@ describe('GET /auth/github/callback', () => {
 
     const cookies = setCookies(res);
     const session = cookieValue(cookies, SESSION_COOKIE_NAME)!;
-    expect(verifySession(session, SECRET)?.login).toBe('Octocat');
+    const payload = verifySession(session, SECRET);
+    expect(payload?.login).toBe('Octocat');
+    // the cookie stands for a stored, live session row
+    expect(store.rows).toHaveLength(1);
+    expect(store.rows[0]).toMatchObject({ id: payload?.sid, login: 'Octocat', revokedAt: null });
     const sessionCookie = cookies.find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))!;
     expect(sessionCookie).toContain('HttpOnly');
     expect(sessionCookie).toContain('SameSite=Lax');
@@ -372,36 +441,31 @@ describe('GET /auth/me', () => {
   });
 
   it('returns the login and expiry of a valid session', async () => {
-    const token = signSession('octocat', SECRET, 3600);
-    const res = await request(app())
-      .get('/api/v1/auth/me')
-      .set('Cookie', `other=1; ${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`);
+    const { cookie } = await signedIn();
+    const res = await request(app()).get('/api/v1/auth/me').set('Cookie', `other=1; ${cookie}`);
     expect(res.status).toBe(200);
     expect(res.body.login).toBe('octocat');
     expect(res.body.expiresAt).toBeGreaterThan(Date.now() / 1000 + 3500);
   });
 
   it('answers 401 for a session signed with another secret', async () => {
-    const token = signSession('octocat', 'some-other-secret', 3600);
-    const res = await request(app())
-      .get('/api/v1/auth/me')
-      .set('Cookie', `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`);
+    const { cookie } = await signedIn('octocat', 3600, 'some-other-secret');
+    const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
     expect(res.status).toBe(401);
   });
 
   it('answers 401 for an expired session', async () => {
-    const token = signSession('octocat', SECRET, -1);
-    const res = await request(app())
-      .get('/api/v1/auth/me')
-      .set('Cookie', `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`);
+    const { cookie } = await signedIn('octocat', -1);
+    const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
     expect(res.status).toBe(401);
   });
 
   it('answers 401 for a session whose payload was edited', async () => {
-    const [, sig] = signSession('octocat', SECRET, 3600).split('.');
-    const forged = Buffer.from(JSON.stringify({ login: 'admin', exp: 9999999999 })).toString(
-      'base64url',
-    );
+    const { id, cookie } = await signedIn();
+    const sig = decodeURIComponent(cookie.split('=')[1]).split('.')[1];
+    const forged = Buffer.from(
+      JSON.stringify({ sid: id, login: 'admin', exp: 9999999999 }),
+    ).toString('base64url');
     const res = await request(app())
       .get('/api/v1/auth/me')
       .set('Cookie', `${SESSION_COOKIE_NAME}=${forged}.${sig}`);
@@ -416,7 +480,32 @@ describe('GET /auth/me', () => {
   });
 });
 
+describe('server-side session state', () => {
+  it('answers 401 once the stored session was revoked, even with a valid cookie', async () => {
+    const { id, cookie } = await signedIn();
+    await store.deps.revokeSession(id, 'octocat');
+    const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
+    expect(res.status).toBe(401);
+  });
+
+  it('ends existing sessions of a login taken off the allowlist', async () => {
+    const { cookie } = await signedIn('octocat');
+    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).status).toBe(200);
+    env.GITHUB_ALLOWED_USERS = 'alice';
+    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).status).toBe(401);
+  });
+});
+
 describe('POST /auth/logout', () => {
+  it('revokes the stored session, not just the cookie', async () => {
+    const { id, cookie } = await signedIn();
+    const res = await request(app()).post('/api/v1/auth/logout').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(store.rows.find((r) => r.id === id)?.revokedAt).toBeInstanceOf(Date);
+    // a copy of the old cookie no longer works
+    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).status).toBe(401);
+  });
+
   it('clears the session cookie', async () => {
     const res = await request(app()).post('/api/v1/auth/logout');
     expect(res.status).toBe(200);
@@ -430,6 +519,88 @@ describe('POST /auth/logout', () => {
     env.PUBLIC_URL = 'https://video.example.com';
     const res = await request(app()).post('/api/v1/auth/logout');
     expect(setCookies(res)[0]).toMatch(/Max-Age=0; Secure$/);
+  });
+});
+
+describe('/auth/sessions', () => {
+  it('lists the live sessions of the signed-in user, marking the current one', async () => {
+    const other = await signedIn('octocat');
+    const me = await signedIn('octocat');
+    await signedIn('alice');
+    const res = await request(app()).get('/api/v1/auth/sessions').set('Cookie', me.cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((s: { id: string; current: boolean }) => [s.id, s.current])).toEqual([
+      [me.id, true],
+      [other.id, false],
+    ]);
+    expect(res.body.data[0]).toMatchObject({ user_agent: 'test-agent' });
+    expect(Date.parse(res.body.data[0].expires_at)).toBeGreaterThan(Date.now());
+  });
+
+  it('needs a session: an anonymous caller gets 401', async () => {
+    const res = await request(app()).get('/api/v1/auth/sessions');
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe('Not signed in');
+  });
+
+  it('ends another session of the same user, which then stops working', async () => {
+    const laptop = await signedIn('octocat');
+    const phone = await signedIn('octocat');
+    const res = await request(app())
+      .delete(`/api/v1/auth/sessions/${phone.id}`)
+      .set('Cookie', laptop.cookie);
+    expect(res.status).toBe(200);
+    expect(setCookies(res)).toEqual([]);
+    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', phone.cookie)).status).toBe(
+      401,
+    );
+    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', laptop.cookie)).status).toBe(
+      200,
+    );
+  });
+
+  it("will not end someone else's session", async () => {
+    const mine = await signedIn('octocat');
+    const theirs = await signedIn('alice');
+    const res = await request(app())
+      .delete(`/api/v1/auth/sessions/${theirs.id}`)
+      .set('Cookie', mine.cookie);
+    expect(res.status).toBe(404);
+    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', theirs.cookie)).status).toBe(
+      200,
+    );
+  });
+
+  it('clears the cookie when the current session is ended', async () => {
+    const me = await signedIn('octocat');
+    const res = await request(app())
+      .delete(`/api/v1/auth/sessions/${me.id}`)
+      .set('Cookie', me.cookie);
+    expect(res.status).toBe(200);
+    expect(setCookies(res)[0]).toMatch(/Max-Age=0/);
+  });
+
+  it('signs out everywhere', async () => {
+    const a = await signedIn('octocat');
+    const b = await signedIn('octocat');
+    const alice = await signedIn('alice');
+    const res = await request(app()).delete('/api/v1/auth/sessions').set('Cookie', a.cookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, revoked: 2 });
+    for (const s of [a, b]) {
+      expect((await request(app()).get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(
+        401,
+      );
+    }
+    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', alice.cookie)).status).toBe(
+      200,
+    );
+  });
+
+  it('says there are no sessions when sign-in is disabled', async () => {
+    env.AUTH_DISABLED = true;
+    const res = await request(app()).get('/api/v1/auth/sessions');
+    expect(res.status).toBe(409);
   });
 });
 

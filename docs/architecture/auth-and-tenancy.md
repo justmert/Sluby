@@ -8,7 +8,7 @@ Every API request resolves to an identity with a set of scopes and an owner addr
 flowchart TB
   req[Request to /api/v1] --> dis{AUTH_DISABLED?}
   dis -- yes --> dev["github:dev<br/>all scopes"]
-  dis -- no --> cookie{"valid sluby_session<br/>cookie?"}
+  dis -- no --> cookie{"sluby_session cookie: signature ok,<br/>session row live, login allowed?"}
   cookie -- yes --> gh["github:login<br/>all scopes, 1000 a minute"]
   cookie -- no --> bearer{"Bearer key: hash found,<br/>active, not expired?"}
   bearer -- no --> e401[401]
@@ -37,9 +37,15 @@ The Studio signs people in with GitHub OAuth (`backend/src/api/routes/auth.ts`):
 
 1. `GET /api/v1/auth/github/login` stores a random `state` in memory for 10 minutes, remembers where to return in a short-lived cookie, and redirects to GitHub asking for `read:user`.
 2. `GET /api/v1/auth/github/callback` checks and consumes the `state`, exchanges the code for a token, reads the GitHub user, and, when `GITHUB_ALLOWED_USERS` is set, rejects logins not on the list.
-3. It sets `sluby_session`, a cookie of the form `base64url({ login, exp }).HMAC-SHA256` signed with `SESSION_SECRET`, valid for 7 days, `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when `PUBLIC_URL` is https.
+3. It stores a row in `studio_sessions` (login, user agent, created and expiry times) and sets `sluby_session`, a cookie of the form `base64url({ sid, login, exp }).HMAC-SHA256` signed with `SESSION_SECRET`, valid for 7 days, `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when `PUBLIC_URL` is https.
 
-Sessions are stateless: nothing is stored on the server. `POST /api/v1/auth/logout` clears the cookie in the browser, but a copied cookie stays valid until it expires, and taking a login off `GITHUB_ALLOWED_USERS` does not end that person's current session. Changing `SESSION_SECRET` ends every session at once, and also invalidates every signed playback URL, since both are signed with it.
+The signature only proves the cookie came from this server. On every request the backend also loads the session row and accepts the cookie only while the row is neither revoked nor expired and the login is still allowed by `GITHUB_ALLOWED_USERS` (`resolveSession` in `backend/src/api/auth/session.ts`, used by the API, tus uploads and `/auth/me`). So a session can be ended server-side:
+
+- `POST /api/v1/auth/logout` revokes the current session, so a copied cookie stops working too.
+- `GET /api/v1/auth/sessions` lists the user's live sessions, `DELETE /api/v1/auth/sessions/:id` ends one, and `DELETE /api/v1/auth/sessions` ends all of them. The Studio shows these under Settings, Sessions.
+- Taking a login off `GITHUB_ALLOWED_USERS` ends that person's sessions on their next request.
+
+Ended sessions are deleted 30 days after they expire or are revoked, when the same login next signs in. Changing `SESSION_SECRET` ends every session at once, and also invalidates every signed playback URL, since both are signed with it.
 
 With `GITHUB_ALLOWED_USERS` empty, any GitHub account can sign in and gets its own empty library; the backend logs a warning at startup.
 

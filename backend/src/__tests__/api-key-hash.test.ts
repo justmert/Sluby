@@ -49,6 +49,7 @@ describe('a minted key authenticates through the bearer middleware', () => {
   function harness() {
     const stored = new Map<string, { id: string }>();
     const middleware = createApiKeyMiddleware({
+      findActiveSession: async () => undefined,
       findApiKeyByHash: async (hash) => {
         const row = stored.get(hash);
         if (!row) return null;

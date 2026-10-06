@@ -3,11 +3,13 @@ import { FileStore } from '@tus/file-store';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { computeFileHash } from './chunk-verifier.js';
-import { SESSION_COOKIE_NAME, parseCookieHeader, verifySession } from '../api/auth/session.js';
+import { resolveSession, type FindActiveSession } from '../api/auth/session.js';
 import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import { uploadBytesTotal, uploadFailureTotal, uploadSuccessTotal } from '../metrics/collector.js';
 
 export interface TusServerDeps {
+  /** The live Studio session row for a session id, see resolveSession. */
+  findActiveSession: FindActiveSession;
   validateApiKey: (
     token: string,
   ) => Promise<{ id: string; creatorAddress: string; scopes: string[] } | null>;
@@ -225,8 +227,11 @@ async function resolveIdentity(req: Request, deps: TusServerDeps): Promise<Ident
   // Session cookie path: when the Studio UI drives the upload, the browser
   // sends the signed session cookie. We materialise an identity with full
   // upload scope that downstream hooks treat like an API-key caller.
-  const cookies = parseCookieHeader(req.headers.get('cookie') ?? undefined);
-  const session = verifySession(cookies[SESSION_COOKIE_NAME], env.SESSION_SECRET);
+  const session = await resolveSession(req.headers.get('cookie') ?? undefined, {
+    secret: env.SESSION_SECRET,
+    allowedUsers: env.GITHUB_ALLOWED_USERS,
+    findActiveSession: deps.findActiveSession,
+  });
   if (session) {
     return {
       id: `session:${session.login}`,

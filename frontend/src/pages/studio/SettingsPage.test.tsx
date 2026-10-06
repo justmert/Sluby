@@ -8,6 +8,7 @@ import SettingsPage, { timeLeft } from './SettingsPage';
 vi.mock('@/components/AuthGate', () => ({ useSession: () => ({ login: 'alice' }) }));
 
 let keys: Array<Record<string, unknown>>;
+let sessions: Array<Record<string, unknown>>;
 let fetchMock: ReturnType<typeof vi.fn>;
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -22,6 +23,22 @@ beforeEach(() => {
       is_active: true,
       created_at: '2026-10-01T00:00:00Z',
       expires_at: null,
+    },
+  ];
+  sessions = [
+    {
+      id: 's1',
+      user_agent: 'Mozilla/5.0 (Macintosh) Chrome/141',
+      created_at: '2026-10-05T00:00:00Z',
+      expires_at: new Date(Date.now() + 5 * 86_400_000).toISOString(),
+      current: true,
+    },
+    {
+      id: 's2',
+      user_agent: 'Mozilla/5.0 (iPhone) Safari/18',
+      created_at: '2026-10-04T00:00:00Z',
+      expires_at: new Date(Date.now() + 4 * 86_400_000).toISOString(),
+      current: false,
     },
   ];
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -47,6 +64,11 @@ beforeEach(() => {
       );
     }
     if (url === '/api/v1/keys/k1' && method === 'DELETE') return json({ success: true });
+    if (url === '/api/v1/auth/sessions' && method === 'GET') return json({ data: sessions });
+    if (url === '/api/v1/auth/sessions/s2' && method === 'DELETE') {
+      sessions = sessions.filter((x) => x.id !== 's2');
+      return json({ success: true });
+    }
     if (url === '/api/v1/system/status')
       return json({ version: '0.1.0', indexer: { network: 'mainnet' } });
     return json({ error: `unmocked ${method} ${url}` }, 404);
@@ -138,5 +160,17 @@ describe('timeLeft', () => {
     expect(timeLeft(at(5 * 60_000), 1_000_000)).toBe('in 5m');
     expect(timeLeft(at(26 * 3_600_000), 1_000_000)).toBe('in 1d 2h');
     expect(timeLeft(at(-1), 1_000_000)).toBe('now');
+  });
+
+  it('lists the signed-in sessions and ends another one', async () => {
+    render();
+    await screen.findByText('Mozilla/5.0 (iPhone) Safari/18');
+    expect(screen.getByText('This browser')).toBeInTheDocument();
+    const iphoneRow = screen.getByText('Mozilla/5.0 (iPhone) Safari/18').closest('tr')!;
+    await userEvent.click(within(iphoneRow).getByRole('button', { name: /end/i }));
+    await waitFor(() => expect(calls('DELETE', '/api/v1/auth/sessions/s2')).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.queryByText('Mozilla/5.0 (iPhone) Safari/18')).not.toBeInTheDocument(),
+    );
   });
 });

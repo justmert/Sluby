@@ -6,7 +6,10 @@ import {
   parseCookieHeader,
   buildSessionCookie,
   buildClearCookie,
+  isLoginAllowed,
+  resolveSession,
   SESSION_COOKIE_NAME,
+  type ActiveSession,
 } from '../api/auth/session.js';
 
 vi.mock('../config/logger.js', () => ({
@@ -16,6 +19,7 @@ vi.mock('../config/logger.js', () => ({
 const SECRET = 'test-session-secret-at-least-32-chars-long';
 const OTHER_SECRET = 'a-completely-different-secret-value-here!!';
 const LOGIN = 'octocat';
+const SID = '6f1c2a54-9a1e-4d39-9b1f-2a6c8f0b9d11';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -29,7 +33,7 @@ describe('SESSION_COOKIE_NAME', () => {
 
 describe('signSession', () => {
   it('produces a two-part <payload>.<signature> token', () => {
-    const token = signSession(LOGIN, SECRET);
+    const token = signSession(SID, LOGIN, SECRET);
     const parts = token.split('.');
 
     expect(parts).toHaveLength(2);
@@ -39,27 +43,29 @@ describe('signSession', () => {
 
   it('base64url-encodes a payload carrying the login and an expiry', () => {
     const before = Math.floor(Date.now() / 1000);
-    const token = signSession(LOGIN, SECRET, 3600);
+    const token = signSession(SID, LOGIN, SECRET, 3600);
     const [encoded] = token.split('.');
 
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
+      sid: string;
       login: string;
       exp: number;
     };
 
+    expect(payload.sid).toBe(SID);
     expect(payload.login).toBe(LOGIN);
     expect(payload.exp).toBeGreaterThanOrEqual(before + 3600);
     expect(payload.exp).toBeLessThanOrEqual(before + 3600 + 5);
   });
 
   it('uses base64url alphabet only (safe to put in a cookie unescaped)', () => {
-    const token = signSession(LOGIN, SECRET);
+    const token = signSession(SID, LOGIN, SECRET);
     expect(token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
   });
 
   it('defaults to a seven-day TTL', () => {
     const before = Math.floor(Date.now() / 1000);
-    const [encoded] = signSession(LOGIN, SECRET).split('.');
+    const [encoded] = signSession(SID, LOGIN, SECRET).split('.');
     const { exp } = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
       exp: number;
     };
@@ -72,8 +78,8 @@ describe('signSession', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
 
-    const a = signSession(LOGIN, SECRET, 3600);
-    const b = signSession(LOGIN, OTHER_SECRET, 3600);
+    const a = signSession(SID, LOGIN, SECRET, 3600);
+    const b = signSession(SID, LOGIN, OTHER_SECRET, 3600);
 
     // Same payload (clock frozen), different HMAC.
     expect(a.split('.')[0]).toBe(b.split('.')[0]);
@@ -83,7 +89,7 @@ describe('signSession', () => {
 
 describe('verifySession', () => {
   it('round-trips a signed session back to its payload', () => {
-    const token = signSession(LOGIN, SECRET, 3600);
+    const token = signSession(SID, LOGIN, SECRET, 3600);
 
     const payload = verifySession(token, SECRET);
 
@@ -94,7 +100,7 @@ describe('verifySession', () => {
 
   it('preserves a login with unusual characters', () => {
     const weird = 'user-name_123.ünïcøde';
-    const payload = verifySession(signSession(weird, SECRET, 3600), SECRET);
+    const payload = verifySession(signSession(SID, weird, SECRET, 3600), SECRET);
 
     expect(payload?.login).toBe(weird);
   });
@@ -106,21 +112,21 @@ describe('verifySession', () => {
 
   it('returns null for a malformed token with no separator', () => {
     expect(verifySession('nodotinhere', SECRET)).toBeNull();
-    expect(verifySession(signSession(LOGIN, SECRET).replace('.', ''), SECRET)).toBeNull();
+    expect(verifySession(signSession(SID, LOGIN, SECRET).replace('.', ''), SECRET)).toBeNull();
   });
 
   it('returns null when the payload half is empty', () => {
-    const token = signSession(LOGIN, SECRET, 3600);
+    const token = signSession(SID, LOGIN, SECRET, 3600);
     expect(verifySession(`.${token.split('.')[1]}`, SECRET)).toBeNull();
   });
 
   it('returns null when the signature half is empty', () => {
-    const token = signSession(LOGIN, SECRET, 3600);
+    const token = signSession(SID, LOGIN, SECRET, 3600);
     expect(verifySession(`${token.split('.')[0]}.`, SECRET)).toBeNull();
   });
 
   it('returns null for a tampered signature of the correct length', () => {
-    const token = signSession(LOGIN, SECRET, 3600);
+    const token = signSession(SID, LOGIN, SECRET, 3600);
     const [encoded, sig] = token.split('.');
     // Flip the final character, keeping the length identical so the compare
     // reaches timingSafeEqual rather than being short-circuited by the guard.
@@ -132,7 +138,7 @@ describe('verifySession', () => {
   });
 
   it('returns null for a tampered payload with the original signature', () => {
-    const token = signSession(LOGIN, SECRET, 3600);
+    const token = signSession(SID, LOGIN, SECRET, 3600);
     const [, sig] = token.split('.');
 
     // Attacker rewrites the identity to a different user and reuses the HMAC.
@@ -147,7 +153,7 @@ describe('verifySession', () => {
     // node's crypto.timingSafeEqual throws a RangeError when the two buffers
     // differ in length, so verifySession must length-guard before comparing.
     // Any throw here would surface as a 500 on the auth path.
-    const [encoded] = signSession(LOGIN, SECRET, 3600).split('.');
+    const [encoded] = signSession(SID, LOGIN, SECRET, 3600).split('.');
 
     // A base64url SHA-256 digest is 43 chars; every entry below differs.
     for (const badSig of ['a', 'ab', 'short', 'x'.repeat(42), 'x'.repeat(44), 'x'.repeat(200)]) {
@@ -162,7 +168,7 @@ describe('verifySession', () => {
   });
 
   it('returns null when verified with a different secret', () => {
-    const token = signSession(LOGIN, SECRET, 3600);
+    const token = signSession(SID, LOGIN, SECRET, 3600);
 
     expect(verifySession(token, OTHER_SECRET)).toBeNull();
     // ...and still valid under the right one, so the token itself is fine.
@@ -170,7 +176,7 @@ describe('verifySession', () => {
   });
 
   it('returns null for an expired session', () => {
-    const expired = signSession(LOGIN, SECRET, -10);
+    const expired = signSession(SID, LOGIN, SECRET, -10);
 
     expect(verifySession(expired, SECRET)).toBeNull();
   });
@@ -179,7 +185,7 @@ describe('verifySession', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
 
-    const token = signSession(LOGIN, SECRET, 60);
+    const token = signSession(SID, LOGIN, SECRET, 60);
     expect(verifySession(token, SECRET)?.login).toBe(LOGIN);
 
     vi.setSystemTime(new Date('2026-01-01T00:02:00Z')); // +120s
@@ -272,7 +278,7 @@ describe('parseCookieHeader', () => {
 
 describe('cookie round trip', () => {
   it('survives buildSessionCookie -> Cookie header -> parse -> verify', () => {
-    const token = signSession(LOGIN, SECRET, 3600);
+    const token = signSession(SID, LOGIN, SECRET, 3600);
     const setCookie = buildSessionCookie(token, { maxAgeSec: 3600, secure: true });
 
     // A browser echoes back only the `name=value` pair, not the attributes.
@@ -308,5 +314,61 @@ describe('cookie round trip', () => {
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('Secure');
     expect(buildClearCookie(false)).not.toContain('Secure');
+  });
+});
+
+describe('isLoginAllowed', () => {
+  it('lets everyone in when the list is empty', () => {
+    expect(isLoginAllowed('anyone', '')).toBe(true);
+    expect(isLoginAllowed('anyone', ' , ')).toBe(true);
+  });
+
+  it('matches listed logins case-insensitively and ignores spacing', () => {
+    expect(isLoginAllowed('OctoCat', ' alice , octocat ')).toBe(true);
+    expect(isLoginAllowed('mallory', 'alice,octocat')).toBe(false);
+  });
+});
+
+describe('resolveSession', () => {
+  const row: ActiveSession = { id: SID, login: LOGIN, expiresAt: new Date(Date.now() + 3600_000) };
+  const cookie = (token: string) => `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`;
+  const opts = (rows: ActiveSession[], allowedUsers = '') => ({
+    secret: SECRET,
+    allowedUsers,
+    findActiveSession: async (sid: string) => rows.find((r) => r.id === sid),
+  });
+
+  it('returns the live row behind a valid cookie', async () => {
+    const token = signSession(SID, LOGIN, SECRET, 3600);
+    expect(await resolveSession(cookie(token), opts([row]))).toEqual(row);
+  });
+
+  it('returns null once the row is gone (revoked or expired server-side)', async () => {
+    const token = signSession(SID, LOGIN, SECRET, 3600);
+    expect(await resolveSession(cookie(token), opts([]))).toBeNull();
+  });
+
+  it('returns null when the cookie names another login than its row', async () => {
+    const token = signSession(SID, 'mallory', SECRET, 3600);
+    expect(await resolveSession(cookie(token), opts([row]))).toBeNull();
+  });
+
+  it('returns null when the login was taken off the allowlist', async () => {
+    const token = signSession(SID, LOGIN, SECRET, 3600);
+    expect(await resolveSession(cookie(token), opts([row], 'alice'))).toBeNull();
+  });
+
+  it('never looks a row up for a cookie that does not verify', async () => {
+    let lookups = 0;
+    const token = signSession(SID, LOGIN, OTHER_SECRET, 3600);
+    const result = await resolveSession(cookie(token), {
+      ...opts([row]),
+      findActiveSession: async () => {
+        lookups++;
+        return row;
+      },
+    });
+    expect(result).toBeNull();
+    expect(lookups).toBe(0);
   });
 });

@@ -2,26 +2,22 @@ import { Router, type Request, type Response } from 'express';
 import crypto from 'node:crypto';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
+import { AppError } from '../middleware/error-handler.js';
 import {
-  SESSION_COOKIE_NAME,
+  SESSION_TTL_SEC,
   buildClearCookie,
   buildSessionCookie,
+  isLoginAllowed,
   parseCookieHeader,
+  resolveSession,
   signSession,
-  verifySession,
+  type ActiveSession,
+  type FindActiveSession,
 } from '../auth/session.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function getAllowedUsers(): Set<string> {
-  return new Set(
-    env.GITHUB_ALLOWED_USERS.split(',')
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
 
 function isSecure(): boolean {
   return env.PUBLIC_URL.startsWith('https://');
@@ -116,8 +112,50 @@ async function fetchGithubUser(accessToken: string): Promise<GithubUser> {
 // Routes
 // ---------------------------------------------------------------------------
 
-export function createAuthRoutes(): Router {
+export interface StudioSessionRecord {
+  id: string;
+  login: string;
+  userAgent: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
+export interface AuthRouteDeps {
+  createSession: (data: {
+    login: string;
+    expiresAt: Date;
+    userAgent: string | null;
+  }) => Promise<{ id: string }>;
+  findActiveSession: FindActiveSession;
+  listActiveSessions: (login: string) => Promise<StudioSessionRecord[]>;
+  revokeSession: (id: string, login: string) => Promise<boolean>;
+  revokeAllSessions: (login: string) => Promise<number>;
+  /** Drop sessions that ended before `olderThan`, see pruneStudioSessions. */
+  pruneSessions: (login: string, olderThan: Date) => Promise<void>;
+}
+
+// ended sessions stay listed nowhere, but keep their rows a while for audit
+const ENDED_SESSION_RETENTION_MS = 30 * 24 * 3600 * 1000;
+
+export function createAuthRoutes(deps: AuthRouteDeps): Router {
   const router = Router();
+
+  const currentSession = (req: Request): Promise<ActiveSession | null> =>
+    resolveSession(req.headers.cookie, {
+      secret: env.SESSION_SECRET,
+      allowedUsers: env.GITHUB_ALLOWED_USERS,
+      findActiveSession: deps.findActiveSession,
+    });
+
+  /** The caller's live session, or a 401. Only a Studio session, never a key. */
+  const requireSession = async (req: Request): Promise<ActiveSession> => {
+    if (env.AUTH_DISABLED) {
+      throw new AppError(409, 'Sign-in is disabled on this server, so there are no sessions');
+    }
+    const session = await currentSession(req);
+    if (!session) throw new AppError(401, 'Not signed in');
+    return session;
+  };
 
   /**
    * GET /api/v1/auth/github/login
@@ -192,8 +230,7 @@ export function createAuthRoutes(): Router {
       // in. Leaving it empty keeps sign-in open, which is what the public
       // review deployment wants; startup logs a warning in that case so an
       // open Studio is never a silent surprise.
-      const allowed = getAllowedUsers();
-      if (allowed.size > 0 && !allowed.has(user.login.toLowerCase())) {
+      if (!isLoginAllowed(user.login, env.GITHUB_ALLOWED_USERS)) {
         logger.warn({ login: user.login }, 'GitHub user not in allowlist');
         res
           .status(403)
@@ -201,10 +238,17 @@ export function createAuthRoutes(): Router {
         return;
       }
 
-      const token = signSession(user.login, env.SESSION_SECRET);
+      await deps.pruneSessions(user.login, new Date(Date.now() - ENDED_SESSION_RETENTION_MS));
+      const userAgent = req.headers['user-agent'];
+      const session = await deps.createSession({
+        login: user.login,
+        expiresAt: new Date(Date.now() + SESSION_TTL_SEC * 1000),
+        userAgent: typeof userAgent === 'string' ? userAgent.slice(0, 500) : null,
+      });
+      const token = signSession(session.id, user.login, env.SESSION_SECRET);
       const setCookies = [
         buildSessionCookie(token, {
-          maxAgeSec: 7 * 24 * 3600,
+          maxAgeSec: SESSION_TTL_SEC,
           secure: isSecure(),
         }),
       ];
@@ -237,22 +281,67 @@ export function createAuthRoutes(): Router {
       res.json({ login: 'dev', authDisabled: true });
       return;
     }
-    const cookies = parseCookieHeader(req.headers.cookie);
-    const session = verifySession(cookies[SESSION_COOKIE_NAME], env.SESSION_SECRET);
+    const session = await currentSession(req);
     if (!session) {
       res.status(401).json({ error: 'Not signed in' });
       return;
     }
-    res.json({ login: session.login, expiresAt: session.exp });
+    res.json({ login: session.login, expiresAt: Math.floor(session.expiresAt.getTime() / 1000) });
   });
 
   /**
    * POST /api/v1/auth/logout
-   * Clears the session cookie.
+   * Ends the current session server-side and clears the cookie.
    */
-  router.post('/logout', async (_req: Request, res: Response) => {
+  router.post('/logout', async (req: Request, res: Response) => {
+    const session = await currentSession(req);
+    if (session) await deps.revokeSession(session.id, session.login);
     res.setHeader('Set-Cookie', buildClearCookie(isSecure()));
     res.json({ success: true });
+  });
+
+  /**
+   * GET /api/v1/auth/sessions
+   * The signed-in user's live sessions, newest first, marking the current one.
+   */
+  router.get('/sessions', async (req: Request, res: Response) => {
+    const session = await requireSession(req);
+    const rows = await deps.listActiveSessions(session.login);
+    res.json({
+      data: rows.map((r) => ({
+        id: r.id,
+        user_agent: r.userAgent,
+        created_at: r.createdAt.toISOString(),
+        expires_at: r.expiresAt.toISOString(),
+        current: r.id === session.id,
+      })),
+    });
+  });
+
+  /**
+   * DELETE /api/v1/auth/sessions/:id
+   * Ends one of the signed-in user's sessions. Ending the current one also
+   * clears its cookie.
+   */
+  router.delete('/sessions/:id', async (req: Request, res: Response) => {
+    const session = await requireSession(req);
+    const id = String(req.params.id);
+    if (!(await deps.revokeSession(id, session.login))) {
+      throw new AppError(404, 'Session not found');
+    }
+    if (id === session.id) res.setHeader('Set-Cookie', buildClearCookie(isSecure()));
+    res.json({ success: true });
+  });
+
+  /**
+   * DELETE /api/v1/auth/sessions
+   * Signs the user out everywhere, this browser included.
+   */
+  router.delete('/sessions', async (req: Request, res: Response) => {
+    const session = await requireSession(req);
+    const revoked = await deps.revokeAllSessions(session.login);
+    res.setHeader('Set-Cookie', buildClearCookie(isSecure()));
+    res.json({ success: true, revoked });
   });
 
   return router;

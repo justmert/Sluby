@@ -343,6 +343,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
     async function authenticate(token: string) {
       // the same adapter index.ts gives the middleware
       const mw = middleware.createApiKeyMiddleware({
+        findActiveSession: async () => undefined,
         findApiKeyByHash: async (hash) => (await q.getApiKeyByHash(hash)) ?? null,
       });
       const req = { headers: { authorization: `Bearer ${token}` } } as unknown as Request;

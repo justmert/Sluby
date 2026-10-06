@@ -86,6 +86,7 @@ describe('api router public and guarded routes', () => {
   const { key, hash } = generateApiKey();
   const deps = new Proxy(
     {
+      findActiveSession: async () => undefined,
       findApiKeyByHash: async (h: string) =>
         h === hash
           ? {

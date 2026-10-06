@@ -76,6 +76,14 @@ import {
   resolveAssetId,
 } from './db/queries/playback-ids.js';
 
+import {
+  createStudioSession,
+  findActiveStudioSession,
+  listActiveStudioSessions,
+  pruneStudioSessions,
+  revokeAllStudioSessions,
+  revokeStudioSession,
+} from './db/queries/sessions.js';
 import { getLatestReconciliationRun } from './db/queries/reconciliation.js';
 import { getAssetStats } from './db/queries/stats.js';
 import { createCachedSystemStatus } from './system/status.js';
@@ -305,6 +313,7 @@ const deleteAsset = buildDeleteAsset({
 });
 
 const tusServerDeps: TusServerDeps = {
+  findActiveSession: findActiveStudioSession,
   validateApiKey: async (token: string) => {
     const apiKey = await dbValidateApiKey(token);
     if (!apiKey) return null;
@@ -739,6 +748,13 @@ const apiRouterDeps: ApiRouterDeps = {
   },
 
   // ── ApiKeyMiddlewareDeps ──
+  findActiveSession: findActiveStudioSession,
+  createSession: createStudioSession,
+  listActiveSessions: listActiveStudioSessions,
+  revokeSession: revokeStudioSession,
+  revokeAllSessions: revokeAllStudioSessions,
+  pruneSessions: pruneStudioSessions,
+
   findApiKeyByHash: async (hash) => {
     const apiKey = await getApiKeyByHash(hash);
     if (!apiKey) return null;
