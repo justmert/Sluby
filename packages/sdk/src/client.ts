@@ -169,14 +169,12 @@ export class SlubyClient {
         throw new AuthenticationError(message, response.status, responseBody);
       case 404:
         throw new NotFoundError(message, responseBody);
-      case 429: {
-        const retryAfter = response.headers.get('Retry-After');
+      case 429:
         throw new RateLimitError(
           message,
-          retryAfter ? Number(retryAfter) : undefined,
+          parseRetryAfter(response.headers.get('Retry-After')),
           responseBody,
         );
-      }
       default:
         throw new SlubyError(message, response.status, responseBody);
     }
@@ -186,6 +184,19 @@ export class SlubyClient {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Seconds to wait from a Retry-After header. RFC 9110 allows either a number
+ * of seconds or an HTTP date, and a plain Number() turns the date form into NaN.
+ */
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return undefined;
+  return Math.max(0, Math.ceil((at - Date.now()) / 1000));
+}
 
 /**
  * Attempt to extract a human-readable error message from the response body
