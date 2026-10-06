@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises';
+import { readdir, rm } from 'node:fs/promises';
 import type { Logger } from 'pino';
 
 type Log = Pick<Logger, 'info' | 'error'>;
@@ -64,4 +64,46 @@ export async function removeAssetSources(
   for (const filePath of await deps.listSourcePaths(videoAssetId)) {
     await removeSourceUpload(filePath, deps.log, { videoAssetId });
   }
+}
+
+/**
+ * Remove sources that nothing needs anymore: their asset is ready or was
+ * deleted. Finalize and the deletion worker already do this as they go; the
+ * sweep catches sources left from before they did, and ones whose removal
+ * failed. Files no upload session records are left alone and only counted:
+ * they may be uploads whose session row is still being written, and the
+ * expiry sweep removes them if they never complete.
+ */
+export async function sweepFinishedSources(deps: {
+  uploadDir: string;
+  states: (paths: string[]) => Promise<Map<string, 'ready' | 'gone' | 'in-use' | 'cancelled'>>;
+  log: Log;
+}): Promise<{ removed: number; unknown: number }> {
+  let names: string[];
+  try {
+    names = await readdir(deps.uploadDir);
+  } catch (err) {
+    deps.log.error({ err, directory: deps.uploadDir }, 'Could not list the upload directory');
+    return { removed: 0, unknown: 0 };
+  }
+  // tus writes `<id>` and its `<id>.json` sidecar; the data file stands for both
+  const paths = names.filter((n) => !n.endsWith('.json')).map((n) => `${deps.uploadDir}/${n}`);
+  let states: Map<string, string>;
+  try {
+    states = await deps.states(paths);
+  } catch (err) {
+    deps.log.error({ err }, 'Could not look up source uploads to sweep');
+    return { removed: 0, unknown: 0 };
+  }
+  let removed = 0;
+  let unknown = 0;
+  for (const p of paths) {
+    const state = states.get(p);
+    if (state === undefined) unknown++;
+    else if ((state === 'ready' || state === 'gone') && (await removeSourceUpload(p, deps.log))) {
+      removed++;
+    }
+  }
+  deps.log.info({ removed, unknown }, 'Swept source uploads nothing needs');
+  return { removed, unknown };
 }

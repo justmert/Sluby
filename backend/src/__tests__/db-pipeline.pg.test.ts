@@ -248,6 +248,54 @@ describe.skipIf(!hasTestDatabase)('pipeline record queries (postgres)', () => {
       ]);
       expect(await uploads.listUploadFilePaths(other.id)).toEqual(['/uploads/other']);
     });
+
+    it('says which sources their assets still need', async () => {
+      const session = (filePath: string, videoAssetId: string) =>
+        uploads.createUploadSession({
+          uploadUrl: 'https://x/api/v1/uploads/s',
+          filePath,
+          fileSize: 1,
+          videoAssetId,
+        });
+      const ready = await newAsset();
+      await assets.updateVideoAsset(ready.id, { status: 'ready' });
+      const failed = await newAsset();
+      await assets.updateVideoAsset(failed.id, { status: 'failed' });
+      const processing = await newAsset();
+      await assets.updateVideoAsset(processing.id, { status: 'processing' });
+      const softDeleted = await newAsset();
+      await tdb.sql`update video_assets set deleted_at = now() where id = ${softDeleted.id}`;
+      const hardDeleted = await newAsset();
+      const cancelledAsset = await newAsset();
+
+      await session('/u/ready', ready.id);
+      await session('/u/failed', failed.id);
+      await session('/u/processing', processing.id);
+      await session('/u/soft', softDeleted.id);
+      await session('/u/hard', hardDeleted.id);
+      const cancelled = await session('/u/cancelled', cancelledAsset.id);
+      await uploads.updateUploadSession(cancelled.id, { status: 'cancelled' });
+      // the session row outlives a hard-deleted asset with a null asset id
+      await tdb.sql`delete from video_assets where id = ${hardDeleted.id}`;
+
+      const states = await uploads.sourceFileStates([
+        '/u/ready',
+        '/u/failed',
+        '/u/processing',
+        '/u/soft',
+        '/u/hard',
+        '/u/cancelled',
+        '/u/unknown',
+      ]);
+      expect(Object.fromEntries(states)).toEqual({
+        '/u/ready': 'ready',
+        '/u/failed': 'in-use',
+        '/u/processing': 'in-use',
+        '/u/soft': 'gone',
+        '/u/hard': 'gone',
+        '/u/cancelled': 'cancelled',
+      });
+    });
   });
 
   describe('processing jobs', () => {

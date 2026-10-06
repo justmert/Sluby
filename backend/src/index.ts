@@ -20,6 +20,7 @@ import { closeWorkers } from './queue/processors.js';
 import { createApiRouter, type ApiRouterDeps } from './api/router.js';
 import { createTusServer, type TusServerDeps } from './upload/tus-server.js';
 import { sweepExpiredUploads, UPLOAD_SWEEP_INTERVAL_MS } from './upload/upload-store.js';
+import { sweepFinishedSources } from './upload/source-files.js';
 import { isTusRequest } from './upload/tus-dispatch.js';
 import { buildSignedObjectQuery } from './delivery/signed-url.js';
 import { createAssetShareUrls } from './delivery/share-urls.js';
@@ -33,6 +34,7 @@ import {
   createUploadSession as dbCreateUploadSession,
   getUploadSessionById,
   updateUploadSession,
+  sourceFileStates,
 } from './db/queries/uploads.js';
 
 import {
@@ -898,11 +900,16 @@ scheduleDeletionGc().catch((err) => {
 // Sweep incomplete tus uploads past their expiry, now and then every hour.
 // A timer in this process rather than a queue job, because the files live on
 // this process's UPLOAD_DIR.
-void sweepExpiredUploads(tusServer, logger);
-const uploadSweepTimer = setInterval(
-  () => void sweepExpiredUploads(tusServer, logger),
-  UPLOAD_SWEEP_INTERVAL_MS,
-);
+const sweepUploads = async () => {
+  await sweepExpiredUploads(tusServer, logger);
+  await sweepFinishedSources({
+    uploadDir: env.UPLOAD_DIR,
+    states: sourceFileStates,
+    log: logger,
+  });
+};
+void sweepUploads();
+const uploadSweepTimer = setInterval(() => void sweepUploads(), UPLOAD_SWEEP_INTERVAL_MS);
 uploadSweepTimer.unref();
 
 const server = app.listen(env.PORT, env.HOST, () => {

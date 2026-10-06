@@ -24,7 +24,12 @@ vi.mock('../config/env.js', () => ({
 
 import { createTusServer, type TusServerDeps } from '../upload/tus-server.js';
 import { sweepExpiredUploads, UPLOAD_EXPIRY_MS } from '../upload/upload-store.js';
-import { removeAssetSources, removeSessionSource } from '../upload/source-files.js';
+import {
+  removeAssetSources,
+  removeSessionSource,
+  sweepFinishedSources,
+} from '../upload/source-files.js';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { SessionManager } from '../upload/session-manager.js';
 import { buildRetryAsset } from '../queue/retry.js';
 import { logger } from '../config/logger.js';
@@ -348,5 +353,63 @@ describe('source of a ready asset', () => {
       expect.objectContaining({ path: stuck, err: expect.any(Error) }),
       'Failed to remove source upload file',
     );
+  });
+});
+
+const silentLog = () => ({ info: vi.fn(), error: vi.fn() });
+
+describe('sweepFinishedSources', () => {
+  it('removes sources of ready and deleted assets and leaves the rest', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'sluby-sweep-'));
+    try {
+      const names = ['ready', 'gone', 'failed', 'cancelled', 'unknown'];
+      for (const n of names) {
+        await writeFile(path.join(dir, n), 'data');
+        await writeFile(path.join(dir, `${n}.json`), '{}');
+      }
+      const states = new Map<string, 'ready' | 'gone' | 'in-use' | 'cancelled'>([
+        [`${dir}/ready`, 'ready'],
+        [`${dir}/gone`, 'gone'],
+        [`${dir}/failed`, 'in-use'],
+        [`${dir}/cancelled`, 'cancelled'],
+      ]);
+      const asked: string[][] = [];
+      const result = await sweepFinishedSources({
+        uploadDir: dir,
+        states: async (paths) => {
+          asked.push(paths);
+          return states;
+        },
+        log: silentLog(),
+      });
+      expect(result).toEqual({ removed: 2, unknown: 1 });
+      // only data files are looked up, never the json sidecars
+      expect(asked[0].sort()).toEqual(names.map((n) => `${dir}/${n}`).sort());
+      expect((await readdir(dir)).sort()).toEqual(
+        ['cancelled', 'cancelled.json', 'failed', 'failed.json', 'unknown', 'unknown.json'].sort(),
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes nothing when the lookup fails', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'sluby-sweep-'));
+    try {
+      await writeFile(path.join(dir, 'a'), 'data');
+      const log = silentLog();
+      const result = await sweepFinishedSources({
+        uploadDir: dir,
+        states: async () => {
+          throw new Error('db down');
+        },
+        log,
+      });
+      expect(result).toEqual({ removed: 0, unknown: 0 });
+      expect(await readdir(dir)).toEqual(['a']);
+      expect(log.error).toHaveBeenCalled();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
