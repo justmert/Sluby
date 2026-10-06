@@ -63,7 +63,7 @@ export async function playAsset(video, client, assetId, options = {}) {
     return { hls, delivery, destroy: () => hls.destroy() };
   }
 
-  // safari on ios has no media source extensions, but plays hls natively. a
+  // iphones without managedmediasource cannot run hls.js, but play hls natively. a
   // custom loader cannot run there, so bytes always come from the gateway.
   if (video.canPlayType('application/vnd.apple.mpegurl')) {
     video.src = url;
