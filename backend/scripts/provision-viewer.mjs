@@ -17,7 +17,7 @@
 // ---------------------------------------------------------------------------
 
 import crypto from 'node:crypto';
-import siaPkg from 'sia-storage';
+import siaPkg from '@siafoundation/sia-storage';
 
 const { initSia, Builder, generateRecoveryPhrase } = siaPkg;
 

@@ -29,112 +29,23 @@
 
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
-import { initSia, AppKey, Builder, setLogger } from 'sia-storage';
+import { initSia, AppKey, Builder, setLogger } from '@siafoundation/sia-storage';
+import type {
+  Account,
+  DownloadOptions,
+  Host,
+  ObjectEvent,
+  ObjectsCursor,
+  PackedUploadOptions,
+  PinnedObject as SdkPinnedObject,
+  Sdk,
+  Slab,
+} from '@siafoundation/sia-storage';
 import type { ObjectSnapshot } from './sia-breakdown.js';
 import { siaUploadDurationSeconds } from '../metrics/collector.js';
 
-// sia-storage 0.0.8 has a packaging quirk: its `exports` map puts the
-// `types` key at the root of the conditional fork instead of inside the
-// "node" branch, so TypeScript reads the WASM-shaped declarations even
-// though Node loads the NAPI binary. The runtime contract is the one
-// in `dist/index.node.d.ts`. We declare the subset we use locally.
-type Buf = Buffer;
-interface NapiAppMetadata {
-  id: Buf;
-  name: string;
-  description: string;
-  serviceUrl: string;
-  logoUrl?: string;
-  callbackUrl?: string;
-}
-interface NapiPinnedSector {
-  root: string;
-  hostKey: string;
-}
-interface NapiSlab {
-  encryptionKey: Buf;
-  minShards: number;
-  sectors: NapiPinnedSector[];
-  offset: number;
-  length: number;
-}
-interface NapiPinnedObject {
-  id(): string;
-  size(): bigint;
-  encodedSize(): bigint;
-  slabs(): NapiSlab[];
-  createdAt(): Date;
-  updatedAt(): Date;
-}
-interface NapiPackedUpload {
-  add(stream: ReadableStream<Uint8Array>): Promise<bigint>;
-  finalize(): Promise<NapiPinnedObject[]>;
-}
-interface NapiUploadOptions {
-  dataShards?: number;
-  parityShards?: number;
-}
-interface NapiDownloadOptions {
-  offset?: bigint;
-  length?: bigint;
-}
-interface NapiAccount {
-  accountKey: string;
-  ready: boolean;
-  maxPinnedData: bigint;
-  remainingStorage: bigint;
-  pinnedData: bigint;
-  pinnedSize: bigint;
-  app: { id: string; name: string };
-  lastUsed: Date;
-}
-interface NapiHost {
-  publicKey: string;
-  countryCode: string;
-  latitude: number;
-  longitude: number;
-  goodForUpload: boolean;
-}
-/** A single entry from the indexer's object change feed. */
-interface NapiObjectEvent {
-  readonly id: string;
-  readonly deleted: boolean;
-  readonly updatedAt: Date;
-}
-/** Cursor to resume the object change feed after a given event. */
-interface NapiObjectsCursor {
-  id: string;
-  after: Date;
-}
-interface NapiSdk {
-  uploadPacked(options?: NapiUploadOptions): NapiPackedUpload;
-  pinObject(object: NapiPinnedObject): Promise<void>;
-  object(key: string): Promise<NapiPinnedObject>;
-  download(object: NapiPinnedObject, options?: NapiDownloadOptions): ReadableStream<Uint8Array>;
-  objectEvents(cursor: NapiObjectsCursor | null, limit: number): Promise<NapiObjectEvent[]>;
-  deleteObject(key: string): Promise<void>;
-  pruneSlabs(): Promise<void>;
-  account(): Promise<NapiAccount>;
-  hosts(): Promise<NapiHost[]>;
-  // Mints a public, time-limited sia:// URL that carries the object's
-  // decryption key in its fragment. Local signing, no host round-trip.
-  shareObject(object: NapiPinnedObject, validUntil: Date): string;
-}
-interface NapiBuilder {
-  connected(appKey: NapiAppKey): Promise<NapiSdk | null>;
-}
-interface NapiAppKey {
-  publicKey(): string;
-  export(): Buf;
-}
-
-// Casts here, not at every call site downstream. Constructors come from
-// the package; we just retype the surface to the NAPI shape.
-const NapiAppKeyCtor = AppKey as unknown as new (key: Buf) => NapiAppKey;
-const NapiBuilderCtor = Builder as unknown as new (
-  indexerUrl: string,
-  appMeta: NapiAppMetadata,
-) => NapiBuilder;
+// the sdk's node entry ships its own declarations (the backend resolves them
+// through the "node" export condition, see customConditions in tsconfig)
 
 // ---------------------------------------------------------------------------
 // Public types (kept identical to the previous shape so the rest of
@@ -184,10 +95,10 @@ const APP_META = {
   serviceUrl: env.PUBLIC_URL,
 };
 
-let sdkPromise: Promise<NapiSdk> | null = null;
+let sdkPromise: Promise<Sdk> | null = null;
 
 /** Initialises sia-storage + connects to indexd. Idempotent. */
-export function getClient(): Promise<NapiSdk> {
+export function getClient(): Promise<Sdk> {
   if (!sdkPromise) {
     sdkPromise = (async () => {
       logger.info({ indexer: env.SIA_INDEXER_URL }, 'Connecting to indexd via sia-storage SDK');
@@ -197,8 +108,8 @@ export function getClient(): Promise<NapiSdk> {
       // rest of the backend.
       setLogger((msg) => logger.debug({ src: 'sia-storage' }, msg), 'debug');
 
-      const appKey = new NapiAppKeyCtor(Buffer.from(env.SIA_APP_KEY, 'hex'));
-      const builder = new NapiBuilderCtor(env.SIA_INDEXER_URL, APP_META);
+      const appKey = new AppKey(Buffer.from(env.SIA_APP_KEY, 'hex'));
+      const builder = new Builder(env.SIA_INDEXER_URL, APP_META);
       const sdk = await builder.connected(appKey);
       if (!sdk) {
         throw new Error(
@@ -310,7 +221,7 @@ export async function getHostContracts(): Promise<Map<string, string[]> | null> 
 // Slab/object adapters
 // ---------------------------------------------------------------------------
 
-function adaptSlabs(slabs: NapiSlab[], hostContracts: Map<string, string[]>): RawSlab[] {
+function adaptSlabs(slabs: Slab[], hostContracts: Map<string, string[]>): RawSlab[] {
   return slabs.map((slab) => ({
     minShards: slab.minShards,
     sectors: slab.sectors.map((sec) => {
@@ -320,7 +231,7 @@ function adaptSlabs(slabs: NapiSlab[], hostContracts: Map<string, string[]>): Ra
   }));
 }
 
-function adaptObject(obj: NapiPinnedObject, hostContracts: Map<string, string[]>): PinnedObject {
+function adaptObject(obj: SdkPinnedObject, hostContracts: Map<string, string[]>): PinnedObject {
   // Snapshot the SDK fields once — calling them across an async boundary
   // re-acquires the inner mutex on every call.
   const id = obj.id();
@@ -357,7 +268,7 @@ function bytesToStream(data: Uint8Array): ReadableStream<Uint8Array> {
  * a mainnet / sia.storage upload fail immediately with "cannot add object to a
  * finalized upload".
  */
-function erasureOptions(): NapiUploadOptions | undefined {
+function erasureOptions(): PackedUploadOptions | undefined {
   if (env.SIA_DATA_SHARDS != null && env.SIA_PARITY_SHARDS != null) {
     return { dataShards: env.SIA_DATA_SHARDS, parityShards: env.SIA_PARITY_SHARDS };
   }
@@ -535,7 +446,7 @@ export async function inspectObject(objectId: string): Promise<ObjectSnapshot> {
 export async function shareObjectUrl(objectId: string, validUntil: Date): Promise<string> {
   const sdk = await getClient();
   const obj = await sdk.object(objectId);
-  return sdk.shareObject(obj, validUntil);
+  return sdk.objectShareUrl(obj, validUntil);
 }
 
 // ---------------------------------------------------------------------------
@@ -580,9 +491,18 @@ export interface IndexerHost {
   goodForUpload: boolean;
 }
 
+// the indexer pages its host list; one call only returns the first page
+const HOST_PAGE_SIZE = 100;
+const HOST_PAGE_LIMIT = 100;
+
 export async function listHosts(): Promise<IndexerHost[]> {
   const sdk = await getClient();
-  const hosts = await sdk.hosts();
+  const hosts: Host[] = [];
+  for (let page = 0; page < HOST_PAGE_LIMIT; page++) {
+    const batch = await sdk.hosts({ limit: HOST_PAGE_SIZE, offset: page * HOST_PAGE_SIZE });
+    hosts.push(...batch);
+    if (batch.length < HOST_PAGE_SIZE) break;
+  }
   return hosts.map((h) => ({
     publicKey: h.publicKey,
     countryCode: h.countryCode,

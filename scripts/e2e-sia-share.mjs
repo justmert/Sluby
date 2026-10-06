@@ -22,7 +22,7 @@
 //   SIA_E2E_VIEWER_APP_KEY  viewer app key (hex), from provision-viewer
 // ---------------------------------------------------------------------------
 
-import siaPkg from 'sia-storage';
+import siaPkg from '@siafoundation/sia-storage';
 
 const { initSia, AppKey, Builder } = siaPkg;
 
@@ -112,7 +112,7 @@ async function main() {
   const resolveText = async (objectId) => {
     const shareUrl = shares[objectId];
     if (!shareUrl) throw new Error(`no share URL for ${objectId}`);
-    const obj = await sdk.sharedObject(shareUrl);
+    const obj = await sdk.objectFromShareUrl(shareUrl);
     return new TextDecoder().decode(await drain(sdk.download(obj)));
   };
 
@@ -128,7 +128,7 @@ async function main() {
   if (!dataId) throw new Error('no data object in the variant');
 
   const range = firstByteRange(variantText);
-  const dataObj = await sdk.sharedObject(shares[dataId]);
+  const dataObj = await sdk.objectFromShareUrl(shares[dataId]);
   const bytes = await drain(
     range
       ? sdk.download(dataObj, { offset: BigInt(range.offset), length: BigInt(range.length) })

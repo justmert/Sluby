@@ -3,7 +3,7 @@
 **Decentralized video streaming on Sia.**
 
 Sluby takes a source video, transcodes it into adaptive HLS, stores every
-segment on the [Sia network](https://sia.tech) via the `sia-storage` SDK, and
+segment on the [Sia network](https://sia.tech) via the official `@siafoundation/sia-storage` SDK, and
 serves playback through a byte-range aware HTTP gateway with an Nginx on-disk
 proxy cache in front.
 
@@ -51,7 +51,7 @@ proxy is on `http://localhost:80`.
 
 Before the first upload, the backend needs a `SIA_APP_ID` / `SIA_APP_KEY`
 pair that registers the platform with your `indexd` instance. You produce
-these once through the `sia-storage` connect/register flow: mint a connect
+these once through the SDK's connect/register flow: mint a connect
 key on indexd's admin API (`POST /api/apps/connect/keys`), approve the
 connection request, and export the resulting AppKey. Put both values in
 `.env` and restart the backend, which re-attaches to indexd on startup.
@@ -192,7 +192,7 @@ Programmatic calls authenticate with a `Bearer` API key; each key carries
 ```
 
 Upload path: TUS server buffers the source, FFmpeg produces HLS renditions,
-each output artifact is pushed to Sia through `sia-storage`, and the resulting
+each output artifact is pushed to Sia through `@siafoundation/sia-storage`, and the resulting
 object references are persisted in Postgres. BullMQ (backed by Redis) drives
 the transcode queue.
 
@@ -259,7 +259,7 @@ fallback).
 ## Project layout
 
 ```
-backend/       Node.js backend (Express + BullMQ + Drizzle + sia-storage SDK)
+backend/       Node.js backend (Express + BullMQ + Drizzle + @siafoundation/sia-storage)
 frontend/      Studio (Vite + React + shadcn/ui)
 packages/sdk/     @sluby/sdk     TypeScript API client
 packages/player/  @sluby/player  SlubyPlayer + hooks
