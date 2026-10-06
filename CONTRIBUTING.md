@@ -100,6 +100,20 @@ Run Prettier and ESLint from the repository root so they pick up the shared conf
 - Commit messages are a short, plain, one-line summary of the change, like the ones already in `git log`.
 - Keep CI green. A reviewer merges once it is.
 
+## Releasing
+
+`@sluby/sdk` and `@sluby/player` are published to npm by `.github/workflows/release.yml` when a tag is pushed. npm authenticates the workflow through [trusted publishing](https://docs.npmjs.com/trusted-publishers), so there is no npm token in the repository, and every release gets a provenance attestation.
+
+One-time setup, per package, on npmjs.com under the package's settings: add a trusted publisher for GitHub Actions with the repository owner `justmert`, repository `Sluby` and workflow filename `release.yml`.
+
+To release a package:
+
+1. Bump `version` in its `package.json` and move the `Unreleased` notes in its `CHANGELOG.md` under that version.
+2. Run `npm run check:packages`. It packs both packages the way `npm publish` does and checks the tarballs with attw and publint.
+3. Merge, then tag the merge commit and push the tag: `sdk-v<version>` for the SDK, `player-v<version>` for the player.
+
+The workflow refuses to publish when the tag does not match the version in `package.json`.
+
 ## License
 
 Sluby is licensed under the [Apache License 2.0](./LICENSE). By submitting a contribution you agree that it is licensed under the same terms, as section 5 of the license describes.

@@ -1,0 +1,61 @@
+name: Release
+
+# publishes one package when its tag is pushed: sdk-v0.2.0 publishes @sluby/sdk
+# 0.2.0, player-v0.2.0 publishes @sluby/player 0.2.0. npm authenticates this
+# workflow through trusted publishing (oidc), so there is no npm token secret,
+# and it attaches a provenance attestation to each release on its own.
+
+on:
+  push:
+    tags:
+      - 'sdk-v*'
+      - 'player-v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          # no dependency cache in a publishing job, so a poisoned cache
+          # cannot end up in a release
+          package-manager-cache: false
+
+      - name: Match the tag to a package
+        id: pkg
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in
+            sdk-v*) name=@sluby/sdk; dir=packages/sdk; version="${tag#sdk-v}" ;;
+            player-v*) name=@sluby/player; dir=packages/player; version="${tag#player-v}" ;;
+          esac
+          actual=$(node -p "require('./$dir/package.json').version")
+          if [ "$actual" != "$version" ]; then
+            echo "tag $tag says $version but $dir/package.json is $actual" >&2
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck and test
+        run: |
+          npm run typecheck
+          npm test --workspace=${{ steps.pkg.outputs.name }}
+
+      - name: Check the packed tarballs
+        run: npm run check:packages
+
+      # prepack builds the package and copies LICENSE and NOTICE into it
+      - name: Publish
+        run: npm publish --workspace=${{ steps.pkg.outputs.name }}
