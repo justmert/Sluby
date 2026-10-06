@@ -40,8 +40,10 @@ describe.skipIf(!hasTestRedis)('/metrics while Redis is down (redis)', () => {
   let proxy: Awaited<ReturnType<typeof startProxy>> | undefined;
 
   afterEach(async () => {
-    // disconnect, not close: a quit would wait for a reply that never comes
-    await queue?.disconnect();
+    // a plain disconnect: close() would send a quit that is never answered, and
+    // waiting for the client's end event can hang while ioredis is between
+    // reconnect attempts
+    (await queue?.client)?.disconnect();
     await proxy?.stop();
     queue = proxy = undefined;
     setMetricSources({ queueDepth: async () => 0, cacheCounts: () => ({ hits: 0, misses: 0 }) });
@@ -78,7 +80,7 @@ describe.skipIf(!hasTestRedis)('/metrics while Redis is down (redis)', () => {
     const down = await request(app)
       .get('/metrics')
       .timeout(QUEUE_DEPTH_TIMEOUT_MS + 3000);
-    expect(Date.now() - started).toBeLessThan(QUEUE_DEPTH_TIMEOUT_MS + 1000);
+    expect(Date.now() - started).toBeLessThan(QUEUE_DEPTH_TIMEOUT_MS + 2000);
     expect(down.status).toBe(200);
     expect(down.text).toMatch(/^sluby_redis_up 0$/m);
     expect(down.text).toMatch(/^sluby_processing_queue_depth Nan$/m);

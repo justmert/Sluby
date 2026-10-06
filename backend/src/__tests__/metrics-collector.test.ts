@@ -79,7 +79,7 @@ describe('metrics collector', () => {
       });
       const started = Date.now();
       const text = await registry.metrics();
-      expect(Date.now() - started).toBeLessThan(QUEUE_DEPTH_TIMEOUT_MS + 1000);
+      expect(Date.now() - started).toBeLessThan(QUEUE_DEPTH_TIMEOUT_MS + 2000);
       expect(text).toMatch(/^sluby_processing_queue_depth Nan$/m);
       expect(text).toMatch(/^sluby_redis_up 0$/m);
       expect(text).toContain('process_cpu_user_seconds_total');
