@@ -12,7 +12,7 @@ flowchart TB
   end
   subgraph sluby [Sluby]
     api["/api/v1"]
-    gw["/v1/objects, /v1/stream"]
+    gw["/v1/objects, /v1/stream, /v1/share"]
   end
   subgraph browser [Viewer browser]
     player["@sluby/player"]
@@ -20,7 +20,7 @@ flowchart TB
   sdk -- "uploads, playback URLs, signed URLs" --> api
   api -- "asset.ready, asset.errored" --> hook
   sdk -. "playback URL or signed URL" .-> player
-  player -- "manifests and segments" --> gw
+  player -- "manifests and segments, or a share map" --> gw
 ```
 
 ## Server-side upload with a secret key
@@ -169,7 +169,7 @@ export function Watch({
 }
 ```
 
-`playbackUrl` points at the master manifest on the gateway (`/v1/objects/{id}?type=manifest`, made absolute with `deliveryBaseUrl`), and every object of a public asset is served without credentials. An alternative is a playback id: create one with `POST /api/v1/assets/:id/playback-ids` (scope `manage`, body `{ "policy": "public" }`) and use `https://video.example.com/v1/stream/{playback_id}/master.m3u8` as `src`. Deleting the playback id later stops that URL, but not the asset's object URLs.
+`playbackUrl` points at the master manifest on the gateway (`/v1/objects/{id}?type=manifest`, made absolute with `deliveryBaseUrl`), and every object of a public asset is served without credentials. An alternative is a playback id: create one with `POST /api/v1/assets/:id/playback-ids` (scope `manage`, body `{ "policy": "public" }`) and use `https://video.example.com/v1/stream/{playback_id}/master.m3u8` as `src`. Deleting the playback id later stops that URL, but not the asset's object URLs. `sluby.playback.streamUrl(id)` builds that kind of URL (for an asset id or a playback id) without a request.
 
 The player uses the browser's native HLS when hls.js is not supported (no Media Source Extensions) and the browser can play HLS itself, and retries network errors up to `maxNetworkRetries` times (3 by default) before it shows an error with a Retry button.
 
@@ -218,18 +218,33 @@ export function LibraryPlayer({ assetId }: { assetId: string }) {
 }
 ```
 
-Add `signed` (and optionally `expiresIn`) to have the player request a signed URL instead. Do not put an API key in a public page's bundle to make this work: a `read` key lists and reads the whole account's library.
+Add `signed` (and optionally `expiresIn`) to have the player request a signed URL instead. Do not put an API key in a public page's bundle to make this work: a `read` key lists and reads the whole account's library. A public page does not need one, direct from Sia included; see the next section.
 
 ### Direct from Sia or through the gateway
 
 The `sia` option above turns on direct-from-Sia playback: the player streams playlists and segments from Sia hosts with the viewer app key, and the backend only mints a share map per playback (see [Playback](./playback#the-direct-from-sia-path)). Without `sia`, or when hls.js is unavailable or the Sia session cannot start, it uses the gateway.
 
+A public page plays direct from Sia with no API key: give the player the playback URL, the asset id and a keyless client with the viewer identity. The share map then comes from the public `GET /v1/share/:id`, gated like the gateway by the URL's own signature.
+
+```tsx
+const viewer = new SlubyClient({
+  baseUrl: 'https://video.example.com',
+  sia: { indexerUrl, appId, appKey },
+});
+
+// public asset: the stream url, built without a request
+<SlubyPlayer src={viewer.playback.streamUrl(assetId)} client={viewer} assetId={assetId} />
+
+// private asset: the signed url your server minted for this viewer
+<SlubyPlayer src={signedUrl} client={viewer} assetId={assetId} />
+```
+
 Things to weigh:
 
 - **Egress.** On the gateway, the backend downloads from hosts with its own indexer account, and the nginx and memory caches absorb repeat requests for manifests and thumbnails. Direct, every viewer downloads every segment from hosts with the viewer app, and that app's account pays the egress; there is no shared cache.
 - **Your bandwidth.** The gateway sends every media byte through your server. Direct playback sends none.
-- **Credentials.** The share map comes from `/api/v1/playback/:id/share`, which needs `read` scope on the asset's owner, the same as the `client` and `assetId` pattern above. A public page without credentials uses the gateway.
-- **Access control.** Share URLs are bearer capabilities: whoever has one can download that object until it expires (at most 1 hour for private or signed assets, 6 hours otherwise). The gateway checks every request.
+- **Credentials.** None in the browser. With `src`, the share map comes from `/v1/share/:id`, which asks for nothing on a public asset and for the signed URL's `expires` and `sig` on a private one. Only the `client` and `assetId` pattern without `src` uses `/api/v1/playback/:id/share`, which needs `read` scope on the asset's owner.
+- **Access control.** Share URLs are bearer capabilities: whoever has one can download that object until it expires (at most 1 hour for private or signed assets, 6 hours otherwise, and never past a signed URL's expiry). The gateway checks every request.
 - **Weight.** Direct playback loads about 1.7 MB of WASM on first use and needs hls.js, so browsers that only play HLS natively use the gateway.
 
 `onDeliveryChange` tells you which path each load took.

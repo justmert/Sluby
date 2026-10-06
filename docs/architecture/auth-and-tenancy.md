@@ -68,10 +68,10 @@ Ownership is also enforced where data enters and leaves:
 
 - **Uploads** take the owner from the authenticated identity, never from client metadata, and tus requests on another tenant's upload get a 404.
 - **Webhooks** are delivered only to endpoints whose `creator_address` matches the asset's owner.
-- **Playback endpoints** under `/api/v1/playback` are owner-scoped, so minting a signed URL or a share map requires a credential of the asset's owner.
+- **Playback endpoints** under `/api/v1/playback` are owner-scoped, so minting a signed URL, or a share map through the API, requires a credential of the asset's owner. The public `/v1/share/:id` hands out a share map with no identity, under the same gate as the delivery gateway (see below).
 
 Some things are deliberately not per tenant:
 
-- **The delivery gateway** (`/v1/objects`, `/v1/stream`) has no identity at all. Public objects are served to anyone with the id, and private ones to anyone with a valid signature.
+- **The delivery gateway** (`/v1/objects`, `/v1/stream`, `/v1/share`) has no identity at all. Public objects, and public assets' share maps, are served to anyone with the id, and private ones to anyone with a valid signature.
 - **Reconciliation** is global: a run covers every tenant's objects, and any identity with `manage` can read the latest run and trigger one (only one run is ever pending). The counts and status are deployment-wide, but the object ids are scoped: a tenant gets only the missing ids of its own assets and no orphaned ids, and only the platform identity gets the full lists (see [what each caller sees](./deletion-and-reconciliation#what-each-caller-sees)).
 - **System status** (`GET /api/v1/system/status`, scope `read`) reports the shared indexer account, hosts and caches. `GET /api/v1/stats` is owner-scoped.
