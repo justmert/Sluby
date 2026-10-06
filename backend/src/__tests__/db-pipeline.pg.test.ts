@@ -296,6 +296,37 @@ describe.skipIf(!hasTestDatabase)('pipeline record queries (postgres)', () => {
         '/u/cancelled': 'cancelled',
       });
     });
+
+    it('forgets the sessions of deleted assets once their files are gone', async () => {
+      const session = (filePath: string, videoAssetId: string) =>
+        uploads.createUploadSession({
+          uploadUrl: 'https://x/api/v1/uploads/s',
+          filePath,
+          fileSize: 1,
+          videoAssetId,
+        });
+      const live = await newAsset();
+      const deletedA = await newAsset();
+      const deletedB = await newAsset();
+      const deletedC = await newAsset();
+      await session('/u/live', live.id);
+      await session('/u/removed', deletedA.id);
+      await session('/u/still-on-disk', deletedB.id);
+      await session('', deletedC.id);
+      for (const a of [deletedA, deletedB, deletedC]) {
+        await tdb.sql`delete from video_assets where id = ${a.id}`;
+      }
+
+      // the sweep lists what is still in UPLOAD_DIR
+      expect(await uploads.deleteDetachedUploadSessions(['/u/live', '/u/still-on-disk'])).toBe(2);
+
+      const left = await tdb.sql<{ file_path: string }[]>`
+        select file_path from upload_sessions order by file_path
+      `;
+      // a live asset's session stays whatever is on disk; a deleted asset's
+      // stays while its file does, so the sweep can still remove it
+      expect(left.map((r) => r.file_path)).toEqual(['/u/live', '/u/still-on-disk']);
+    });
   });
 
   describe('processing jobs', () => {

@@ -376,15 +376,25 @@ describe('sweepFinishedSources', () => {
         [`${dir}/cancelled`, 'cancelled'],
       ]);
       const asked: string[][] = [];
+      const stillOnDisk: string[][] = [];
       const result = await sweepFinishedSources({
         uploadDir: dir,
         states: async (paths) => {
           asked.push(paths);
           return states;
         },
+        forgetDetached: async (paths) => {
+          stillOnDisk.push(paths);
+          return 4;
+        },
         log: silentLog(),
       });
-      expect(result).toEqual({ removed: 2, unknown: 1 });
+      expect(result).toEqual({ removed: 2, unknown: 1, forgotten: 4 });
+      // the sessions of deleted assets go once their files are gone, so the
+      // ones removed just now are not in the list of files still there
+      expect(stillOnDisk[0].sort()).toEqual(
+        ['cancelled', 'failed', 'unknown'].map((n) => `${dir}/${n}`).sort(),
+      );
       // only data files are looked up, never the json sidecars
       expect(asked[0].sort()).toEqual(names.map((n) => `${dir}/${n}`).sort());
       expect((await readdir(dir)).sort()).toEqual(
@@ -405,10 +415,44 @@ describe('sweepFinishedSources', () => {
         states: async () => {
           throw new Error('db down');
         },
+        forgetDetached: vi.fn(),
         log,
       });
-      expect(result).toEqual({ removed: 0, unknown: 0 });
+      expect(result).toEqual({ removed: 0, unknown: 0, forgotten: 0 });
       expect(await readdir(dir)).toEqual(['a']);
+      expect(log.error).toHaveBeenCalled();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('forgets no session when the upload directory cannot be listed', async () => {
+    const forgetDetached = vi.fn();
+    const log = silentLog();
+    const result = await sweepFinishedSources({
+      uploadDir: path.join(tmpdir(), 'sluby-sweep-missing-dir'),
+      states: async () => new Map(),
+      forgetDetached,
+      log,
+    });
+    expect(result).toEqual({ removed: 0, unknown: 0, forgotten: 0 });
+    // with no listing, every session would look like its file is gone
+    expect(forgetDetached).not.toHaveBeenCalled();
+  });
+
+  it('logs and carries on when forgetting sessions fails', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'sluby-sweep-'));
+    try {
+      const log = silentLog();
+      const result = await sweepFinishedSources({
+        uploadDir: dir,
+        states: async () => new Map(),
+        forgetDetached: async () => {
+          throw new Error('db down');
+        },
+        log,
+      });
+      expect(result).toEqual({ removed: 0, unknown: 0, forgotten: 0 });
       expect(log.error).toHaveBeenCalled();
     } finally {
       await rm(dir, { recursive: true, force: true });

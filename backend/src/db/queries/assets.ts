@@ -13,7 +13,13 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import { videoAssets, artifacts, type VideoAsset, type NewVideoAsset } from '../schema.js';
+import {
+  videoAssets,
+  artifacts,
+  uploadSessions,
+  type VideoAsset,
+  type NewVideoAsset,
+} from '../schema.js';
 import { decodeCursor, paginateRows } from '../../api/pagination.js';
 import { collectAssetObjectIds } from '../../deletion/collect.js';
 import { isDefaultAssetOrder, type AssetSortField, type SortOrder } from '../../api/asset-sort.js';
@@ -237,20 +243,35 @@ export async function updateAssetMetadata(
  * artifacts, jobs, and playback ids). Used by the deletion worker AFTER the
  * asset's Sia objects have been unpinned; API callers use
  * {@link softDeleteVideoAsset} instead.
+ *
+ * Its upload sessions stay (the foreign key clears their link) because the
+ * source sweep finds a leftover file through them, but their tus metadata,
+ * which holds the title and the owner, goes with the asset. The sweep deletes
+ * the session once the file is gone (deleteDetachedUploadSessions).
  */
 export async function deleteVideoAsset(
   id: string,
   owner?: string,
 ): Promise<VideoAsset | undefined> {
-  const [deleted] = await db
-    .delete(videoAssets)
-    .where(
-      owner !== undefined
-        ? and(eq(videoAssets.id, id), eq(videoAssets.creatorAddress, owner))
-        : eq(videoAssets.id, id),
-    )
-    .returning();
-  return deleted;
+  return db.transaction(async (tx) => {
+    const [target] = await tx
+      .select({ id: videoAssets.id })
+      .from(videoAssets)
+      .where(
+        owner !== undefined
+          ? and(eq(videoAssets.id, id), eq(videoAssets.creatorAddress, owner))
+          : eq(videoAssets.id, id),
+      )
+      .for('update');
+    if (!target) return undefined;
+    // while the link still says which sessions were this asset's
+    await tx
+      .update(uploadSessions)
+      .set({ metadata: {} })
+      .where(eq(uploadSessions.videoAssetId, id));
+    const [deleted] = await tx.delete(videoAssets).where(eq(videoAssets.id, id)).returning();
+    return deleted;
+  });
 }
 
 /**

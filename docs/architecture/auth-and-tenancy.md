@@ -45,7 +45,7 @@ The signature only proves the cookie came from this server. On every request the
 - `GET /api/v1/auth/sessions` lists the user's live sessions, `DELETE /api/v1/auth/sessions/:id` ends one, and `DELETE /api/v1/auth/sessions` ends all of them. The Studio shows these under Settings, Sessions.
 - Taking a login off `GITHUB_ALLOWED_USERS` ends that person's sessions on their next request.
 
-Ended sessions are deleted 30 days after they expire or are revoked, when the same login next signs in. Changing `SESSION_SECRET` ends every session at once, and also invalidates every signed playback URL, since both are signed with it.
+Ended sessions are deleted 30 days after they expire or are revoked: when the same login next signs in, and for every login by an hourly sweep in the backend. Changing `SESSION_SECRET` ends every session at once, and also invalidates every signed playback URL, since both are signed with it.
 
 With `GITHUB_ALLOWED_USERS` empty, any GitHub account can sign in and gets its own empty library; the backend logs a warning at startup. There are no per-account limits on how many videos an account uploads, how much it stores on Sia or how many transcodes it queues, only `MAX_UPLOAD_SIZE` per file, so an open Studio needs limits of its own (or an allowlist) before it faces the internet.
 

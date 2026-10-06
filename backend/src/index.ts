@@ -14,7 +14,9 @@ import { closeWorkers } from './queue/processors.js';
 import { createApp } from './app.js';
 import { sweepExpiredUploads, UPLOAD_SWEEP_INTERVAL_MS } from './upload/upload-store.js';
 import { sweepFinishedSources } from './upload/source-files.js';
-import { sourceFileStates } from './db/queries/uploads.js';
+import { sourceFileStates, deleteDetachedUploadSessions } from './db/queries/uploads.js';
+import { pruneEndedStudioSessions } from './db/queries/sessions.js';
+import { ENDED_SESSION_RETENTION_MS } from './api/routes/auth.js';
 import { BOOTSTRAP_CREATOR_ADDRESS, seedBootstrapApiKey } from './db/api-key-seeding.js';
 import { getClient } from './storage/sia-client.js';
 import {
@@ -119,7 +121,8 @@ scheduleDeletionGc().catch((err) => {
 
 // Sweep incomplete tus uploads past their expiry, now and then every hour.
 // A timer in this process rather than a queue job, because the files live on
-// this process's UPLOAD_DIR.
+// this process's UPLOAD_DIR. The same hour prunes ended Studio sessions, which
+// sign-in prunes only for the login signing in.
 const sweepUploads = async () => {
   await sweepExpiredUploads(tusServer, logger);
   // the rows of those uploads: failed sessions, and no empty assets left behind
@@ -129,11 +132,20 @@ const sweepUploads = async () => {
   await sweepFinishedSources({
     uploadDir: env.UPLOAD_DIR,
     states: sourceFileStates,
+    forgetDetached: deleteDetachedUploadSessions,
     log: logger,
   });
 };
+const pruneSessions = () =>
+  pruneEndedStudioSessions(new Date(Date.now() - ENDED_SESSION_RETENTION_MS)).catch((err) =>
+    logger.warn({ err }, 'Could not prune ended Studio sessions'),
+  );
 void sweepUploads();
-const uploadSweepTimer = setInterval(() => void sweepUploads(), UPLOAD_SWEEP_INTERVAL_MS);
+void pruneSessions();
+const uploadSweepTimer = setInterval(() => {
+  void sweepUploads();
+  void pruneSessions();
+}, UPLOAD_SWEEP_INTERVAL_MS);
 uploadSweepTimer.unref();
 
 const server = app.listen(env.PORT, env.HOST, () => {
