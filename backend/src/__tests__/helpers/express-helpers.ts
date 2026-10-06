@@ -1,6 +1,7 @@
 /**
  * Test helpers for Express route testing.
- * Creates a minimal Express app with error handling for route tests.
+ * Mounts a router behind the app's real 404 and error handlers, so route
+ * tests see the same status codes and bodies the running server sends.
  */
 import 'express-async-errors';
 import express, {
@@ -10,26 +11,23 @@ import express, {
   type Response,
   type NextFunction,
 } from 'express';
-import { AppError } from '../../api/middleware/error-handler.js';
+import pino from 'pino';
+import { createErrorHandler, notFoundHandler } from '../../api/middleware/error-handler.js';
+
+// the real handler logs every error; keep test output readable
+const silentLogger = pino({ level: 'silent' });
 
 /**
- * Creates a test Express app with the given router and an error handler.
- * Uses express-async-errors to catch async route handler errors.
+ * Creates a test Express app with the given router, the app's 404 handler
+ * and its error handler. express-async-errors forwards rejected async
+ * handlers to it, as in the app.
  */
 export function createTestApp(router: Router, basePath = '/'): Express {
   const app = express();
   app.use(express.json());
   app.use(basePath, router);
-
-  // Error handler that mimics the real one
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof AppError) {
-      res.status(err.statusCode).json({ error: err.message, details: err.details });
-      return;
-    }
-    res.status(500).json({ error: 'Internal server error' });
-  });
-
+  app.use(notFoundHandler);
+  app.use(createErrorHandler(silentLogger));
   return app;
 }
 
