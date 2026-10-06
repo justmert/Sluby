@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sluby plain JavaScript example</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 640px;
+        margin: 40px auto;
+        padding: 0 16px;
+      }
+      section {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 16px;
+        margin-top: 16px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        color: #444;
+        margin: 8px 0 4px;
+      }
+      input[type='text'],
+      input[type='password'],
+      select {
+        width: 100%;
+        padding: 8px;
+        box-sizing: border-box;
+        font-size: 14px;
+      }
+      video {
+        width: 100%;
+        background: #000;
+      }
+      progress {
+        width: 100%;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-top: 8px;
+      }
+      .muted {
+        color: #666;
+        font-size: 13px;
+      }
+      #error {
+        background: #fee;
+        border: 1px solid #f99;
+        color: #900;
+        padding: 12px;
+        border-radius: 6px;
+        margin-top: 12px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 style="font-size: 20px">Sluby with plain JavaScript</h1>
+    <p class="muted">
+      Upload with <code>@sluby/sdk</code>, wait for processing, and play with hls.js directly.
+    </p>
+    <div id="error" hidden></div>
+
+    <section>
+      <label for="base-url">API base URL</label>
+      <input id="base-url" type="text" />
+      <label for="delivery-url">Delivery base URL (optional, defaults to the API base)</label>
+      <input id="delivery-url" type="text" />
+      <label for="api-key">API key (empty when the base URL is your playback server)</label>
+      <input id="api-key" type="password" />
+      <p class="muted">
+        Direct-from-Sia playback (optional): set all three to stream bytes straight from Sia.
+      </p>
+      <label for="sia-indexer">Sia indexer URL</label>
+      <input id="sia-indexer" type="text" />
+      <label for="sia-app-id">Viewer app id (hex)</label>
+      <input id="sia-app-id" type="text" />
+      <label for="sia-app-key">Viewer app key (hex)</label>
+      <input id="sia-app-key" type="text" />
+    </section>
+
+    <section>
+      <label for="file">Upload a video</label>
+      <input id="file" type="file" accept="video/*" />
+      <label for="tier">Access</label>
+      <select id="tier">
+        <option value="public">public</option>
+        <option value="private">private (plays from a signed URL)</option>
+      </select>
+      <div class="row">
+        <button id="upload" type="button">Upload</button>
+        <button id="pause" type="button" disabled>Pause</button>
+      </div>
+      <progress id="progress" max="100" value="0"></progress>
+      <p id="upload-status" class="muted"></p>
+    </section>
+
+    <section>
+      <label for="asset-id">Asset id</label>
+      <input id="asset-id" type="text" />
+      <div class="row">
+        <label><input id="signed" type="checkbox" /> signed URL</label>
+        <button id="play" type="button">Play</button>
+        <button id="delete" type="button">Delete asset</button>
+      </div>
+      <video id="video" controls playsinline></video>
+      <div class="row">
+        <label for="quality" style="margin: 0">Quality</label>
+        <select id="quality" style="width: auto" disabled></select>
+        <span id="delivery" class="muted"></span>
+      </div>
+    </section>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

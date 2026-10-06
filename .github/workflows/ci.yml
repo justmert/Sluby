@@ -102,14 +102,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The example consumes the built packages, so build them first.
+      # The examples consume the built packages, so build them first.
       - name: Build SDK and player
         run: |
           npm run build:sdk
           npm run build:player
 
-      - name: Build example
+      # each build typechecks first (tsc -b for the react app, checkJs over the
+      # browser and node scripts for the plain javascript one)
+      - name: Build React example
         run: npm run build --workspace=@sluby/example-quickstart
+
+      - name: Build plain JavaScript example
+        run: npm run build --workspace=@sluby/example-vanilla
 
   docs-build:
     name: Docs site builds
