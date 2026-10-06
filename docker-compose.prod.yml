@@ -20,6 +20,9 @@ services:
       DATABASE_URL: postgresql://sluby:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/sluby
       NODE_ENV: production
       PUBLIC_URL: https://${DOMAIN:?set DOMAIN in .env}
+      # only the studio's own origin rides the session cookie across origins;
+      # other origins can still call the api with a key
+      CORS_ORIGIN: https://${DOMAIN:?set DOMAIN in .env}
       AUTH_DISABLED: 'false'
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID in .env}

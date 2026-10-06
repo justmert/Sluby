@@ -2,7 +2,8 @@
 
 The production setup is the same Compose stack as the [quickstart](./quickstart) with an override file on top. The override:
 
-- adds [Caddy](https://caddyserver.com) in front of everything. It gets a TLS certificate for your domain from Let's Encrypt and renews it on its own.
+- adds [Caddy](https://caddyserver.com) in front of everything. It gets a TLS certificate for your domain from Let's Encrypt and renews it on its own, and sends `Strict-Transport-Security` so browsers stay on HTTPS. The other security headers (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and the Studio's `Content-Security-Policy`) come from the web container in every setup.
+- sets `CORS_ORIGIN` to `https://$DOMAIN`, so only the Studio's own origin is trusted with the session cookie. Apps on other origins can still call the API with a key.
 - publishes only ports 80 and 443. PostgreSQL, Redis and the web container are reachable only inside the Compose network.
 - runs the backend with `NODE_ENV=production`, which refuses to start with a weak `SESSION_SECRET` or with `AUTH_DISABLED=true`.
 - requires a PostgreSQL password, a session secret, GitHub sign-in and the Sia app identity, and stops with a message naming whichever one is missing.
@@ -151,10 +152,11 @@ If the server already terminates TLS (nginx, Traefik, a cloud load balancer), sk
 ```sh
 NODE_ENV=production
 PUBLIC_URL=https://video.example.com
+CORS_ORIGIN=https://video.example.com
 AUTH_DISABLED=false
 ```
 
-along with `SESSION_SECRET`, `POSTGRES_PASSWORD` and the GitHub settings. Your proxy must pass the original `Host` header and set `X-Forwarded-Proto: https`, so that upload and sign-in URLs come out as `https://`. Allow request bodies of at least 8 MiB, the tus chunk size the Studio uploads with; nginx's default `client_max_body_size` of 1 MB is too small.
+along with `SESSION_SECRET`, `POSTGRES_PASSWORD` and the GitHub settings. Your proxy must pass the original `Host` header and set `X-Forwarded-Proto: https`, so that upload and sign-in URLs come out as `https://`, and set `X-Forwarded-For` to the client's address: the web container takes the client from it because your proxy reaches it from a private address, and the per-client [limits](./configuration#web-proxy) key on it. Allow request bodies of at least 8 MiB, the tus chunk size the Studio uploads with; nginx's default `client_max_body_size` of 1 MB is too small. Send `Strict-Transport-Security` from your proxy, where TLS ends; the web container sends the other security headers.
 
 ## Operating it
 
@@ -171,6 +173,8 @@ docker compose up -d --build
 docker compose exec postgres pg_dump -U sluby sluby | gzip > sluby-$(date +%F).sql.gz
 ```
 
-**Health.** `GET /health` is a liveness check. `GET /api/v1/system/status` reports PostgreSQL, Redis, the indexer account and host counts to a platform key (minted by `npm run db:seed-key --workspace=backend`); other callers, the Studio included, get a health summary without the account, error details or caches. The backend serves Prometheus metrics at `GET /metrics` on port 3000. The web proxy does not expose that path, so scrape it from a container on the Compose network. A scrape answers even while Redis is down: the queue depth read is cut off after 2 seconds, `sluby_redis_up` is then 0 and `sluby_processing_queue_depth` is `NaN`. Cache use is exposed as the counters `sluby_cache_hits_total` and `sluby_cache_misses_total` (whole-object reads only; ranged media reads bypass that cache), so take a rate over a window rather than a ratio since start.
+**Health.** `GET /health` is a liveness check. `GET /api/v1/system/status` reports PostgreSQL, Redis, the indexer account and host counts to a platform key (minted by `npm run db:seed-key --workspace=backend`); other callers, the Studio included, get a health summary without the account, error details or caches. The backend serves Prometheus metrics at `GET /metrics` on port 3000. The web proxy does not expose that path (it answers 404), so scrape it from a container on the Compose network. Set `METRICS_TOKEN` and the endpoint also needs `Authorization: Bearer <token>`, which a Prometheus scrape config sends with `authorization: { credentials: <token> }`; do that whenever port 3000 is reachable from outside the Compose network. A scrape answers even while Redis is down: the queue depth read is cut off after 2 seconds, `sluby_redis_up` is then 0 and `sluby_processing_queue_depth` is `NaN`. Cache use is exposed as the counters `sluby_cache_hits_total` and `sluby_cache_misses_total` (whole-object reads only; ranged media reads bypass that cache), so take a rate over a window rather than a ratio since start.
+
+**Limits.** The web container limits each client address on delivery and sign-in, and the backend limits unauthenticated API calls per address and every key per minute. The defaults are generous; the [configuration reference](./configuration#rate-limits) lists the knobs.
 
 **Volumes.** Every piece of state is in a named volume: `pgdata`, `redis-data`, `uploads`, `transcode-output`, `nginx-cache`, and in production `caddy-data` (certificates) and `caddy-config`. `docker compose down` keeps them; `docker compose down -v` deletes them.
