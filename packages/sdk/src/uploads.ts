@@ -110,6 +110,7 @@ export class UploadManager {
     const withCredentials = this._credentials === 'include';
 
     let paused = false;
+    let aborted = false;
     let headedForMetadata = false;
     let upload!: tus.Upload;
 
@@ -124,7 +125,9 @@ export class UploadManager {
       rejectAssetId = reject;
     });
 
+    let rejectDone!: (err: Error) => void;
     const done = new Promise<void>((resolve, reject) => {
+      rejectDone = reject;
       upload = new tus.Upload(file as tus.Upload['file'], {
         endpoint,
         chunkSize,
@@ -201,7 +204,9 @@ export class UploadManager {
       });
 
       upload.findPreviousUploads().then((previousUploads) => {
-        if (paused) return;
+        // abort() can land before this lookup resolves; starting anyway would
+        // send the whole file after the caller cancelled it
+        if (paused || aborted) return;
         if (previousUploads.length > 0) {
           upload.resumeFromPreviousUpload(previousUploads[0]);
         }
@@ -219,13 +224,23 @@ export class UploadManager {
       await upload.abort(false);
     };
     handle.resume = () => {
-      if (!paused) return;
+      if (!paused || aborted) return;
       paused = false;
       upload.start();
     };
     handle.abort = async () => {
+      if (aborted) return;
+      aborted = true;
       paused = false;
-      await upload.abort(true);
+      try {
+        await upload.abort(true);
+      } finally {
+        // tus fires neither onSuccess nor onError on abort, so settle here or
+        // anyone awaiting the handle waits forever
+        const err = new Error('Upload aborted');
+        if (!assetIdSettled) rejectAssetId(err);
+        rejectDone(err);
+      }
     };
     Object.defineProperty(handle, 'isPaused', {
       get: () => paused,

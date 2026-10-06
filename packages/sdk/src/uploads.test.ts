@@ -231,9 +231,25 @@ describe('UploadManager.upload()', () => {
 
     await handle.abort();
     expect(up.abort).toHaveBeenCalledWith(true);
+    // the handle documents that termination rejects it
+    await expect(handle).rejects.toThrow('Upload aborted');
 
-    (up.options.onSuccess as () => void)();
-    await handle;
+    // a resume after abort must not restart the terminated upload
+    await handle.pause();
+    handle.resume();
+    expect(up.start).toHaveBeenCalledTimes(2);
+  });
+
+  it('abort before the previous-upload lookup resolves never starts the upload', async () => {
+    const handle = make().upload(Buffer.from('data'), { title: 'T' });
+    const up = lastUpload();
+    const settled = expect(handle).rejects.toThrow('Upload aborted');
+    await handle.abort();
+    await flush();
+
+    expect(up.start).not.toHaveBeenCalled();
+    await settled;
+    await expect(handle.assetId).rejects.toThrow('Upload aborted');
   });
 });
 
