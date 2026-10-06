@@ -37,8 +37,8 @@ Thumbs.db
 # media & test fixtures
 *.mp4
 *.pdf
-test/
-test-output/
+/test/
+/test-output/
 
 # vendored binaries
 backend/vendor/
