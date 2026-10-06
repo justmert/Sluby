@@ -69,3 +69,66 @@ export class TimeoutError extends SlubyError {
     this.name = 'TimeoutError';
   }
 }
+
+/**
+ * The typed error for a failed response (401/403, 404, 429, anything else).
+ * Reads the body, so call it only once the response is known to be an error.
+ */
+export async function errorFromResponse(response: Response): Promise<SlubyError> {
+  let responseBody: string | undefined;
+  try {
+    responseBody = await response.text();
+  } catch {
+    // Reading the body may fail; that is acceptable.
+  }
+
+  const message = extractErrorMessage(responseBody, response.statusText);
+
+  switch (response.status) {
+    case 401:
+    case 403:
+      return new AuthenticationError(message, response.status, responseBody);
+    case 404:
+      return new NotFoundError(message, responseBody);
+    case 429:
+      return new RateLimitError(
+        message,
+        parseRetryAfter(response.headers.get('Retry-After')),
+        responseBody,
+      );
+    default:
+      return new SlubyError(message, response.status, responseBody);
+  }
+}
+
+/**
+ * Seconds to wait from a Retry-After header. RFC 9110 allows either a number
+ * of seconds or an HTTP date, and a plain Number() turns the date form into NaN.
+ */
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return undefined;
+  return Math.max(0, Math.ceil((at - Date.now()) / 1000));
+}
+
+/**
+ * Attempt to extract a human-readable error message from the response body
+ * (expecting `{ "error": "..." }` or `{ "message": "..." }`), falling back
+ * to the status text.
+ */
+function extractErrorMessage(responseBody: string | undefined, statusText: string): string {
+  if (responseBody) {
+    try {
+      const json = JSON.parse(responseBody);
+      if (typeof json.error === 'string') return json.error;
+      if (typeof json.message === 'string') return json.message;
+    } catch {
+      // Not JSON -- use the raw text if short enough.
+      if (responseBody.length < 200) return responseBody;
+    }
+  }
+  return statusText || 'Unknown API error';
+}

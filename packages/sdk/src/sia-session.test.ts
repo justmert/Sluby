@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { FetchFn } from './uploads.js';
 
 // Shared mock surface for the (lazily imported) sia-storage WASM SDK.
@@ -29,7 +29,8 @@ vi.mock('@siafoundation/sia-storage', () => {
   return { initSia: h.initSia, AppKey, Builder };
 });
 
-import { SiaSession } from './sia-session.js';
+import { SiaSession, publicShareMapUrl } from './sia-session.js';
+import { AuthenticationError } from './errors.js';
 
 const APP_ID = 'ab'.repeat(32); // 64 hex chars (32 bytes)
 const APP_KEY = 'aabbccdd'.repeat(8); // 64 hex chars -> 32 bytes
@@ -252,5 +253,157 @@ describe('SiaSession.download', () => {
 
     expect(h.download).toHaveBeenCalledWith(obj, { offset: 10, length: 20 });
     expect(stream).toBe('fake-stream');
+  });
+});
+
+describe('publicShareMapUrl', () => {
+  it('maps a public stream url to /v1/share on the same base', () => {
+    expect(publicShareMapUrl('asset-1', 'https://cdn.example/v1/stream/asset-1/master.m3u8')).toBe(
+      'https://cdn.example/v1/share/asset-1',
+    );
+  });
+
+  it('carries only expires and sig from a signed objects url', () => {
+    expect(
+      publicShareMapUrl(
+        'asset-1',
+        'https://cdn.example/v1/objects/abc?type=manifest&expires=1900000000&sig=deadbeef',
+      ),
+    ).toBe('https://cdn.example/v1/share/asset-1?expires=1900000000&sig=deadbeef');
+  });
+
+  it('keeps a path prefix in front of /v1 and encodes the id', () => {
+    expect(
+      publicShareMapUrl('pb_x/y', 'https://example.com/sluby/v1/stream/pb_x/master.m3u8'),
+    ).toBe('https://example.com/sluby/v1/share/pb_x%2Fy');
+  });
+
+  it('throws for a url that is not a gateway playback url', () => {
+    expect(() => publicShareMapUrl('asset-1', 'https://cdn.example/video.m3u8')).toThrow(
+      /not a Sluby gateway playback URL/,
+    );
+  });
+});
+
+describe('SiaSession with a playback url source', () => {
+  const SRC = 'https://cdn.example/v1/stream/pb_abc/master.m3u8?expires=1900000000&sig=feed';
+  const SHARE = 'https://cdn.example/v1/share/asset-1?expires=1900000000&sig=feed';
+
+  function publicSession() {
+    const fetchFn = vi.fn<FetchFn>();
+    const fetchPublic = vi.fn(async (_url: string) =>
+      shareResponse({
+        master_object_id: 'm',
+        shares: { m: 'sia://pub-m#k', d: 'sia://pub-d#k' },
+        expires_at: inAnHour(),
+      }),
+    );
+    const session = new SiaSession(fetchFn, config, {
+      fetchPublic,
+      resolveDeliveryUrl: (p) => (p.startsWith('/') ? `https://cdn.example${p}` : p),
+    });
+    return { session, fetchFn, fetchPublic };
+  }
+
+  it('fetches the public share endpoint, never the api', async () => {
+    const { session, fetchFn, fetchPublic } = publicSession();
+
+    const map = await session.getShareMap('asset-1', { src: SRC });
+
+    expect(fetchPublic).toHaveBeenCalledWith(SHARE);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(map.shares.d).toBe('sia://pub-d#k');
+  });
+
+  it('resolves a relative src against the delivery base', async () => {
+    const { session, fetchPublic } = publicSession();
+
+    await session.getShareMap('asset-1', { src: '/v1/stream/asset-1/master.m3u8' });
+
+    expect(fetchPublic).toHaveBeenCalledWith('https://cdn.example/v1/share/asset-1');
+  });
+
+  it('prepares and resolves objects through the public map', async () => {
+    const { session, fetchFn, fetchPublic } = publicSession();
+
+    await session.prepare('asset-1', { src: SRC });
+    await session.resolveObjectId('asset-1', 'd', { src: SRC });
+
+    expect(fetchPublic).toHaveBeenCalledTimes(1);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(h.sharedObject).toHaveBeenCalledWith('sia://pub-d#k');
+  });
+
+  it('keeps the api map and the public map apart', async () => {
+    const { session, fetchFn, fetchPublic } = publicSession();
+    fetchFn.mockResolvedValue(
+      shareResponse({
+        master_object_id: 'm',
+        shares: { d: 'sia://api-d#k' },
+        expires_at: inAnHour(),
+      }),
+    );
+
+    await session.resolveObjectId('asset-1', 'd', { src: SRC });
+    await session.resolveObjectId('asset-1', 'd');
+
+    expect(fetchPublic).toHaveBeenCalledTimes(1);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(h.sharedObject).toHaveBeenCalledWith('sia://pub-d#k');
+    expect(h.sharedObject).toHaveBeenCalledWith('sia://api-d#k');
+  });
+
+  it('refreshes an expiring public map from the public endpoint', async () => {
+    const { session, fetchFn, fetchPublic } = publicSession();
+    fetchPublic
+      .mockResolvedValueOnce(
+        shareResponse({
+          master_object_id: 'm',
+          shares: { d: 'sia://old#k' },
+          expires_at: new Date(Date.now() - 1000).toISOString(),
+        }),
+      )
+      .mockResolvedValueOnce(
+        shareResponse({
+          master_object_id: 'm',
+          shares: { d: 'sia://new#k' },
+          expires_at: inAnHour(),
+        }),
+      );
+
+    await session.prepare('asset-1', { src: SRC });
+    await session.resolveObjectId('asset-1', 'd', { src: SRC });
+
+    expect(fetchPublic).toHaveBeenCalledTimes(2);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(h.sharedObject).toHaveBeenCalledWith('sia://new#k');
+  });
+});
+
+describe('SiaSession default public fetch', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends no credentials and maps a 403 to AuthenticationError', async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ error: 'This share map requires a valid signed URL' }), {
+          status: 403,
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const session = new SiaSession(vi.fn<FetchFn>(), config);
+
+    const err = await session
+      .getShareMap('asset-1', { src: 'https://cdn.example/v1/stream/asset-1/master.m3u8' })
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(AuthenticationError);
+    expect((err as AuthenticationError).statusCode).toBe(403);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://cdn.example/v1/share/asset-1');
+    expect(init?.credentials).toBe('omit');
+    expect(new Headers(init?.headers).has('Authorization')).toBe(false);
   });
 });

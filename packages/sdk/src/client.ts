@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { AssetManager } from './assets.js';
-import { AuthenticationError, NotFoundError, RateLimitError, SlubyError } from './errors.js';
+import { errorFromResponse } from './errors.js';
 import { PlaybackManager } from './playback.js';
 import { SiaSession } from './sia-session.js';
 import type { SlubyConfig } from './types.js';
@@ -94,7 +94,12 @@ export class SlubyClient {
     this.assets = new AssetManager(boundFetch);
     this.playback = new PlaybackManager(boundFetch, this.resolveDeliveryUrl.bind(this));
     this.webhooks = new WebhookManager();
-    this.sia = this._config.sia ? new SiaSession(boundFetch, this._config.sia) : undefined;
+    this.sia = this._config.sia
+      ? new SiaSession(boundFetch, this._config.sia, {
+          fetchPublic: this._fetchPublic.bind(this),
+          resolveDeliveryUrl: this.resolveDeliveryUrl.bind(this),
+        })
+      : undefined;
   }
 
   // -----------------------------------------------------------------------
@@ -127,7 +132,7 @@ export class SlubyClient {
    * - Injects the `Authorization: Bearer <apiKey>` header when an API key is
    *   configured; otherwise the request rides on the session cookie.
    * - Inspects the response status and throws typed errors for common
-   *   failure modes (401/403, 404, 429, 5xx).
+   *   failure modes (401/403, 404, 429, 5xx), see `errorFromResponse`.
    */
   private async _fetch(path: string, init?: RequestInit): Promise<Response> {
     const url = `${this._config.baseUrl}${path}`;
@@ -151,68 +156,20 @@ export class SlubyClient {
     if (response.ok) {
       return response;
     }
-
-    // ---- Error handling ----
-
-    let responseBody: string | undefined;
-    try {
-      responseBody = await response.text();
-    } catch {
-      // Reading the body may fail; that is acceptable.
-    }
-
-    const message = extractErrorMessage(responseBody, response.statusText);
-
-    switch (response.status) {
-      case 401:
-      case 403:
-        throw new AuthenticationError(message, response.status, responseBody);
-      case 404:
-        throw new NotFoundError(message, responseBody);
-      case 429:
-        throw new RateLimitError(
-          message,
-          parseRetryAfter(response.headers.get('Retry-After')),
-          responseBody,
-        );
-      default:
-        throw new SlubyError(message, response.status, responseBody);
-    }
+    throw await errorFromResponse(response);
   }
-}
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Seconds to wait from a Retry-After header. RFC 9110 allows either a number
- * of seconds or an HTTP date, and a plain Number() turns the date form into NaN.
- */
-function parseRetryAfter(value: string | null): number | undefined {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  if (/^\d+$/.test(trimmed)) return Number(trimmed);
-  const at = Date.parse(trimmed);
-  if (Number.isNaN(at)) return undefined;
-  return Math.max(0, Math.ceil((at - Date.now()) / 1000));
-}
-
-/**
- * Attempt to extract a human-readable error message from the response body
- * (expecting `{ "error": "..." }` or `{ "message": "..." }`), falling back
- * to the status text.
- */
-function extractErrorMessage(responseBody: string | undefined, statusText: string): string {
-  if (responseBody) {
-    try {
-      const json = JSON.parse(responseBody);
-      if (typeof json.error === 'string') return json.error;
-      if (typeof json.message === 'string') return json.message;
-    } catch {
-      // Not JSON -- use the raw text if short enough.
-      if (responseBody.length < 200) return responseBody;
-    }
+  /**
+   * GET an absolute delivery URL with no credentials at all: no
+   * Authorization header and no cookies. Used for the public share map, which
+   * a page with no key must be able to fetch from any origin.
+   */
+  private async _fetchPublic(url: string): Promise<Response> {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      credentials: 'omit',
+    });
+    if (response.ok) return response;
+    throw await errorFromResponse(response);
   }
-  return statusText || 'Unknown API error';
 }

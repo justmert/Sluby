@@ -18,6 +18,21 @@ export class PlaybackManager {
   }
 
   // -----------------------------------------------------------------------
+  // /v1/stream/:id/master.m3u8 (no request)
+  // -----------------------------------------------------------------------
+
+  /**
+   * The absolute public master manifest URL for an asset id or a `pb_...`
+   * playback id, on the delivery base. Builds the URL without a request and
+   * without a key: the gateway serves a public asset (or a public playback id)
+   * to anyone. A private asset or a signed playback id needs a signed URL
+   * from `getSignedUrl` instead.
+   */
+  streamUrl(idOrPlaybackId: string): string {
+    return this._resolveDeliveryUrl(`/v1/stream/${encodeURIComponent(idOrPlaybackId)}/master.m3u8`);
+  }
+
+  // -----------------------------------------------------------------------
   // GET /api/v1/playback/:id
   // -----------------------------------------------------------------------
 
