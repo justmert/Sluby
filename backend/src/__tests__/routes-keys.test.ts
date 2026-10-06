@@ -32,8 +32,10 @@ describe('key routes', () => {
 
   beforeEach(() => {
     deps = {
-      createApiKey: vi.fn().mockResolvedValue({ id: 'key-1' }),
-      listApiKeys: vi.fn().mockResolvedValue([]),
+      createApiKey: vi.fn(async (data) =>
+        record({ id: 'key-1', name: data.name, scopes: data.scopes, rateLimit: data.rateLimit }),
+      ),
+      listApiKeys: vi.fn().mockResolvedValue({ data: [], hasMore: false, nextCursor: null }),
       deleteApiKey: vi.fn().mockResolvedValue(true),
       rotateApiKey: vi.fn(),
     };
@@ -47,8 +49,17 @@ describe('key routes', () => {
       .send({ name: ' ci ', scopes: ['read'], rate_limit: 60 });
 
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ id: 'key-1', name: 'ci', scopes: ['read'], rate_limit: 60 });
-    expect(res.body.key).toMatch(/^sluby_/);
+    // the listing shape, plus the secret
+    expect(res.body).toEqual({
+      id: 'key-1',
+      name: 'ci',
+      scopes: ['read'],
+      rate_limit: 60,
+      is_active: true,
+      created_at: '2026-10-02T10:00:00.000Z',
+      expires_at: null,
+      key: expect.stringMatching(/^sluby_/),
+    });
     // only the hash is stored
     expect(deps.createApiKey).toHaveBeenCalledWith({
       keyHash: hashApiKey(res.body.key),
@@ -60,23 +71,40 @@ describe('key routes', () => {
   });
 
   it.each([
-    [{ name: '' }, /Name is required/],
+    [{ name: '' }, /name is required/],
+    [{}, /name/],
     [{ name: 'x', scopes: 'read' }, /scopes must be/],
     [{ name: 'x', scopes: [] }, /scopes must be/],
-    [{ name: 'x', scopes: ['admin'] }, /Invalid scopes: admin/],
+    [{ name: 'x', scopes: ['admin'] }, /scopes must be from/],
     [{ name: 'x', rate_limit: 0 }, /rate_limit/],
+    [{ name: 'x', rate_limit: 2 ** 31 }, /rate_limit/],
+    [{ name: 'a\u0000b' }, /control characters/],
+    [{ name: 'x'.repeat(101) }, /at most 100/],
+    [{ name: 'x', owner: 'github:bob' }, /unknown field: owner/],
   ])('rejects %j', async (body, message) => {
     const res = await request(app()).post('/').send(body);
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(message);
   });
 
+  it('stores a scope listed twice once', async () => {
+    const res = await request(app())
+      .post('/')
+      .send({ name: 'ci', scopes: ['read', 'upload', 'read'] });
+    expect(res.status).toBe(201);
+    expect(vi.mocked(deps.createApiKey).mock.calls[0][0].scopes).toEqual(['read', 'upload']);
+  });
+
   it('lists keys with their expiry', async () => {
-    vi.mocked(deps.listApiKeys).mockResolvedValue([
-      record({ expiresAt: new Date('2026-10-03T10:00:00Z') }),
-    ]);
+    vi.mocked(deps.listApiKeys).mockResolvedValue({
+      data: [record({ expiresAt: new Date('2026-10-03T10:00:00Z') })],
+      hasMore: false,
+      nextCursor: null,
+    });
     const res = await request(app()).get('/');
-    expect(deps.listApiKeys).toHaveBeenCalledWith('github:alice');
+    expect(deps.listApiKeys).toHaveBeenCalledWith('github:alice', { limit: 1000 });
+    expect(res.body.has_more).toBe(false);
+    expect(res.body.next_cursor).toBeNull();
     expect(res.body.data[0]).toEqual({
       id: 'key-2',
       name: 'ci',

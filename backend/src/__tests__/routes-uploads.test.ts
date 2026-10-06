@@ -21,7 +21,7 @@ describe('upload routes', () => {
   beforeEach(() => {
     deps = {
       getUploadStatus: vi.fn().mockResolvedValue(null),
-      cancelUpload: vi.fn().mockResolvedValue(true),
+      cancelUpload: vi.fn().mockResolvedValue('cancelled'),
     };
   });
 
@@ -83,9 +83,15 @@ describe('upload routes', () => {
     });
 
     it('returns 404 when cancel matches no owned session', async () => {
-      vi.mocked(deps.cancelUpload).mockResolvedValue(false);
+      vi.mocked(deps.cancelUpload).mockResolvedValue('not_found');
       const res = await request(createApp()).delete('/session-1');
       expect(res.status).toBe(404);
+    });
+
+    it('returns 409 for an upload that is no longer in progress', async () => {
+      vi.mocked(deps.cancelUpload).mockResolvedValue('not_uploading');
+      const res = await request(createApp()).delete('/session-1');
+      expect(res.status).toBe(409);
     });
 
     it('requires upload scope', async () => {

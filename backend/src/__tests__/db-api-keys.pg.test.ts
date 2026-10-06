@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { Request, Response } from 'express';
 import { hasTestDatabase, createTestDatabase, type TestDatabase } from './helpers/pg.js';
 import { generateApiKey, hashApiKey } from '../api/auth/api-key.js';
+import { decodeCursor } from '../api/pagination.js';
 import type * as ApiKeyQueries from '../db/queries/api-keys.js';
 import type * as Seeding from '../db/api-key-seeding.js';
 import type * as Middleware from '../api/middleware/api-key.js';
@@ -97,7 +98,9 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       await newKey({ name: 'expired', expiresAt: new Date(Date.now() - 1) });
       await newKey({ name: 'bobs', creatorAddress: 'bob' });
 
-      const names = (await q.listApiKeys({ creatorAddress: 'alice' })).map((k) => k.name);
+      const names = (await q.listApiKeys({ creatorAddress: 'alice', limit: 100 })).data.map(
+        (k) => k.name,
+      );
       expect(names.slice(-1)).toEqual(['older']);
       expect([...names].sort()).toEqual(['grace', 'newer', 'older']);
     });
@@ -106,19 +109,47 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       await newKey({ name: 'on' });
       await newKey({ name: 'off', isActive: false });
       await newKey({ name: 'expired', expiresAt: new Date(Date.now() - 1) });
-      const names = (await q.listApiKeys({ creatorAddress: 'alice', includeInactive: true })).map(
-        (k) => k.name,
-      );
+      const names = (
+        await q.listApiKeys({ creatorAddress: 'alice', includeInactive: true, limit: 100 })
+      ).data.map((k) => k.name);
       expect(names.sort()).toEqual(['expired', 'off', 'on']);
     });
 
-    it('pages with limit and offset', async () => {
+    it('pages newest first with a cursor, across keys created in the same millisecond', async () => {
       for (let i = 0; i < 5; i++) {
         const k = await newKey({ name: `k${i}` });
         await tdb.sql`update api_keys set created_at = now() - make_interval(mins => ${10 - i}) where id = ${k.apiKey.id}`;
       }
-      const page = await q.listApiKeys({ creatorAddress: 'alice', limit: 2, offset: 1 });
-      expect(page.map((k) => k.name)).toEqual(['k3', 'k2']);
+      // two keys sharing a timestamp still page apart through the id
+      const twinA = await newKey({ name: 'twin-a' });
+      const twinB = await newKey({ name: 'twin-b' });
+      await tdb.sql`update api_keys set created_at = '2020-01-01T00:00:00.000Z' where id in (${twinA.apiKey.id}, ${twinB.apiKey.id})`;
+
+      const first = await q.listApiKeys({ creatorAddress: 'alice', limit: 2 });
+      expect(first.data.map((k) => k.name)).toEqual(['k4', 'k3']);
+      expect(first.hasMore).toBe(true);
+      const names: string[] = first.data.map((k) => k.name);
+      let cursor = first.nextCursor;
+      while (cursor) {
+        const page = await q.listApiKeys({
+          creatorAddress: 'alice',
+          limit: 2,
+          cursor: decodeCursor(cursor)!,
+        });
+        names.push(...page.data.map((k) => k.name));
+        cursor = page.nextCursor;
+      }
+      expect(names.slice(0, 5)).toEqual(['k4', 'k3', 'k2', 'k1', 'k0']);
+      expect(names.slice(5).sort()).toEqual(['twin-a', 'twin-b']);
+    });
+
+    it('lists every account when no owner is given, and none for an empty owner', async () => {
+      await newKey({ name: 'alices' });
+      await newKey({ name: 'bobs', creatorAddress: 'bob' });
+      const all = await q.listApiKeys({ limit: 100 });
+      expect(all.data.map((k) => k.name).sort()).toEqual(['alices', 'bobs']);
+      const empty = await q.listApiKeys({ creatorAddress: '', limit: 100 });
+      expect(empty.data).toEqual([]);
     });
   });
 

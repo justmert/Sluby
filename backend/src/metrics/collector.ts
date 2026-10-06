@@ -57,7 +57,7 @@ export const processingQueueDepth = new Gauge({
 // no per-asset labels: one series per asset would grow without bound
 export const playbackInitiationTotal = new Counter({
   name: 'sluby_playback_initiation_total',
-  help: 'Playback urls handed out (public, signed and sia share maps)',
+  help: 'Playback urls handed out (public, private unsigned, signed and sia share maps)',
   labelNames: ['mode'] as const,
   registers: [registry],
 });

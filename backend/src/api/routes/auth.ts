@@ -277,8 +277,10 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
    * screen or the app.
    */
   router.get('/me', async (req: Request, res: Response) => {
+    // snake_case and an ISO expiry like the rest of the api; the camelCase
+    // fields stay one more release because the Studio still reads them
     if (env.AUTH_DISABLED) {
-      res.json({ login: 'dev', authDisabled: true });
+      res.json({ login: 'dev', auth_disabled: true, expires_at: null, authDisabled: true });
       return;
     }
     const session = await currentSession(req);
@@ -286,7 +288,12 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       res.status(401).json({ error: 'Not signed in' });
       return;
     }
-    res.json({ login: session.login, expiresAt: Math.floor(session.expiresAt.getTime() / 1000) });
+    res.json({
+      login: session.login,
+      auth_disabled: false,
+      expires_at: session.expiresAt.toISOString(),
+      expiresAt: Math.floor(session.expiresAt.getTime() / 1000),
+    });
   });
 
   /**

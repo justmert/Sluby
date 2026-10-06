@@ -10,11 +10,21 @@
  *
  * One deliberate exception: a key seeded with the all-zero address is a
  * platform/superuser identity (see db/seed-api-key.ts, whose `--address`
- * defaults to it) and is allowed to act across tenants.
+ * defaults to it) and is allowed to act across tenants. The rule: an
+ * owner-scoped route, listings included, passes the caller through
+ * ownerFilter, so that identity lists, reads and changes the resources of
+ * every tenant alike.
+ * Deployment-wide operator data (full system status, process metrics, the
+ * whole reconciliation run and starting one) is for it alone.
  */
 
 /** The all-zero address that marks a platform (cross-tenant) API key. */
 export const PLATFORM_ADDRESS = `0x${'0'.repeat(64)}`;
+
+/** Whether the caller is the platform identity, which sees deployment-wide data. */
+export function isPlatformIdentity(creatorAddress: string | undefined): boolean {
+  return creatorAddress === PLATFORM_ADDRESS;
+}
 
 /**
  * Owner constraint for a request, given the caller's creator address.

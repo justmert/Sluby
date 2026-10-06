@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, eq, inArray, lt, ne } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   uploadSessions,
@@ -71,6 +71,43 @@ export async function listUploadFilePaths(videoAssetId: string): Promise<string[
     );
   return rows.map((r) => r.filePath).filter(Boolean);
 }
+
+/**
+ * Uploads still `uploading` past their expiry: nothing will finish them. Each
+ * comes with its asset's state, so the caller only discards an asset that
+ * never got past the upload (an asset whose upload finished but failed later
+ * keeps its source for a retry).
+ */
+export async function listExpiredUploadingSessions(now: Date): Promise<
+  Array<{
+    id: string;
+    filePath: string;
+    videoAssetId: string | null;
+    assetStatus: VideoAssetStatus | null;
+    assetDeleted: boolean;
+  }>
+> {
+  const rows = await db
+    .select({
+      id: uploadSessions.id,
+      filePath: uploadSessions.filePath,
+      videoAssetId: uploadSessions.videoAssetId,
+      assetStatus: videoAssets.status,
+      deletedAt: videoAssets.deletedAt,
+    })
+    .from(uploadSessions)
+    .leftJoin(videoAssets, eq(videoAssets.id, uploadSessions.videoAssetId))
+    .where(and(eq(uploadSessions.status, 'uploading'), lt(uploadSessions.expiresAt, now)));
+  return rows.map((r) => ({
+    id: r.id,
+    filePath: r.filePath,
+    videoAssetId: r.videoAssetId,
+    assetStatus: r.assetStatus,
+    assetDeleted: r.deletedAt !== null,
+  }));
+}
+
+type VideoAssetStatus = (typeof videoAssets.status.enumValues)[number];
 
 /** What a source upload's asset is doing, see sourceFileStates. */
 export type SourceFileState = 'ready' | 'gone' | 'in-use' | 'cancelled';

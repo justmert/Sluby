@@ -1,7 +1,8 @@
-import { eq, and, desc, or, isNull, gt } from 'drizzle-orm';
+import { eq, and, desc, or, isNull, gt, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { apiKeys, type ApiKey, type NewApiKey } from '../schema.js';
 import { generateApiKey, hashApiKey } from '../../api/auth/api-key.js';
+import { paginateRows, type CursorKey, type Page } from '../../api/pagination.js';
 
 /**
  * Create a new API key.
@@ -53,35 +54,42 @@ export async function validateApiKey(rawKey: string): Promise<ApiKey | undefined
 }
 
 /**
- * List API keys for a given creator address.
- * Only returns active, non-expired keys by default.
+ * One page of API keys, newest first. Only active, unexpired keys unless
+ * `includeInactive`. `creatorAddress` undefined lists every account (the
+ * platform identity). Keyset paging on (created_at, id), like the asset
+ * listing, so keys created between pages are not skipped or repeated.
  */
-export async function listApiKeys(opts?: {
+export async function listApiKeys(opts: {
   creatorAddress?: string;
   includeInactive?: boolean;
-  limit?: number;
-  offset?: number;
-}): Promise<ApiKey[]> {
-  const { creatorAddress, includeInactive = false, limit = 50, offset = 0 } = opts ?? {};
+  limit: number;
+  cursor?: CursorKey;
+}): Promise<Page<ApiKey>> {
+  const { creatorAddress, includeInactive = false, limit, cursor } = opts;
 
-  const conditions = [];
-  if (creatorAddress) {
+  const conditions: SQL[] = [];
+  if (creatorAddress !== undefined) {
     conditions.push(eq(apiKeys.creatorAddress, creatorAddress));
   }
   if (!includeInactive) {
     conditions.push(eq(apiKeys.isActive, true));
     // Not expired or no expiration set
-    conditions.push(or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())));
+    conditions.push(or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date()))!);
+  }
+  // timestamps compare at millisecond precision, the precision of the cursor
+  const createdMs = sql`date_trunc('milliseconds', ${apiKeys.createdAt})`;
+  if (cursor) {
+    conditions.push(
+      sql`(${createdMs}, ${apiKeys.id}) < (${cursor.createdAt.toISOString()}::timestamptz, ${cursor.id}::uuid)`,
+    );
   }
 
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-  return db.query.apiKeys.findMany({
-    where,
-    limit,
-    offset,
-    orderBy: [desc(apiKeys.createdAt)],
+  const rows = await db.query.apiKeys.findMany({
+    where: conditions.length > 0 ? and(...conditions) : undefined,
+    limit: limit + 1,
+    orderBy: [desc(createdMs), desc(apiKeys.id)],
   });
+  return paginateRows(rows, limit);
 }
 
 /**
@@ -94,7 +102,11 @@ export async function listApiKeys(opts?: {
 export async function deleteApiKey(id: string, owner?: string): Promise<ApiKey | undefined> {
   const [deleted] = await db
     .delete(apiKeys)
-    .where(owner ? and(eq(apiKeys.id, id), eq(apiKeys.creatorAddress, owner)) : eq(apiKeys.id, id))
+    .where(
+      owner !== undefined
+        ? and(eq(apiKeys.id, id), eq(apiKeys.creatorAddress, owner))
+        : eq(apiKeys.id, id),
+    )
     .returning();
   return deleted;
 }
@@ -124,7 +136,7 @@ export async function rotateApiKey(
       eq(apiKeys.isActive, true),
       or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, now)),
     ];
-    if (owner) conditions.push(eq(apiKeys.creatorAddress, owner));
+    if (owner !== undefined) conditions.push(eq(apiKeys.creatorAddress, owner));
 
     const [old] = await tx
       .select()

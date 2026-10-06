@@ -1,15 +1,17 @@
 /**
  * OpenAPI 3.1 description of the Sluby REST API and delivery gateway.
  *
- * This document is the machine-readable contract for the API. It is served
- * at `GET /api/v1/openapi.json` and rendered at `GET /api/v1/docs`, and a
- * drift-guard test (`openapi-drift.test.ts`) fails the build if a mounted
- * route is missing here or a documented path no longer exists — so the
- * spec cannot silently fall out of sync with the code.
+ * Served at `GET /api/v1/openapi.json` and rendered at `GET /api/v1/docs`.
+ * Two tests hold it to the code: `openapi-drift.test.ts` compares the paths,
+ * methods, scopes and platform-only marks with the mounted routes, and
+ * `api-contract.pg.test.ts` sends real requests to every operation and
+ * checks each status code is listed here and each JSON body matches its
+ * schema.
  *
  * `x-required-scope` on an operation records the API-key scope its
- * middleware enforces (`upload` | `read` | `manage`). Auth endpoints and
- * the public spec/docs carry `security: []`.
+ * middleware enforces (`upload` | `read` | `manage`); `x-required-identity:
+ * platform` marks operations only the platform identity may use. Auth
+ * endpoints and the public spec/docs carry `security: []`.
  */
 
 const bearerAuth = [{ bearerAuth: [] as string[] }];
@@ -25,11 +27,40 @@ const errorResponse = {
   },
 };
 
-const jsonResponse = (ref: string, description: string) => ({
+const errorWith = (description: string) => ({ ...errorResponse, description });
+
+const ref = (name: string) => ({ $ref: `#/components/responses/${name}` });
+
+const jsonResponse = (schemaRef: string, description: string) => ({
   description,
   content: {
-    'application/json': { schema: { $ref: `#/components/schemas/${ref}` } },
+    'application/json': { schema: { $ref: `#/components/schemas/${schemaRef}` } },
   },
+});
+
+const jsonSchemaResponse = (schema: Record<string, unknown>, description: string) => ({
+  description,
+  content: { 'application/json': { schema } },
+});
+
+const textResponse = (description: string) => ({
+  description,
+  content: { 'text/plain': { schema: { type: 'string' } } },
+});
+
+/** 401, 403 and 429, which every key-checked operation can answer. */
+const authFailures = {
+  '401': ref('Unauthorized'),
+  '403': ref('Forbidden'),
+  '429': ref('TooManyRequests'),
+};
+
+/** A malformed id in the path is a 400, like any other bad input. */
+const badId = errorWith('Invalid input, such as a malformed id.');
+
+const nullable = (type: string, extra: Record<string, unknown> = {}) => ({
+  type: [type, 'null'],
+  ...extra,
 });
 
 const idParam = (name: string, description: string) => ({
@@ -48,8 +79,16 @@ export const openapiDocument = {
     description:
       'REST API and delivery gateway for Sluby, decentralized video streaming on ' +
       'the Sia network. Programmatic access uses a scoped API key sent as a ' +
-      '`Bearer` token; the Studio UI uses a session cookie. A health probe is ' +
-      'also available at `GET /health`.',
+      '`Bearer` token; the Studio UI uses a session cookie.\n\n' +
+      'Every resource belongs to the account (`creator_address`) of the key that made ' +
+      'it, and a by-id request for another account’s resource answers 404, as for one ' +
+      'that does not exist. A key with the all-zero platform address acts across ' +
+      'accounts and alone sees deployment-wide operator data.\n\n' +
+      'Errors are JSON `{ "error": "...", "details": [...] }`; `details` lists the ' +
+      'invalid fields of a 400. Every response of a key-checked operation carries ' +
+      '`X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`; over the ' +
+      'limit the answer is 429 with `Retry-After`. A path no route serves answers 404 ' +
+      'whether or not a key is sent.',
     license: { name: 'Apache 2.0', url: 'https://www.apache.org/licenses/LICENSE-2.0' },
   },
   servers: [{ url: '/', description: 'This deployment' }],
@@ -95,35 +134,127 @@ export const openapiDocument = {
         schema: { type: 'string' },
         description:
           'Keyset pagination cursor. Pass the `next_cursor` from the previous ' +
-          'page to fetch the next one.',
+          'page to fetch the next one. A cursor that does not decode is a 400.',
       },
       page: {
         name: 'page',
         in: 'query',
-        schema: { type: 'integer', minimum: 1, default: 1 },
-        description: 'Offset page number (alternative to `cursor`).',
+        schema: { type: 'integer', minimum: 1, maximum: 1000000, default: 1 },
+        description: 'Offset page number (alternative to `cursor`; sending both is a 400).',
+      },
+    },
+    headers: {
+      RetryAfter: {
+        description: 'Seconds until the rate-limit window resets.',
+        schema: { type: 'integer' },
+      },
+      RateLimitLimit: {
+        description: 'Requests allowed per one-minute window for this key or session.',
+        schema: { type: 'integer' },
+      },
+      RateLimitRemaining: {
+        description: 'Requests left in the current window.',
+        schema: { type: 'integer' },
+      },
+      RateLimitReset: {
+        description: 'Seconds until the current window resets.',
+        schema: { type: 'integer' },
+      },
+    },
+    responses: {
+      BadRequest: errorWith('Invalid input; `details` lists the fields.'),
+      Unauthorized: errorWith('No valid API key or session.'),
+      Forbidden: errorWith('The key lacks the scope (or identity) the operation needs.'),
+      NotFound: errorWith('No such resource in the caller’s account.'),
+      TooManyRequests: {
+        description: 'Over the rate limit of the key or session.',
+        headers: {
+          'Retry-After': { $ref: '#/components/headers/RetryAfter' },
+          'X-RateLimit-Limit': { $ref: '#/components/headers/RateLimitLimit' },
+          'X-RateLimit-Remaining': { $ref: '#/components/headers/RateLimitRemaining' },
+          'X-RateLimit-Reset': { $ref: '#/components/headers/RateLimitReset' },
+        },
+        content: {
+          'application/json': { schema: { $ref: '#/components/schemas/RateLimited' } },
+        },
       },
     },
     schemas: {
       Error: {
         type: 'object',
         properties: {
-          error: { type: 'string' },
-          message: { type: 'string' },
-          details: {},
+          error: { type: 'string', description: 'What went wrong, for people.' },
+          details: {
+            type: 'array',
+            description: 'The invalid fields of a 400, when the body or query failed validation.',
+            items: {
+              type: 'object',
+              required: ['field', 'message'],
+              properties: {
+                field: { type: 'string', description: 'Dotted path; empty for the whole input.' },
+                message: { type: 'string' },
+              },
+            },
+          },
+          message: {
+            type: 'string',
+            description: 'Outside NODE_ENV=production only: the internal error message.',
+          },
+          stack: {
+            type: 'string',
+            description: 'Outside NODE_ENV=production only: the stack trace.',
+          },
         },
         required: ['error'],
       },
+      RateLimited: {
+        type: 'object',
+        required: ['error', 'retry_after'],
+        properties: {
+          error: { type: 'string' },
+          retry_after: { type: 'integer', description: 'Seconds, as in Retry-After.' },
+          retryAfter: {
+            type: 'integer',
+            deprecated: true,
+            description: 'Old spelling of retry_after, removed in the next release.',
+          },
+        },
+      },
+      Success: {
+        type: 'object',
+        required: ['success'],
+        properties: { success: { const: true } },
+      },
       Asset: {
         type: 'object',
+        required: [
+          'id',
+          'title',
+          'description',
+          'manifest_object_id',
+          'thumbnail_object_ids',
+          'duration_ms',
+          'resolution',
+          'status',
+          'access_tier',
+          'creator_address',
+          'segment_count',
+          'total_storage_bytes',
+          'created_at',
+          'updated_at',
+        ],
         properties: {
           id: { type: 'string', format: 'uuid' },
           title: { type: 'string' },
           description: { type: 'string' },
           manifest_object_id: { type: ['string', 'null'] },
           thumbnail_object_ids: { type: 'array', items: { type: 'string' } },
-          duration_ms: { type: 'integer' },
-          resolution: { type: 'string' },
+          duration_ms: nullable('integer', {
+            description: 'Null until processing has measured it.',
+          }),
+          resolution: nullable('string', {
+            description: 'Source resolution, e.g. `1920x1080`; null until processing has read it.',
+          }),
           status: {
             type: 'string',
             enum: ['created', 'uploading', 'processing', 'ready', 'failed'],
@@ -140,16 +271,53 @@ export const openapiDocument = {
         type: 'object',
         properties: {
           data: { type: 'array', items: { $ref: '#/components/schemas/Asset' } },
-          total: { type: 'integer' },
-          page: { type: 'integer' },
+          total: { type: 'integer', description: 'Every match of the filters, on all pages.' },
+          page: nullable('integer', { description: 'Null on a page fetched with a cursor.' }),
           limit: { type: 'integer' },
           next_cursor: { type: ['string', 'null'] },
           has_more: { type: 'boolean' },
         },
-        required: ['data', 'total', 'has_more'],
+        required: ['data', 'total', 'page', 'limit', 'next_cursor', 'has_more'],
+      },
+      AssetDeleted: {
+        type: 'object',
+        required: ['success', 'status'],
+        properties: {
+          success: { const: true },
+          status: {
+            const: 'deleting',
+            description:
+              'The asset is gone from the API; its Sia objects are unpinned in the background.',
+          },
+        },
+      },
+      RetryStarted: {
+        type: 'object',
+        required: ['success', 'stage'],
+        properties: {
+          success: { const: true },
+          stage: {
+            type: 'string',
+            enum: ['upload-segments', 'transcode'],
+            description:
+              '`upload-segments` when the transcode output is still on disk, else `transcode`.',
+          },
+        },
       },
       ProcessingStatus: {
         type: 'object',
+        required: [
+          'id',
+          'status',
+          'stage',
+          'progress_percent',
+          'retry_count',
+          'error_message',
+          'started_at',
+          'completed_at',
+          'created_at',
+          'logs',
+        ],
         properties: {
           id: { type: 'string' },
           status: {
@@ -167,23 +335,47 @@ export const openapiDocument = {
           started_at: { type: ['string', 'null'], format: 'date-time' },
           completed_at: { type: ['string', 'null'], format: 'date-time' },
           created_at: { type: 'string', format: 'date-time' },
-          logs: { type: 'array', items: { type: 'object' } },
+          logs: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                timestamp: { type: 'string', format: 'date-time' },
+                stage: { type: 'string' },
+                message: { type: 'string' },
+              },
+            },
+          },
         },
       },
       PlaybackInfo: {
         type: 'object',
+        required: ['playback_url', 'poster_url', 'duration_ms', 'resolution', 'access_tier'],
         properties: {
-          playback_url: { type: 'string' },
-          poster_url: { type: ['string', 'null'] },
-          duration_ms: { type: 'integer' },
-          resolution: { type: 'string' },
-          access_tier: { type: 'string' },
+          playback_url: {
+            type: 'string',
+            description:
+              'Path of the master manifest on this deployment, e.g. `/v1/objects/<id>?type=manifest`. ' +
+              'A path, so a client can resolve it against its own delivery base (a CDN in front ' +
+              'of the gateway, say). It is unsigned: a private asset needs /signed or /share.',
+          },
+          poster_url: nullable('string', { description: 'Path of the first thumbnail.' }),
+          duration_ms: nullable('integer'),
+          resolution: nullable('string'),
+          access_tier: { type: 'string', enum: ['public', 'private'] },
         },
       },
       SignedUrl: {
         type: 'object',
+        required: ['signed_url', 'expires_at'],
         properties: {
-          signed_url: { type: 'string' },
+          signed_url: {
+            type: 'string',
+            format: 'uri',
+            description:
+              'Absolute url of the master manifest on PUBLIC_URL with `expires` and `sig` ' +
+              'appended; the gateway signs the child urls in it on the fly.',
+          },
           expires_at: { type: 'string', format: 'date-time' },
         },
       },
@@ -203,28 +395,38 @@ export const openapiDocument = {
       },
       PlaybackId: {
         type: 'object',
+        required: ['id', 'playback_id', 'policy', 'name', 'created_at'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           playback_id: { type: 'string', description: 'Public `pb_...` handle.' },
           policy: { type: 'string', enum: ['public', 'signed'] },
-          name: { type: 'string' },
+          name: { type: ['string', 'null'] },
           created_at: { type: 'string', format: 'date-time' },
         },
       },
       PlaybackIdList: {
         type: 'object',
+        required: ['data'],
         properties: {
           data: { type: 'array', items: { $ref: '#/components/schemas/PlaybackId' } },
         },
       },
       ReconciliationRun: {
-        type: 'object',
         description:
-          'The counts, status and timestamps cover the whole deployment for every caller. ' +
-          'The object ids depend on `scope`: a tenant (`account`) gets only the missing ids ' +
-          'of its own assets and no orphaned ids, since an orphan belongs to no asset; the ' +
-          'platform identity (`deployment`) gets every id.',
+          'The latest run. Its shape depends on `scope`: the platform identity ' +
+          '(`deployment`) gets the whole run; any other caller (`account`) gets only the ' +
+          'drift of its own assets, because the deployment-wide counts, orphans and failure ' +
+          'text describe other accounts and the operator’s setup.',
+        oneOf: [
+          { $ref: '#/components/schemas/ReconciliationRunDeployment' },
+          { $ref: '#/components/schemas/ReconciliationRunAccount' },
+        ],
+        discriminator: { propertyName: 'scope' },
+      },
+      ReconciliationRunDeployment: {
+        type: 'object',
         required: [
+          'scope',
           'id',
           'started_at',
           'finished_at',
@@ -236,45 +438,64 @@ export const openapiDocument = {
           'missing_count',
           'error_message',
           'created_at',
-          'scope',
           'missing_ids',
+          'orphaned_ids',
         ],
         properties: {
+          scope: { const: 'deployment' },
           id: { type: 'string', format: 'uuid' },
           started_at: { type: 'string', format: 'date-time' },
           finished_at: { type: 'string', format: 'date-time' },
           status: { type: 'string', enum: ['ok', 'drift', 'failed'] },
-          db_object_count: { type: 'integer', description: 'Deployment-wide.' },
-          indexer_object_count: { type: 'integer', description: 'Deployment-wide.' },
-          in_sync_count: { type: 'integer', description: 'Deployment-wide.' },
-          orphan_count: { type: 'integer', description: 'Deployment-wide.' },
-          missing_count: { type: 'integer', description: 'Deployment-wide.' },
+          db_object_count: { type: 'integer' },
+          indexer_object_count: { type: 'integer' },
+          in_sync_count: { type: 'integer' },
+          orphan_count: { type: 'integer' },
+          missing_count: { type: 'integer' },
           error_message: { type: ['string', 'null'] },
           created_at: { type: 'string', format: 'date-time' },
-          scope: {
-            type: 'string',
-            enum: ['account', 'deployment'],
-            description:
-              '`account` when the ids below are limited to the caller, `deployment` for the ' +
-              'platform identity.',
-          },
-          account_missing_count: {
-            type: 'integer',
-            description: "Missing objects of the caller's own assets. Only when scope is account.",
-          },
           missing_ids: {
             type: 'array',
             items: { type: 'string' },
-            description:
-              "Tracked by an asset, absent from the indexer. The caller's own when scope is " +
-              'account, all of them when it is deployment.',
+            description: 'Tracked by an asset, absent from the indexer.',
           },
           orphaned_ids: {
             type: 'array',
             items: { type: 'string' },
-            description:
-              'Pinned on the indexer, tracked by no asset. Only when scope is deployment.',
+            description: 'Pinned on the indexer, tracked by no asset.',
           },
+        },
+      },
+      ReconciliationRunAccount: {
+        type: 'object',
+        required: [
+          'scope',
+          'id',
+          'started_at',
+          'finished_at',
+          'created_at',
+          'status',
+          'missing_count',
+          'missing_ids',
+        ],
+        properties: {
+          scope: { const: 'account' },
+          id: { type: 'string', format: 'uuid' },
+          started_at: { type: 'string', format: 'date-time' },
+          finished_at: { type: 'string', format: 'date-time' },
+          created_at: { type: 'string', format: 'date-time' },
+          status: {
+            type: 'string',
+            enum: ['ok', 'drift', 'failed'],
+            description:
+              '`drift` when objects of the caller’s assets are missing, `failed` when the ' +
+              'run itself could not complete.',
+          },
+          missing_count: {
+            type: 'integer',
+            description: 'Missing objects of the caller’s assets.',
+          },
+          missing_ids: { type: 'array', items: { type: 'string' } },
         },
       },
       ReconciliationTrigger: {
@@ -292,6 +513,7 @@ export const openapiDocument = {
       },
       AssetStats: {
         type: 'object',
+        required: ['total', 'by_status', 'stored_bytes', 'ready_duration_ms', 'object_count'],
         properties: {
           total: { type: 'integer' },
           by_status: {
@@ -312,17 +534,83 @@ export const openapiDocument = {
           object_count: { type: 'integer', description: 'Sia objects backing these assets.' },
         },
       },
-      Probe: {
+      HealthProbe: {
         type: 'object',
+        required: ['ok', 'latency_ms'],
         properties: {
           ok: { type: 'boolean' },
           latency_ms: { type: 'integer' },
-          error: { type: 'string' },
+        },
+      },
+      Probe: {
+        type: 'object',
+        required: ['ok', 'latency_ms'],
+        properties: {
+          ok: { type: 'boolean' },
+          latency_ms: { type: 'integer' },
+          error: { type: 'string', description: 'Why the probe failed, when it did.' },
+        },
+      },
+      HostPool: {
+        type: ['object', 'null'],
+        properties: {
+          total: { type: 'integer' },
+          good_for_upload: { type: 'integer' },
+          countries: { type: 'integer' },
         },
       },
       SystemStatus: {
+        description:
+          'Live status. Its shape depends on `scope`: the platform identity (`deployment`) ' +
+          'gets the full report; any other caller (`account`) gets a health summary without ' +
+          'the indexer account, the indexer url, probe error text, process uptime, the ' +
+          'delivery cache or the deployment-wide reconciliation result.',
+        oneOf: [
+          { $ref: '#/components/schemas/SystemStatusDeployment' },
+          { $ref: '#/components/schemas/SystemStatusAccount' },
+        ],
+        discriminator: { propertyName: 'scope' },
+      },
+      SystemStatusAccount: {
         type: 'object',
+        additionalProperties: false,
+        required: ['scope', 'status', 'checked_at', 'version', 'database', 'redis', 'indexer'],
         properties: {
+          scope: { const: 'account' },
+          status: { type: 'string', enum: ['ok', 'degraded', 'down'] },
+          checked_at: { type: 'string', format: 'date-time' },
+          version: { type: 'string' },
+          database: { $ref: '#/components/schemas/HealthProbe' },
+          redis: { $ref: '#/components/schemas/HealthProbe' },
+          indexer: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['ok', 'latency_ms', 'network', 'hosts'],
+            properties: {
+              ok: { type: 'boolean' },
+              latency_ms: { type: 'integer' },
+              network: { type: 'string' },
+              hosts: { $ref: '#/components/schemas/HostPool' },
+            },
+          },
+        },
+      },
+      SystemStatusDeployment: {
+        type: 'object',
+        required: [
+          'scope',
+          'status',
+          'checked_at',
+          'version',
+          'uptime_seconds',
+          'database',
+          'redis',
+          'indexer',
+          'reconciliation',
+          'cache',
+        ],
+        properties: {
+          scope: { const: 'deployment' },
           status: { type: 'string', enum: ['ok', 'degraded', 'down'] },
           checked_at: { type: 'string', format: 'date-time' },
           version: { type: 'string' },
@@ -331,6 +619,7 @@ export const openapiDocument = {
           redis: { $ref: '#/components/schemas/Probe' },
           indexer: {
             type: 'object',
+            required: ['ok', 'latency_ms', 'url', 'network', 'account', 'hosts'],
             properties: {
               ok: { type: 'boolean' },
               latency_ms: { type: 'integer' },
@@ -350,14 +639,7 @@ export const openapiDocument = {
                   last_used: { type: 'string', format: 'date-time' },
                 },
               },
-              hosts: {
-                type: ['object', 'null'],
-                properties: {
-                  total: { type: 'integer' },
-                  good_for_upload: { type: 'integer' },
-                  countries: { type: 'integer' },
-                },
-              },
+              hosts: { $ref: '#/components/schemas/HostPool' },
             },
           },
           reconciliation: {
@@ -383,21 +665,57 @@ export const openapiDocument = {
           },
         },
       },
-      UploadSession: {
+      Metrics: {
         type: 'object',
+        required: ['timestamp', 'metrics'],
         properties: {
-          video_asset_id: { type: 'string', format: 'uuid' },
-          upload_url: { type: 'string' },
+          timestamp: { type: 'string', format: 'date-time' },
+          metrics: {
+            type: 'array',
+            description: 'The prom-client registry as JSON, one entry per metric.',
+            items: {
+              type: 'object',
+              required: ['name', 'type', 'values'],
+              properties: {
+                name: { type: 'string' },
+                help: { type: 'string' },
+                type: { type: 'string' },
+                values: { type: 'array', items: { type: 'object' } },
+              },
+            },
+          },
+        },
+      },
+      UploadStatus: {
+        type: 'object',
+        required: [
+          'id',
+          'video_asset_id',
+          'status',
+          'progress_percent',
+          'file_size',
+          'uploaded_bytes',
+        ],
+        properties: {
+          id: {
+            type: 'string',
+            description: 'The upload id: the last segment of the tus Location.',
+          },
+          video_asset_id: nullable('string', { format: 'uuid' }),
+          status: { type: 'string', enum: ['uploading', 'completed', 'cancelled', 'failed'] },
+          progress_percent: { type: 'integer', minimum: 0, maximum: 100 },
+          file_size: { type: 'integer' },
+          uploaded_bytes: { type: 'integer' },
         },
       },
       ApiKey: {
         type: 'object',
+        required: ['id', 'name', 'scopes', 'rate_limit', 'is_active', 'created_at', 'expires_at'],
         properties: {
           id: { type: 'string', format: 'uuid' },
-          key: { type: 'string', description: 'Raw key, returned only at creation.' },
           name: { type: 'string' },
           scopes: { type: 'array', items: { type: 'string', enum: ['upload', 'read', 'manage'] } },
-          rate_limit: { type: 'integer' },
+          rate_limit: { type: 'integer', description: 'Requests per minute.' },
           is_active: { type: 'boolean' },
           created_at: { type: 'string', format: 'date-time' },
           expires_at: {
@@ -405,6 +723,122 @@ export const openapiDocument = {
             format: 'date-time',
             description: 'Set while a rotated-out key is in its grace period.',
           },
+        },
+      },
+      ApiKeyList: {
+        type: 'object',
+        required: ['data', 'has_more', 'next_cursor'],
+        properties: {
+          data: { type: 'array', items: { $ref: '#/components/schemas/ApiKey' } },
+          has_more: { type: 'boolean' },
+          next_cursor: { type: ['string', 'null'] },
+        },
+      },
+      ApiKeyCreated: {
+        description: 'A key as listed, plus its secret, which is only ever shown here.',
+        allOf: [
+          { $ref: '#/components/schemas/ApiKey' },
+          {
+            type: 'object',
+            required: ['key'],
+            properties: { key: { type: 'string', description: 'The raw `sluby_...` key.' } },
+          },
+        ],
+      },
+      ApiKeyRotated: {
+        allOf: [
+          { $ref: '#/components/schemas/ApiKeyCreated' },
+          {
+            type: 'object',
+            required: ['rotated_from', 'previous_key_expires_at'],
+            properties: {
+              rotated_from: { type: 'string', format: 'uuid' },
+              previous_key_expires_at: { type: 'string', format: 'date-time' },
+            },
+          },
+        ],
+      },
+      Webhook: {
+        type: 'object',
+        required: ['id', 'url', 'events', 'is_active', 'created_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          url: { type: 'string' },
+          events: { type: 'array', items: { type: 'string' } },
+          is_active: { type: 'boolean' },
+          created_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      WebhookList: {
+        type: 'object',
+        required: ['data'],
+        properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Webhook' } } },
+      },
+      WebhookCreated: {
+        type: 'object',
+        required: ['id', 'url', 'events', 'secret'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          url: { type: 'string' },
+          events: { type: 'array', items: { type: 'string' } },
+          secret: { type: 'string', description: 'The signing secret, only ever shown here.' },
+        },
+      },
+      AuthMe: {
+        type: 'object',
+        required: ['login', 'auth_disabled', 'expires_at'],
+        properties: {
+          login: { type: 'string' },
+          auth_disabled: {
+            type: 'boolean',
+            description:
+              'True when the server runs with AUTH_DISABLED and `login` is a dev identity.',
+          },
+          expires_at: nullable('string', { format: 'date-time' }),
+          authDisabled: {
+            type: 'boolean',
+            deprecated: true,
+            description: 'Old spelling of auth_disabled, removed in the next release.',
+          },
+          expiresAt: {
+            type: 'integer',
+            deprecated: true,
+            description: 'Old unix-seconds form of expires_at, removed in the next release.',
+          },
+        },
+      },
+      StudioSessionList: {
+        type: 'object',
+        required: ['data'],
+        properties: {
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['id', 'user_agent', 'created_at', 'expires_at', 'current'],
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                user_agent: { type: ['string', 'null'] },
+                created_at: { type: 'string', format: 'date-time' },
+                expires_at: { type: 'string', format: 'date-time' },
+                current: { type: 'boolean', description: 'The session making the request.' },
+              },
+            },
+          },
+        },
+      },
+      SessionsRevoked: {
+        type: 'object',
+        required: ['success', 'revoked'],
+        properties: { success: { const: true }, revoked: { type: 'integer' } },
+      },
+      Health: {
+        type: 'object',
+        required: ['status', 'timestamp', 'version'],
+        properties: {
+          status: { const: 'ok' },
+          timestamp: { type: 'string', format: 'date-time' },
+          version: { type: 'string' },
         },
       },
       SiaStorageInfo: {
@@ -534,13 +968,43 @@ export const openapiDocument = {
     },
   },
   paths: {
-    // ── Public spec / docs ──
+    // ── Service ──
+    '/health': {
+      get: {
+        tags: ['Ops'],
+        summary: 'Liveness probe.',
+        description:
+          'Answers while the process is up; dependency health is GET /api/v1/system/status, so ' +
+          'a flaky indexer never restarts the container.',
+        security: [],
+        responses: { '200': jsonResponse('Health', 'The process is up.') },
+      },
+    },
+    '/metrics': {
+      get: {
+        tags: ['Ops'],
+        summary: 'Prometheus metrics, in the text exposition format.',
+        description:
+          'For a scraper on the backend port. Not authenticated: keep the port private, the ' +
+          'shipped nginx front door does not proxy it.',
+        security: [],
+        responses: {
+          '200': {
+            description: 'The registry in Prometheus text format.',
+            content: { 'text/plain': { schema: { type: 'string' } } },
+          },
+          '500': errorWith('The registry could not be read.'),
+        },
+      },
+    },
     '/api/v1/openapi.json': {
       get: {
         tags: ['Ops'],
         summary: 'This OpenAPI document.',
         security: [],
-        responses: { '200': { description: 'The OpenAPI 3.1 document.' } },
+        responses: {
+          '200': jsonSchemaResponse({ type: 'object' }, 'The OpenAPI 3.1 document.'),
+        },
       },
     },
     '/api/v1/docs': {
@@ -560,15 +1024,34 @@ export const openapiDocument = {
         tags: ['Auth'],
         summary: 'Begin GitHub OAuth login.',
         security: [],
-        responses: { '302': { description: 'Redirect to GitHub.' } },
+        parameters: [
+          {
+            name: 'next',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Studio path to land on after sign-in.',
+          },
+        ],
+        responses: {
+          '302': { description: 'Redirect to GitHub.' },
+          '500': errorWith('GitHub OAuth is not configured on this server.'),
+        },
       },
     },
     '/api/v1/auth/github/callback': {
       get: {
         tags: ['Auth'],
         summary: 'GitHub OAuth callback.',
+        description: 'Browser-facing: failures answer plain text, not JSON.',
         security: [],
-        responses: { '302': { description: 'Redirect into the Studio.' } },
+        responses: {
+          '302': { description: 'Signed in; redirect into the Studio.' },
+          '400': textResponse(
+            'GitHub reported an error, or the code or state is missing or stale.',
+          ),
+          '403': textResponse('The GitHub account is not on the Studio allowlist.'),
+          '500': textResponse('OAuth is not configured, or GitHub could not be reached.'),
+        },
       },
     },
     '/api/v1/auth/me': {
@@ -576,7 +1059,10 @@ export const openapiDocument = {
         tags: ['Auth'],
         summary: 'Current session identity.',
         security: [{ cookieAuth: [] }],
-        responses: { '200': { description: 'Session info.' }, '401': errorResponse },
+        responses: {
+          '200': jsonResponse('AuthMe', 'The signed-in user, or the dev identity.'),
+          '401': ref('Unauthorized'),
+        },
       },
     },
     '/api/v1/auth/logout': {
@@ -584,20 +1070,19 @@ export const openapiDocument = {
         tags: ['Auth'],
         summary: 'End the current session and clear its cookie.',
         security: [{ cookieAuth: [] }],
-        responses: { '200': { description: 'Logged out.' } },
+        responses: { '200': jsonResponse('Success', 'Logged out.') },
       },
     },
     '/api/v1/auth/sessions': {
       get: {
         tags: ['Auth'],
         summary: "The signed-in user's live Studio sessions, newest first.",
-        description:
-          'Studio sessions only: an API key cannot list sessions. Each entry has id, user_agent, created_at, expires_at and current (true for the session making the request).',
+        description: 'Studio sessions only: an API key cannot list sessions.',
         security: [{ cookieAuth: [] }],
         responses: {
-          '200': { description: 'The sessions.' },
-          '401': errorResponse,
-          '409': { ...errorResponse, description: 'Sign-in is disabled on this server.' },
+          '200': jsonResponse('StudioSessionList', 'The sessions.'),
+          '401': ref('Unauthorized'),
+          '409': errorWith('Sign-in is disabled on this server.'),
         },
       },
       delete: {
@@ -605,9 +1090,9 @@ export const openapiDocument = {
         summary: 'Sign out everywhere: end every session of the signed-in user.',
         security: [{ cookieAuth: [] }],
         responses: {
-          '200': { description: 'Sessions ended; `revoked` is how many.' },
-          '401': errorResponse,
-          '409': { ...errorResponse, description: 'Sign-in is disabled on this server.' },
+          '200': jsonResponse('SessionsRevoked', 'Sessions ended; `revoked` is how many.'),
+          '401': ref('Unauthorized'),
+          '409': errorWith('Sign-in is disabled on this server.'),
         },
       },
     },
@@ -618,38 +1103,55 @@ export const openapiDocument = {
         security: [{ cookieAuth: [] }],
         parameters: [idParam('id', 'Session id, from GET /api/v1/auth/sessions.')],
         responses: {
-          '200': { description: 'Session ended.' },
-          '401': errorResponse,
-          '404': errorResponse,
-          '409': { ...errorResponse, description: 'Sign-in is disabled on this server.' },
+          '200': jsonResponse('Success', 'Session ended.'),
+          '400': badId,
+          '401': ref('Unauthorized'),
+          '404': ref('NotFound'),
+          '409': errorWith('Sign-in is disabled on this server.'),
         },
       },
     },
 
     // ── Uploads ──
-    // Uploads are created through the TUS protocol at POST /api/v1/uploads,
-    // which the TUS server handles directly (not a REST JSON route). The REST
-    // surface documented here is status polling and cancellation.
+    // Uploads are created and fed through the tus protocol, which the tus
+    // server answers before the express routers (`x-handled-by: tus`). GET
+    // and DELETE on an upload are REST, DELETE with Tus-Resumable is tus.
     '/api/v1/uploads': {
       post: {
         tags: ['Uploads'],
         summary: 'Start a resumable upload (tus 1.0.0 creation).',
         description:
-          'Creates the video asset and returns its tus upload url in Location. Send the bytes with ' +
-          'PATCH to that url; a HEAD on it returns Upload-Metadata with videoAssetId. Metadata keys: ' +
-          'filename, filetype, title, description, accessTier (values base64).',
+          'Creates the video asset and answers with the upload url in Location: ' +
+          '`<PUBLIC_URL>/api/v1/uploads/<upload id>`. The upload id (a uuid) is also the id of ' +
+          'GET and DELETE /api/v1/uploads/{id}. Send the bytes with PATCH to that url; a HEAD ' +
+          'on it returns Upload-Metadata with videoAssetId. Metadata keys (values base64): ' +
+          'filename, filetype (must be video/* when given), title (up to 200 characters, ' +
+          '"Untitled" when missing), description (up to 5000 characters), accessTier or ' +
+          'access_tier (public or private, default public). Errors answer plain text.',
         'x-required-scope': 'upload',
         'x-handled-by': 'tus',
         parameters: [
           { name: 'Tus-Resumable', in: 'header', required: true, schema: { const: '1.0.0' } },
-          { name: 'Upload-Length', in: 'header', required: true, schema: { type: 'integer' } },
+          {
+            name: 'Upload-Length',
+            in: 'header',
+            required: true,
+            schema: { type: 'integer', minimum: 1 },
+            description: 'Size in bytes; at most MAX_UPLOAD_SIZE (10 GB by default).',
+          },
           { name: 'Upload-Metadata', in: 'header', schema: { type: 'string' } },
         ],
         responses: {
-          '201': { description: 'Created; the upload url is in Location.' },
-          '401': errorResponse,
-          '413': { description: 'Larger than MAX_UPLOAD_SIZE.' },
-          '415': { description: 'Not a video file type.' },
+          '201': {
+            description: 'Created; the upload url is in Location.',
+            headers: { Location: { schema: { type: 'string', format: 'uri' } } },
+          },
+          '400': textResponse('Invalid metadata (tier, title, description) or an empty file.'),
+          '401': textResponse('No valid API key or session.'),
+          '403': textResponse('The key lacks the upload scope.'),
+          '413': textResponse('Larger than MAX_UPLOAD_SIZE.'),
+          '415': textResponse('Not a video file type.'),
+          '500': textResponse('The upload could not be created; nothing was kept.'),
         },
       },
     },
@@ -660,12 +1162,21 @@ export const openapiDocument = {
         'x-required-scope': 'upload',
         'x-handled-by': 'tus',
         parameters: [
-          idParam('id', 'tus upload id, the last segment of Location.'),
+          idParam('id', 'Upload id, the last segment of Location.'),
           { name: 'Tus-Resumable', in: 'header', required: true, schema: { const: '1.0.0' } },
           { name: 'Upload-Offset', in: 'header', required: true, schema: { type: 'integer' } },
         ],
         requestBody: { content: { 'application/offset+octet-stream': {} } },
-        responses: { '204': { description: 'Accepted; Upload-Offset is the new offset.' } },
+        responses: {
+          '204': { description: 'Accepted; Upload-Offset is the new offset.' },
+          '400': textResponse('Invalid tus headers.'),
+          '401': textResponse('No valid API key or session.'),
+          '403': textResponse('The key lacks the upload scope.'),
+          '404': textResponse('No such upload in the caller’s account.'),
+          '409': textResponse('Upload-Offset does not match the bytes received so far.'),
+          '410': textResponse('The upload expired.'),
+          '413': textResponse('More bytes than the declared Upload-Length.'),
+        },
       },
       head: {
         tags: ['Uploads'],
@@ -673,24 +1184,50 @@ export const openapiDocument = {
         'x-required-scope': 'upload',
         'x-handled-by': 'tus',
         parameters: [
-          idParam('id', 'tus upload id.'),
+          idParam('id', 'Upload id.'),
           { name: 'Tus-Resumable', in: 'header', required: true, schema: { const: '1.0.0' } },
         ],
-        responses: { '200': { description: 'Upload-Offset and Upload-Metadata headers.' } },
+        responses: {
+          '200': { description: 'Upload-Offset and Upload-Metadata headers.' },
+          '401': { description: 'No valid API key or session.' },
+          '403': { description: 'The key lacks the upload scope.' },
+          '404': { description: 'No such upload in the caller’s account.' },
+          '410': { description: 'The upload expired.' },
+        },
       },
       get: {
         tags: ['Uploads'],
-        summary: 'Upload session status.',
+        summary: 'Upload status.',
         'x-required-scope': 'read',
-        parameters: [idParam('id', 'Upload session id.')],
-        responses: { '200': { description: 'Session status.' }, '404': errorResponse },
+        parameters: [idParam('id', 'Upload id, the last segment of the tus Location.')],
+        responses: {
+          '200': jsonResponse('UploadStatus', 'Status and progress.'),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
       },
       delete: {
         tags: ['Uploads'],
-        summary: 'Cancel an upload session.',
+        summary: 'Cancel an upload in progress.',
+        description:
+          'Without Tus-Resumable this is the REST cancel: the partial file and the asset the ' +
+          'upload created are removed, and the session is marked cancelled (200). With ' +
+          'Tus-Resumable it is a tus termination, which does the same and answers 204. A ' +
+          'finished upload is the source its asset is processed and retried from and cannot ' +
+          'be cancelled: REST answers 409, tus 400; delete the asset instead (manage scope).',
         'x-required-scope': 'upload',
-        parameters: [idParam('id', 'Upload session id.')],
-        responses: { '200': { description: 'Cancelled.' } },
+        parameters: [idParam('id', 'Upload id, the last segment of the tus Location.')],
+        responses: {
+          '200': jsonResponse('Success', 'Cancelled (REST).'),
+          '204': { description: 'Terminated (tus).' },
+          '400': errorWith(
+            'A malformed id (REST), or a tus termination of a finished upload (plain text).',
+          ),
+          '404': ref('NotFound'),
+          '409': errorWith('The upload is no longer in progress (REST).'),
+          ...authFailures,
+        },
       },
     },
 
@@ -699,6 +1236,9 @@ export const openapiDocument = {
       get: {
         tags: ['Assets'],
         summary: 'List assets with search, filters, sorting and pagination.',
+        description:
+          'Each parameter may be given once; a repeated or malformed one is a 400. Unknown ' +
+          'parameters are ignored.',
         'x-required-scope': 'read',
         parameters: [
           { $ref: '#/components/parameters/limit' },
@@ -743,8 +1283,8 @@ export const openapiDocument = {
         ],
         responses: {
           '200': jsonResponse('AssetList', 'A page of assets.'),
-          '400': errorResponse,
-          '403': errorResponse,
+          '400': ref('BadRequest'),
+          ...authFailures,
         },
       },
     },
@@ -754,11 +1294,19 @@ export const openapiDocument = {
         summary: 'Get an asset.',
         'x-required-scope': 'read',
         parameters: [idParam('id', 'Asset id.')],
-        responses: { '200': jsonResponse('Asset', 'The asset.'), '404': errorResponse },
+        responses: {
+          '200': jsonResponse('Asset', 'The asset.'),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
       },
       patch: {
         tags: ['Assets'],
         summary: 'Update asset metadata.',
+        description:
+          'Changing access_tier takes effect on the delivery gateway at once. An asset being ' +
+          'deleted answers 404, as it does to every read.',
         'x-required-scope': 'manage',
         parameters: [idParam('id', 'Asset id.')],
         requestBody: {
@@ -766,26 +1314,47 @@ export const openapiDocument = {
             'application/json': {
               schema: {
                 type: 'object',
+                additionalProperties: false,
                 properties: {
-                  title: { type: 'string' },
-                  description: { type: 'string' },
-                  access_tier: { type: 'string' },
+                  title: {
+                    type: 'string',
+                    minLength: 1,
+                    maxLength: 200,
+                    description: 'Trimmed; no control characters.',
+                  },
+                  description: {
+                    type: 'string',
+                    maxLength: 5000,
+                    description: 'No control characters other than tabs and line breaks.',
+                  },
+                  access_tier: { type: 'string', enum: ['public', 'private'] },
                 },
               },
             },
           },
         },
-        responses: { '200': jsonResponse('Asset', 'Updated.'), '404': errorResponse },
+        responses: {
+          '200': jsonResponse('Asset', 'Updated.'),
+          '400': ref('BadRequest'),
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
       },
       delete: {
         tags: ['Assets'],
         summary: 'Delete an asset.',
         description:
           'Soft-deletes the asset so it disappears from the API immediately, then ' +
-          'asynchronously unpins its Sia objects and removes the record.',
+          'asynchronously unpins its Sia objects and removes the record. A second DELETE ' +
+          'answers 404.',
         'x-required-scope': 'manage',
         parameters: [idParam('id', 'Asset id.')],
-        responses: { '200': { description: 'Deletion accepted; unpin runs in the background.' } },
+        responses: {
+          '200': jsonResponse('AssetDeleted', 'Deletion accepted; unpin runs in the background.'),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
       },
     },
     '/api/v1/assets/{id}/processing': {
@@ -796,7 +1365,9 @@ export const openapiDocument = {
         parameters: [idParam('id', 'Asset id.')],
         responses: {
           '200': jsonResponse('ProcessingStatus', 'Processing status.'),
-          '404': errorResponse,
+          '400': badId,
+          '404': errorWith('No such asset, or it has no processing job yet.'),
+          ...authFailures,
         },
       },
     },
@@ -807,20 +1378,19 @@ export const openapiDocument = {
         'x-required-scope': 'read',
         parameters: [idParam('id', 'Asset id.')],
         responses: {
-          '200': {
-            description: 'Renditions.',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    data: { type: 'array', items: { $ref: '#/components/schemas/Rendition' } },
-                  },
-                },
+          '200': jsonSchemaResponse(
+            {
+              type: 'object',
+              required: ['data'],
+              properties: {
+                data: { type: 'array', items: { $ref: '#/components/schemas/Rendition' } },
               },
             },
-          },
-          '404': errorResponse,
+            'Renditions.',
+          ),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
         },
       },
     },
@@ -830,18 +1400,29 @@ export const openapiDocument = {
         summary: 'Retry a failed asset.',
         'x-required-scope': 'manage',
         parameters: [idParam('id', 'Asset id.')],
-        responses: { '200': { description: 'Retry enqueued.' }, '400': errorResponse },
+        responses: {
+          '200': jsonResponse('RetryStarted', 'Retry enqueued.'),
+          '400': errorWith('A malformed id, or the asset is not in the failed state.'),
+          '404': ref('NotFound'),
+          '410': errorWith('The source file is gone; upload the video again.'),
+          ...authFailures,
+        },
       },
     },
     '/api/v1/assets/{id}/sia': {
       get: {
         tags: ['Storage'],
         summary: 'Per-asset Sia storage breakdown.',
+        description:
+          'Objects the indexer cannot describe right now are listed in unavailable_object_ids ' +
+          'rather than failing the request.',
         'x-required-scope': 'read',
         parameters: [idParam('id', 'Asset id.')],
         responses: {
           '200': jsonResponse('SiaStorageInfo', 'Storage breakdown.'),
-          '404': errorResponse,
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
         },
       },
     },
@@ -857,7 +1438,7 @@ export const openapiDocument = {
               schema: {
                 type: 'object',
                 properties: {
-                  policy: { type: 'string', enum: ['public', 'signed'] },
+                  policy: { type: 'string', enum: ['public', 'signed'], default: 'public' },
                   name: { type: 'string' },
                 },
               },
@@ -866,8 +1447,9 @@ export const openapiDocument = {
         },
         responses: {
           '201': jsonResponse('PlaybackId', 'Created.'),
-          '400': errorResponse,
-          '404': errorResponse,
+          '400': errorWith('A malformed id or an unknown policy.'),
+          '404': ref('NotFound'),
+          ...authFailures,
         },
       },
       get: {
@@ -875,7 +1457,12 @@ export const openapiDocument = {
         summary: 'List playback IDs for an asset.',
         'x-required-scope': 'read',
         parameters: [idParam('id', 'Asset id.')],
-        responses: { '200': jsonResponse('PlaybackIdList', 'Playback IDs.') },
+        responses: {
+          '200': jsonResponse('PlaybackIdList', 'Playback IDs.'),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
       },
     },
     '/api/v1/playback-ids/{playbackId}': {
@@ -884,7 +1471,11 @@ export const openapiDocument = {
         summary: 'Delete a playback ID.',
         'x-required-scope': 'manage',
         parameters: [idParam('playbackId', 'Public pb_ handle.')],
-        responses: { '200': { description: 'Deleted.' }, '404': errorResponse },
+        responses: {
+          '200': jsonResponse('Success', 'Deleted.'),
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
       },
     },
 
@@ -897,8 +1488,10 @@ export const openapiDocument = {
         parameters: [idParam('id', 'Asset UUID or pb_ playback ID.')],
         responses: {
           '200': jsonResponse('PlaybackInfo', 'Playback info.'),
-          '404': errorResponse,
-          '409': errorResponse,
+          '400': badId,
+          '404': ref('NotFound'),
+          '409': errorWith('The asset is not ready for playback.'),
+          ...authFailures,
         },
       },
     },
@@ -909,12 +1502,19 @@ export const openapiDocument = {
         'x-required-scope': 'read',
         parameters: [
           idParam('id', 'Asset UUID or pb_ playback ID.'),
-          { name: 'expires_in', in: 'query', schema: { type: 'integer', default: 3600 } },
+          {
+            name: 'expires_in',
+            in: 'query',
+            schema: { type: 'integer', default: 3600 },
+            description: 'Lifetime of the url in seconds.',
+          },
         ],
         responses: {
           '200': jsonResponse('SignedUrl', 'Signed URL.'),
-          '404': errorResponse,
-          '409': errorResponse,
+          '400': badId,
+          '404': ref('NotFound'),
+          '409': errorWith('The asset is not ready for playback.'),
+          ...authFailures,
         },
       },
     },
@@ -929,9 +1529,11 @@ export const openapiDocument = {
         ],
         responses: {
           '200': jsonResponse('SharePlaybackInfo', 'Share URL map.'),
-          '404': errorResponse,
-          '409': errorResponse,
-          '502': errorResponse,
+          '400': badId,
+          '404': ref('NotFound'),
+          '409': errorWith('The asset is not ready for playback.'),
+          '502': errorWith('The Sia indexer did not answer while minting.'),
+          ...authFailures,
         },
       },
     },
@@ -941,19 +1543,37 @@ export const openapiDocument = {
       post: {
         tags: ['Keys'],
         summary: 'Create an API key.',
+        description:
+          'The key belongs to the caller’s account. The answer has the shape of a listed key ' +
+          'plus `key`, the secret, which is never shown again.',
         'x-required-scope': 'manage',
         requestBody: {
           content: {
             'application/json': {
               schema: {
                 type: 'object',
+                additionalProperties: false,
                 properties: {
-                  name: { type: 'string' },
+                  name: {
+                    type: 'string',
+                    minLength: 1,
+                    maxLength: 100,
+                    description: 'Trimmed; no control characters.',
+                  },
                   scopes: {
                     type: 'array',
+                    minItems: 1,
                     items: { type: 'string', enum: ['upload', 'read', 'manage'] },
+                    default: ['upload', 'read'],
+                    description: 'A scope listed twice counts once.',
                   },
-                  rate_limit: { type: 'integer' },
+                  rate_limit: {
+                    type: 'integer',
+                    minimum: 1,
+                    maximum: 100000,
+                    default: 100,
+                    description: 'Requests per minute.',
+                  },
                 },
                 required: ['name'],
               },
@@ -961,15 +1581,32 @@ export const openapiDocument = {
           },
         },
         responses: {
-          '201': jsonResponse('ApiKey', 'Created (raw key shown once).'),
-          '400': errorResponse,
+          '201': jsonResponse('ApiKeyCreated', 'Created (the secret is shown once).'),
+          '400': ref('BadRequest'),
+          ...authFailures,
         },
       },
       get: {
         tags: ['Keys'],
         summary: 'List API keys.',
+        description:
+          'Usable keys of the caller’s account, newest first, including rotated-out keys still ' +
+          'in their grace period. The platform identity lists every account’s keys. Pages hold ' +
+          'up to 1000 keys; follow next_cursor while has_more is true.',
         'x-required-scope': 'manage',
-        responses: { '200': { description: 'Keys.' } },
+        parameters: [
+          {
+            name: 'limit',
+            in: 'query',
+            schema: { type: 'integer', minimum: 1, maximum: 1000, default: 1000 },
+          },
+          { $ref: '#/components/parameters/cursor' },
+        ],
+        responses: {
+          '200': jsonResponse('ApiKeyList', 'A page of keys.'),
+          '400': ref('BadRequest'),
+          ...authFailures,
+        },
       },
     },
     '/api/v1/keys/{id}/rotate': {
@@ -999,13 +1636,11 @@ export const openapiDocument = {
           },
         },
         responses: {
-          '201': { description: 'The replacement key, with its secret shown once.' },
-          '400': errorResponse,
-          '404': errorResponse,
-          '409': {
-            ...errorResponse,
-            description: 'The key was already rotated; rotate its replacement instead.',
-          },
+          '201': jsonResponse('ApiKeyRotated', 'The replacement key, with its secret shown once.'),
+          '400': errorWith('A malformed id or grace period.'),
+          '404': ref('NotFound'),
+          '409': errorWith('The key was already rotated; rotate its replacement instead.'),
+          ...authFailures,
         },
       },
     },
@@ -1015,7 +1650,12 @@ export const openapiDocument = {
         summary: 'Delete an API key.',
         'x-required-scope': 'manage',
         parameters: [idParam('id', 'Key id.')],
-        responses: { '200': { description: 'Deleted.' } },
+        responses: {
+          '200': jsonResponse('Success', 'Deleted.'),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
       },
     },
 
@@ -1057,15 +1697,19 @@ export const openapiDocument = {
           },
         },
         responses: {
-          '201': { description: 'Created; includes the signing secret once.' },
-          '400': errorResponse,
+          '201': jsonResponse('WebhookCreated', 'Created; includes the signing secret once.'),
+          '400': ref('BadRequest'),
+          ...authFailures,
         },
       },
       get: {
         tags: ['Webhooks'],
         summary: 'List webhook endpoints.',
         'x-required-scope': 'read',
-        responses: { '200': { description: 'Endpoints.' } },
+        responses: {
+          '200': jsonResponse('WebhookList', 'Endpoints.'),
+          ...authFailures,
+        },
       },
     },
     '/api/v1/webhooks/{id}': {
@@ -1074,7 +1718,12 @@ export const openapiDocument = {
         summary: 'Delete a webhook endpoint.',
         'x-required-scope': 'manage',
         parameters: [idParam('id', 'Endpoint id.')],
-        responses: { '200': { description: 'Deleted.' } },
+        responses: {
+          '200': jsonResponse('Success', 'Deleted.'),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
       },
     },
 
@@ -1084,13 +1733,15 @@ export const openapiDocument = {
         tags: ['Reconciliation'],
         summary: 'Latest reconciliation run.',
         description:
-          'Every caller sees the deployment-wide counts. Object ids are scoped: a tenant ' +
-          'gets the missing ids of its own assets, and only the platform identity gets the ' +
-          'full lists, orphaned ids included.',
+          'The platform identity gets the whole run, orphaned ids included; any other caller ' +
+          'gets only the missing objects of its own assets (see ReconciliationRun). The ' +
+          'platform identity is a key with the all-zero address, as `npm run db:seed-key` ' +
+          'mints by default.',
         'x-required-scope': 'manage',
         responses: {
           '200': jsonResponse('ReconciliationRun', 'Latest run.'),
-          '404': errorResponse,
+          '404': errorWith('No run has completed yet.'),
+          ...authFailures,
         },
       },
     },
@@ -1099,11 +1750,14 @@ export const openapiDocument = {
         tags: ['Reconciliation'],
         summary: 'Trigger a reconciliation run.',
         description:
-          'Queues a run unless one, manual or scheduled, is already waiting or running, so ' +
+          'A run scans the whole deployment, so only the platform identity may start one. It ' +
+          'is queued unless one, manual or scheduled, is already waiting or running, so ' +
           'repeated calls never stack runs.',
         'x-required-scope': 'manage',
+        'x-required-identity': 'platform',
         responses: {
           '202': jsonResponse('ReconciliationTrigger', 'Queued, or a run was already pending.'),
+          ...authFailures,
         },
       },
     },
@@ -1112,25 +1766,32 @@ export const openapiDocument = {
     '/api/v1/stats': {
       get: {
         tags: ['Ops'],
-        summary: "Library totals for the caller's tenant.",
+        summary: "Library totals for the caller's account.",
+        description: 'The platform identity gets the totals of every account.',
         'x-required-scope': 'read',
-        responses: { '200': jsonResponse('AssetStats', 'Totals.') },
+        responses: { '200': jsonResponse('AssetStats', 'Totals.'), ...authFailures },
       },
     },
     '/api/v1/system/status': {
       get: {
         tags: ['Ops'],
         summary: 'Live platform status: database, redis, Sia indexer, reconciliation, cache.',
+        description:
+          'The platform identity gets the full report; any other caller a health summary ' +
+          '(see SystemStatus).',
         'x-required-scope': 'read',
-        responses: { '200': jsonResponse('SystemStatus', 'Status report.') },
+        responses: { '200': jsonResponse('SystemStatus', 'Status report.'), ...authFailures },
       },
     },
     '/api/v1/metrics': {
       get: {
         tags: ['Ops'],
         summary: 'Platform metrics (prometheus registry as JSON).',
+        description:
+          'The registry counts the whole process, so only the platform identity may read it.',
         'x-required-scope': 'read',
-        responses: { '200': { description: 'Metrics.' } },
+        'x-required-identity': 'platform',
+        responses: { '200': jsonResponse('Metrics', 'Metrics.'), ...authFailures },
       },
     },
 
@@ -1139,6 +1800,10 @@ export const openapiDocument = {
       get: {
         tags: ['Delivery'],
         summary: 'Stream a Sia object, with byte-range support.',
+        description:
+          'An object of a public asset needs nothing. An object of a private asset needs the ' +
+          '`expires` and `sig` of a signed url (GET /api/v1/playback/{id}/signed); a manifest ' +
+          'served that way has the urls of its children signed with the same expiry.',
         security: [],
         parameters: [
           idParam('objectId', 'Sia object ID.'),
@@ -1147,9 +1812,21 @@ export const openapiDocument = {
             in: 'query',
             schema: {
               type: 'string',
-              enum: ['manifest', 'playlist', 'thumbnail', 'video', 'segment', 'data'],
+              enum: ['manifest', 'playlist', 'thumbnail', 'poster', 'video', 'segment', 'data'],
             },
             description: 'Content-type hint.',
+          },
+          {
+            name: 'expires',
+            in: 'query',
+            schema: { type: 'integer' },
+            description: 'Expiry (unix seconds) of a signed url. Required for a private object.',
+          },
+          {
+            name: 'sig',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Signature of a signed url. Required for a private object.',
           },
           {
             name: 'Range',
@@ -1161,8 +1838,13 @@ export const openapiDocument = {
         responses: {
           '200': { description: 'Full object.' },
           '206': { description: 'Partial content (range).' },
+          '403': errorWith(
+            'A private object without a valid, unexpired signature; `reason` says why.',
+          ),
+          '404': errorWith(
+            'No such object, its asset is being deleted, or it could not be fetched.',
+          ),
           '416': { description: 'Range not satisfiable.' },
-          '404': errorResponse,
         },
       },
     },
@@ -1170,11 +1852,29 @@ export const openapiDocument = {
       get: {
         tags: ['Delivery'],
         summary: 'Master HLS manifest for an asset or playback ID.',
+        description:
+          'A private asset or a signed-policy playback ID needs the `expires` and `sig` of the ' +
+          'asset’s signed master url; the child urls in the answer are then signed too.',
         security: [],
-        parameters: [idParam('videoAssetId', 'Asset UUID or pb_ playback ID.')],
+        parameters: [
+          idParam('videoAssetId', 'Asset UUID or pb_ playback ID.'),
+          {
+            name: 'expires',
+            in: 'query',
+            schema: { type: 'integer' },
+            description: 'Expiry (unix seconds) from the signed master URL. Required when gated.',
+          },
+          {
+            name: 'sig',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Signature from the signed master URL. Required when gated.',
+          },
+        ],
         responses: {
           '200': { description: 'HLS manifest.', content: { 'application/vnd.apple.mpegurl': {} } },
-          '404': errorResponse,
+          '403': errorWith('Gated, and no valid, unexpired signature; `reason` says why.'),
+          '404': errorWith('No such asset or playback ID, or the asset is not ready.'),
         },
       },
     },

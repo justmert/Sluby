@@ -15,6 +15,8 @@ export interface RouteInfo {
   path: string;
   /** The scope enforced by this route's `requireScope` guard, if any. */
   requiredScope?: string;
+  /** `platform` when a `requirePlatform` guard restricts the route. */
+  requiredIdentity?: string;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -52,12 +54,15 @@ export function listRoutes(router: AnyLayer, base = ''): RouteInfo[] {
       const handlers: AnyLayer[] = layer.route.stack ?? [];
       const scoped = handlers.find((h: AnyLayer) => h?.handle?.requiredScope);
       const requiredScope: string | undefined = scoped?.handle?.requiredScope;
+      const identity = handlers.find((h: AnyLayer) => h?.handle?.requiredIdentity);
+      const requiredIdentity: string | undefined = identity?.handle?.requiredIdentity;
       for (const method of Object.keys(methods)) {
         if (!methods[method] || method === '_all') continue;
         out.push({
           method: method.toUpperCase(),
           path: canonicalPath(base + routePath),
           ...(requiredScope ? { requiredScope } : {}),
+          ...(requiredIdentity ? { requiredIdentity } : {}),
         });
       }
     } else if (layer.name === 'router' && layer.handle?.stack) {

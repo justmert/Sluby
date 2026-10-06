@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { requireScope } from '../middleware/api-key.js';
+import { requirePlatform, requireScope } from '../middleware/api-key.js';
 import { AppError } from '../middleware/error-handler.js';
 import { ownerFilter } from '../ownership.js';
 
@@ -27,7 +27,7 @@ export interface ReconciliationRouteDeps {
   triggerRun: () => Promise<{ enqueued: boolean }>;
 }
 
-// the deployment-wide figures: health, like the host counts on system status
+// the deployment-wide figures, for the platform identity
 function formatAggregates(r: ReconciliationRunRecord) {
   return {
     id: r.id,
@@ -46,12 +46,13 @@ function formatAggregates(r: ReconciliationRunRecord) {
 
 /**
  * Reconciliation reporting. Surfaces the latest background run comparing
- * PostgreSQL's tracked objects against the indexer's inventory, and lets an
- * operator trigger a run on demand. Read/trigger both require `manage`.
+ * PostgreSQL's tracked objects against the indexer's inventory, and lets the
+ * platform identity trigger a run on demand. Both require `manage`.
  *
- * A run covers every tenant, so the object ids in it are scoped: a tenant
- * gets only the missing ids of its own assets, and orphaned ids, which belong
- * to no asset and so to no tenant, only reach the platform identity.
+ * A run covers every tenant. The platform identity gets all of it; a tenant
+ * gets only the drift of its own assets (the missing objects among them),
+ * since the deployment-wide counts, orphans and failure text describe other
+ * tenants and the operator's setup.
  */
 export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Router {
   const router = Router();
@@ -74,17 +75,23 @@ export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Route
     }
     const missingIds = await deps.filterReconciliationIdsOwnedBy(run.missingIds, owner);
     res.json({
-      ...formatAggregates(run),
+      id: run.id,
+      started_at: run.startedAt.toISOString(),
+      finished_at: run.finishedAt.toISOString(),
+      created_at: run.createdAt.toISOString(),
       scope: 'account',
-      account_missing_count: missingIds.length,
+      // a failed run checked nothing; otherwise drift means this account's drift
+      status: run.status === 'failed' ? 'failed' : missingIds.length > 0 ? 'drift' : 'ok',
+      missing_count: missingIds.length,
       missing_ids: missingIds,
     });
   });
 
-  /** POST /api/v1/reconciliation/run: enqueue an on-demand run. */
+  /** POST /api/v1/reconciliation/run: enqueue an on-demand, deployment-wide run. */
   router.post(
     '/reconciliation/run',
     requireScope('manage'),
+    requirePlatform(),
     async (_req: Request, res: Response) => {
       const { enqueued } = await deps.triggerRun();
       res.status(202).json({ enqueued, already_pending: !enqueued });

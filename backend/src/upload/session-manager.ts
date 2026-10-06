@@ -27,6 +27,8 @@ export class SessionManager {
   constructor(private deps: SessionManagerDeps) {}
 
   async create(params: {
+    /** The tus upload id, so the session and the upload share one id. */
+    id?: string;
     apiKeyId: string;
     fileSize: number;
     filePath?: string;
@@ -34,7 +36,8 @@ export class SessionManager {
     videoAssetId?: string;
     uploadBaseUrl?: string;
   }): Promise<{ id: string; uploadUrl: string; videoAssetId?: string }> {
-    const id = randomUUID();
+    const id = params.id ?? randomUUID();
+    // the tus url of the upload, the same one its Location header carries
     const uploadUrl = `${params.uploadBaseUrl ?? ''}/api/v1/uploads/${id}`;
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h expiry
 
@@ -70,7 +73,9 @@ export class SessionManager {
     const session = await this.deps.getSession(sessionId);
     // Owner-scope: a session belongs to the tenant whose address is stamped in
     // its metadata. Return null (404) for another tenant so ids are not probeable.
-    if (!session || (owner && session.metadata.creatorAddress !== owner)) return null;
+    if (!session || (owner !== undefined && session.metadata.creatorAddress !== owner)) {
+      return null;
+    }
 
     const progressPercent =
       session.fileSize > 0 ? Math.round((session.uploadedBytes / session.fileSize) * 100) : 0;
@@ -93,17 +98,28 @@ export class SessionManager {
   }
 
   /**
-   * Mark a session cancelled and delete its upload files. `removeFiles: false`
-   * is for a tus DELETE, where the file store deletes them itself right after:
-   * removing them here first would make that DELETE answer 404.
+   * Mark an upload that is still in progress cancelled and delete its files.
+   * A completed upload is the source its asset is processed (or retried)
+   * from, so only `uploading` sessions can be cancelled. `removeFiles: false`
+   * is for a tus DELETE, where the file store deletes them itself right
+   * after: removing them here first would make that DELETE answer 404.
    */
   async cancel(
     sessionId: string,
     owner?: string,
     { removeFiles = true }: { removeFiles?: boolean } = {},
-  ): Promise<boolean> {
+  ): Promise<
+    | { status: 'cancelled'; videoAssetId: string | null }
+    | { status: 'not_found' }
+    | { status: 'not_uploading'; sessionStatus: string }
+  > {
     const session = await this.deps.getSession(sessionId);
-    if (!session || (owner && session.metadata.creatorAddress !== owner)) return false;
+    if (!session || (owner !== undefined && session.metadata.creatorAddress !== owner)) {
+      return { status: 'not_found' };
+    }
+    if (session.status !== 'uploading') {
+      return { status: 'not_uploading', sessionStatus: session.status };
+    }
 
     await this.deps.updateSession(sessionId, { status: 'cancelled' });
 
@@ -113,7 +129,7 @@ export class SessionManager {
     }
 
     logger.info({ sessionId }, 'Upload session cancelled');
-    return true;
+    return { status: 'cancelled', videoAssetId: session.videoAssetId };
   }
 
   async complete(sessionId: string, filePath: string, sha256: string): Promise<void> {

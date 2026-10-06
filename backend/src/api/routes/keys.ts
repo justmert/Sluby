@@ -1,8 +1,17 @@
 import { Router, type Request, type Response } from 'express';
+import { z } from 'zod';
 import { requireScope } from '../middleware/api-key.js';
 import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
 import { generateApiKey } from '../auth/api-key.js';
+import { decodeCursor, type CursorKey } from '../pagination.js';
+import {
+  integerParam,
+  keyNameSchema,
+  parseOrThrow,
+  RATE_LIMIT_MAX,
+  stringParam,
+} from '../validation.js';
 
 export interface ApiKeyRecord {
   id: string;
@@ -21,9 +30,15 @@ export interface KeyRouteDeps {
     scopes: string[];
     rateLimit: number;
     creatorAddress: string;
-  }) => Promise<{ id: string }>;
-  /** Active, unexpired keys of the account (keys inside a rotation grace period included). */
-  listApiKeys: (creatorAddress: string) => Promise<ApiKeyRecord[]>;
+  }) => Promise<ApiKeyRecord>;
+  /**
+   * One page of active, unexpired keys, newest first (keys inside a rotation
+   * grace period included). `owner` undefined lists every account.
+   */
+  listApiKeys: (
+    owner: string | undefined,
+    page: { limit: number; cursor?: CursorKey },
+  ) => Promise<{ data: ApiKeyRecord[]; hasMore: boolean; nextCursor: string | null }>;
   /** Deletes only if the key belongs to `owner`; false when it does not. */
   deleteApiKey: (id: string, owner?: string) => Promise<boolean>;
   /**
@@ -43,7 +58,10 @@ export interface KeyRouteDeps {
   >;
 }
 
-const VALID_SCOPES = ['upload', 'read', 'manage'];
+const VALID_SCOPES = ['upload', 'read', 'manage'] as const;
+// high enough that the Studio, which does not page, sees every key of any
+// realistic account; has_more says when it does not
+const LIST_LIMIT_MAX = 1000;
 // a week is enough to roll a key out to every deployment that holds it
 const MAX_GRACE_SECONDS = 7 * 24 * 60 * 60;
 
@@ -59,6 +77,29 @@ function formatKey(k: ApiKeyRecord) {
   };
 }
 
+const createBodySchema = z
+  .object({
+    name: keyNameSchema,
+    scopes: z
+      .array(z.enum(VALID_SCOPES, { message: `scopes must be from: ${VALID_SCOPES.join(', ')}` }), {
+        message: 'scopes must be a non-empty array of strings',
+      })
+      .min(1, { message: 'scopes must be a non-empty array of strings' })
+      .optional(),
+    rate_limit: z
+      .number({ message: 'rate_limit must be a number' })
+      .int({ message: 'rate_limit must be an integer' })
+      .min(1, { message: `rate_limit must be from 1 to ${RATE_LIMIT_MAX}` })
+      .max(RATE_LIMIT_MAX, { message: `rate_limit must be from 1 to ${RATE_LIMIT_MAX}` })
+      .optional(),
+  })
+  .strict();
+
+const listQuerySchema = z.object({
+  limit: integerParam('limit', 1, LIST_LIMIT_MAX).optional(),
+  cursor: stringParam('cursor').optional(),
+});
+
 export function createKeyRoutes(deps: KeyRouteDeps): Router {
   const router = Router();
 
@@ -67,58 +108,45 @@ export function createKeyRoutes(deps: KeyRouteDeps): Router {
    * Create an API key for the caller's account. The raw key is returned once.
    */
   router.post('/', requireScope('manage'), async (req: Request, res: Response) => {
-    const { name, scopes, rate_limit } = req.body ?? {};
-
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      throw new AppError(400, 'Name is required');
-    }
-
-    const requestedScopes = scopes ?? ['upload', 'read'];
-    // Guard the type before filtering: a non-array `scopes` (e.g. a bare
-    // string) would otherwise throw on .filter and surface as a 500.
-    if (!Array.isArray(requestedScopes) || requestedScopes.length === 0) {
-      throw new AppError(400, 'scopes must be a non-empty array of strings');
-    }
-    const invalidScopes = requestedScopes.filter(
-      (s: unknown) => !VALID_SCOPES.includes(s as string),
-    );
-    if (invalidScopes.length > 0) {
-      throw new AppError(400, `Invalid scopes: ${invalidScopes.join(', ')}`);
-    }
-
-    // rate_limit reaches an integer DB column, so reject junk up front
-    // rather than letting Postgres raise a 500.
-    const rateLimit = rate_limit ?? 100;
-    if (!Number.isInteger(rateLimit) || rateLimit <= 0) {
-      throw new AppError(400, 'rate_limit must be a positive integer');
-    }
+    const body = parseOrThrow(createBodySchema, req.body ?? {});
+    // a scope listed twice means the same as once
+    const scopes = [...new Set(body.scopes ?? ['upload', 'read'])];
 
     const { key, hash } = generateApiKey();
-    const result = await deps.createApiKey({
+    const created = await deps.createApiKey({
       keyHash: hash,
-      name: name.trim(),
-      scopes: requestedScopes,
-      rateLimit,
+      name: body.name,
+      scopes,
+      rateLimit: body.rate_limit ?? 100,
       creatorAddress: req.apiKey!.creatorAddress,
     });
 
-    res.status(201).json({
-      id: result.id,
-      key, // only shown once
-      name: name.trim(),
-      scopes: requestedScopes,
-      rate_limit: rateLimit,
-    });
+    // the listing shape plus the secret, which is only ever shown here
+    res.status(201).json({ ...formatKey(created), key });
   });
 
   /**
    * GET /api/v1/keys
-   * The caller's usable keys. A key being rotated out stays listed, with its
-   * expires_at, until its grace period ends.
+   * The caller's usable keys, newest first. A key being rotated out stays
+   * listed, with its expires_at, until its grace period ends. The platform
+   * identity lists every account's keys, as it can rotate and delete them.
    */
   router.get('/', requireScope('manage'), async (req: Request, res: Response) => {
-    const keys = await deps.listApiKeys(req.apiKey!.creatorAddress);
-    res.json({ data: keys.map(formatKey) });
+    const q = parseOrThrow(listQuerySchema, req.query);
+    let cursor: CursorKey | undefined;
+    if (q.cursor !== undefined) {
+      cursor = decodeCursor(q.cursor) ?? undefined;
+      if (!cursor) throw new AppError(400, 'cursor is not valid; start again without it');
+    }
+    const page = await deps.listApiKeys(ownerFilter(req.apiKey!.creatorAddress), {
+      limit: q.limit ?? LIST_LIMIT_MAX,
+      cursor,
+    });
+    res.json({
+      data: page.data.map(formatKey),
+      has_more: page.hasMore,
+      next_cursor: page.nextCursor,
+    });
   });
 
   /**

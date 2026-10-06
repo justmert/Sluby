@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createStatsRoutes, type StatsRouteDeps } from '../api/routes/stats.js';
 import { createTestApp, withApiKey } from './helpers/express-helpers.js';
+import { PLATFORM_ADDRESS } from '../api/ownership.js';
 
 vi.mock('../config/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
@@ -71,11 +72,31 @@ describe('stats routes', () => {
     });
   });
 
-  it('GET /system/status reports probes in snake_case and is not cacheable', async () => {
+  it('GET /system/status gives a tenant a health summary only', async () => {
     const res = await request(app()).get('/system/status');
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body).toEqual({
+      scope: 'account',
+      status: 'degraded',
+      checked_at: '2026-10-02T00:00:00.000Z',
+      version: '0.1.0',
+      database: { ok: true, latency_ms: 1 },
+      redis: { ok: true, latency_ms: 1 },
+      indexer: { ok: false, latency_ms: 40, network: 'mainnet', hosts: null },
+    });
+  });
+
+  it('GET /system/status reports everything, in snake_case, to the platform identity', async () => {
+    const res = await request(app({ ...readKey, creatorAddress: PLATFORM_ADDRESS })).get(
+      '/system/status',
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body.scope).toBe('deployment');
     expect(res.body.status).toBe('degraded');
+    expect(res.body.uptime_seconds).toBe(5);
+    expect(res.body.indexer.url).toBe('https://sia.storage');
     expect(res.body.indexer).toMatchObject({
       ok: false,
       error: 'indexer account is not ready yet',

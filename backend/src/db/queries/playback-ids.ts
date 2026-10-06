@@ -12,13 +12,14 @@ import { generatePlaybackId, isPlaybackId } from '../../api/playback-id.js';
  */
 async function assetIsOwned(assetId: string, owner?: string): Promise<boolean> {
   const asset = await db.query.videoAssets.findFirst({
-    where: owner
-      ? and(
-          eq(videoAssets.id, assetId),
-          eq(videoAssets.creatorAddress, owner),
-          isNull(videoAssets.deletedAt),
-        )
-      : and(eq(videoAssets.id, assetId), isNull(videoAssets.deletedAt)),
+    where:
+      owner !== undefined
+        ? and(
+            eq(videoAssets.id, assetId),
+            eq(videoAssets.creatorAddress, owner),
+            isNull(videoAssets.deletedAt),
+          )
+        : and(eq(videoAssets.id, assetId), isNull(videoAssets.deletedAt)),
     columns: { id: true },
   });
   return Boolean(asset);
@@ -81,7 +82,7 @@ export async function deletePlaybackIdByPublicId(
   publicId: string,
   owner?: string,
 ): Promise<boolean> {
-  if (owner) {
+  if (owner !== undefined) {
     // Scope the delete to handles whose asset belongs to `owner`. The
     // subquery yields only this tenant's asset ids, so a handle on another
     // tenant's asset matches nothing.

@@ -40,6 +40,7 @@ function deps(): TusServerDeps {
     updateUploadProgress: vi.fn(),
     completeUpload: vi.fn(),
     cancelUpload: vi.fn().mockResolvedValue(undefined),
+    abandonUpload: vi.fn(),
     enqueueTranscoding: vi.fn(),
     markAssetFailed: vi.fn(),
     discardAsset: vi.fn().mockResolvedValue(undefined),
@@ -126,6 +127,15 @@ describe('authorizeTusRequest', () => {
     await authorizeTusRequest(req('DELETE', 'owner-key'), 'u1', d, getUpload);
     expect(d.cancelUpload).toHaveBeenCalledWith('s1');
     expect(d.discardAsset).toHaveBeenCalledWith('a1');
+  });
+
+  it('leaves a finished upload and its asset alone, for tus to refuse the termination', async () => {
+    const finished = vi.fn(async () => ({ ...upload, size: 10, offset: 10 }) as never);
+    await expect(
+      authorizeTusRequest(req('DELETE', 'owner-key'), 'u1', d, finished),
+    ).resolves.toBeUndefined();
+    expect(d.cancelUpload).not.toHaveBeenCalled();
+    expect(d.discardAsset).not.toHaveBeenCalled();
   });
 
   it('leaves unknown upload ids to the tus handler', async () => {

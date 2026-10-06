@@ -59,7 +59,7 @@ const APP_VERSION = (
   }
 ).version;
 
-const { app, tusServer } = createApp({
+const { app, tusServer, expireAbandonedUploads } = createApp({
   logger,
   version: APP_VERSION,
   startedAt: new Date(),
@@ -122,6 +122,10 @@ scheduleDeletionGc().catch((err) => {
 // this process's UPLOAD_DIR.
 const sweepUploads = async () => {
   await sweepExpiredUploads(tusServer, logger);
+  // the rows of those uploads: failed sessions, and no empty assets left behind
+  await expireAbandonedUploads().catch((err) =>
+    logger.error({ err }, 'Closing expired uploads failed'),
+  );
   await sweepFinishedSources({
     uploadDir: env.UPLOAD_DIR,
     states: sourceFileStates,

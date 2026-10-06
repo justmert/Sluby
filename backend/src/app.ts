@@ -25,13 +25,16 @@ import type { TranscodeJobData, UploadSegmentsJobData } from './queue/bull-confi
 import {
   createUploadSession as dbCreateUploadSession,
   getUploadSessionById,
+  listExpiredUploadingSessions,
   updateUploadSession,
 } from './db/queries/uploads.js';
+import { removeSourceUpload } from './upload/source-files.js';
 import {
   createVideoAsset,
   getVideoAssetById,
   listVideoAssets,
   updateVideoAsset,
+  updateAssetMetadata,
   softDeleteVideoAsset,
   getAssetObjectIds,
 } from './db/queries/assets.js';
@@ -47,7 +50,7 @@ import {
   deleteApiKey as dbDeleteApiKey,
   rotateApiKey as dbRotateApiKey,
 } from './db/queries/api-keys.js';
-import { apiKeys as apiKeysTable, type VideoAsset } from './db/schema.js';
+import { apiKeys as apiKeysTable, type ApiKey, type VideoAsset } from './db/schema.js';
 import {
   createWebhookEndpoint,
   listWebhookEndpointsByOwner,
@@ -197,28 +200,31 @@ export function buildTusServerDeps(
     },
 
     createUploadSession: async (data) => {
-      // Create a video asset for this upload
+      // the tus hook validated these fields already
       const videoAsset = await createVideoAsset({
-        title: data.metadata.title ?? 'Untitled',
-        description: data.metadata.description ?? '',
+        title: data.title,
+        description: data.description,
         creatorAddress: data.metadata.creatorAddress ?? '',
-        accessTier:
-          ((data.metadata.accessTier ?? data.metadata.access_tier) as 'public' | 'private') ??
-          'public',
+        accessTier: data.accessTier,
       });
 
-      // Create the upload session using the session manager
-      const session = await sessionManager.create({
-        apiKeyId: data.apiKeyId,
-        fileSize: data.fileSize,
-        filePath: data.filePath,
-        metadata: data.metadata,
-        videoAssetId: videoAsset.id,
-        // The upload URL is handed to a browser, so it must be the public
-        // origin. Deriving it from HOST/PORT hardcodes http:// and the
-        // internal port, which breaks behind TLS or a reverse proxy.
-        uploadBaseUrl: env.PUBLIC_URL.replace(/\/$/, ''),
-      });
+      let session: { id: string; videoAssetId?: string };
+      try {
+        session = await sessionManager.create({
+          id: data.id,
+          apiKeyId: data.apiKeyId,
+          fileSize: data.fileSize,
+          filePath: data.filePath,
+          metadata: data.metadata,
+          videoAssetId: videoAsset.id,
+          // the same public origin the tus Location is built from
+          uploadBaseUrl: env.PUBLIC_URL.replace(/\/$/, ''),
+        });
+      } catch (err) {
+        // without its session the asset could never receive bytes
+        await deleteAsset(videoAsset.id);
+        throw err;
+      }
 
       return {
         id: session.id,
@@ -237,6 +243,11 @@ export function buildTusServerDeps(
     cancelUpload: async (uploadId) => {
       // only reached from a tus DELETE, whose file store removes the files
       await sessionManager.cancel(uploadId, undefined, { removeFiles: false });
+    },
+
+    abandonUpload: async (sessionId, videoAssetId) => {
+      await updateUploadSession(sessionId, { status: 'failed' });
+      if (videoAssetId) await deleteAsset(videoAssetId);
     },
 
     enqueueTranscoding: async (data) => {
@@ -283,6 +294,34 @@ export function buildTusServerDeps(
 }
 
 /**
+ * Close uploads that expired while still in progress: the session becomes
+ * `failed`, its partial file goes, and an asset that never got past the
+ * upload is discarded so it does not sit in the library as `created`. The
+ * tus expiry sweep removes the same files; this one fixes the rows. Returns
+ * how many sessions it closed.
+ */
+export function buildUploadExpiry(
+  ctx: AppContext,
+  deleteAsset: (id: string, owner?: string) => Promise<boolean>,
+) {
+  return async (now: Date = new Date()): Promise<number> => {
+    const expired = await listExpiredUploadingSessions(now);
+    for (const s of expired) {
+      await removeSourceUpload(s.filePath, ctx.logger, { sessionId: s.id });
+      await updateUploadSession(s.id, { status: 'failed' });
+      const neverUploaded = s.assetStatus === 'created' || s.assetStatus === 'uploading';
+      if (s.videoAssetId && neverUploaded && !s.assetDeleted) {
+        await deleteAsset(s.videoAssetId);
+      }
+    }
+    if (expired.length > 0) {
+      ctx.logger.info({ closed: expired.length }, 'Closed expired uploads');
+    }
+    return expired.length;
+  };
+}
+
+/**
  * Map a stored video asset row to the record shape the REST asset routes
  * expect. Single place so the field list does not drift across the
  * list/get/update adapters.
@@ -294,8 +333,10 @@ function toAssetRecord(asset: VideoAsset) {
     description: asset.description,
     manifestObjectId: asset.manifestObjectId,
     thumbnailObjectIds: asset.thumbnailObjectIds,
-    durationMs: asset.durationMs ?? 0,
-    resolution: asset.resolution ?? '',
+    // the columns default to 0 and '' until processing measures them, and a
+    // real video never has either value, so both mean "not known yet"
+    durationMs: asset.durationMs || null,
+    resolution: asset.resolution || null,
     status: asset.status,
     accessTier: asset.accessTier,
     creatorAddress: asset.creatorAddress,
@@ -303,6 +344,18 @@ function toAssetRecord(asset: VideoAsset) {
     totalStorageBytes: asset.totalStorageBytes,
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt,
+  };
+}
+
+function toKeyRecord(k: ApiKey) {
+  return {
+    id: k.id,
+    name: k.name,
+    scopes: k.scopes,
+    rateLimit: k.rateLimit,
+    isActive: k.isActive,
+    createdAt: k.createdAt,
+    expiresAt: k.expiresAt,
   };
 }
 
@@ -320,7 +373,12 @@ export function buildApiDeps(
     },
 
     cancelUpload: async (id, owner) => {
-      return sessionManager.cancel(id, owner);
+      // the same outcome as a tus DELETE: no partial file and no empty asset
+      const outcome = await sessionManager.cancel(id, owner);
+      if (outcome.status === 'cancelled' && outcome.videoAssetId) {
+        await deleteAsset(outcome.videoAssetId);
+      }
+      return outcome.status;
     },
 
     // ── AssetRouteDeps ──
@@ -353,14 +411,12 @@ export function buildApiDeps(
     },
 
     updateAsset: async (id, data, owner) => {
-      const updated = await updateVideoAsset(
+      const updated = await updateAssetMetadata(
         id,
         {
           ...(data.title !== undefined ? { title: data.title } : {}),
           ...(data.description !== undefined ? { description: data.description } : {}),
-          ...(data.accessTier !== undefined
-            ? { accessTier: data.accessTier as 'public' | 'private' }
-            : {}),
+          ...(data.accessTier !== undefined ? { accessTier: data.accessTier } : {}),
         },
         owner,
       );
@@ -443,8 +499,8 @@ export function buildApiDeps(
         id: asset.id,
         manifestObjectId: asset.manifestObjectId,
         thumbnailObjectIds: asset.thumbnailObjectIds,
-        durationMs: asset.durationMs ?? 0,
-        resolution: asset.resolution ?? '',
+        durationMs: asset.durationMs || null,
+        resolution: asset.resolution || null,
         accessTier: asset.accessTier,
         status: asset.status,
       };
@@ -616,7 +672,7 @@ export function buildApiDeps(
     // ── ApiRouterDeps (key management) ──
     createApiKey: async (data) => {
       // Insert directly since we already have the hash from the router's generateApiKey()
-      const [result] = await db
+      const [k] = await db
         .insert(apiKeysTable)
         .values({
           keyHash: data.keyHash,
@@ -625,38 +681,25 @@ export function buildApiDeps(
           rateLimit: data.rateLimit,
           creatorAddress: data.creatorAddress,
         })
-        .returning({ id: apiKeysTable.id });
-      return { id: result.id };
+        .returning();
+      return toKeyRecord(k);
     },
 
-    listApiKeys: async (creatorAddress) => {
-      const keys = await dbListApiKeys({ creatorAddress });
-      return keys.map((k) => ({
-        id: k.id,
-        name: k.name,
-        scopes: k.scopes,
-        rateLimit: k.rateLimit,
-        isActive: k.isActive,
-        createdAt: k.createdAt,
-        expiresAt: k.expiresAt,
-      }));
+    listApiKeys: async (owner, { limit, cursor }) => {
+      const page = await dbListApiKeys({ creatorAddress: owner, limit, cursor });
+      return {
+        data: page.data.map(toKeyRecord),
+        hasMore: page.hasMore,
+        nextCursor: page.nextCursor,
+      };
     },
 
     rotateApiKey: async (id, owner, { keyHash }, retireAt) => {
       const result = await dbRotateApiKey(id, owner, keyHash, retireAt);
       if (result.status !== 'rotated') return result;
-      const k = result.replacement;
       return {
         status: 'rotated',
-        replacement: {
-          id: k.id,
-          name: k.name,
-          scopes: k.scopes,
-          rateLimit: k.rateLimit,
-          isActive: k.isActive,
-          createdAt: k.createdAt,
-          expiresAt: k.expiresAt,
-        },
+        replacement: toKeyRecord(result.replacement),
         retiredAt: result.retiredAt,
       };
     },
@@ -673,7 +716,12 @@ export function buildApiDeps(
  * delivery gateway and metrics. Listening, timers and signals stay in
  * index.ts.
  */
-export function createApp(ctx: AppContext): { app: Express; tusServer: TusServer } {
+export function createApp(ctx: AppContext): {
+  app: Express;
+  tusServer: TusServer;
+  /** Close uploads that expired in progress, see buildUploadExpiry. */
+  expireAbandonedUploads: (now?: Date) => Promise<number>;
+} {
   const { logger } = ctx;
   const sessionManager = buildSessionManager();
   const deleteAsset = buildAssetDeleter(ctx);
@@ -805,5 +853,5 @@ export function createApp(ctx: AppContext): { app: Express; tusServer: TusServer
 
   app.use(createErrorHandler(logger));
 
-  return { app, tusServer };
+  return { app, tusServer, expireAbandonedUploads: buildUploadExpiry(ctx, deleteAsset) };
 }
