@@ -219,20 +219,75 @@ export const openapiDocument = {
       },
       ReconciliationRun: {
         type: 'object',
+        description:
+          'The counts, status and timestamps cover the whole deployment for every caller. ' +
+          'The object ids depend on `scope`: a tenant (`account`) gets only the missing ids ' +
+          'of its own assets and no orphaned ids, since an orphan belongs to no asset; the ' +
+          'platform identity (`deployment`) gets every id.',
+        required: [
+          'id',
+          'started_at',
+          'finished_at',
+          'status',
+          'db_object_count',
+          'indexer_object_count',
+          'in_sync_count',
+          'orphan_count',
+          'missing_count',
+          'error_message',
+          'created_at',
+          'scope',
+          'missing_ids',
+        ],
         properties: {
           id: { type: 'string', format: 'uuid' },
           started_at: { type: 'string', format: 'date-time' },
           finished_at: { type: 'string', format: 'date-time' },
           status: { type: 'string', enum: ['ok', 'drift', 'failed'] },
-          db_object_count: { type: 'integer' },
-          indexer_object_count: { type: 'integer' },
-          in_sync_count: { type: 'integer' },
-          orphan_count: { type: 'integer' },
-          missing_count: { type: 'integer' },
-          orphaned_ids: { type: 'array', items: { type: 'string' } },
-          missing_ids: { type: 'array', items: { type: 'string' } },
+          db_object_count: { type: 'integer', description: 'Deployment-wide.' },
+          indexer_object_count: { type: 'integer', description: 'Deployment-wide.' },
+          in_sync_count: { type: 'integer', description: 'Deployment-wide.' },
+          orphan_count: { type: 'integer', description: 'Deployment-wide.' },
+          missing_count: { type: 'integer', description: 'Deployment-wide.' },
           error_message: { type: ['string', 'null'] },
           created_at: { type: 'string', format: 'date-time' },
+          scope: {
+            type: 'string',
+            enum: ['account', 'deployment'],
+            description:
+              '`account` when the ids below are limited to the caller, `deployment` for the ' +
+              'platform identity.',
+          },
+          account_missing_count: {
+            type: 'integer',
+            description: "Missing objects of the caller's own assets. Only when scope is account.",
+          },
+          missing_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              "Tracked by an asset, absent from the indexer. The caller's own when scope is " +
+              'account, all of them when it is deployment.',
+          },
+          orphaned_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Pinned on the indexer, tracked by no asset. Only when scope is deployment.',
+          },
+        },
+      },
+      ReconciliationTrigger: {
+        type: 'object',
+        required: ['enqueued', 'already_pending'],
+        properties: {
+          enqueued: { type: 'boolean', description: 'A new run was queued.' },
+          already_pending: {
+            type: 'boolean',
+            description:
+              'A run was already waiting or running, so nothing new was queued. It covers ' +
+              'scheduled runs as well as manual ones.',
+          },
         },
       },
       AssetStats: {
@@ -1028,6 +1083,10 @@ export const openapiDocument = {
       get: {
         tags: ['Reconciliation'],
         summary: 'Latest reconciliation run.',
+        description:
+          'Every caller sees the deployment-wide counts. Object ids are scoped: a tenant ' +
+          'gets the missing ids of its own assets, and only the platform identity gets the ' +
+          'full lists, orphaned ids included.',
         'x-required-scope': 'manage',
         responses: {
           '200': jsonResponse('ReconciliationRun', 'Latest run.'),
@@ -1039,8 +1098,13 @@ export const openapiDocument = {
       post: {
         tags: ['Reconciliation'],
         summary: 'Trigger a reconciliation run.',
+        description:
+          'Queues a run unless one, manual or scheduled, is already waiting or running, so ' +
+          'repeated calls never stack runs.',
         'x-required-scope': 'manage',
-        responses: { '202': { description: 'Enqueued.' } },
+        responses: {
+          '202': jsonResponse('ReconciliationTrigger', 'Queued, or a run was already pending.'),
+        },
       },
     },
 

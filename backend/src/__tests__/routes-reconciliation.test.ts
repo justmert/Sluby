@@ -4,6 +4,8 @@ import {
   createReconciliationRoutes,
   type ReconciliationRouteDeps,
 } from '../api/routes/reconciliation.js';
+import { PLATFORM_ADDRESS } from '../api/ownership.js';
+import { openapiDocument } from '../api/openapi.js';
 import { createTestApp, withApiKey } from './helpers/express-helpers.js';
 
 vi.mock('../config/logger.js', () => ({
@@ -18,6 +20,22 @@ const manageKey = {
   creatorAddress: '0xabc123',
 };
 
+const platformKey = { ...manageKey, id: 'key-platform', creatorAddress: PLATFORM_ADDRESS };
+
+const aggregates = {
+  id: 'run-1',
+  started_at: '2026-05-01T00:00:00.000Z',
+  finished_at: '2026-05-01T00:00:05.000Z',
+  status: 'drift',
+  db_object_count: 10,
+  indexer_object_count: 9,
+  in_sync_count: 8,
+  orphan_count: 1,
+  missing_count: 2,
+  error_message: null,
+  created_at: '2026-05-01T00:00:05.000Z',
+};
+
 const sampleRun = {
   id: 'run-1',
   startedAt: new Date('2026-05-01T00:00:00Z'),
@@ -30,6 +48,7 @@ const sampleRun = {
   missingCount: 2,
   orphanedIds: ['orphan-1'],
   missingIds: ['missing-1', 'missing-2'],
+  errorMessage: null,
   createdAt: new Date('2026-05-01T00:00:05Z'),
 };
 
@@ -39,7 +58,9 @@ describe('reconciliation routes', () => {
   beforeEach(() => {
     deps = {
       getLatestRun: vi.fn().mockResolvedValue(sampleRun),
-      triggerRun: vi.fn().mockResolvedValue(undefined),
+      // stands in for the postgres ownership query, which has its own tests
+      filterReconciliationIdsOwnedBy: vi.fn().mockResolvedValue(['missing-2']),
+      triggerRun: vi.fn().mockResolvedValue({ enqueued: true }),
     };
   });
 
@@ -48,15 +69,68 @@ describe('reconciliation routes', () => {
   }
 
   describe('GET /reconciliation', () => {
-    it('returns the latest run as snake_case', async () => {
+    it('gives a tenant the deployment counts but only its own missing ids', async () => {
       const res = await request(app()).get('/reconciliation');
 
       expect(res.status).toBe(200);
-      expect(res.body.status).toBe('drift');
-      expect(res.body.orphan_count).toBe(1);
-      expect(res.body.missing_count).toBe(2);
-      expect(res.body.orphaned_ids).toEqual(['orphan-1']);
-      expect(res.body.started_at).toBe('2026-05-01T00:00:00.000Z');
+      expect(res.body).toEqual({
+        ...aggregates,
+        scope: 'account',
+        account_missing_count: 1,
+        missing_ids: ['missing-2'],
+      });
+      expect(res.body).not.toHaveProperty('orphaned_ids');
+      expect(deps.filterReconciliationIdsOwnedBy).toHaveBeenCalledWith(
+        ['missing-1', 'missing-2'],
+        '0xabc123',
+      );
+    });
+
+    it('gives a tenant with nothing missing an empty list and a zero count', async () => {
+      vi.mocked(deps.filterReconciliationIdsOwnedBy).mockResolvedValue([]);
+      const res = await request(app()).get('/reconciliation');
+
+      expect(res.body).toMatchObject({
+        scope: 'account',
+        missing_count: 2,
+        account_missing_count: 0,
+        missing_ids: [],
+      });
+    });
+
+    it('scopes an empty creator address to that address, not to the deployment', async () => {
+      vi.mocked(deps.filterReconciliationIdsOwnedBy).mockResolvedValue([]);
+      const res = await request(app({ ...manageKey, creatorAddress: '' })).get('/reconciliation');
+
+      expect(res.body.scope).toBe('account');
+      expect(res.body).not.toHaveProperty('orphaned_ids');
+      expect(deps.filterReconciliationIdsOwnedBy).toHaveBeenCalledWith(
+        ['missing-1', 'missing-2'],
+        '',
+      );
+    });
+
+    it('gives the platform identity the full report', async () => {
+      const res = await request(app(platformKey)).get('/reconciliation');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        ...aggregates,
+        scope: 'deployment',
+        missing_ids: ['missing-1', 'missing-2'],
+        orphaned_ids: ['orphan-1'],
+      });
+      expect(deps.filterReconciliationIdsOwnedBy).not.toHaveBeenCalled();
+    });
+
+    it('matches the documented schema for both scopes', async () => {
+      const schema = openapiDocument.components.schemas.ReconciliationRun;
+      const documented = Object.keys(schema.properties);
+      for (const key of [manageKey, platformKey]) {
+        const res = await request(app(key)).get('/reconciliation');
+        expect(documented).toEqual(expect.arrayContaining(Object.keys(res.body)));
+        expect(Object.keys(res.body)).toEqual(expect.arrayContaining([...schema.required]));
+      }
     });
 
     it('returns 404 when no run has completed yet', async () => {
@@ -72,12 +146,26 @@ describe('reconciliation routes', () => {
   });
 
   describe('POST /reconciliation/run', () => {
-    it('enqueues a run and returns 202', async () => {
+    it('answers 202 and says a new run was queued', async () => {
       const res = await request(app()).post('/reconciliation/run');
 
       expect(res.status).toBe(202);
       expect(deps.triggerRun).toHaveBeenCalledTimes(1);
-      expect(res.body).toEqual({ enqueued: true });
+      expect(res.body).toEqual({ enqueued: true, already_pending: false });
+    });
+
+    it('answers 202 and says a run was already pending when nothing was queued', async () => {
+      vi.mocked(deps.triggerRun).mockResolvedValue({ enqueued: false });
+      const res = await request(app()).post('/reconciliation/run');
+
+      expect(res.status).toBe(202);
+      expect(res.body).toEqual({ enqueued: false, already_pending: true });
+    });
+
+    it('matches the documented schema', async () => {
+      const schema = openapiDocument.components.schemas.ReconciliationTrigger;
+      const res = await request(app()).post('/reconciliation/run');
+      expect(Object.keys(res.body).sort()).toEqual(Object.keys(schema.properties).sort());
     });
 
     it('requires the manage scope', async () => {
