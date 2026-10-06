@@ -22,9 +22,10 @@ export function notFoundHandler(req: Request, res: Response): void {
 
 /**
  * The app's last middleware. Any error carrying a `statusCode` (AppError, or
- * an Error with the property assigned) answers with that status and its
- * message; everything else is a 500 whose message is hidden. Outside
- * production the body also carries the message and stack for debugging.
+ * an Error with the property assigned) answers with that status; an error
+ * without one is a 500. The client sees the message for 4xx and for any
+ * AppError, and a generic text otherwise. Outside production the body also
+ * carries the message and stack for debugging.
  */
 export function createErrorHandler(log: Logger): ErrorRequestHandler {
   return (err: Error, req, res, _next) => {
@@ -52,8 +53,11 @@ export function createErrorHandler(log: Logger): ErrorRequestHandler {
       'Unhandled error',
     );
 
+    // an AppError's message is written for the client, even for a 5xx such as
+    // a 502 from an upstream; only unexpected errors get the generic text
+    const exposeMessage = statusCode < 500 || err instanceof AppError;
     res.status(statusCode).json({
-      error: statusCode >= 500 ? 'Internal Server Error' : err.message,
+      error: exposeMessage ? err.message : 'Internal Server Error',
       ...(isProduction ? {} : { message: err.message, stack: err.stack }),
     });
   };
