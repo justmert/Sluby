@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import path from 'node:path';
 import { logger } from '../config/logger.js';
+import { buildThumbnailArgs, planThumbnails } from './ffmpeg-args.js';
 
 /**
  * Extract thumbnails at 25%, 50%, and 75% of the video duration to
@@ -14,12 +14,9 @@ export async function extractThumbnails(
   durationMs: number,
   outputDir: string,
 ): Promise<string[]> {
-  const positions = [0.25, 0.5, 0.75];
   const paths: string[] = [];
-  for (const position of positions) {
-    const timeSeconds = (durationMs / 1000) * position;
-    const outputPath = path.join(outputDir, `thumb_${Math.round(position * 100)}.jpg`);
-    logger.debug({ position, timeSeconds, outputPath }, 'Extracting thumbnail');
+  for (const { timeSeconds, outputPath } of planThumbnails(durationMs, outputDir)) {
+    logger.debug({ timeSeconds, outputPath }, 'Extracting thumbnail');
     await extractThumbnail(inputPath, timeSeconds, outputPath);
     paths.push(outputPath);
   }
@@ -32,20 +29,7 @@ async function extractThumbnail(
   outputPath: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const args = [
-      '-y',
-      '-ss',
-      timeSeconds.toFixed(2),
-      '-i',
-      inputPath,
-      '-vframes',
-      '1',
-      '-vf',
-      'scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2',
-      '-q:v',
-      '2',
-      outputPath,
-    ];
+    const args = buildThumbnailArgs(inputPath, timeSeconds, outputPath);
 
     const proc = spawn('ffmpeg', args);
     let stderr = '';
