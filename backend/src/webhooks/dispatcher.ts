@@ -1,5 +1,6 @@
-import { generateSignature } from './signature.js';
+import type { Queue } from 'bullmq';
 import { logger } from '../config/logger.js';
+import type { WebhookJobData } from './delivery.js';
 
 export interface WebhookEndpointRecord {
   id: string;
@@ -12,26 +13,18 @@ export interface WebhookEndpointRecord {
 export interface WebhookDispatcherDeps {
   /** Endpoints of `owner` subscribed to `event`. */
   getActiveWebhooksForEvent: (event: string, owner: string) => Promise<WebhookEndpointRecord[]>;
-  recordDelivery: (data: {
-    webhookEndpointId: string;
-    eventType: string;
-    payload: Record<string, unknown>;
-    statusCode: number | null;
-    responseBody: string | null;
-    retryCount: number;
-  }) => Promise<void>;
+  /** The webhooks queue; its default job options carry attempts and backoff. */
+  queue: Pick<Queue<WebhookJobData>, 'addBulk'>;
 }
 
 export class WebhookDispatcher {
-  private maxRetries = 3;
-  private retryDelays = [10_000, 60_000, 300_000]; // 10s, 60s, 5min
-  private timeoutMs = 10_000;
-
   constructor(private deps: WebhookDispatcherDeps) {}
 
   /**
-   * Deliver `event` to the subscribed endpoints of `owner`, the account the
-   * event's asset belongs to. Never to anyone else's endpoints.
+   * Queue `event` for the subscribed endpoints of `owner`, the account the
+   * event's asset belongs to. Never to anyone else's endpoints. The webhooks
+   * worker sends it, so pending deliveries and retries live in redis and
+   * survive a restart.
    */
   async dispatch(event: string, data: Record<string, unknown>, owner: string): Promise<void> {
     if (!owner) {
@@ -45,107 +38,16 @@ export class WebhookDispatcher {
       return;
     }
 
-    const payload = {
-      event,
-      timestamp: new Date().toISOString(),
-      data,
-    };
+    const body = JSON.stringify({ event, timestamp: new Date().toISOString(), data });
 
-    const payloadStr = JSON.stringify(payload);
-
-    // Dispatch to all matching endpoints in parallel
-    await Promise.allSettled(
-      endpoints.map((endpoint) => this.deliverWithRetry(endpoint, event, payloadStr, payload)),
+    // ids are left to bullmq: each dispatch is a new event and must never be
+    // dropped as a duplicate of an earlier job, which a fixed id would risk
+    // since bullmq ignores an add whose id it still holds
+    await this.deps.queue.addBulk(
+      endpoints.map((endpoint) => ({
+        name: event,
+        data: { endpointId: endpoint.id, event, body },
+      })),
     );
-  }
-
-  private async deliverWithRetry(
-    endpoint: WebhookEndpointRecord,
-    event: string,
-    payloadStr: string,
-    payload: Record<string, unknown>,
-    retryCount = 0,
-  ): Promise<void> {
-    const signature = generateSignature(payloadStr, endpoint.secret);
-
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
-      const response = await fetch(endpoint.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Sluby-Signature': signature,
-          'X-Sluby-Event': event,
-        },
-        body: payloadStr,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
-
-      const responseBody = await response.text().catch(() => '');
-
-      await this.deps.recordDelivery({
-        webhookEndpointId: endpoint.id,
-        eventType: event,
-        payload,
-        statusCode: response.status,
-        responseBody: responseBody.slice(0, 1000),
-        retryCount,
-      });
-
-      if (!response.ok && retryCount < this.maxRetries) {
-        logger.warn(
-          {
-            endpoint: endpoint.url,
-            event,
-            statusCode: response.status,
-            retryCount,
-          },
-          'Webhook delivery failed, scheduling retry',
-        );
-
-        await this.scheduleRetry(endpoint, event, payloadStr, payload, retryCount);
-      } else if (response.ok) {
-        logger.info({ endpoint: endpoint.url, event }, 'Webhook delivered');
-      }
-    } catch (err) {
-      await this.deps.recordDelivery({
-        webhookEndpointId: endpoint.id,
-        eventType: event,
-        payload,
-        statusCode: null,
-        responseBody: err instanceof Error ? err.message : 'Unknown error',
-        retryCount,
-      });
-
-      if (retryCount < this.maxRetries) {
-        logger.warn(
-          { endpoint: endpoint.url, event, err, retryCount },
-          'Webhook delivery error, scheduling retry',
-        );
-        await this.scheduleRetry(endpoint, event, payloadStr, payload, retryCount);
-      } else {
-        logger.error({ endpoint: endpoint.url, event, err }, 'Webhook delivery permanently failed');
-      }
-    }
-  }
-
-  private async scheduleRetry(
-    endpoint: WebhookEndpointRecord,
-    event: string,
-    payloadStr: string,
-    payload: Record<string, unknown>,
-    currentRetry: number,
-  ): Promise<void> {
-    const delay = this.retryDelays[currentRetry] ?? 300_000;
-
-    setTimeout(() => {
-      this.deliverWithRetry(endpoint, event, payloadStr, payload, currentRetry + 1).catch((err) => {
-        logger.error({ err, endpoint: endpoint.url, event }, 'Webhook retry failed');
-      });
-    }, delay);
   }
 }

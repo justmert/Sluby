@@ -68,8 +68,6 @@ import {
   createWebhookEndpoint,
   listWebhookEndpointsByOwner,
   deleteWebhookEndpoint,
-  findEndpointsForEvent,
-  createWebhookDelivery,
 } from './db/queries/webhooks.js';
 
 import {
@@ -116,7 +114,9 @@ import { buildRetryAsset } from './queue/retry.js';
 
 // Other imports
 import { SessionManager } from './upload/session-manager.js';
-import { WebhookDispatcher } from './webhooks/dispatcher.js';
+// importing the webhook module starts its worker, which sends the queued
+// deliveries
+import { webhookDispatcher, closeWebhookWorker } from './webhooks/worker.js';
 
 // ──────────────────────────────────────────
 // Logger
@@ -138,33 +138,6 @@ export const logger = pino({
 for (const dir of [env.UPLOAD_DIR, env.TRANSCODE_OUTPUT_DIR]) {
   mkdirSync(dir, { recursive: true });
 }
-
-// ──────────────────────────────────────────
-// Webhook Dispatcher
-// ──────────────────────────────────────────
-
-const webhookDispatcher = new WebhookDispatcher({
-  getActiveWebhooksForEvent: async (event: string, owner: string) => {
-    const endpoints = await findEndpointsForEvent(event, owner);
-    return endpoints.map((ep) => ({
-      id: ep.id,
-      url: ep.url,
-      events: ep.events,
-      secret: ep.secret,
-      isActive: ep.isActive,
-    }));
-  },
-  recordDelivery: async (data) => {
-    await createWebhookDelivery({
-      webhookEndpointId: data.webhookEndpointId,
-      eventType: data.eventType,
-      payload: data.payload,
-      statusCode: data.statusCode,
-      responseBody: data.responseBody,
-      retryCount: data.retryCount,
-    });
-  },
-});
 
 // ──────────────────────────────────────────
 // Session Manager
@@ -401,8 +374,14 @@ const tusServerDeps: TusServerDeps = {
     await deleteAsset(videoAssetId);
   },
 
+  // best effort, like the pipeline's events: a webhook that cannot be queued
+  // must not fail the upload
   dispatchWebhook: async (event, data, owner) => {
-    await webhookDispatcher.dispatch(event, data, owner);
+    try {
+      await webhookDispatcher.dispatch(event, data, owner);
+    } catch (err) {
+      logger.warn({ event, err }, 'Webhook event not sent');
+    }
   },
 };
 
@@ -943,7 +922,12 @@ async function gracefulShutdown(signal: string): Promise<void> {
   try {
     // Close workers first (stop processing new jobs)
     logger.info('Closing queue workers...');
-    await Promise.all([closeWorkers(), closeReconcileWorker(), closeDeletionWorker()]);
+    await Promise.all([
+      closeWorkers(),
+      closeReconcileWorker(),
+      closeDeletionWorker(),
+      closeWebhookWorker(),
+    ]);
 
     // Close queue connections
     logger.info('Closing queue connections...');

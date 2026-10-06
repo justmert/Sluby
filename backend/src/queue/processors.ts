@@ -27,37 +27,13 @@ import {
   getProcessingJobByUploadSessionId,
   appendProcessingLog,
 } from '../db/queries/jobs.js';
-import { WebhookDispatcher } from '../webhooks/dispatcher.js';
+import { webhookDispatcher } from '../webhooks/worker.js';
 import { processingDurationSeconds } from '../metrics/collector.js';
-import { findEndpointsForEvent, createWebhookDelivery } from '../db/queries/webhooks.js';
 import { getUploadSessionById } from '../db/queries/uploads.js';
 import { removeSessionSource } from '../upload/source-files.js';
 
 const logger = pino({ name: 'queue-processors' });
 
-// ── Webhook dispatcher singleton ──
-const webhookDispatcher = new WebhookDispatcher({
-  getActiveWebhooksForEvent: async (event: string, owner: string) => {
-    const endpoints = await findEndpointsForEvent(event, owner);
-    return endpoints.map((ep) => ({
-      id: ep.id,
-      url: ep.url,
-      events: ep.events,
-      secret: ep.secret,
-      isActive: ep.isActive,
-    }));
-  },
-  recordDelivery: async (data) => {
-    await createWebhookDelivery({
-      webhookEndpointId: data.webhookEndpointId,
-      eventType: data.eventType,
-      payload: data.payload,
-      statusCode: data.statusCode,
-      responseBody: data.responseBody,
-      retryCount: data.retryCount,
-    });
-  },
-});
 /**
  * Send an asset event to the webhooks of the account that owns the asset.
  * Best effort: a delivery problem must never fail the pipeline step.
