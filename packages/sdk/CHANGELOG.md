@@ -4,6 +4,10 @@
 
 ### Added
 
+- `playback.streamUrl(idOrPlaybackId)` returns the absolute public master URL (`/v1/stream/{id}/master.m3u8`) on the delivery base without a request.
+- `SiaSession` methods take an optional `{ src }`, the gateway playback URL being played. With it the share map comes from the public `GET /v1/share/:id` on the same delivery base, carrying the URL's `expires` and `sig`, with no `Authorization` header and no cookies, so direct-from-Sia playback needs no API key. Without it the authenticated `GET /api/v1/playback/:id/share` is used as before.
+- `SiaSession.masterObjectId(id, source)` names the master object from the share map, so a `/v1/stream/...` URL can be played direct from Sia.
+- `publicShareMapUrl(id, src)` and the `SiaShareSource` and `SiaSessionTransport` types are exported.
 - Direct-from-Sia playback: `SlubyConfig.sia` takes a viewer identity (`SiaViewerConfig`), and `SiaSession` fetches an asset's share map from the backend and downloads objects straight from Sia hosts through `@siafoundation/sia-storage`.
 - `assets.processing(id)` returns the processing job with its stage, progress, retry count and log, and `assets.retry(id)` restarts a failed one.
 - `assets.list()` takes `search`, `sort` (`created_at`, `title`, `duration`, `size`) and `order`.
