@@ -281,7 +281,7 @@ export async function vetUrl(
     if (why && !isAllowedByOperator(address, policy)) {
       throw new EgressError(
         'blocked',
-        `${host} resolves to a ${why} address, which webhooks may not reach`,
+        `${host} resolves to an address webhooks may not reach: ${why}`,
       );
     }
   }

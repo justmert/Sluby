@@ -172,8 +172,7 @@ describe('deliverWebhook', () => {
     expect(recorded).toEqual([
       expect.objectContaining({
         statusCode: null,
-        error:
-          '127.0.0.1 resolves to a loopback (127.0.0.0/8) address, which webhooks may not reach',
+        error: '127.0.0.1 resolves to an address webhooks may not reach: loopback (127.0.0.0/8)',
       }),
     ]);
   });

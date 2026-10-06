@@ -336,7 +336,7 @@ describe('webhook routes', () => {
         .post('/')
         .send({ url: 'http://internal.example.com/hook', events: ['asset.ready'] });
       expect(res.body.message).toBe(
-        'URL refused: internal.example.com resolves to a private (10.0.0.0/8) address, which webhooks may not reach',
+        'URL refused: internal.example.com resolves to an address webhooks may not reach: private (10.0.0.0/8)',
       );
       expect(res.body.message).not.toContain('10.1.2.3');
     });
