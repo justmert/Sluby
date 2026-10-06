@@ -295,15 +295,30 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
     // ── State transitions notify the consumer once, on change ──────────────
 
-    useEffect(() => {
-      cb.current.onStateChange?.(state);
-    }, [state]);
-
-    const fail = useCallback((message: string, cause?: unknown) => {
-      setErrorMessage(message);
-      setState('error');
-      cb.current.onError?.(new Error(message, cause === undefined ? undefined : { cause }));
+    // every transition is reported as it happens, in order: reporting from an
+    // effect on `state` would drop one that react batched away (a quick
+    // manifest turned loading into ready within one render)
+    const stateRef = useRef<PlayerState>('idle');
+    const moveTo = useCallback((next: PlayerState | ((current: PlayerState) => PlayerState)) => {
+      const value = typeof next === 'function' ? next(stateRef.current) : next;
+      if (value === stateRef.current) return;
+      stateRef.current = value;
+      setState(value);
+      cb.current.onStateChange?.(value);
     }, []);
+    useEffect(() => {
+      cb.current.onStateChange?.(stateRef.current);
+      // only the state the player starts in; moveTo reports the rest
+    }, []);
+
+    const fail = useCallback(
+      (message: string, cause?: unknown) => {
+        setErrorMessage(message);
+        moveTo('error');
+        cb.current.onError?.(new Error(message, cause === undefined ? undefined : { cause }));
+      },
+      [moveTo],
+    );
 
     // `signed` and `expiresIn` only apply when the player signs, which it
     // never does for a given src
@@ -340,7 +355,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         // nothing loads until the session answers, so a retry or a new src
         // cannot start a stale load first
         setPlayback(null);
-        setState('loading');
+        moveTo('loading');
         void loadSrc(src, session, assetId, retryKey).then((next) => {
           if (!cancelled) setPlayback(next);
         });
@@ -365,7 +380,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       // Clear any prior load synchronously so a Retry cannot re-initialise on
       // a stale or expired url before the fresh resolve below lands.
       setPlayback(null);
-      setState('loading');
+      moveTo('loading');
       loadAsset(client, assetId, signed, expiresIn, retryKey).then(
         (next) => {
           if (!cancelled) setPlayback(next);
@@ -378,7 +393,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       return () => {
         cancelled = true;
       };
-    }, [src, client, assetId, signed, expiresIn, retryKey, fail]);
+    }, [src, client, assetId, signed, expiresIn, retryKey, fail, moveTo]);
 
     // ── Renew a signed url before it expires ───────────────────────────────
 
@@ -455,11 +470,11 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
     const handlePause = useCallback(() => cb.current.onPause?.(), []);
     const handleEnded = useCallback(() => cb.current.onEnd?.(), []);
     const handleWaiting = useCallback(() => {
-      setState((s) => (s === 'error' ? s : 'buffering'));
-    }, []);
+      moveTo((s) => (s === 'error' ? s : 'buffering'));
+    }, [moveTo]);
     const handlePlaying = useCallback(() => {
-      setState((s) => (s === 'error' ? s : 'ready'));
-    }, []);
+      moveTo((s) => (s === 'error' ? s : 'ready'));
+    }, [moveTo]);
     const handleVideoError = useCallback(() => {
       const video = videoRef.current;
       const mediaError = video?.error;
@@ -483,7 +498,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       const current = playback;
 
       setErrorMessage(null);
-      setState('loading');
+      moveTo('loading');
       terminalRef.current = false;
 
       // continue where this video was, after a retry or a renewed url
@@ -517,7 +532,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
         const onNativeLoaded = () => {
           if (resume && resume.time > 0) video.currentTime = resume.time;
-          setState('ready');
+          moveTo('ready');
           cb.current.onReady?.();
           if (shouldPlay()) {
             video.play().catch(() => {
@@ -601,7 +616,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
             toQualityLevel(hls.levels[hls.currentLevel], hls.currentLevel),
           );
         }
-        setState('ready');
+        moveTo('ready');
         cb.current.onReady?.();
         if (shouldPlay()) {
           video.play().catch(() => {
@@ -633,7 +648,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
             if (expired) {
               if (renewing) return;
               renewing = true;
-              setState('buffering');
+              moveTo('buffering');
               renew(current).catch((err: unknown) =>
                 giveUp(`The playback URL expired and could not be renewed (${data.details}).`, err),
               );
@@ -641,7 +656,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
             }
             if (networkRetries < opts.current.maxNetworkRetries) {
               networkRetries += 1;
-              setState('buffering');
+              moveTo('buffering');
               if (backoffTimer) clearTimeout(backoffTimer);
               backoffTimer = setTimeout(
                 () => (manifestParsed ? hls.startLoad() : hls.loadSource(current.src)),
@@ -658,7 +673,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
           case Hls.ErrorTypes.MEDIA_ERROR:
             if (mediaRetries < opts.current.maxMediaRetries) {
               mediaRetries += 1;
-              setState('buffering');
+              moveTo('buffering');
               hls.recoverMediaError();
             } else {
               giveUp(
@@ -686,15 +701,15 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         }
         hlsRef.current = null;
       };
-    }, [playback, fail, renew, renewable]);
+    }, [playback, fail, renew, renewable, moveTo]);
 
     // ── Retry (from the overlay button) ────────────────────────────────────
 
     const handleRetry = useCallback(() => {
       setErrorMessage(null);
-      setState('loading');
+      moveTo('loading');
       setRetryKey((k) => k + 1);
-    }, []);
+    }, [moveTo]);
 
     // ── Render ─────────────────────────────────────────────────────────────
 

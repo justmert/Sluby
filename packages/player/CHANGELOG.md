@@ -33,6 +33,7 @@
 
 ### Fixed
 
+- `onStateChange` skipped `loading` when the manifest was parsed before React rendered it; every transition is now reported as it happens, in order.
 - The overlay Retry built an hls.js instance on the stale (possibly expired) URL or share map before the fresh one.
 - A poster resolved for one asset stayed after switching to another asset or to a plain `src`.
 - Toggling `autoPlay` or changing `maxNetworkRetries` or `maxMediaRetries` tore down and restarted playback; they now apply to the next load or error.

@@ -990,6 +990,20 @@ describe('SlubyPlayer', () => {
       expect(onError.mock.calls[0][0].message).toMatch(/needs a client with playback/);
     });
 
+    it('reports every state in order, even when the manifest parses within the same render', () => {
+      // hls.js may parse a cached manifest before react has committed 'loading'
+      mockLoadSource.mockImplementationOnce(() => {
+        const parsed = [...mockOn.mock.calls]
+          .reverse()
+          .find((c: unknown[]) => c[0] === MockHlsEvents.MANIFEST_PARSED);
+        (parsed![1] as () => void)();
+      });
+      const states: string[] = [];
+      render(<SlubyPlayer src={SRC} onStateChange={(s) => states.push(s)} />);
+
+      expect(states).toEqual(['idle', 'loading', 'ready']);
+    });
+
     it('warns that signed and expiresIn do nothing with src', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       render(<SlubyPlayer src={SRC} signed expiresIn={60} />);
