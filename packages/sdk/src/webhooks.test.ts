@@ -34,6 +34,11 @@ describe('WebhookManager.verifySignature()', () => {
     expect(manager.verifySignature(payload, 'tooshort', secret)).toBe(false);
   });
 
+  it('returns false for a non-hex signature of the right length instead of throwing', () => {
+    const notHex = 'z'.repeat(validSignature.length);
+    expect(manager.verifySignature(payload, notHex, secret)).toBe(false);
+  });
+
   it('should return false for an empty signature', () => {
     expect(manager.verifySignature(payload, '', secret)).toBe(false);
   });

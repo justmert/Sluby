@@ -27,9 +27,9 @@ export class WebhookManager {
    *
    * and hex-encoded.
    *
-   * This method uses the Web Crypto API (available in modern browsers,
-   * Node 18+, Cloudflare Workers, Deno, etc.) to perform a
-   * timing-safe comparison.
+   * Synchronous and Node.js only (node:crypto, timing-safe comparison), from
+   * both the ESM and CommonJS builds. In browsers and edge runtimes use
+   * `verifySignatureAsync`, which runs on Web Crypto.
    *
    * @param payload   - The raw request body string.
    * @param signature - The hex-encoded HMAC signature from the header.
@@ -38,41 +38,20 @@ export class WebhookManager {
    * @returns `true` if the signature is valid.
    */
   verifySignature(payload: string, signature: string, secret: string): boolean {
-    // Use Node.js built-in `crypto` module when available for synchronous
-    // HMAC verification with `timingSafeEqual`.
-    try {
-      // If we are in Node.js we can use the synchronous createHmac path
-      // with timing-safe comparison.
-      if (
-        typeof globalThis.process !== 'undefined' &&
-        (globalThis.process as NodeJS.Process).versions?.node
-      ) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const nodeCrypto: typeof import('node:crypto') = require('node:crypto');
-        const expected = nodeCrypto
-          .createHmac('sha256', secret)
-          .update(payload, 'utf8')
-          .digest('hex');
-
-        if (expected.length !== signature.length) {
-          return false;
-        }
-
-        return nodeCrypto.timingSafeEqual(
-          Buffer.from(expected, 'hex'),
-          Buffer.from(signature, 'hex'),
-        );
-      }
-
-      // Fallback: simple constant-time comparison for non-Node runtimes.
-      // NOTE: This is a best-effort constant-time comparison.  For maximum
-      // security, callers running outside Node.js should use the async
-      // `verifySignatureAsync` method which leverages Web Crypto.
-      return this._constantTimeEqual(this._hmacSha256Sync(payload, secret), signature);
-    } catch {
-      // If all else fails, fall back to the naive sync path.
-      return this._constantTimeEqual(this._hmacSha256Sync(payload, secret), signature);
+    const nodeCrypto = loadNodeCrypto();
+    if (!nodeCrypto) {
+      throw new Error(
+        'Synchronous signature verification needs Node.js. ' +
+          'Use verifySignatureAsync() in browser or edge environments.',
+      );
     }
+    const expected = nodeCrypto.createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+    // timingSafeEqual throws on a length mismatch, and a non-hex signature
+    // decodes to fewer bytes, so check the shape first
+    if (signature.length !== expected.length || !/^[0-9a-f]+$/i.test(signature)) {
+      return false;
+    }
+    return nodeCrypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signature, 'hex'));
   }
 
   // -----------------------------------------------------------------------
@@ -152,27 +131,6 @@ export class WebhookManager {
   }
 
   /**
-   * Synchronous HMAC-SHA256 using Node.js `crypto` when available.
-   * Returns a hex-encoded string.
-   *
-   * This is intentionally a best-effort fallback for non-Node
-   * environments.  The async `verifySignatureAsync` method should be
-   * preferred whenever possible.
-   */
-  private _hmacSha256Sync(data: string, key: string): string {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const nodeCrypto: typeof import('node:crypto') = require('node:crypto');
-      return nodeCrypto.createHmac('sha256', key).update(data, 'utf8').digest('hex');
-    } catch {
-      throw new Error(
-        'Synchronous HMAC-SHA256 is only available in Node.js. ' +
-          'Use verifySignatureAsync() in browser or edge environments.',
-      );
-    }
-  }
-
-  /**
    * Convert a Uint8Array to a hex-encoded string.
    */
   private _bufferToHex(buffer: Uint8Array): string {
@@ -182,4 +140,23 @@ export class WebhookManager {
     }
     return hexChars.join('');
   }
+}
+
+/**
+ * node:crypto when running on Node, from either module format: the ESM build
+ * has no `require`, so prefer process.getBuiltinModule (Node 20.16+) and fall
+ * back to `require` for older Node in CommonJS.
+ */
+function loadNodeCrypto(): typeof import('node:crypto') | undefined {
+  const proc = globalThis.process as
+    (NodeJS.Process & { getBuiltinModule?: (id: string) => unknown }) | undefined;
+  if (!proc?.versions?.node) return undefined;
+  if (typeof proc.getBuiltinModule === 'function') {
+    return proc.getBuiltinModule('node:crypto') as typeof import('node:crypto');
+  }
+  if (typeof require === 'function') {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('node:crypto') as typeof import('node:crypto');
+  }
+  return undefined;
 }
