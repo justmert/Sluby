@@ -1178,6 +1178,43 @@ export const openapiDocument = {
         },
       },
     },
+    '/v1/share/{id}': {
+      get: {
+        tags: ['Delivery'],
+        summary: 'Per-object sia:// share URLs for direct-from-Sia playback, without credentials.',
+        description:
+          'Gated like /v1/stream: a public asset with a public playback ID needs nothing. A ' +
+          'private asset, a signed-policy playback ID, or a public asset that has a signed ' +
+          'playback ID needs the `expires` and `sig` of its signed master URL, and the shares ' +
+          'then never outlive `expires`. Expiries are capped like the authenticated route (six ' +
+          'hours, one hour when gated) and rounded to five-minute slots that the server caches, ' +
+          'so repeated calls do not mint again. A gated map is sent `private, no-store`; a ' +
+          'public one may be cached for up to a minute.',
+        security: [],
+        parameters: [
+          idParam('id', 'Asset UUID or pb_ playback ID.'),
+          {
+            name: 'expires',
+            in: 'query',
+            schema: { type: 'integer' },
+            description: 'Expiry (unix seconds) from the signed master URL. Required when gated.',
+          },
+          {
+            name: 'sig',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Signature from the signed master URL. Required when gated.',
+          },
+          { name: 'expires_in', in: 'query', schema: { type: 'integer', default: 3600 } },
+        ],
+        responses: {
+          '200': jsonResponse('SharePlaybackInfo', 'Share URL map.'),
+          '403': errorResponse,
+          '404': errorResponse,
+          '502': errorResponse,
+        },
+      },
+    },
     '/v1/cache/stats': {
       get: {
         tags: ['Ops'],

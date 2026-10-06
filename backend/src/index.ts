@@ -698,8 +698,8 @@ const apiRouterDeps: ApiRouterDeps = {
     return { signedUrl, expiresAt: new Date(expiresAtSec * 1000).toISOString() };
   },
 
-  createShareUrls: (assetId, masterObjectId, expiresIn) =>
-    createAssetShareUrls(assetId, masterObjectId, expiresIn),
+  createShareUrls: (assetId, masterObjectId, expiresIn, notAfterSec) =>
+    createAssetShareUrls(assetId, masterObjectId, expiresIn, notAfterSec),
 
   resolveObjectTier: (objectId) => getObjectAccessTier(objectId),
 
