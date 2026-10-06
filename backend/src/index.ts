@@ -58,6 +58,7 @@ import {
 } from './db/queries/api-keys.js';
 
 import { apiKeys as apiKeysTable, type VideoAsset } from './db/schema.js';
+import { BOOTSTRAP_CREATOR_ADDRESS, seedBootstrapApiKey } from './db/api-key-seeding.js';
 
 import {
   createWebhookEndpoint,
@@ -938,34 +939,10 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
 
 async function bootstrapApiKey(): Promise<void> {
   if (!env.BOOTSTRAP_API_KEY) return;
-
-  const { createHash } = await import('node:crypto');
-  const { eq } = await import('drizzle-orm');
-  const { apiKeys } = await import('./db/schema.js');
-
-  const keyHash = createHash('sha256').update(env.BOOTSTRAP_API_KEY).digest('hex');
-
-  const platformAddress = 'platform';
-
-  // Check if this specific bootstrap key already exists
-  const existing = await db.query.apiKeys.findFirst({
-    where: eq(apiKeys.keyHash, keyHash),
-  });
-
-  if (existing) {
-    return;
+  const outcome = await seedBootstrapApiKey(db, env.BOOTSTRAP_API_KEY);
+  if (outcome === 'created') {
+    logger.info({ platformAddress: BOOTSTRAP_CREATOR_ADDRESS }, 'Bootstrap API key seeded');
   }
-
-  await db.insert(apiKeys).values({
-    keyHash,
-    name: 'bootstrap',
-    scopes: ['upload', 'read', 'manage'],
-    rateLimit: 1000,
-    creatorAddress: platformAddress,
-    isActive: true,
-  });
-
-  logger.info({ platformAddress }, 'Bootstrap API key seeded');
 }
 
 // ──────────────────────────────────────────
