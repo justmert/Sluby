@@ -108,11 +108,12 @@ import { WebhookManager } from '@sluby/sdk';
 const webhooks = new WebhookManager();
 const app = express();
 
+const handled = new Set<string>(); // use your database in a real receiver
+
 app.post('/hooks/sluby', express.text({ type: 'application/json' }), async (req, res) => {
-  const signature = req.get('X-Sluby-Signature') ?? '';
-  const valid = await webhooks.verifySignatureAsync(
+  const valid = await webhooks.verifyRequestAsync(
     req.body,
-    signature,
+    req.headers,
     process.env.SLUBY_WEBHOOK_SECRET!,
   );
   if (!valid) {
@@ -120,6 +121,11 @@ app.post('/hooks/sluby', express.text({ type: 'application/json' }), async (req,
     return;
   }
   const event = webhooks.parseEvent(req.body);
+  if (event.id && handled.has(event.id)) {
+    res.sendStatus(204);
+    return;
+  }
+  if (event.id) handled.add(event.id);
   if (event.event === 'asset.ready') {
     console.log('ready to play', event.data.video_asset_id);
   } else if (event.event === 'asset.errored') {
@@ -129,10 +135,10 @@ app.post('/hooks/sluby', express.text({ type: 'application/json' }), async (req,
 });
 ```
 
-- The signature is an HMAC-SHA256 of the exact bytes sent, so parse the body as text (`express.text`), not JSON, or re-serializing may change it.
-- `verifySignatureAsync` runs on Web Crypto and works in Node, browsers and edge runtimes. The synchronous `verifySignature` works on Node only (from both the ESM and CommonJS builds) and throws elsewhere.
-- There is no timestamp or nonce in the signature beyond the `timestamp` field inside the signed body. Check that field if replayed deliveries matter to you.
-- Answer within 10 seconds with a 2xx. Failed deliveries are retried after 10 seconds, 1 minute and 5 minutes with the same body; make handling idempotent (key on `video_asset_id` and `event`).
+- `X-Sluby-Signature-V1` is an HMAC-SHA256 of `X-Sluby-Timestamp`, a `.` and the exact bytes sent, so parse the body as text (`express.text`), not JSON, or re-serializing may change it. `verifyRequest` also refuses a timestamp more than five minutes from now (`toleranceSeconds` changes that), so a captured delivery cannot be replayed later.
+- `verifyRequestAsync` runs on Web Crypto and works in Node, browsers and edge runtimes. The synchronous `verifyRequest` works on Node only and throws elsewhere. The older `verifySignature` methods check the body-only `X-Sluby-Signature` header, which binds no time; move receivers to `verifyRequest`.
+- Answer within 10 seconds with a 2xx; only the status counts, and a redirect is a failure. Failed deliveries are retried after 10 seconds, 1 minute and 5 minutes with the same body and the same event `id`, and a delivery in flight when the backend stopped can arrive twice, so drop ids you have handled.
+- The receiver must be on a public address; the backend refuses loopback, private and metadata addresses unless the operator allows the network (see [webhooks](/api/#webhooks)). `POST /api/v1/webhooks/:id/test` sends a signed `webhook.test` event to check a receiver.
 - Pending deliveries and retries are kept in the backend's Redis queue and survive a backend restart. After the last retry fails, the event is not sent again, so for anything that must not be missed while your receiver is down for more than a few minutes, keep a slow poll as a backstop, for example re-checking assets that have been processing for longer than expected.
 
 |                | Polling                             | Webhooks                           |

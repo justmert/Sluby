@@ -17,7 +17,9 @@ curl -H "Authorization: Bearer sluby_..." http://localhost:8080/api/v1/assets
 
 Keys start with `sluby_`. The server stores only a SHA-256 hash of each key, so the secret is shown once, when the key is created or rotated, and cannot be retrieved later.
 
-The Studio does not use a key. It signs in with GitHub and sends a session cookie, which the server checks before the `Authorization` header. When `AUTH_DISABLED=true` (the quickstart default), every request is treated as a signed-in local user and keys are not checked at all.
+The Studio does not use a key. It signs in with GitHub and sends a session cookie, which the server checks before the `Authorization` header. When `AUTH_DISABLED=true` (the quickstart default), every request is treated as the local dev account and keys are not checked at all.
+
+A key belongs to an account and works only while that account may use the server: taking someone off the sign-in allowlist makes their keys answer `401` until they are put back (see [the allowlist](/architecture/auth-and-tenancy#the-allowlist)).
 
 ### Creating a key
 
@@ -31,11 +33,11 @@ Keys can also be managed through the API (`POST /api/v1/keys`, `POST /api/v1/key
 
 Each key carries one or more scopes, and every endpoint requires exactly one:
 
-| Scope    | Allows                                                                                                                                                      |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `upload` | Uploading videos over tus at `/api/v1/uploads` and cancelling an upload.                                                                                    |
-| `read`   | Listing and reading assets, renditions, processing state and Sia storage details, playback URLs, upload status, webhooks, stats, system status and metrics. |
-| `manage` | Editing, deleting and retrying assets, playback IDs, API keys, creating and deleting webhooks, and reconciliation (see below).                              |
+| Scope    | Allows                                                                                                                                   |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload` | Uploading videos over tus at `/api/v1/uploads` and cancelling an upload.                                                                 |
+| `read`   | Listing and reading assets, renditions, processing state and Sia storage details, playback URLs, upload status, stats and system status. |
+| `manage` | Editing, deleting and retrying assets, playback IDs, API keys, webhooks (listing them too) and reconciliation (see below).               |
 
 Scopes are checked independently: `manage` does not include `read`, so a key that should do both needs both. A key without the required scope gets `403` with `Requires '<scope>' scope`. Each operation in the reference shows its scope as `x-required-scope`.
 
@@ -99,7 +101,7 @@ Errors are JSON with an `error` message. A `400` from a body or query that faile
 | Status | Meaning                                                                                                                                                               |
 | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `400`  | Invalid input, such as an unknown filter value, a repeated query parameter, a bad request body or an ID that is not a valid identifier (`Invalid identifier format`). |
-| `401`  | The `Authorization` header is missing, or the key is unknown, deactivated or expired.                                                                                 |
+| `401`  | The `Authorization` header is missing, or the key is unknown, deactivated, expired or owned by an account no longer allowed in.                                       |
 | `403`  | The key lacks the scope the endpoint requires, or the endpoint is for the platform identity only.                                                                     |
 | `404`  | The resource does not exist or belongs to another account. Unknown routes also return `404`, with or without a key.                                                   |
 | `409`  | The request conflicts with the resource's state, such as playing an asset that is not ready or cancelling a finished upload.                                          |
@@ -107,6 +109,45 @@ Errors are JSON with an `error` message. A `400` from a body or query that faile
 | `500`  | Server error. The details go to the backend log.                                                                                                                      |
 
 When `NODE_ENV` is not `production`, errors raised inside a route handler also include `message` and `stack` to help while developing, so a production server never returns a stack trace. Each operation in the reference lists the status codes it can answer, and the backend's tests check every answer against that list.
+
+## Webhooks
+
+`POST /api/v1/webhooks` (scope `manage`) registers a receiver URL for some of the events listed under [webhooks and processing logs](/architecture/upload-pipeline#webhooks-and-processing-logs) and returns its signing secret once. Events are sent only for the account's own assets.
+
+The URL must be `http` or `https`, and its host must resolve only to public addresses. Loopback, private (RFC 1918), link-local and cloud metadata (`169.254.0.0/16`, `fd00:ec2::254`), unique local, CGNAT (`100.64.0.0/10`), unspecified, multicast and the other special-purpose ranges are refused, including IPv6 forms that carry such an IPv4 address (`::ffff:127.0.0.1`). The check runs at registration and again before every delivery, and the request then connects only to the addresses that were checked, so a DNS answer that changes in between cannot point it inside the deployment. Redirects are not followed. To deliver to receivers on your own network, list their networks in `WEBHOOK_ALLOWED_NETWORKS` (see [Configuration](/guide/configuration#webhooks)).
+
+Each delivery is a `POST` with a JSON body and these headers:
+
+| Header                 | Value                                                                                                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `X-Sluby-Event`        | The event name, such as `asset.ready`.                                                                                                                         |
+| `X-Sluby-Delivery`     | An id for this delivery to this endpoint, the same on every retry of it.                                                                                       |
+| `X-Sluby-Timestamp`    | When this attempt was sent, in Unix seconds.                                                                                                                   |
+| `X-Sluby-Signature-V1` | Hex HMAC-SHA256, with the endpoint secret, of the timestamp, a `.`, and the raw body.                                                                          |
+| `X-Sluby-Signature`    | Hex HMAC-SHA256 of the raw body alone. Deprecated: it binds no time, so a captured request keeps verifying. Kept so receivers written against it keep working. |
+
+The body is `{ "id": "evt_...", "event": "asset.ready", "timestamp": "...", "data": { ... } }`. Delivery is at least once (retries after 10 s, 1 min and 5 min, and a request in flight when the backend stops is sent again), so drop an `id` you have already handled.
+
+To verify a request, compute the HMAC of `<X-Sluby-Timestamp>.<raw body>` with the secret, compare it with `X-Sluby-Signature-V1` in constant time, and refuse a timestamp more than five minutes from your clock. `@sluby/sdk` does this in `verifyRequest`:
+
+```ts
+import { WebhookManager } from '@sluby/sdk';
+
+const webhooks = new WebhookManager();
+
+// req.body must be the raw request body as a string, not parsed JSON
+if (!webhooks.verifyRequest(req.body, req.headers, process.env.SLUBY_WEBHOOK_SECRET!)) {
+  res.status(401).end();
+  return;
+}
+const event = webhooks.parseEvent(req.body);
+```
+
+`verifyRequestAsync` does the same on Web Crypto, for edge runtimes and browsers, and takes a Fetch `Headers` object as well as Node's `req.headers`.
+
+A receiver answers with any `2xx` status; anything else, a redirect included, counts as a failure and is retried. Only the status line counts: the response body is never read.
+
+`POST /api/v1/webhooks/{id}/test` sends a signed `webhook.test` event (with `data.webhook_id`) right away and answers how the receiver responded (`delivered`, `status_code`, `error`). `GET /api/v1/webhooks/{id}/deliveries` lists the latest attempts with their event, status code and, for a failure, why. Both need `manage`, like listing endpoints, because receiver URLs often carry credentials.
 
 ## Rate limits
 
