@@ -117,7 +117,7 @@ describe('UploadManager.upload()', () => {
       description: 'desc',
       accessTier: 'private',
     });
-    // Single stream only — parallelUploads would mint multiple assets.
+    // single stream only: parallelUploads would mint multiple assets
     expect(up.options.parallelUploads).toBeUndefined();
     expect(up.start).toHaveBeenCalledTimes(1);
 
