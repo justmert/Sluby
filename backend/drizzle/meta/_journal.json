@@ -78,6 +78,20 @@
       "when": 1791321059465,
       "tag": "0010_reconcile_inventory",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791322636841,
+      "tag": "0011_user_identities",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791322659464,
+      "tag": "0012_drop_login_and_response_body",
+      "breakpoints": true
     }
   ]
 }

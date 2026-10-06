@@ -69,6 +69,18 @@ export async function findEndpointsForEvent(
     );
 }
 
+/** One endpoint of an account, or undefined when it is not theirs. */
+export async function getWebhookEndpointForOwner(
+  id: string,
+  creatorAddress: string | undefined,
+): Promise<WebhookEndpoint | undefined> {
+  return db.query.webhookEndpoints.findFirst({
+    where: creatorAddress
+      ? and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.creatorAddress, creatorAddress))
+      : eq(webhookEndpoints.id, id),
+  });
+}
+
 /**
  * Update a webhook endpoint.
  */
@@ -159,7 +171,7 @@ export async function updateWebhookDeliveryResult(
   id: string,
   data: {
     statusCode: number;
-    responseBody?: string;
+    error?: string | null;
     deliveredAt: Date;
   },
 ): Promise<WebhookDelivery | undefined> {
@@ -167,7 +179,7 @@ export async function updateWebhookDeliveryResult(
     .update(webhookDeliveries)
     .set({
       statusCode: data.statusCode,
-      responseBody: data.responseBody ?? null,
+      error: data.error ?? null,
       deliveredAt: data.deliveredAt,
     })
     .where(eq(webhookDeliveries.id, id))

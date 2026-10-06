@@ -27,6 +27,24 @@ export function isPlatformIdentity(creatorAddress: string | undefined): boolean 
 }
 
 /**
+ * The owner address of an account (a `users` row). Whatever way the person
+ * signs in, everything they own carries this address, so it names no sign-in
+ * provider and survives a renamed handle. Other addresses are operator-made
+ * owners (the bootstrap key's `platform`, PLATFORM_ADDRESS, `db:seed-key
+ * --address ...`) or addresses older versions wrote, see legacy_owner_claims.
+ */
+export function userAddress(userId: string): string {
+  return `user:${userId}`;
+}
+
+const USER_ADDRESS = /^user:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+/** The account id in a `user:<id>` address, or null for any other owner. */
+export function userIdFromAddress(address: string): string | null {
+  return USER_ADDRESS.exec(address)?.[1] ?? null;
+}
+
+/**
  * Owner constraint for a request, given the caller's creator address.
  * Returns `undefined` for the platform identity, meaning "do not filter";
  * otherwise the address that queries must match.

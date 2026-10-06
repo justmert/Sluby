@@ -373,9 +373,16 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
   describe('bearer middleware over the real lookup', () => {
     async function authenticate(token: string) {
       // the same adapter index.ts gives the middleware
+      const accounts = await import('../db/queries/accounts.js');
       const mw = middleware.createApiKeyMiddleware({
         findActiveSession: async () => undefined,
         findApiKeyByHash: async (hash) => (await q.getApiKeyByHash(hash)) ?? null,
+        getAccount: accounts.getAccount,
+        findLegacyClaim: accounts.findLegacyClaim,
+        isAllowlistEntryPinned: accounts.isAllowlistEntryPinned,
+        localDevAccount: async () => {
+          throw new Error('auth is enabled in this test');
+        },
       });
       const req = { headers: { authorization: `Bearer ${token}` } } as unknown as Request;
       let status = 200;

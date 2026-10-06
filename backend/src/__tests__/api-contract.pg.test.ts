@@ -1032,16 +1032,23 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
   describe('auth', () => {
     async function sessionCookie(login: string) {
       const { createStudioSession } = await import('../db/queries/sessions.js');
+      const { ensureIdentityAccount } = await import('../db/queries/accounts.js');
       const { signSession, SESSION_COOKIE_NAME } = await import('../api/auth/session.js');
       const { env } = await import('../config/env.js');
+      const account = await ensureIdentityAccount({
+        provider: 'github',
+        subject: `id-${login}`,
+        username: login,
+        displayName: login,
+      });
       const row = await createStudioSession({
-        login,
+        ...account,
         expiresAt: new Date(Date.now() + 3600_000),
         userAgent: 'contract-test',
       });
       return {
         id: row.id,
-        cookie: `${SESSION_COOKIE_NAME}=${signSession(row.id, login, env.SESSION_SECRET)}`,
+        cookie: `${SESSION_COOKIE_NAME}=${signSession(row.id, account.userId, env.SESSION_SECRET)}`,
       };
     }
 
@@ -1054,7 +1061,8 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       const me = await request(app).get('/api/v1/auth/me').set('Cookie', cookie);
       check('GET', '/api/v1/auth/me', me);
       expect(me.status).toBe(200);
-      expect(me.body.login).toBe('alice');
+      expect(me.body.username).toBe('alice');
+      expect(me.body.provider).toBe('github');
       expect(me.body.auth_disabled).toBe(false);
       expect(Number.isNaN(Date.parse(me.body.expires_at))).toBe(false);
     });

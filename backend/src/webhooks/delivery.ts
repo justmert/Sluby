@@ -1,19 +1,23 @@
 import { Worker, type ConnectionOptions, type DefaultJobOptions, type Job } from 'bullmq';
-import { generateSignature } from './signature.js';
+import { randomUUID } from 'node:crypto';
+import { signatureHeaders } from './signature.js';
+import { EgressError, postToReceiver, type EgressPolicy } from './egress.js';
 import { logger } from '../config/logger.js';
 
 export const WEBHOOK_QUEUE = 'webhooks';
 
 /**
  * One delivery of one event to one endpoint. `body` is the exact string that
- * is POSTed, built once at dispatch, so every attempt sends the same bytes
- * and the signature over them only changes if the endpoint's secret does.
- * The secret itself is not stored in redis, it is read at delivery time.
+ * is POSTed, built once at dispatch, so every attempt sends the same bytes.
+ * `deliveryId` stays the same across the attempts of this delivery (jobs
+ * queued by older versions have none). The secret itself is not stored in
+ * redis, it is read at delivery time.
  */
 export interface WebhookJobData {
   endpointId: string;
   event: string;
   body: string;
+  deliveryId?: string;
 }
 
 /** Waits before the 2nd, 3rd and 4th attempt; the first runs immediately. */
@@ -28,7 +32,8 @@ export const webhookJobOptions: DefaultJobOptions = {
   removeOnFail: { count: 5000 },
 };
 
-const TIMEOUT_MS = 10_000;
+/** From the first byte sent to the receiver's status line, DNS included. */
+export const WEBHOOK_TIMEOUT_MS = 10_000;
 
 /**
  * Backoff for the worker's `settings.backoffStrategy`. BullMQ passes the
@@ -39,6 +44,14 @@ export function webhookBackoff(delays: readonly number[] = WEBHOOK_RETRY_DELAYS)
   return (attemptsMade: number): number => delays[attemptsMade - 1] ?? -1;
 }
 
+export const newEventId = () => `evt_${randomUUID()}`;
+export const newDeliveryId = () => `dlv_${randomUUID()}`;
+
+/** The JSON body of an event, the same for every endpoint it is sent to. */
+export function eventBody(event: string, data: Record<string, unknown>): string {
+  return JSON.stringify({ id: newEventId(), event, timestamp: new Date().toISOString(), data });
+}
+
 export interface WebhookEndpointTarget {
   id: string;
   url: string;
@@ -46,17 +59,24 @@ export interface WebhookEndpointTarget {
   isActive: boolean;
 }
 
+export interface DeliveryRecord {
+  webhookEndpointId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  statusCode: number | null;
+  /** Why the attempt failed, in our words; null when it was delivered. */
+  error: string | null;
+  retryCount: number;
+}
+
 export interface WebhookDeliveryDeps {
   /** The endpoint as it is now, or undefined once it has been deleted. */
   getEndpoint: (id: string) => Promise<WebhookEndpointTarget | undefined>;
-  recordDelivery: (data: {
-    webhookEndpointId: string;
-    eventType: string;
-    payload: Record<string, unknown>;
-    statusCode: number | null;
-    responseBody: string | null;
-    retryCount: number;
-  }) => Promise<void>;
+  recordDelivery: (data: DeliveryRecord) => Promise<void>;
+  /** Which receivers may be contacted, see egress.ts. */
+  egress: EgressPolicy;
+  /** Only for tests; production uses WEBHOOK_TIMEOUT_MS. */
+  timeoutMs?: number;
 }
 
 export class WebhookDeliveryError extends Error {
@@ -66,6 +86,49 @@ export class WebhookDeliveryError extends Error {
   ) {
     super(message);
     this.name = 'WebhookDeliveryError';
+  }
+}
+
+export interface AttemptOutcome {
+  delivered: boolean;
+  statusCode: number | null;
+  error: string | null;
+}
+
+/** POST one signed request to an endpoint and judge it on the status line. */
+export async function attemptDelivery(
+  endpoint: WebhookEndpointTarget,
+  data: WebhookJobData,
+  opts: { egress: EgressPolicy; timeoutMs?: number },
+): Promise<AttemptOutcome> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'User-Agent': 'Sluby-Webhooks',
+    'X-Sluby-Event': data.event,
+    ...signatureHeaders(data.body, endpoint.secret),
+  };
+  if (data.deliveryId) headers['X-Sluby-Delivery'] = data.deliveryId;
+
+  try {
+    const { status } = await postToReceiver(endpoint.url, {
+      headers,
+      body: data.body,
+      timeoutMs: opts.timeoutMs ?? WEBHOOK_TIMEOUT_MS,
+      policy: opts.egress,
+    });
+    if (status >= 200 && status < 300) return { delivered: true, statusCode: status, error: null };
+    if (status >= 300 && status < 400) {
+      return {
+        delivered: false,
+        statusCode: status,
+        error: `the receiver answered ${status}; redirects are not followed`,
+      };
+    }
+    return { delivered: false, statusCode: status, error: `the receiver answered ${status}` };
+  } catch (err) {
+    const message = err instanceof EgressError ? err.message : 'request failed';
+    if (!(err instanceof EgressError)) logger.warn({ err }, 'Unexpected webhook request error');
+    return { delivered: false, statusCode: null, error: message };
   }
 }
 
@@ -88,57 +151,33 @@ export async function deliverWebhook(
     return 'skipped';
   }
 
-  const record = async (statusCode: number | null, responseBody: string) => {
-    // the outcome of the request decides whether to retry, not this insert:
-    // retrying a delivered webhook because its log row failed would send it
-    // twice
-    try {
-      await deps.recordDelivery({
-        webhookEndpointId: endpoint.id,
-        eventType: data.event,
-        payload: JSON.parse(data.body) as Record<string, unknown>,
-        statusCode,
-        responseBody: responseBody.slice(0, 1000),
-        retryCount,
-      });
-    } catch (err) {
-      logger.error(
-        { err, endpointId: endpoint.id, event: data.event },
-        'Could not record webhook delivery attempt',
-      );
-    }
-  };
+  const outcome = await attemptDelivery(endpoint, data, deps);
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  let status: number;
-  let responseBody: string;
+  // the outcome of the request decides whether to retry, not this insert:
+  // retrying a delivered webhook because its log row failed would send it twice
   try {
-    const response = await fetch(endpoint.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Sluby-Signature': generateSignature(data.body, endpoint.secret),
-        'X-Sluby-Event': data.event,
-      },
-      body: data.body,
-      signal: controller.signal,
+    await deps.recordDelivery({
+      webhookEndpointId: endpoint.id,
+      eventType: data.event,
+      payload: JSON.parse(data.body) as Record<string, unknown>,
+      statusCode: outcome.statusCode,
+      error: outcome.error,
+      retryCount,
     });
-    status = response.status;
-    responseBody = await response.text().catch(() => '');
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    await record(null, message);
-    throw new WebhookDeliveryError(`Webhook request failed: ${message}`, null);
-  } finally {
-    clearTimeout(timeout);
+    logger.error(
+      { err, endpointId: endpoint.id, event: data.event },
+      'Could not record webhook delivery attempt',
+    );
   }
 
-  await record(status, responseBody);
-  if (status < 200 || status >= 300) {
-    throw new WebhookDeliveryError(`Webhook endpoint answered ${status}`, status);
+  if (!outcome.delivered) {
+    throw new WebhookDeliveryError(
+      `Webhook delivery failed: ${outcome.error ?? 'unknown error'}`,
+      outcome.statusCode,
+    );
   }
-  logger.info({ endpoint: endpoint.url, event: data.event }, 'Webhook delivered');
+  logger.info({ endpointId: endpoint.id, event: data.event }, 'Webhook delivered');
   return 'delivered';
 }
 

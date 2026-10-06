@@ -125,7 +125,9 @@ describe.skipIf(!hasTestDatabase)('webhook queries (postgres)', () => {
 
       const deliveredAt = new Date('2026-05-01T10:00:00.000Z');
       const done = await q.updateWebhookDeliveryResult(d.id, { statusCode: 204, deliveredAt });
-      expect(done).toMatchObject({ statusCode: 204, responseBody: null });
+      expect(done).toMatchObject({ statusCode: 204, error: null });
+      // nothing a receiver says is kept
+      expect(done).not.toHaveProperty('responseBody');
       expect(done!.deliveredAt!.toISOString()).toBe(deliveredAt.toISOString());
 
       await q.incrementDeliveryRetryCount(d.id);

@@ -1,14 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
   createApiKeyMiddleware,
   requireScope,
   type ApiKeyMiddlewareDeps,
 } from '../api/middleware/api-key.js';
-import type { Request, Response, NextFunction } from 'express';
+import type { Request } from 'express';
+import { logger } from '../config/logger.js';
+import { env } from '../config/env.js';
+import { SESSION_COOKIE_NAME, signSession } from '../api/auth/session.js';
+import { memoryAccounts } from './helpers/accounts.js';
 
-// Mock logger
-vi.mock('../../config/logger.js', () => ({
+// the path is relative to this test file, as vi.mock resolves it
+vi.mock('../config/logger.js', () => ({
   logger: {
     warn: vi.fn(),
     info: vi.fn(),
@@ -40,6 +44,21 @@ function createMockRes(): Response & { _status: number; _json: unknown } {
   return res as any;
 }
 
+/** Middleware deps with no accounts, no claims and no pins, overridden per test. */
+function keyDeps(overrides: Partial<ApiKeyMiddlewareDeps>): ApiKeyMiddlewareDeps {
+  return {
+    findActiveSession: vi.fn(async () => undefined),
+    findApiKeyByHash: vi.fn(),
+    getAccount: vi.fn(async () => null),
+    findLegacyClaim: vi.fn(async () => null),
+    isAllowlistEntryPinned: vi.fn(async () => false),
+    localDevAccount: vi.fn(async () => {
+      throw new Error('not in dev mode');
+    }),
+    ...overrides,
+  };
+}
+
 describe('api-key middleware', () => {
   const testToken = 'ws_test_token_abc123';
   const testTokenHash = createHash('sha256').update(testToken).digest('hex');
@@ -56,10 +75,7 @@ describe('api-key middleware', () => {
 
   describe('createApiKeyMiddleware', () => {
     it('should return 401 when Authorization header is missing', async () => {
-      const deps: ApiKeyMiddlewareDeps = {
-        findActiveSession: vi.fn(async () => undefined),
-        findApiKeyByHash: vi.fn(),
-      };
+      const deps = keyDeps({});
       const middleware = createApiKeyMiddleware(deps);
 
       const req = createMockReq();
@@ -74,10 +90,7 @@ describe('api-key middleware', () => {
     });
 
     it('should return 401 when Authorization header does not start with Bearer', async () => {
-      const deps: ApiKeyMiddlewareDeps = {
-        findActiveSession: vi.fn(async () => undefined),
-        findApiKeyByHash: vi.fn(),
-      };
+      const deps = keyDeps({});
       const middleware = createApiKeyMiddleware(deps);
 
       const req = createMockReq({ authorization: 'Basic abc123' });
@@ -91,10 +104,7 @@ describe('api-key middleware', () => {
     });
 
     it('should return 401 when API key is not found', async () => {
-      const deps: ApiKeyMiddlewareDeps = {
-        findActiveSession: vi.fn(async () => undefined),
-        findApiKeyByHash: vi.fn().mockResolvedValue(null),
-      };
+      const deps = keyDeps({ findApiKeyByHash: vi.fn().mockResolvedValue(null) });
       const middleware = createApiKeyMiddleware(deps);
 
       const req = createMockReq({ authorization: `Bearer ${testToken}` });
@@ -110,10 +120,9 @@ describe('api-key middleware', () => {
     });
 
     it('should return 401 when API key is deactivated', async () => {
-      const deps: ApiKeyMiddlewareDeps = {
-        findActiveSession: vi.fn(async () => undefined),
+      const deps = keyDeps({
         findApiKeyByHash: vi.fn().mockResolvedValue({ ...activeApiKey, isActive: false }),
-      };
+      });
       const middleware = createApiKeyMiddleware(deps);
 
       const req = createMockReq({ authorization: `Bearer ${testToken}` });
@@ -129,10 +138,9 @@ describe('api-key middleware', () => {
 
     it('should return 401 when API key has expired', async () => {
       const pastDate = new Date(Date.now() - 60_000);
-      const deps: ApiKeyMiddlewareDeps = {
-        findActiveSession: vi.fn(async () => undefined),
+      const deps = keyDeps({
         findApiKeyByHash: vi.fn().mockResolvedValue({ ...activeApiKey, expiresAt: pastDate }),
-      };
+      });
       const middleware = createApiKeyMiddleware(deps);
 
       const req = createMockReq({ authorization: `Bearer ${testToken}` });
@@ -147,10 +155,7 @@ describe('api-key middleware', () => {
     });
 
     it('should allow a valid, active, non-expired API key', async () => {
-      const deps: ApiKeyMiddlewareDeps = {
-        findActiveSession: vi.fn(async () => undefined),
-        findApiKeyByHash: vi.fn().mockResolvedValue(activeApiKey),
-      };
+      const deps = keyDeps({ findApiKeyByHash: vi.fn().mockResolvedValue(activeApiKey) });
       const middleware = createApiKeyMiddleware(deps);
 
       const req = createMockReq({ authorization: `Bearer ${testToken}` });
@@ -171,10 +176,9 @@ describe('api-key middleware', () => {
 
     it('should allow API key with expiresAt in the future', async () => {
       const futureDate = new Date(Date.now() + 86400_000);
-      const deps: ApiKeyMiddlewareDeps = {
-        findActiveSession: vi.fn(async () => undefined),
+      const deps = keyDeps({
         findApiKeyByHash: vi.fn().mockResolvedValue({ ...activeApiKey, expiresAt: futureDate }),
-      };
+      });
       const middleware = createApiKeyMiddleware(deps);
 
       const req = createMockReq({ authorization: `Bearer ${testToken}` });
@@ -187,10 +191,9 @@ describe('api-key middleware', () => {
     });
 
     it('should return 500 when findApiKeyByHash throws', async () => {
-      const deps: ApiKeyMiddlewareDeps = {
-        findActiveSession: vi.fn(async () => undefined),
+      const deps = keyDeps({
         findApiKeyByHash: vi.fn().mockRejectedValue(new Error('DB connection failed')),
-      };
+      });
       const middleware = createApiKeyMiddleware(deps);
 
       const req = createMockReq({ authorization: `Bearer ${testToken}` });
@@ -202,13 +205,15 @@ describe('api-key middleware', () => {
       expect(res._status).toBe(500);
       expect(res._json).toEqual({ error: 'Internal server error' });
       expect(next).not.toHaveBeenCalled();
+      // the mocked logger, so this also proves the mock is the one in use
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error) }),
+        'Authentication check failed',
+      );
     });
 
     it('should hash the token with SHA-256 before looking it up', async () => {
-      const deps: ApiKeyMiddlewareDeps = {
-        findActiveSession: vi.fn(async () => undefined),
-        findApiKeyByHash: vi.fn().mockResolvedValue(null),
-      };
+      const deps = keyDeps({ findApiKeyByHash: vi.fn().mockResolvedValue(null) });
       const middleware = createApiKeyMiddleware(deps);
       const token = 'my-secret-token';
       const expectedHash = createHash('sha256').update(token).digest('hex');
@@ -219,6 +224,131 @@ describe('api-key middleware', () => {
       await middleware(req, res as any, vi.fn());
 
       expect(deps.findApiKeyByHash).toHaveBeenCalledWith(expectedHash);
+    });
+  });
+
+  describe('callers other than a plain key (resolveCaller)', () => {
+    const SECRET = 'a-test-session-secret-that-is-long-enough-0123456789';
+    const saved = { ...env };
+    let accounts: ReturnType<typeof memoryAccounts>;
+
+    beforeEach(() => {
+      env.SESSION_SECRET = SECRET;
+      env.AUTH_DISABLED = false;
+      env.GITHUB_ALLOWED_USERS = '';
+      accounts = memoryAccounts();
+    });
+    afterEach(() => {
+      Object.assign(env, saved);
+    });
+
+    async function run(headers: Record<string, string>) {
+      const req = createMockReq(headers);
+      const res = createMockRes();
+      const next = vi.fn();
+      await createApiKeyMiddleware(accounts.callerDeps)(req, res as any, next);
+      return { req, res, next };
+    }
+
+    async function sessionCookie(subject = '1', login = 'octocat') {
+      const identity = accounts.addAccount('github', subject, login);
+      accounts.pin('github', login, subject);
+      const { id } = await accounts.authDeps.createSession({
+        userId: identity.userId,
+        identityId: identity.id,
+        expiresAt: new Date(Date.now() + 3600_000),
+        userAgent: null,
+      });
+      const token = signSession(id, identity.userId, SECRET);
+      return {
+        userId: identity.userId,
+        cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
+      };
+    }
+
+    it('turns a Studio session cookie into a full-scope caller owning user:<id>', async () => {
+      const { userId, cookie } = await sessionCookie();
+      const { req, next } = await run({ cookie });
+      expect(next).toHaveBeenCalled();
+      expect(req.apiKey).toEqual({
+        id: `session:${userId}`,
+        name: 'Studio session (octocat)',
+        scopes: ['upload', 'read', 'manage'],
+        rateLimit: 1000,
+        creatorAddress: `user:${userId}`,
+      });
+    });
+
+    it('lets the session win when a cookie and a bearer key are both sent', async () => {
+      const { userId, cookie } = await sessionCookie();
+      accounts.addKey('sluby_other', { creatorAddress: 'platform' });
+      const { req } = await run({ cookie, authorization: 'Bearer sluby_other' });
+      expect(req.apiKey?.creatorAddress).toBe(`user:${userId}`);
+    });
+
+    it('falls back to the bearer key when the cookie is not a live session', async () => {
+      accounts.addKey('sluby_other', { creatorAddress: 'platform' });
+      const { req } = await run({
+        cookie: `${SESSION_COOKIE_NAME}=garbage.sig`,
+        authorization: 'Bearer sluby_other',
+      });
+      expect(req.apiKey?.creatorAddress).toBe('platform');
+    });
+
+    it('runs every request as the local dev account when auth is disabled, ignoring keys', async () => {
+      env.AUTH_DISABLED = true;
+      accounts.addKey('sluby_other', { creatorAddress: 'platform' });
+      const a = await run({});
+      const b = await run({ authorization: 'Bearer sluby_other' });
+      const dev = accounts.identities.find((i) => i.provider === 'local')!;
+      for (const { req, next } of [a, b]) {
+        expect(next).toHaveBeenCalled();
+        expect(req.apiKey?.creatorAddress).toBe(`user:${dev.userId}`);
+        expect(req.apiKey?.scopes).toEqual(['upload', 'read', 'manage']);
+      }
+      // one account, and never the github:dev address a github user could own
+      expect(accounts.identities.filter((i) => i.provider === 'local')).toHaveLength(1);
+    });
+
+    it('refuses a key of an account taken off the allowlist, and accepts it again once restored', async () => {
+      const mallory = accounts.addAccount('github', '666', 'mallory');
+      accounts.pin('github', 'mallory', '666');
+      accounts.addKey('sluby_mallory', { creatorAddress: `user:${mallory.userId}` });
+
+      env.GITHUB_ALLOWED_USERS = 'alice';
+      const refused = await run({ authorization: 'Bearer sluby_mallory' });
+      expect(refused.res._status).toBe(401);
+      expect(refused.res._json).toEqual({
+        error: "API key's account is not allowed on this server",
+      });
+      expect(refused.next).not.toHaveBeenCalled();
+
+      env.GITHUB_ALLOWED_USERS = 'alice,mallory';
+      expect((await run({ authorization: 'Bearer sluby_mallory' })).next).toHaveBeenCalled();
+    });
+
+    it('refuses a legacy github:<login> key of a login removed from the allowlist', async () => {
+      accounts.addKey('sluby_legacy', { creatorAddress: 'github:mallory' });
+      env.GITHUB_ALLOWED_USERS = 'alice';
+      expect((await run({ authorization: 'Bearer sluby_legacy' })).res._status).toBe(401);
+      env.GITHUB_ALLOWED_USERS = 'alice,mallory';
+      const ok = await run({ authorization: 'Bearer sluby_legacy' });
+      expect(ok.next).toHaveBeenCalled();
+      expect(ok.req.apiKey?.creatorAddress).toBe('github:mallory');
+    });
+
+    it('acts as the claiming account for a legacy key left under a claimed address', async () => {
+      const alice = accounts.addAccount('github', '1', 'alice');
+      accounts.claims.set('github:alice', alice.userId);
+      accounts.addKey('sluby_straggler', { creatorAddress: 'github:alice' });
+      const { req } = await run({ authorization: 'Bearer sluby_straggler' });
+      expect(req.apiKey?.creatorAddress).toBe(`user:${alice.userId}`);
+    });
+
+    it('keeps operator keys working whatever the allowlist says', async () => {
+      env.GITHUB_ALLOWED_USERS = 'alice';
+      accounts.addKey('sluby_platform', { creatorAddress: 'platform' });
+      expect((await run({ authorization: 'Bearer sluby_platform' })).next).toHaveBeenCalled();
     });
   });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../config/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
@@ -16,26 +16,16 @@ import { authorizeTusRequest, type TusServerDeps } from '../upload/tus-server.js
 import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import { SESSION_COOKIE_NAME, signSession } from '../api/auth/session.js';
 import { env } from '../config/env.js';
+import { memoryAccounts } from './helpers/accounts.js';
 
-const LIVE_SID = '00000000-0000-4000-8000-000000000001';
+let accounts: ReturnType<typeof memoryAccounts>;
+let owner: { userId: string; id: string };
+let liveSid: string;
+let revokedSid: string;
 
 function deps(): TusServerDeps {
   return {
-    // only LIVE_SID is a live session row; anything else was revoked or expired
-    findActiveSession: vi.fn(async (sid: string) =>
-      sid === LIVE_SID
-        ? { id: sid, login: 'owner', expiresAt: new Date(Date.now() + 3600_000) }
-        : undefined,
-    ),
-    validateApiKey: vi.fn(async (token: string) =>
-      token === 'owner-key'
-        ? { id: 'k1', creatorAddress: 'github:owner', scopes: ['upload'] }
-        : token === 'other-key'
-          ? { id: 'k2', creatorAddress: 'github:other', scopes: ['upload'] }
-          : token === 'platform-key'
-            ? { id: 'k3', creatorAddress: PLATFORM_ADDRESS, scopes: ['upload'] }
-            : null,
-    ),
+    callers: accounts.callerDeps,
     createUploadSession: vi.fn(),
     updateUploadProgress: vi.fn(),
     completeUpload: vi.fn(),
@@ -48,11 +38,7 @@ function deps(): TusServerDeps {
   };
 }
 
-const upload = {
-  id: 'u1',
-  offset: 0,
-  metadata: { creatorAddress: 'github:owner', sessionId: 's1', videoAssetId: 'a1' },
-};
+let upload: { id: string; offset: number; metadata: Record<string, string> };
 const getUpload = vi.fn(async (id: string) => {
   if (id !== 'u1') throw new Error('not found');
   return upload as never;
@@ -68,9 +54,41 @@ const sessionReq = (method: string, sid: string) =>
   new Request('http://studio.test/api/v1/uploads/u1', {
     method,
     headers: {
-      cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(signSession(sid, 'owner', env.SESSION_SECRET))}`,
+      cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(signSession(sid, owner.userId, env.SESSION_SECRET))}`,
     },
   });
+
+beforeEach(async () => {
+  env.AUTH_DISABLED = false;
+  env.GITHUB_ALLOWED_USERS = '';
+  accounts = memoryAccounts();
+  owner = accounts.addAccount('github', '1', 'owner');
+  accounts.pin('github', 'owner', '1');
+  const other = accounts.addAccount('github', '2', 'other');
+  const session = (expired: boolean) =>
+    accounts.authDeps.createSession({
+      userId: owner.userId,
+      identityId: owner.id,
+      expiresAt: new Date(Date.now() + (expired ? -1 : 3600_000)),
+      userAgent: null,
+    });
+  liveSid = (await session(false)).id;
+  revokedSid = (await session(true)).id;
+  accounts.addKey('owner-key', { creatorAddress: `user:${owner.userId}`, scopes: ['upload'] });
+  accounts.addKey('other-key', { creatorAddress: `user:${other.userId}`, scopes: ['upload'] });
+  accounts.addKey('platform-key', { creatorAddress: PLATFORM_ADDRESS, scopes: ['upload'] });
+  accounts.addKey('read-key', { creatorAddress: `user:${owner.userId}`, scopes: ['read'] });
+  upload = {
+    id: 'u1',
+    offset: 0,
+    metadata: { creatorAddress: `user:${owner.userId}`, sessionId: 's1', videoAssetId: 'a1' },
+  };
+});
+
+afterEach(() => {
+  env.AUTH_DISABLED = false;
+  env.GITHUB_ALLOWED_USERS = '';
+});
 
 describe('authorizeTusRequest', () => {
   let d: TusServerDeps;
@@ -80,18 +98,13 @@ describe('authorizeTusRequest', () => {
 
   it('lets a live studio session patch its own upload', async () => {
     await expect(
-      authorizeTusRequest(sessionReq('PATCH', LIVE_SID), 'u1', d, getUpload),
+      authorizeTusRequest(sessionReq('PATCH', liveSid), 'u1', d, getUpload),
     ).resolves.toBeUndefined();
   });
 
-  it('rejects a signed session cookie whose session was revoked', async () => {
+  it('rejects a signed session cookie whose session is no longer live', async () => {
     await expect(
-      authorizeTusRequest(
-        sessionReq('PATCH', '00000000-0000-4000-8000-000000000002'),
-        'u1',
-        d,
-        getUpload,
-      ),
+      authorizeTusRequest(sessionReq('PATCH', revokedSid), 'u1', d, getUpload),
     ).rejects.toMatchObject({ status_code: 401 });
   });
 
@@ -101,10 +114,23 @@ describe('authorizeTusRequest', () => {
     });
   });
 
+  it('rejects a key without upload scope', async () => {
+    await expect(
+      authorizeTusRequest(req('PATCH', 'read-key'), 'u1', d, getUpload),
+    ).rejects.toMatchObject({ status_code: 403 });
+  });
+
   it('lets the owner patch their upload', async () => {
     await expect(
       authorizeTusRequest(req('PATCH', 'owner-key'), 'u1', d, getUpload),
     ).resolves.toBeUndefined();
+  });
+
+  it('refuses the key of an account taken off the allowlist', async () => {
+    env.GITHUB_ALLOWED_USERS = 'someone-else';
+    await expect(
+      authorizeTusRequest(req('PATCH', 'owner-key'), 'u1', d, getUpload),
+    ).rejects.toMatchObject({ status_code: 401 });
   });
 
   it("hides another tenant's upload behind a 404", async () => {
@@ -120,6 +146,30 @@ describe('authorizeTusRequest', () => {
   it('lets a platform key act on any upload', async () => {
     await expect(
       authorizeTusRequest(req('HEAD', 'platform-key'), 'u1', d, getUpload),
+    ).resolves.toBeUndefined();
+  });
+
+  it('lets the account that claimed a legacy owner resume an upload started before the claim', async () => {
+    upload.metadata.creatorAddress = 'github:owner';
+    accounts.claims.set('github:owner', owner.userId);
+    await expect(
+      authorizeTusRequest(req('PATCH', 'owner-key'), 'u1', d, getUpload),
+    ).resolves.toBeUndefined();
+    await expect(
+      authorizeTusRequest(req('PATCH', 'other-key'), 'u1', d, getUpload),
+    ).rejects.toMatchObject({ status_code: 404 });
+  });
+
+  it('runs as the local dev account under AUTH_DISABLED even with a session cookie, like the api', async () => {
+    env.AUTH_DISABLED = true;
+    // the upload belongs to the signed-in account, not to the dev account
+    await expect(
+      authorizeTusRequest(sessionReq('PATCH', liveSid), 'u1', d, getUpload),
+    ).rejects.toMatchObject({ status_code: 404 });
+    const dev = await accounts.callerDeps.localDevAccount();
+    upload.metadata.creatorAddress = `user:${dev.userId}`;
+    await expect(
+      authorizeTusRequest(sessionReq('PATCH', liveSid), 'u1', d, getUpload),
     ).resolves.toBeUndefined();
   });
 

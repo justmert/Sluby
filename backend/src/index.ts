@@ -17,6 +17,7 @@ import { sweepFinishedSources } from './upload/source-files.js';
 import { sourceFileStates, deleteDetachedUploadSessions } from './db/queries/uploads.js';
 import { pruneEndedStudioSessions } from './db/queries/sessions.js';
 import { ENDED_SESSION_RETENTION_MS } from './api/routes/auth.js';
+import { signInWarnings } from './api/auth/startup.js';
 import { BOOTSTRAP_CREATOR_ADDRESS, seedBootstrapApiKey } from './db/api-key-seeding.js';
 import { getClient } from './storage/sia-client.js';
 import {
@@ -101,12 +102,12 @@ bootstrapApiKey().catch((err) => {
   logger.warn({ err }, 'Failed to seed bootstrap API key (non-fatal)');
 });
 
-// Make an open Studio explicit rather than a silent default.
-if (!env.AUTH_DISABLED && env.GITHUB_ALLOWED_USERS.trim() === '') {
-  logger.warn(
-    'GITHUB_ALLOWED_USERS is empty: Studio sign-in is open to any GitHub account. ' +
-      'Set GITHUB_ALLOWED_USERS to restrict it.',
-  );
+// Make an open Studio or a plaintext session cookie explicit rather than silent.
+for (const warning of signInWarnings({
+  authDisabled: env.AUTH_DISABLED,
+  publicUrl: env.PUBLIC_URL,
+})) {
+  logger.warn(warning);
 }
 
 // Register the periodic reconciliation sweep (non-fatal if Redis is down).

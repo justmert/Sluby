@@ -4,17 +4,15 @@ import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { computeFileHash } from './chunk-verifier.js';
 import { UPLOAD_EXPIRY_MS, UploadFileStore } from './upload-store.js';
-import { resolveSession, type FindActiveSession } from '../api/auth/session.js';
+import { resolveCaller, type CallerDeps } from '../api/auth/caller.js';
+import { currentOwnerAddress } from '../api/auth/access.js';
 import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import { accessTierSchema, descriptionSchema, titleSchema } from '../api/validation.js';
 import { uploadBytesTotal, uploadFailureTotal, uploadSuccessTotal } from '../metrics/collector.js';
 
 export interface TusServerDeps {
-  /** The live Studio session row for a session id, see resolveSession. */
-  findActiveSession: FindActiveSession;
-  validateApiKey: (
-    token: string,
-  ) => Promise<{ id: string; creatorAddress: string; scopes: string[] } | null>;
+  /** How a request's caller is resolved, shared with the REST api (see resolveCaller). */
+  callers: CallerDeps;
   /**
    * Create the asset and its upload session. The session takes the tus
    * upload id as its own id, so the id in the tus Location is also the one
@@ -208,7 +206,11 @@ export function createTusServer(deps: TusServerDeps): Server {
       const metadata = upload.metadata ?? {};
       const sessionId = metadata.sessionId;
       const videoAssetId = metadata.videoAssetId;
-      const creatorAddress = metadata.creatorAddress;
+      // an upload started before its owner's account claimed a legacy address
+      // still names that address on disk
+      const creatorAddress = metadata.creatorAddress
+        ? await currentOwnerAddress(metadata.creatorAddress, deps.callers)
+        : undefined;
       const accessTier = metadata.accessTier ?? metadata.access_tier ?? 'public';
 
       if (!sessionId) {
@@ -329,40 +331,19 @@ type Identity = { id: string; creatorAddress: string; scopes: string[] };
 const tusError = (status_code: number, body: string) => ({ status_code, body });
 
 async function resolveIdentity(req: Request, deps: TusServerDeps): Promise<Identity> {
-  // Session cookie path: when the Studio UI drives the upload, the browser
-  // sends the signed session cookie. We materialise an identity with full
-  // upload scope that downstream hooks treat like an API-key caller.
-  const session = await resolveSession(req.headers.get('cookie') ?? undefined, {
-    secret: env.SESSION_SECRET,
-    allowedUsers: env.GITHUB_ALLOWED_USERS,
-    findActiveSession: deps.findActiveSession,
-  });
-  if (session) {
-    return {
-      id: `session:${session.login}`,
-      creatorAddress: `github:${session.login.toLowerCase()}`,
-      scopes: ['upload', 'read', 'manage'],
-    };
-  }
-
-  if (env.AUTH_DISABLED) {
-    return {
-      id: 'session:dev',
-      creatorAddress: 'github:dev',
-      scopes: ['upload', 'read', 'manage'],
-    };
-  }
-
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    throw tusError(401, 'Missing or invalid Authorization header');
-  }
-  const apiKey = await deps.validateApiKey(authHeader.slice(7));
-  if (!apiKey) throw tusError(401, 'Invalid API key');
-  if (!apiKey.scopes.includes('upload')) {
+  const result = await resolveCaller(
+    {
+      cookie: req.headers.get('cookie') ?? undefined,
+      authorization: req.headers.get('authorization') ?? undefined,
+    },
+    deps.callers,
+  );
+  if (!result.ok) throw tusError(401, result.error);
+  const { caller } = result;
+  if (!caller.scopes.includes('upload')) {
     throw tusError(403, 'API key does not have upload scope');
   }
-  return apiKey;
+  return { id: caller.id, creatorAddress: caller.creatorAddress, scopes: caller.scopes };
 }
 
 /**
@@ -393,7 +374,8 @@ export async function authorizeTusRequest(
     return;
   }
 
-  const owner = upload.metadata?.creatorAddress;
+  const stored = upload.metadata?.creatorAddress;
+  const owner = stored ? await currentOwnerAddress(stored, deps.callers) : undefined;
   if (identity.creatorAddress !== PLATFORM_ADDRESS && owner !== identity.creatorAddress) {
     // same answer as a missing upload, so ids cannot be probed across tenants
     throw tusError(404, 'Upload not found');

@@ -113,6 +113,9 @@ describe('api router public and guarded routes', () => {
   const deps = new Proxy(
     {
       findActiveSession: async () => undefined,
+      getAccount: async () => null,
+      findLegacyClaim: async () => null,
+      isAllowlistEntryPinned: async () => false,
       findApiKeyByHash: async (h: string) =>
         h === hash
           ? reader('k1', PLATFORM_ADDRESS)

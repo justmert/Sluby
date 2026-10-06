@@ -9,6 +9,8 @@ import {
   jsonb,
   pgEnum,
   index,
+  uniqueIndex,
+  primaryKey,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
@@ -347,21 +349,105 @@ export const apiKeys = pgTable(
 );
 
 /**
+ * users is one row per account. Everything an account owns carries the owner
+ * address `user:<id>` (see api/ownership.ts), never a sign-in provider's
+ * handle, so a renamed or recycled handle cannot move data between people.
+ */
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  displayName: text('display_name').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * user_identities links an account to the ways it signs in. `subject` is the
+ * provider's stable id for the person (github: the numeric account id), and
+ * `username` the handle the provider reported at the last sign-in, kept for
+ * display only.
+ */
+export const userIdentities = pgTable(
+  'user_identities',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    subject: text('subject').notNull(),
+    username: text('username').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSignInAt: timestamp('last_sign_in_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('user_identities_provider_subject_key').on(t.provider, t.subject),
+    index('user_identities_user_id_idx').on(t.userId),
+  ],
+);
+
+/**
+ * allowlist_pins ties a handle written in a provider's allowlist (a github
+ * login) to the account that held it when it first signed in, so the entry
+ * keeps admitting that account through renames and never admits whoever
+ * claims the handle next.
+ */
+export const allowlistPins = pgTable(
+  'allowlist_pins',
+  {
+    provider: text('provider').notNull(),
+    entry: text('entry').notNull(),
+    subject: text('subject').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.provider, t.entry] }),
+    index('allowlist_pins_provider_subject_idx').on(t.provider, t.subject),
+  ],
+);
+
+/**
+ * legacy_owner_claims records which account took over an owner address
+ * written by older versions (`github:<login>`). An address is claimed at most
+ * once, by the first account that signs in with that handle, and its rows are
+ * moved to the account's own address in the same transaction.
+ */
+export const legacyOwnerClaims = pgTable(
+  'legacy_owner_claims',
+  {
+    address: text('address').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('legacy_owner_claims_user_id_idx').on(t.userId)],
+);
+
+/**
  * studio_sessions holds one row per Studio sign-in. The session cookie only
  * carries the row id (signed), so a session can be ended server-side: on
- * sign-out, from the sessions list, or by taking the login off the allowlist.
+ * sign-out, from the sessions list, or by taking the account off the
+ * allowlist.
  */
 export const studioSessions = pgTable(
   'studio_sessions',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    login: text('login').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // the identity the browser signed in with, shown as "signed in with ..."
+    identityId: uuid('identity_id')
+      .notNull()
+      .references(() => userIdentities.id, { onDelete: 'cascade' }),
     userAgent: text('user_agent'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },
-  (t) => [index('studio_sessions_login_idx').on(t.login)],
+  (t) => [
+    index('studio_sessions_user_id_idx').on(t.userId),
+    index('studio_sessions_identity_id_idx').on(t.identityId),
+  ],
 );
 
 /**
@@ -404,7 +490,9 @@ export const webhookDeliveries = pgTable(
     eventType: text('event_type').notNull(),
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
     statusCode: integer('status_code'),
-    responseBody: text('response_body'),
+    // why an attempt failed, in our own words; the receiver's response body is
+    // never stored, so a delivery log cannot be used to read internal services
+    error: text('error'),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     retryCount: integer('retry_count').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -525,3 +613,6 @@ export type ReconciliationRun = typeof reconciliationRuns.$inferSelect;
 export type NewReconciliationRun = typeof reconciliationRuns.$inferInsert;
 
 export type StudioSession = typeof studioSessions.$inferSelect;
+
+export type User = typeof users.$inferSelect;
+export type UserIdentity = typeof userIdentities.$inferSelect;

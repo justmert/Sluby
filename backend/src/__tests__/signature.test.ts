@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { generateSignature, verifySignature } from '../webhooks/signature.js';
+import { generateSignature, signatureHeaders, verifySignature } from '../webhooks/signature.js';
 
 describe('webhooks/signature', () => {
   const secret = 'test-secret-key';
@@ -70,6 +70,18 @@ describe('webhooks/signature', () => {
       expect(verifySignature(tamperedPayload, signature, secret)).toBe(false);
     });
 
+    it('returns false, not an error, for a non-hex signature of the right length', () => {
+      expect(() => verifySignature(payload, 'z'.repeat(64), secret)).not.toThrow();
+      expect(verifySignature(payload, 'z'.repeat(64), secret)).toBe(false);
+      expect(verifySignature(payload, `${'a'.repeat(63)}g`, secret)).toBe(false);
+    });
+
+    it('accepts an uppercase hex signature', () => {
+      expect(
+        verifySignature(payload, generateSignature(payload, secret).toUpperCase(), secret),
+      ).toBe(true);
+    });
+
     it('should use timing-safe comparison (no early exit on mismatch)', () => {
       // We cannot directly test timing-safety, but we verify the function
       // handles the case where the first byte differs the same as
@@ -87,6 +99,26 @@ describe('webhooks/signature', () => {
       bytes[bytes.length - 1] ^= 0xff;
       const flippedLast = bytes.toString('hex');
       expect(verifySignature(payload, flippedLast, secret)).toBe(false);
+    });
+  });
+
+  describe('signatureHeaders', () => {
+    it('signs the timestamp with the body (v1) and keeps the body-only signature', () => {
+      const headers = signatureHeaders(payload, secret, 1767225600);
+      expect(headers).toEqual({
+        'X-Sluby-Timestamp': '1767225600',
+        'X-Sluby-Signature-V1': createHmac('sha256', secret)
+          .update(`1767225600.${payload}`)
+          .digest('hex'),
+        'X-Sluby-Signature': createHmac('sha256', secret).update(payload).digest('hex'),
+      });
+    });
+
+    it('gives a different v1 signature at a different time, so an old one cannot be replayed', () => {
+      const a = signatureHeaders(payload, secret, 1767225600);
+      const b = signatureHeaders(payload, secret, 1767225601);
+      expect(a['X-Sluby-Signature-V1']).not.toBe(b['X-Sluby-Signature-V1']);
+      expect(a['X-Sluby-Signature']).toBe(b['X-Sluby-Signature']);
     });
   });
 });
