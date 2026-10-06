@@ -5,7 +5,15 @@ import { renderPage } from '@/test/render';
 import { ThemeProvider } from '@/components/theme-provider';
 import SettingsPage, { timeLeft } from './SettingsPage';
 
-vi.mock('@/components/AuthGate', () => ({ useSession: () => ({ login: 'alice' }) }));
+vi.mock('@/components/AuthGate', () => ({
+  useSession: () => ({
+    id: '00000000-0000-4000-8000-000000000001',
+    name: 'Alice',
+    username: 'alice',
+    provider: 'github',
+    providerLabel: 'GitHub',
+  }),
+}));
 
 let keys: Array<Record<string, unknown>>;
 let sessions: Array<Record<string, unknown>>;

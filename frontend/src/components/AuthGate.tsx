@@ -5,8 +5,17 @@ import { GitHubMark } from '@/components/brand/GitHubMark';
 import { Logo } from '@/components/brand/Logo';
 import { apiClient, ApiError } from '@/lib/api-client';
 
+/** The signed-in account, as GET /auth/me returns it. */
 export interface AuthSession {
-  login: string;
+  /** The account id. */
+  id: string;
+  /** The account's display name. */
+  name: string;
+  /** The handle of the identity this browser signed in with, e.g. the GitHub login. */
+  username: string;
+  /** Which sign-in provider that identity belongs to, e.g. "github", or "local" in dev mode. */
+  provider: string | null;
+  providerLabel: string | null;
   expiresAt?: number;
   authDisabled?: boolean;
 }

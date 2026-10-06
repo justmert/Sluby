@@ -490,7 +490,7 @@ function SessionsCard() {
     <Card>
       <CardHeader>
         <CardTitle>Sessions</CardTitle>
-        <CardDescription>Browsers signed in to the Studio as {session.login}.</CardDescription>
+        <CardDescription>Browsers signed in to the Studio as {session.username}.</CardDescription>
         {!session.authDisabled && rows.length > 0 && (
           <CardAction>
             <Button variant="outline" size="sm" onClick={() => setConfirmAll(true)}>
@@ -564,7 +564,7 @@ function SessionsCard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Sign out everywhere?</AlertDialogTitle>
             <AlertDialogDescription>
-              Every browser signed in as {session.login} is signed out right away, this one
+              Every browser signed in as {session.username} is signed out right away, this one
               included. API keys keep working.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -619,7 +619,7 @@ function AccountCard() {
     [
       'Signed in as',
       <span key="u" className="font-mono">
-        {session.login}
+        {session.username}
       </span>,
     ],
     [
