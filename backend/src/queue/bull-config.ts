@@ -1,6 +1,7 @@
 import { Queue, type ConnectionOptions } from 'bullmq';
 import { env } from '../config/env.js';
 import type { StorageRecords } from '../storage/artifact-records.js';
+import { RECONCILE_JOB_OPTIONS } from '../reconcile/enqueue.js';
 
 /**
  * Parse the REDIS_URL into an ioredis-compatible connection object.
@@ -132,15 +133,12 @@ export const finalizeQueue = new Queue<FinalizeJobData>('finalize', {
 /**
  * Queue for background reconciliation runs comparing the DB's tracked
  * objects against the indexer's pinned inventory. Fed by a repeatable
- * scheduled job and by on-demand API triggers.
+ * scheduled job and by on-demand API triggers, both through
+ * enqueueReconciliationRun so only one run is ever pending.
  */
 export const reconcileQueue = new Queue<ReconcileJobData>('reconcile', {
   connection: redisConnection,
-  defaultJobOptions: {
-    attempts: 1,
-    removeOnComplete: { count: 100 },
-    removeOnFail: { count: 100 },
-  },
+  defaultJobOptions: RECONCILE_JOB_OPTIONS,
 });
 
 /**

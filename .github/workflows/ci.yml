@@ -27,8 +27,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
-  # the backend has its own job: its tests need a postgres server and the
-  # ffmpeg binaries, and they refuse to skip under CI when either is missing
+  # the backend has its own job: its tests need postgres, redis and the
+  # ffmpeg binaries, and they refuse to skip under CI when any is missing
   backend:
     name: 'backend - Typecheck & Test'
     runs-on: ubuntu-latest
@@ -44,9 +44,20 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     env:
       # each test file creates, migrates and drops its own database on this server
       SLUBY_TEST_DATABASE_URL: postgres://postgres:sluby-test@localhost:5432/postgres
+      # queue tests use a random key prefix each and clean up after themselves
+      SLUBY_TEST_REDIS_URL: redis://localhost:6379
 
     steps:
       - uses: actions/checkout@v7
