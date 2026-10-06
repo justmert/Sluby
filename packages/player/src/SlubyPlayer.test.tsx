@@ -18,6 +18,7 @@ const {
   MockHlsEvents,
   MockHlsErrorTypes,
   hlsInstanceRef,
+  hlsInstances,
 } = vi.hoisted(() => {
   return {
     mockOn: vi.fn(),
@@ -40,6 +41,7 @@ const {
       OTHER_ERROR: 'otherError',
     },
     hlsInstanceRef: { current: null as any },
+    hlsInstances: [] as any[],
   };
 });
 
@@ -56,6 +58,7 @@ vi.mock('hls.js', () => {
     currentLevel = -1;
     constructor(public config: any) {
       hlsInstanceRef.current = this;
+      hlsInstances.push(this);
     }
     static isSupported = mockIsSupported;
     static Events = MockHlsEvents;
@@ -66,6 +69,7 @@ vi.mock('hls.js', () => {
 
 import { SlubyPlayer } from './SlubyPlayer.js';
 import type { SlubyPlayerHandle } from './SlubyPlayer.js';
+import type { PlaybackResolver } from './types.js';
 
 const SRC = 'https://example.com/video.m3u8';
 
@@ -89,6 +93,7 @@ describe('SlubyPlayer', () => {
     mockRecoverMediaError.mockClear();
     mockIsSupported.mockClear().mockReturnValue(true);
     hlsInstanceRef.current = null;
+    hlsInstances.length = 0;
   });
 
   afterEach(() => cleanup());
@@ -672,6 +677,324 @@ describe('SlubyPlayer', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('reloads, posters, renewal and errors', () => {
+    function viewer(over: Record<string, unknown> = {}) {
+      return {
+        prepare: vi.fn().mockResolvedValue(undefined),
+        resolveObjectId: vi.fn(),
+        download: vi.fn(),
+        ...over,
+      };
+    }
+    function apiClient(
+      getUrl: ReturnType<typeof vi.fn>,
+      extra: Record<string, unknown> = {},
+      getSignedUrl: ReturnType<typeof vi.fn> = vi.fn(),
+    ): PlaybackResolver {
+      return { playback: { getUrl, getSignedUrl }, ...extra } as unknown as PlaybackResolver;
+    }
+    function failHard() {
+      fireHls(MockHlsEvents.ERROR, {
+        fatal: true,
+        type: MockHlsErrorTypes.OTHER_ERROR,
+        details: 'boom',
+        error: new Error('decoder exploded'),
+      });
+    }
+    function clickRetry(container: HTMLElement) {
+      const btn = container.querySelector('[data-sluby-overlay="error"] button')!;
+      act(() => btn.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    }
+    /** Make the video report a position, as playback would. */
+    function playedTo(video: HTMLVideoElement, seconds: number, playing = true) {
+      Object.defineProperty(video, 'currentTime', {
+        value: seconds,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(video, 'paused', { value: !playing, configurable: true });
+      act(() => {
+        video.dispatchEvent(new Event('timeupdate'));
+      });
+    }
+
+    it('Retry through the client builds one new instance, never one on the stale url', async () => {
+      const sia = viewer();
+      const onDeliveryChange = vi.fn();
+      const getUrl = vi
+        .fn()
+        .mockResolvedValue({ playbackUrl: 'https://g/v1/objects/m', posterUrl: null });
+      const { container } = render(
+        <SlubyPlayer
+          client={apiClient(getUrl, { sia })}
+          assetId="a1"
+          onDeliveryChange={onDeliveryChange}
+        />,
+      );
+      await waitFor(() => expect(hlsInstances).toHaveLength(1));
+      failHard();
+
+      clickRetry(container);
+      await waitFor(() => expect(sia.prepare).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(hlsInstances).toHaveLength(2));
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(hlsInstances).toHaveLength(2);
+      expect(onDeliveryChange).toHaveBeenCalledTimes(2);
+    });
+
+    it('Retry with src and a viewer session builds one new instance', async () => {
+      const sia = viewer();
+      const src = 'https://g/v1/stream/a1/master.m3u8';
+      const { container } = render(<SlubyPlayer src={src} client={{ sia }} assetId="a1" />);
+      await waitFor(() => expect(hlsInstances).toHaveLength(1));
+      failHard();
+
+      clickRetry(container);
+      await waitFor(() => expect(sia.prepare).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(hlsInstances).toHaveLength(2));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(hlsInstances).toHaveLength(2);
+    });
+
+    it("does not keep the previous asset's poster", async () => {
+      const getUrl = vi.fn(async (id: string) => ({
+        playbackUrl: `https://g/v1/objects/${id}`,
+        posterUrl: id === 'a1' ? 'https://g/v1/objects/thumb-a1' : null,
+      }));
+      const client = apiClient(getUrl as unknown as ReturnType<typeof vi.fn>);
+      const { container, rerender } = render(<SlubyPlayer client={client} assetId="a1" />);
+      const video = container.querySelector('video')!;
+      await waitFor(() =>
+        expect(video.getAttribute('poster')).toBe('https://g/v1/objects/thumb-a1'),
+      );
+
+      rerender(<SlubyPlayer client={client} assetId="a2" />);
+      await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith('https://g/v1/objects/a2'));
+      expect(video.getAttribute('poster')).toBeNull();
+
+      rerender(<SlubyPlayer client={client} assetId="a1" />);
+      await waitFor(() =>
+        expect(video.getAttribute('poster')).toBe('https://g/v1/objects/thumb-a1'),
+      );
+      rerender(<SlubyPlayer src={SRC} />);
+      expect(video.getAttribute('poster')).toBeNull();
+    });
+
+    it('toggling autoPlay or a retry cap does not rebuild playback, and the new cap applies', () => {
+      const onError = vi.fn();
+      const { rerender } = render(<SlubyPlayer src={SRC} onError={onError} />);
+      expect(hlsInstances).toHaveLength(1);
+
+      rerender(<SlubyPlayer src={SRC} onError={onError} autoPlay maxNetworkRetries={0} />);
+      rerender(
+        <SlubyPlayer
+          src={SRC}
+          onError={onError}
+          autoPlay={false}
+          maxMediaRetries={5}
+          maxNetworkRetries={0}
+        />,
+      );
+
+      expect(hlsInstances).toHaveLength(1);
+      expect(mockDestroy).not.toHaveBeenCalled();
+      fireHls(MockHlsEvents.ERROR, {
+        fatal: true,
+        type: MockHlsErrorTypes.NETWORK_ERROR,
+        details: 'net',
+      });
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError.mock.calls[0][0].message).toMatch(/gave up after 0 retries/);
+    });
+
+    it('Retry continues from the position playback had reached', () => {
+      const { container } = render(<SlubyPlayer src={SRC} />);
+      const video = container.querySelector('video')!;
+      const play = vi.spyOn(video, 'play').mockResolvedValue(undefined);
+      playedTo(video, 31.5);
+      failHard();
+
+      clickRetry(container);
+
+      expect(hlsInstances).toHaveLength(2);
+      expect(hlsInstances[1].config.startPosition).toBe(31.5);
+      fireHls(MockHlsEvents.MANIFEST_PARSED);
+      // it was playing, so it plays on
+      expect(play).toHaveBeenCalled();
+    });
+
+    it('a newly signed src for the same video continues from the same position', () => {
+      const first = 'https://g/v1/stream/a1/master.m3u8?expires=4000000000&sig=one';
+      const second = 'https://g/v1/stream/a1/master.m3u8?expires=4000003600&sig=two';
+      const { container, rerender } = render(<SlubyPlayer src={first} />);
+      playedTo(container.querySelector('video')!, 12, false);
+
+      rerender(<SlubyPlayer src={second} />);
+
+      expect(hlsInstances).toHaveLength(2);
+      expect(mockLoadSource).toHaveBeenLastCalledWith(second);
+      expect(hlsInstances[1].config.startPosition).toBe(12);
+    });
+
+    it('another video starts from the beginning', () => {
+      const { container, rerender } = render(
+        <SlubyPlayer src="https://g/v1/stream/a1/master.m3u8" />,
+      );
+      playedTo(container.querySelector('video')!, 12);
+
+      rerender(<SlubyPlayer src="https://g/v1/stream/a2/master.m3u8" />);
+
+      expect(hlsInstances[1].config.startPosition).toBe(-1);
+    });
+
+    it('renews a signed url before it expires and continues from the same position', async () => {
+      const getSignedUrl = vi
+        .fn()
+        .mockResolvedValueOnce({
+          signedUrl: 'https://g/v1/objects/m?expires=1&sig=first',
+          expiresAt: new Date(Date.now() + 300).toISOString(),
+        })
+        .mockResolvedValueOnce({
+          signedUrl: 'https://g/v1/objects/m?expires=2&sig=second',
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        });
+      const { container } = render(
+        <SlubyPlayer
+          client={apiClient(vi.fn(), {}, getSignedUrl)}
+          assetId="a1"
+          signed
+          expiresIn={60}
+        />,
+      );
+      await waitFor(() => expect(hlsInstances).toHaveLength(1));
+      playedTo(container.querySelector('video')!, 20, false);
+
+      await waitFor(() => expect(getSignedUrl).toHaveBeenCalledTimes(2), { timeout: 2000 });
+      await waitFor(() =>
+        expect(mockLoadSource).toHaveBeenLastCalledWith(
+          'https://g/v1/objects/m?expires=2&sig=second',
+        ),
+      );
+      expect(getSignedUrl).toHaveBeenLastCalledWith('a1', { expiresIn: 60 });
+      expect(hlsInstances).toHaveLength(2);
+      expect(hlsInstances[1].config.startPosition).toBe(20);
+    });
+
+    it('asks refreshSrc for a new src before a signed src expires', async () => {
+      const soon = Math.floor(Date.now() / 1000) + 2;
+      const src = `https://g/v1/stream/a1/master.m3u8?expires=${soon}&sig=one`;
+      const fresh = 'https://g/v1/stream/a1/master.m3u8?expires=4000000000&sig=two';
+      const refreshSrc = vi.fn().mockResolvedValue(fresh);
+
+      render(<SlubyPlayer src={src} refreshSrc={refreshSrc} />);
+
+      await waitFor(() => expect(refreshSrc).toHaveBeenCalledWith(src), { timeout: 3000 });
+      await waitFor(() => expect(mockLoadSource).toHaveBeenLastCalledWith(fresh));
+      expect(hlsInstances).toHaveLength(2);
+    });
+
+    it('renews instead of retrying the same url when a load fails after the expiry', async () => {
+      const expired = 'https://g/v1/stream/a1/master.m3u8?expires=1000&sig=old';
+      const fresh = 'https://g/v1/stream/a1/master.m3u8?expires=4000000000&sig=new';
+      const refreshSrc = vi.fn().mockResolvedValue(fresh);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      render(<SlubyPlayer src={expired} refreshSrc={refreshSrc} />);
+      // the timer may already have asked; a failed load must lead to the new url either way
+      fireHls(MockHlsEvents.ERROR, {
+        fatal: true,
+        type: MockHlsErrorTypes.NETWORK_ERROR,
+        details: 'fragLoadError',
+      });
+
+      await waitFor(() => expect(mockLoadSource).toHaveBeenLastCalledWith(fresh));
+      expect(mockStartLoad).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it('plays a private asset signed even without the signed prop, and without its unsigned poster', async () => {
+      const getUrl = vi.fn().mockResolvedValue({
+        playbackUrl: 'https://g/v1/objects/m',
+        posterUrl: 'https://g/v1/objects/thumb',
+        accessTier: 'private',
+      });
+      const getSignedUrl = vi.fn().mockResolvedValue({
+        signedUrl: 'https://g/v1/objects/m?expires=4000000000&sig=s',
+        expiresAt: new Date(4_000_000_000_000).toISOString(),
+      });
+      const { container } = render(
+        <SlubyPlayer client={apiClient(getUrl, {}, getSignedUrl)} assetId="p1" />,
+      );
+
+      await waitFor(() =>
+        expect(mockLoadSource).toHaveBeenCalledWith(
+          'https://g/v1/objects/m?expires=4000000000&sig=s',
+        ),
+      );
+      expect(getSignedUrl).toHaveBeenCalledWith('p1', { expiresIn: undefined });
+      expect(container.querySelector('video')!.getAttribute('poster')).toBeNull();
+    });
+
+    it('passes the underlying error to onError as cause', async () => {
+      const resolveFailure = Object.assign(new Error('Video asset not found'), { statusCode: 404 });
+      const onError = vi.fn();
+      render(
+        <SlubyPlayer
+          client={apiClient(vi.fn().mockRejectedValue(resolveFailure))}
+          assetId="x"
+          onError={onError}
+        />,
+      );
+      await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+      expect(onError.mock.calls[0][0].message).toBe('Video asset not found');
+      expect(onError.mock.calls[0][0].cause).toBe(resolveFailure);
+
+      cleanup();
+      const hlsFailure = vi.fn();
+      render(<SlubyPlayer src={SRC} onError={hlsFailure} />);
+      failHard();
+      expect(hlsFailure.mock.calls[0][0].cause).toEqual(new Error('decoder exploded'));
+    });
+
+    it('marks the overlays for assistive tech and renders no stylesheet', () => {
+      const { container } = render(<SlubyPlayer src={SRC} />);
+      expect(container.querySelector('[data-sluby-overlay="loading"]')!.getAttribute('role')).toBe(
+        'status',
+      );
+      expect(container.querySelector('style')).toBeNull();
+      expect(container.querySelector('.sluby-spinner')).toBeNull();
+
+      failHard();
+      expect(container.querySelector('[data-sluby-overlay="error"]')!.getAttribute('role')).toBe(
+        'alert',
+      );
+    });
+
+    it('takes a client that is only { sia } with src', async () => {
+      const sia = viewer();
+      render(
+        <SlubyPlayer src="https://g/v1/stream/a1/master.m3u8" client={{ sia }} assetId="a1" />,
+      );
+
+      await waitFor(() => expect(mockLoadSource).toHaveBeenCalled());
+      expect(sia.prepare).toHaveBeenCalledWith('a1', { src: 'https://g/v1/stream/a1/master.m3u8' });
+    });
+
+    it('says what is missing when a { sia } client is asked to resolve an asset id', () => {
+      const onError = vi.fn();
+      render(<SlubyPlayer client={{ sia: viewer() }} assetId="a1" onError={onError} />);
+      expect(onError.mock.calls[0][0].message).toMatch(/needs a client with playback/);
+    });
+
+    it('warns that signed and expiresIn do nothing with src', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      render(<SlubyPlayer src={SRC} signed expiresIn={60} />);
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/ignored when src is given/));
+      warn.mockRestore();
     });
   });
 });

@@ -93,7 +93,6 @@ class FakeSiaSession implements SiaPlaybackSession {
 function resolverFor(catalog: FixtureCatalog, sia: SiaPlaybackSession): PlaybackResolver {
   const playbackUrl = objectUrl(catalog.masterId);
   return {
-    resolveDeliveryUrl: (p) => new URL(p, location.origin).toString(),
     playback: {
       getUrl: async () => ({ playbackUrl, posterUrl: null }),
       getSignedUrl: async (_id, options) => ({

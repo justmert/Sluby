@@ -278,8 +278,9 @@ describe('useVideo', () => {
       expect(mockVideo.currentTime).toBe(100);
     });
 
-    it('seek() should clamp to 0 when duration is 0', () => {
-      (mockVideo as any).duration = 0;
+    it('seek() before metadata keeps the time instead of clamping it to 0', () => {
+      // no metadata yet: the duration is unknown, not zero
+      (mockVideo as any).duration = Number.NaN;
 
       const { result } = renderHook(() => useVideo(videoRef, hlsRef));
 
@@ -287,6 +288,11 @@ describe('useVideo', () => {
         result.current.seek(50);
       });
 
+      expect(mockVideo.currentTime).toBe(50);
+
+      act(() => {
+        result.current.seek(-3);
+      });
       expect(mockVideo.currentTime).toBe(0);
     });
 
@@ -376,7 +382,7 @@ describe('useVideo', () => {
     it('should set hls.currentLevel', () => {
       const mockHls = {
         currentLevel: -1,
-        levels: [],
+        levels: [{}, {}, {}],
         on: vi.fn(),
         off: vi.fn(),
         constructor: {
@@ -410,6 +416,27 @@ describe('useVideo', () => {
 
       act(() => {
         result.current.setQuality(-1);
+      });
+
+      expect(mockHls.currentLevel).toBe(-1);
+    });
+
+    it('goes back to adaptive for an index outside the levels, like the player handle', () => {
+      const mockHls = {
+        currentLevel: 0,
+        levels: [{}, {}],
+        on: vi.fn(),
+        off: vi.fn(),
+        constructor: {
+          Events: { MANIFEST_PARSED: 'MANIFEST_PARSED', LEVEL_SWITCHED: 'LEVEL_SWITCHED' },
+        },
+      };
+      hlsRef.current = mockHls;
+
+      const { result } = renderHook(() => useVideo(videoRef, hlsRef));
+
+      act(() => {
+        result.current.setQuality(5);
       });
 
       expect(mockHls.currentLevel).toBe(-1);

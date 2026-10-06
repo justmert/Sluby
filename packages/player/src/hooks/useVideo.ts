@@ -1,18 +1,56 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, type RefObject } from 'react';
 import type Hls from 'hls.js';
+import type { SlubyPlayerHandle } from '../SlubyPlayer.js';
 import type { QualityLevel, UseVideoReturn } from '../types.js';
+
+function toQualities(hls: Hls): QualityLevel[] {
+  return hls.levels.map((level, index) => ({
+    index,
+    width: level.width,
+    height: level.height,
+    bitrate: level.bitrate,
+    name: `${level.height}p`,
+  }));
+}
 
 /**
  * Headless video control hook.
  *
- * Wraps a <video> element ref and an optional hls.js instance ref to expose a
- * consistent, declarative API for controlling playback, tracking state, and
- * managing quality levels.
+ * Pass the ref of a `<SlubyPlayer>` to build custom controls for it:
+ *
+ * ```tsx
+ * const player = useRef<SlubyPlayerHandle>(null);
+ * const video = useVideo(player);
+ * <SlubyPlayer ref={player} ... />
+ * ```
+ *
+ * Or pass a `<video>` ref and an hls.js instance ref for a player of your own.
+ * Either way the hook follows the element once it mounts and every hls.js
+ * instance attached to it (the player makes a new one per load), and exposes
+ * a declarative API for controlling playback, tracking state, and managing
+ * quality levels.
  */
+export function useVideo(player: RefObject<SlubyPlayerHandle | null>): UseVideoReturn;
 export function useVideo(
-  videoRef: React.RefObject<HTMLVideoElement | null>,
-  hlsRef: React.RefObject<Hls | null>,
+  videoRef: RefObject<HTMLVideoElement | null>,
+  hlsRef: RefObject<Hls | null>,
+): UseVideoReturn;
+export function useVideo(
+  ref: RefObject<SlubyPlayerHandle | null> | RefObject<HTMLVideoElement | null>,
+  hlsRef?: RefObject<Hls | null>,
 ): UseVideoReturn {
+  // read through the refs on every call: a ref is filled after the render
+  // that created it, and the player swaps its hls.js instance on each load
+  const getVideo = useCallback((): HTMLVideoElement | null => {
+    if (hlsRef) return (ref as RefObject<HTMLVideoElement | null>).current;
+    return (ref as RefObject<SlubyPlayerHandle | null>).current?.getVideoElement() ?? null;
+  }, [ref, hlsRef]);
+  const getHls = useCallback((): Hls | null => {
+    if (hlsRef) return hlsRef.current;
+    return (ref as RefObject<SlubyPlayerHandle | null>).current?.getHlsInstance() ?? null;
+  }, [ref, hlsRef]);
+
+  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -21,13 +59,18 @@ export function useVideo(
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<QualityLevel | null>(null);
 
-  // Use a ref for the RAF id so we can cancel it on cleanup.
-  const rafIdRef = useRef<number | null>(null);
+  // pick up the element after every render, so a player mounted (or
+  // remounted) after this hook's first run is still followed. it runs without
+  // deps on purpose and only sets state when the element changed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const current = getVideo();
+    if (current !== video) setVideo(current);
+  });
 
   // ── Video element event listeners ────────────────────────────────────────
 
   useEffect(() => {
-    const video = videoRef.current;
     if (!video) return;
 
     const onPlay = () => setIsPlaying(true);
@@ -35,9 +78,7 @@ export function useVideo(
     const onEnded = () => setIsPlaying(false);
 
     const onDurationChange = () => {
-      if (video.duration && Number.isFinite(video.duration)) {
-        setDuration(video.duration);
-      }
+      setDuration(video.duration && Number.isFinite(video.duration) ? video.duration : 0);
     };
 
     const onTimeUpdate = () => {
@@ -64,11 +105,11 @@ export function useVideo(
     video.addEventListener('canplay', onCanPlay);
     video.addEventListener('seeked', onSeeked);
 
-    // Initialise duration in case metadata is already loaded.
-    if (video.duration && Number.isFinite(video.duration)) {
-      setDuration(video.duration);
-    }
-    setVolumeState(video.muted ? 0 : video.volume);
+    // the element may already be playing or have metadata
+    onDurationChange();
+    onTimeUpdate();
+    onVolumeChange();
+    setIsPlaying(!video.paused && !video.ended);
 
     return () => {
       video.removeEventListener('play', onPlay);
@@ -82,27 +123,28 @@ export function useVideo(
       video.removeEventListener('canplay', onCanPlay);
       video.removeEventListener('seeked', onSeeked);
     };
-  }, [videoRef]);
+  }, [video]);
 
   // ── HLS quality level tracking ───────────────────────────────────────────
   //
   // The player creates its hls.js instance only after it resolves the source,
-  // and creates a new one on retry, so it is not there when this effect first
-  // runs. hls.js attaching to the <video> makes it start loading new media,
-  // so re-check the ref on those events and (re)subscribe to whatever instance
-  // is current.
+  // and a new one for every later load, so it is not there when this effect
+  // first runs. Attaching or detaching hls.js resets the <video> (`emptied`,
+  // then `loadstart`), so re-check on those events and follow whatever
+  // instance is current, clearing the levels when there is none.
 
   useEffect(() => {
-    const video = videoRef.current;
     let attached: Hls | null = null;
     let detach = () => {};
 
     const attach = () => {
-      const hls = hlsRef.current;
+      const hls = getHls();
       if (hls === attached) return;
       detach();
       detach = () => {};
       attached = hls;
+      setQualities([]);
+      setCurrentQuality(null);
       if (!hls) return;
 
       // hls.js exposes Hls.Events as an enum, but we access them via the
@@ -111,31 +153,17 @@ export function useVideo(
       if (!HlsEvents) return;
 
       const onManifestParsed = () => {
-        const levels = hls.levels.map((level, index): QualityLevel => ({
-          index,
-          width: level.width,
-          height: level.height,
-          bitrate: level.bitrate,
-          name: `${level.height}p`,
-        }));
+        const levels = toQualities(hls);
         setQualities(levels);
-
         if (hls.currentLevel >= 0 && hls.currentLevel < levels.length) {
           setCurrentQuality(levels[hls.currentLevel]);
         }
       };
 
       const onLevelSwitched = (_event: string, data: { level: number }) => {
-        const levels = hls.levels;
+        const levels = toQualities(hls);
         if (data.level >= 0 && data.level < levels.length) {
-          const level = levels[data.level];
-          setCurrentQuality({
-            index: data.level,
-            width: level.width,
-            height: level.height,
-            bitrate: level.bitrate,
-            name: `${level.height}p`,
-          });
+          setCurrentQuality(levels[data.level]);
         }
       };
 
@@ -154,76 +182,64 @@ export function useVideo(
     };
 
     attach();
+    video?.addEventListener('emptied', attach);
     video?.addEventListener('loadstart', attach);
     video?.addEventListener('loadedmetadata', attach);
 
     return () => {
+      video?.removeEventListener('emptied', attach);
       video?.removeEventListener('loadstart', attach);
       video?.removeEventListener('loadedmetadata', attach);
       detach();
     };
-  }, [videoRef, hlsRef]);
+  }, [video, getHls]);
 
   // ── Control methods ──────────────────────────────────────────────────────
 
   const play = useCallback(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.play().catch(() => {
-      // Autoplay may be blocked; ignore so the caller can handle via onError.
+    const current = getVideo();
+    if (!current) return;
+    current.play().catch(() => {
+      // an autoplay block or an interrupted load; isPlaying stays false
     });
-  }, [videoRef]);
+  }, [getVideo]);
 
   const pause = useCallback(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.pause();
-  }, [videoRef]);
+    getVideo()?.pause();
+  }, [getVideo]);
 
   const seek = useCallback(
     (time: number) => {
-      const video = videoRef.current;
-      if (!video) return;
-      const clampedTime = Math.max(0, Math.min(time, video.duration || 0));
-      video.currentTime = clampedTime;
+      const current = getVideo();
+      if (!current) return;
+      // before metadata the duration is unknown, so only the lower bound applies
+      const upper =
+        Number.isFinite(current.duration) && current.duration > 0 ? current.duration : Infinity;
+      current.currentTime = Math.max(0, Math.min(time, upper));
     },
-    [videoRef],
+    [getVideo],
   );
 
   const setVolume = useCallback(
     (vol: number) => {
-      const video = videoRef.current;
-      if (!video) return;
+      const current = getVideo();
+      if (!current) return;
       const clamped = Math.max(0, Math.min(1, vol));
-      video.volume = clamped;
-      video.muted = clamped === 0;
+      current.volume = clamped;
+      current.muted = clamped === 0;
     },
-    [videoRef],
+    [getVideo],
   );
 
   const setQuality = useCallback(
     (levelIndex: number) => {
-      const hls = hlsRef.current;
+      const hls = getHls();
       if (!hls) return;
-      // -1 is a special value in hls.js meaning "auto".
-      hls.currentLevel = levelIndex;
+      // -1 hands the choice back to hls.js's abr controller
+      hls.currentLevel = levelIndex >= 0 && levelIndex < hls.levels.length ? levelIndex : -1;
     },
-    [hlsRef],
+    [getHls],
   );
-
-  // ── Cleanup animation frame on unmount ───────────────────────────────────
-
-  // the ref holds a frame id, not a dom node, so reading it at cleanup time is
-  // exactly what we want: cancel whichever frame is pending on unmount
-  useEffect(() => {
-    return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      const pending = rafIdRef.current;
-      if (pending !== null) {
-        cancelAnimationFrame(pending);
-      }
-    };
-  }, []);
 
   return {
     play,

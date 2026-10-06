@@ -6,7 +6,7 @@ import type {
   LoaderContext,
   LoaderStats,
 } from 'hls.js';
-import type { SiaPlaybackSession, SiaShareSource } from './types.js';
+import type { SiaPlaybackSession, SiaShareSource } from './sia-types.js';
 
 // hls.js addresses every HLS child as `{base}/v1/objects/{hexId}` (see the
 // backend manifest rewriter). The loader pulls the object id out of that URL
@@ -17,6 +17,19 @@ const OBJECT_URL_RE = /\/v1\/objects\/([^/?#]+)/;
 // the public master url names the asset (or playback id), not an object, so
 // for it the session supplies the master object id from the share map
 const STREAM_URL_RE = /\/v1\/stream\/[^/?#]+\/master\.m3u8(?:[?#]|$)/;
+
+// hls.js retries a load only for a status of 0 while offline or one outside
+// 400-499, so a failure is reported with the session's own 4xx when it has one
+// (a missing share url, a refused signature: retrying cannot help) and as a 502
+// otherwise (a host, indexer or network hiccup, normal on Sia and worth retrying)
+const RETRYABLE_STATUS = 502;
+const BAD_URL_STATUS = 400;
+
+function failureStatus(err: unknown): number {
+  const status = (err as { statusCode?: unknown } | null)?.statusCode;
+  if (typeof status === 'number' && status >= 400 && status <= 499) return status;
+  return RETRYABLE_STATUS;
+}
 
 function parseObjectId(url: string): string | null {
   const m = OBJECT_URL_RE.exec(url);
@@ -90,7 +103,7 @@ export function createSiaLoader(
 
       const objectId = parseObjectId(context.url);
       if (!objectId && !STREAM_URL_RE.test(context.url)) {
-        this.failNow(`SiaLoader: no object id in "${context.url}"`);
+        this.failNow(BAD_URL_STATUS, `SiaLoader: no object id in "${context.url}"`);
         return;
       }
 
@@ -162,15 +175,18 @@ export function createSiaLoader(
         this.callbacks?.onSuccess({ url: context.url, data }, stats, context, null);
       } catch (err) {
         if (this.aborted) return;
-        this.failNow(`SiaLoader: ${err instanceof Error ? err.message : String(err)}`);
+        this.failNow(
+          failureStatus(err),
+          `SiaLoader: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
-    private failNow(text: string): void {
+    private failNow(code: number, text: string): void {
       this.clearTimeout();
       const ctx = this.context;
       if (!ctx) return;
-      this.callbacks?.onError({ code: 0, text }, ctx, null, this.stats);
+      this.callbacks?.onError({ code, text }, ctx, null, this.stats);
     }
 
     private onTimeout(): void {

@@ -1,10 +1,11 @@
-import React, {
+import {
   useEffect,
   useRef,
   useState,
   useCallback,
   forwardRef,
   useImperativeHandle,
+  type CSSProperties,
 } from 'react';
 import Hls from 'hls.js';
 import type { HlsConfig } from 'hls.js';
@@ -12,9 +13,10 @@ import type {
   SlubyPlayerProps,
   QualityLevel,
   PlayerState,
-  SiaPlaybackSession,
-  SiaShareSource,
+  PlaybackResolver,
+  SiaPlaybackClient,
 } from './types.js';
+import type { SiaPlaybackSession, SiaShareSource } from './sia-types.js';
 import { createSiaLoader } from './SiaLoader.js';
 
 // ---------------------------------------------------------------------------
@@ -24,7 +26,11 @@ import { createSiaLoader } from './SiaLoader.js';
 export interface SlubyPlayerHandle {
   /** The underlying HTMLVideoElement, or null before mount. */
   getVideoElement: () => HTMLVideoElement | null;
-  /** The underlying hls.js instance, or null when using native playback. */
+  /**
+   * The current hls.js instance, or null when using native playback. The
+   * player builds a new one for every load (a retry, a renewed signed URL),
+   * so read it when needed instead of keeping it.
+   */
   getHlsInstance: () => Hls | null;
   /** Renditions in the loaded manifest. Empty on native (Safari) playback. */
   getQualities: () => QualityLevel[];
@@ -46,10 +52,29 @@ interface SiaDelivery {
   source?: SiaShareSource;
 }
 
+// one resolved load. A new object means a new load; `key` names the video
+// rather than the url, so a reload of the same video keeps its position.
+interface Playback {
+  // a given src, or one the player resolved from client + assetId
+  kind: 'src' | 'asset';
+  src: string;
+  sia: SiaDelivery | null;
+  key: string;
+  poster?: string;
+  // when src stops working, if a fresh one is needed by then
+  expiresAtMs?: number;
+  // the retry it was made for, so a retry of a plain src still reloads
+  attempt: number;
+}
+
 const DEFAULT_MAX_NETWORK_RETRIES = 3;
 const DEFAULT_MAX_MEDIA_RETRIES = 2;
 // Incremental backoff (ms) before re-attempting a load after a network error.
 const NETWORK_RETRY_BACKOFF_MS = 1000;
+// renew a signed url this long before it expires (or halfway, if sooner)
+const REFRESH_LEAD_MS = 60_000;
+// setTimeout fires at once for longer delays
+const MAX_TIMER_MS = 2_147_483_647;
 
 function toQualityLevel(
   level: { width: number; height: number; bitrate: number },
@@ -64,12 +89,113 @@ function toQualityLevel(
   };
 }
 
+/** The `expires` (unix seconds) a signed gateway url carries, in ms. */
+function expiresFromUrl(url: string): number | undefined {
+  const match = /[?&]expires=(\d+)/.exec(url);
+  return match ? Number(match[1]) * 1000 : undefined;
+}
+
+function withoutQuery(url: string): string {
+  return url.split(/[?#]/)[0];
+}
+
+function hasPlayback(client: PlaybackResolver | SiaPlaybackClient): client is PlaybackResolver {
+  return 'playback' in client && typeof (client as PlaybackResolver).playback === 'object';
+}
+
+function asError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+function srcPlayback(url: string, attempt: number, sia: SiaDelivery | null = null): Playback {
+  return {
+    kind: 'src',
+    src: url,
+    sia,
+    key: `src:${withoutQuery(url)}`,
+    expiresAtMs: expiresFromUrl(url),
+    attempt,
+  };
+}
+
+// with an asset id and a viewer session, src streams direct from Sia using
+// the public share map for it; otherwise it plays as given
+async function loadSrc(
+  url: string,
+  session: SiaPlaybackSession | undefined,
+  assetId: string | undefined,
+  attempt: number,
+): Promise<Playback> {
+  const sia = session && assetId ? await prepareSia(session, assetId, { src: url }) : null;
+  return srcPlayback(url, attempt, sia);
+}
+
+async function loadAsset(
+  client: PlaybackResolver,
+  assetId: string,
+  signed: boolean,
+  expiresIn: number | undefined,
+  attempt: number,
+): Promise<Playback> {
+  // The gateway URL is always resolved: it is the http fallback, and in Sia
+  // mode it is still the address the custom loader decodes the object id
+  // from (the loader never fetches it over HTTP).
+  let url = '';
+  let posterUrl: string | null = null;
+  let expiresAtMs: number | undefined;
+  let sign = signed;
+  if (!sign) {
+    const info = await client.playback.getUrl(assetId);
+    // the gateway refuses the unsigned url of a private asset
+    if (info.accessTier === 'private') sign = true;
+    url = info.playbackUrl;
+    posterUrl = info.posterUrl;
+  }
+  if (sign) {
+    const signedInfo = await client.playback.getSignedUrl(assetId, { expiresIn });
+    url = signedInfo.signedUrl;
+    // an unsigned poster of gated content would be refused too
+    posterUrl = null;
+    const parsed = signedInfo.expiresAt ? Date.parse(signedInfo.expiresAt) : NaN;
+    expiresAtMs = Number.isFinite(parsed) ? parsed : expiresFromUrl(url);
+  }
+
+  // the authenticated share map renews itself, so Sia delivery never depends
+  // on the signed url's expiry
+  const sia = await prepareSia(client.sia, assetId);
+  return {
+    kind: 'asset',
+    src: url,
+    sia,
+    key: `asset:${assetId}`,
+    poster: posterUrl ?? undefined,
+    expiresAtMs: sia ? undefined : expiresAtMs,
+    attempt,
+  };
+}
+
+async function prepareSia(
+  session: SiaPlaybackSession | undefined,
+  assetId: string,
+  source?: SiaShareSource,
+): Promise<SiaDelivery | null> {
+  // a custom loader cannot apply on the Safari-native path
+  if (!session || !Hls.isSupported()) return null;
+  try {
+    await session.prepare(assetId, ...(source ? [source] : []));
+    return source ? { session, assetId, source } : { session, assetId };
+  } catch (err) {
+    console.warn('Sluby: direct-from-Sia delivery unavailable, using the gateway.', err);
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 /**
- * `<SlubyPlayer>` -- a production React component for playing HLS streams
+ * `<SlubyPlayer>`: a production React component for playing HLS streams
  * stored on Sia.
  *
  * Provide either a `src` (absolute HLS master manifest URL) or a `client`
@@ -80,13 +206,14 @@ function toQualityLevel(
  * with no API key plays direct from Sia.
  *
  * Features: adaptive quality (hls.js), Safari native HLS fallback, bounded
- * automatic error recovery, and loading / error states with an optional
- * built-in overlay.
+ * automatic error recovery, renewal of signed URLs before they expire, and
+ * loading / error states with an optional built-in overlay.
  */
 export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
   function SlubyPlayer(props, ref) {
     const {
       src,
+      refreshSrc,
       client,
       assetId,
       signed = false,
@@ -118,22 +245,23 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
     // Set once we have reported a terminal (given-up) error, so a follow-on
     // native <video> error event cannot overwrite the authoritative message.
     const terminalRef = useRef(false);
+    // where the current video was, so a reload of it (retry, renewed url)
+    // continues there instead of at 0
+    const positionRef = useRef<{ key: string; time: number; playing: boolean } | null>(null);
 
     const [state, setState] = useState<PlayerState>('idle');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     // when src will try direct-from-Sia first, start with nothing to load, or
     // the first render would begin fetching src from the gateway before the
     // Sia session is ready
-    const [resolvedSrc, setResolvedSrc] = useState<string | null>(() =>
-      src && !(client?.sia && assetId && Hls.isSupported()) ? src : null,
+    const [playback, setPlayback] = useState<Playback | null>(() =>
+      src && !(client?.sia && assetId && Hls.isSupported()) ? srcPlayback(src, 0) : null,
     );
-    const [resolvedPoster, setResolvedPoster] = useState<string | undefined>(poster);
     const [retryKey, setRetryKey] = useState(0);
-    // Direct-from-Sia delivery for this asset, or null to use the gateway.
-    const [siaDelivery, setSiaDelivery] = useState<SiaDelivery | null>(null);
 
-    // Keep the latest callbacks in refs so the HLS effect does not re-run (and
-    // tear down playback) every time a parent re-renders with new closures.
+    // Keep the latest callbacks and options in refs so the HLS effect does not
+    // re-run (and tear down playback) every time a parent re-renders with new
+    // closures or flips a flag that only matters at the next load.
     const cb = useRef({
       onReady,
       onPlay,
@@ -145,6 +273,9 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       onDeliveryChange,
       onStateChange,
     });
+    const opts = useRef({ autoPlay, maxNetworkRetries, maxMediaRetries, refreshSrc });
+    const latest = useRef({ client, assetId, signed, expiresIn });
+    const playbackRef = useRef<Playback | null>(playback);
     useEffect(() => {
       cb.current = {
         onReady,
@@ -157,6 +288,9 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         onDeliveryChange,
         onStateChange,
       };
+      opts.current = { autoPlay, maxNetworkRetries, maxMediaRetries, refreshSrc };
+      latest.current = { client, assetId, signed, expiresIn };
+      playbackRef.current = playback;
     });
 
     // ── State transitions notify the consumer once, on change ──────────────
@@ -165,113 +299,135 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       cb.current.onStateChange?.(state);
     }, [state]);
 
-    const fail = useCallback((message: string) => {
+    const fail = useCallback((message: string, cause?: unknown) => {
       setErrorMessage(message);
       setState('error');
-      cb.current.onError?.(new Error(message));
+      cb.current.onError?.(new Error(message, cause === undefined ? undefined : { cause }));
     }, []);
 
-    // ── Resolve src from (client + assetId) when no explicit src is given ───
+    // `signed` and `expiresIn` only apply when the player signs, which it
+    // never does for a given src
+    const hasSrc = Boolean(src);
+    useEffect(() => {
+      if (hasSrc && (signed || expiresIn !== undefined)) {
+        console.warn(
+          'Sluby: signed and expiresIn are ignored when src is given; sign src on your ' +
+            'server and pass refreshSrc to renew it before it expires.',
+        );
+      }
+    }, [hasSrc, signed, expiresIn]);
+
+    // ── Resolve what to play from src, or from client + assetId ────────────
 
     useEffect(() => {
+      let cancelled = false;
+
       if (src) {
-        // with an asset id and a viewer session, stream src direct from Sia
-        // using the public share map for it; otherwise play src as given
         const session = client?.sia;
         if (!session || !assetId || !Hls.isSupported()) {
-          setSiaDelivery(null);
-          setResolvedSrc(src);
+          setPlayback((prev) =>
+            prev &&
+            prev.kind === 'src' &&
+            prev.src === src &&
+            !prev.sia &&
+            prev.attempt === retryKey
+              ? prev
+              : srcPlayback(src, retryKey),
+          );
           return;
         }
 
-        let cancelled = false;
-        setResolvedSrc(null);
-        setSiaDelivery(null);
+        // nothing loads until the session answers, so a retry or a new src
+        // cannot start a stale load first
+        setPlayback(null);
         setState('loading');
-        (async () => {
-          const source = { src };
-          let sia: SiaDelivery | null = null;
-          try {
-            await session.prepare(assetId, source);
-            sia = { session, assetId, source };
-          } catch (err) {
-            console.warn('Sluby: direct-from-Sia delivery unavailable, using the gateway.', err);
-          }
-          if (cancelled) return;
-          setSiaDelivery(sia);
-          setResolvedSrc(src);
-        })();
+        void loadSrc(src, session, assetId, retryKey).then((next) => {
+          if (!cancelled) setPlayback(next);
+        });
         return () => {
           cancelled = true;
         };
       }
+
       if (!client || !assetId) {
-        setSiaDelivery(null);
-        setResolvedSrc(null);
+        setPlayback(null);
         return;
       }
 
-      let cancelled = false;
-      // Clear any prior delivery synchronously so a Retry (retryKey) cannot let
-      // the HLS effect re-initialise on a stale/expired share map before the
-      // fresh resolve below lands.
-      setResolvedSrc(null);
-      setSiaDelivery(null);
+      if (!hasPlayback(client)) {
+        setPlayback(null);
+        fail(
+          'SlubyPlayer needs a client with playback (a SlubyClient) to play an assetId without src.',
+        );
+        return;
+      }
+
+      // Clear any prior load synchronously so a Retry cannot re-initialise on
+      // a stale or expired url before the fresh resolve below lands.
+      setPlayback(null);
       setState('loading');
-
-      (async () => {
-        try {
-          // The gateway URL is always resolved: it is the http fallback, and in
-          // Sia mode it is still the address the custom loader decodes the
-          // object id from (the loader never fetches it over HTTP).
-          let url: string;
-          let posterUrl: string | null = null;
-          if (signed) {
-            url = (await client.playback.getSignedUrl(assetId, { expiresIn })).signedUrl;
-          } else {
-            const info = await client.playback.getUrl(assetId);
-            url = info.playbackUrl;
-            posterUrl = info.posterUrl;
-          }
-
-          // Attempt direct-from-Sia delivery when a viewer session is
-          // configured and hls.js will drive playback (a custom loader cannot
-          // apply on the Safari-native path). Any failure (no share map, WASM
-          // init, connect) falls back to the gateway, surfaced via a warning
-          // rather than swallowed.
-          let sia: SiaDelivery | null = null;
-          if (client.sia && Hls.isSupported()) {
-            try {
-              await client.sia.prepare(assetId);
-              sia = { session: client.sia, assetId };
-            } catch (err) {
-              console.warn('Sluby: direct-from-Sia delivery unavailable, using the gateway.', err);
-            }
-          }
-
-          if (cancelled) return;
-          setSiaDelivery(sia);
-          setResolvedSrc(url);
-          if (!poster && posterUrl) setResolvedPoster(posterUrl);
-        } catch (err) {
-          if (!cancelled) {
-            fail(err instanceof Error ? err.message : 'Failed to resolve playback URL');
-          }
-        }
-      })();
+      loadAsset(client, assetId, signed, expiresIn, retryKey).then(
+        (next) => {
+          if (!cancelled) setPlayback(next);
+        },
+        (err: unknown) => {
+          if (!cancelled) fail(asError(err).message || 'Failed to resolve playback URL', err);
+        },
+      );
 
       return () => {
         cancelled = true;
       };
-      // `retryKey` is included so the overlay Retry button re-runs a failed
-      // resolution. `poster` is intentionally excluded (a dedicated effect
-      // handles poster changes) so updating it does not re-mint a signed URL.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [src, client, assetId, signed, expiresIn, retryKey, fail]);
 
+    // ── Renew a signed url before it expires ───────────────────────────────
+
+    // whether a load's url can be renewed: one the player signed itself, or a
+    // given src when the page passed refreshSrc
+    const renewable = useCallback(
+      (current: Playback) =>
+        current.expiresAtMs !== undefined &&
+        (current.kind === 'asset' || opts.current.refreshSrc !== undefined),
+      [],
+    );
+
+    const renew = useCallback(async (current: Playback): Promise<void> => {
+      let next: Playback;
+      const { client: resolver, assetId: id, signed: sign, expiresIn: ttl } = latest.current;
+      if (current.kind === 'src') {
+        const fresh = await opts.current.refreshSrc!(current.src);
+        next = await loadSrc(fresh, resolver?.sia, id, current.attempt);
+      } else {
+        if (!resolver || !id || !hasPlayback(resolver)) {
+          throw new Error(
+            'The playback URL expired and the player no longer has a client to renew it.',
+          );
+        }
+        next = await loadAsset(resolver, id, sign, ttl, current.attempt);
+      }
+      // a newer load (a prop change, a retry) has replaced this one
+      if (playbackRef.current !== current) return;
+      setPlayback(next);
+    }, []);
+
     useEffect(() => {
-      if (poster) setResolvedPoster(poster);
-    }, [poster]);
+      if (!playback || !renewable(playback)) return;
+      const expiresAtMs = playback.expiresAtMs!;
+      const remaining = expiresAtMs - Date.now();
+      const delay = remaining - Math.min(REFRESH_LEAD_MS, Math.max(0, remaining) / 2);
+      if (delay > MAX_TIMER_MS) return;
+      const timer = setTimeout(
+        () => {
+          renew(playback).catch((err: unknown) => {
+            // the url still works for a while; a load failing after the expiry
+            // tries again and reports the error if that fails too
+            console.warn('Sluby: could not renew the signed playback URL.', err);
+          });
+        },
+        Math.max(0, delay),
+      );
+      return () => clearTimeout(timer);
+    }, [playback, renew, renewable]);
 
     // ── Imperative handle ──────────────────────────────────────────────────
 
@@ -316,30 +472,54 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       const message = mediaError
         ? `MediaError code ${mediaError.code}: ${mediaError.message || 'Unknown media error'}`
         : 'Unknown video error';
-      fail(message);
+      fail(message, mediaError ?? undefined);
     }, [fail]);
 
     // ── HLS initialisation & lifecycle ─────────────────────────────────────
 
     useEffect(() => {
       const video = videoRef.current;
-      if (!video || !resolvedSrc) return;
+      if (!video || !playback) return;
+      const current = playback;
 
       setErrorMessage(null);
       setState('loading');
       terminalRef.current = false;
 
+      // continue where this video was, after a retry or a renewed url
+      const resume = positionRef.current?.key === current.key ? positionRef.current : null;
+      if (!resume) positionRef.current = null;
+      const shouldPlay = () => opts.current.autoPlay || Boolean(resume?.playing);
+
+      // track the position of this load; detached before teardown, which
+      // resets the element to 0 and paused
+      const track = () => {
+        if (video.currentTime > 0) {
+          positionRef.current = {
+            key: current.key,
+            time: video.currentTime,
+            playing: !video.paused && !video.ended,
+          };
+        }
+      };
+      const trackedEvents = ['timeupdate', 'play', 'pause', 'seeked'] as const;
+      for (const name of trackedEvents) video.addEventListener(name, track);
+      const stopTracking = () => {
+        for (const name of trackedEvents) video.removeEventListener(name, track);
+      };
+
       // ------------------------------------------------------------------
       // Native HLS support (e.g. Safari on macOS / iOS)
       // ------------------------------------------------------------------
       if (!Hls.isSupported() && video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = resolvedSrc;
+        video.src = current.src;
         cb.current.onDeliveryChange?.('gateway');
 
         const onNativeLoaded = () => {
+          if (resume && resume.time > 0) video.currentTime = resume.time;
           setState('ready');
           cb.current.onReady?.();
-          if (autoPlay) {
+          if (shouldPlay()) {
             video.play().catch(() => {
               /* autoplay policy may block */
             });
@@ -348,6 +528,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         video.addEventListener('loadedmetadata', onNativeLoaded, { once: true });
 
         return () => {
+          stopTracking();
           video.removeEventListener('loadedmetadata', onNativeLoaded);
           video.removeAttribute('src');
           video.load();
@@ -358,6 +539,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       // hls.js path
       // ------------------------------------------------------------------
       if (!Hls.isSupported()) {
+        stopTracking();
         fail('HLS is not supported in this browser and native HLS is unavailable.');
         return;
       }
@@ -370,23 +552,21 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         maxBufferSize: 60 * 1000 * 1000,
         maxBufferHole: 0.5,
         startLevel: -1, // auto (adaptive)
+        startPosition: resume && resume.time > 0 ? resume.time : -1,
       };
 
       // Direct-from-Sia: a custom loader streams every playlist and segment
       // from Sia via the viewer session (loaders run on the main thread, so
       // this is compatible with enableWorker). Setting `loader` covers
       // manifest, level, fragment, and key loads. Absent -> gateway HTTP.
-      if (siaDelivery) {
-        hlsConfig.loader = createSiaLoader(
-          siaDelivery.session,
-          siaDelivery.assetId,
-          siaDelivery.source,
-        );
+      const sia = current.sia;
+      if (sia) {
+        hlsConfig.loader = createSiaLoader(sia.session, sia.assetId, sia.source);
       }
 
       const hls = new Hls(hlsConfig);
       hlsRef.current = hls;
-      cb.current.onDeliveryChange?.(siaDelivery ? 'sia' : 'gateway');
+      cb.current.onDeliveryChange?.(sia ? 'sia' : 'gateway');
 
       // Bounded recovery counters. Reset once real data buffers so that
       // intermittent, well-separated errors do not exhaust the budget.
@@ -394,6 +574,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       let mediaRetries = 0;
       let backoffTimer: ReturnType<typeof setTimeout> | null = null;
       let destroyed = false;
+      let renewing = false;
       // startLoad only resumes loading once a manifest has been parsed, so a
       // failed manifest load has to be retried with loadSource instead
       let manifestParsed = false;
@@ -401,13 +582,15 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       // Tear down after an unrecoverable error, exactly once: cancel any pending
       // reload so its callback cannot fire on a destroyed instance, mark the
       // error terminal, destroy, and report.
-      const giveUp = (message: string) => {
+      const giveUp = (message: string, cause?: unknown) => {
         if (backoffTimer) clearTimeout(backoffTimer);
+        if (destroyed) return;
         destroyed = true;
         terminalRef.current = true;
+        stopTracking();
         hls.destroy();
         hlsRef.current = null;
-        fail(message);
+        fail(message, cause);
       };
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -420,7 +603,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         }
         setState('ready');
         cb.current.onReady?.();
-        if (autoPlay) {
+        if (shouldPlay()) {
           video.play().catch(() => {
             /* autoplay policy may block */
           });
@@ -439,49 +622,71 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       });
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!data.fatal) return; // non-fatal errors are auto-handled by hls.js
+        if (!data.fatal || destroyed) return; // non-fatal errors are auto-handled by hls.js
 
         switch (data.type) {
-          case Hls.ErrorTypes.NETWORK_ERROR:
-            if (networkRetries < maxNetworkRetries) {
+          case Hls.ErrorTypes.NETWORK_ERROR: {
+            // past the signed url's expiry every retry would be refused too,
+            // so get a fresh url (the reload continues at the same position)
+            const expired =
+              renewable(current) && Date.now() >= current.expiresAtMs! - REFRESH_LEAD_MS;
+            if (expired) {
+              if (renewing) return;
+              renewing = true;
+              setState('buffering');
+              renew(current).catch((err: unknown) =>
+                giveUp(`The playback URL expired and could not be renewed (${data.details}).`, err),
+              );
+              return;
+            }
+            if (networkRetries < opts.current.maxNetworkRetries) {
               networkRetries += 1;
               setState('buffering');
               if (backoffTimer) clearTimeout(backoffTimer);
               backoffTimer = setTimeout(
-                () => (manifestParsed ? hls.startLoad() : hls.loadSource(resolvedSrc)),
+                () => (manifestParsed ? hls.startLoad() : hls.loadSource(current.src)),
                 NETWORK_RETRY_BACKOFF_MS * networkRetries,
               );
             } else {
               giveUp(
-                `Network error, gave up after ${maxNetworkRetries} retries (${data.details}).`,
+                `Network error, gave up after ${opts.current.maxNetworkRetries} retries (${data.details}).`,
+                data.error,
               );
             }
             break;
+          }
           case Hls.ErrorTypes.MEDIA_ERROR:
-            if (mediaRetries < maxMediaRetries) {
+            if (mediaRetries < opts.current.maxMediaRetries) {
               mediaRetries += 1;
               setState('buffering');
               hls.recoverMediaError();
             } else {
-              giveUp(`Media error, gave up after ${maxMediaRetries} retries (${data.details}).`);
+              giveUp(
+                `Media error, gave up after ${opts.current.maxMediaRetries} retries (${data.details}).`,
+                data.error,
+              );
             }
             break;
           default:
-            giveUp(`Fatal HLS error: ${data.type} / ${data.details}`);
+            giveUp(`Fatal HLS error: ${data.type} / ${data.details}`, data.error);
             break;
         }
       });
 
       hls.attachMedia(video);
-      hls.loadSource(resolvedSrc);
+      hls.loadSource(current.src);
 
       return () => {
         if (backoffTimer) clearTimeout(backoffTimer);
+        stopTracking();
         // A give-up already destroyed the instance; do not destroy twice.
-        if (!destroyed) hls.destroy();
+        if (!destroyed) {
+          destroyed = true;
+          hls.destroy();
+        }
         hlsRef.current = null;
       };
-    }, [resolvedSrc, siaDelivery, retryKey, autoPlay, maxNetworkRetries, maxMediaRetries, fail]);
+    }, [playback, fail, renew, renewable]);
 
     // ── Retry (from the overlay button) ────────────────────────────────────
 
@@ -501,10 +706,9 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         className={className}
         style={{ position: 'relative', display: 'inline-block', width, height, ...style }}
       >
-        <style>{SPINNER_CSS}</style>
         <video
           ref={videoRef}
-          poster={resolvedPoster}
+          poster={poster ?? playback?.poster}
           controls={controls}
           muted={muted}
           width={width}
@@ -520,13 +724,14 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         />
 
         {showSpinner && (
-          <div style={OVERLAY_STYLE} data-sluby-overlay="loading">
-            <div className="sluby-spinner" />
+          <div style={OVERLAY_STYLE} data-sluby-overlay="loading" role="status">
+            <Spinner />
+            <span style={VISUALLY_HIDDEN_STYLE}>Loading video</span>
           </div>
         )}
 
         {showError && (
-          <div style={OVERLAY_STYLE} data-sluby-overlay="error">
+          <div style={OVERLAY_STYLE} data-sluby-overlay="error" role="alert">
             <div style={{ textAlign: 'center', color: '#fff', padding: 16 }}>
               <div style={{ marginBottom: 12, fontSize: 14 }}>
                 {errorMessage ?? 'Playback error'}
@@ -542,11 +747,31 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
   },
 );
 
+// The spinner turns through the Web Animations API rather than a stylesheet,
+// so the player needs no <style> element (no `style-src 'unsafe-inline'` under
+// a CSP) and puts no class or keyframe names in the page's global namespace.
+function Spinner() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof el.animate !== 'function') return;
+    const reduced =
+      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const animation = el.animate([{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], {
+      duration: reduced ? 2400 : 800,
+      iterations: Infinity,
+      easing: 'linear',
+    });
+    return () => animation.cancel();
+  }, []);
+  return <div ref={ref} style={SPINNER_STYLE} data-sluby-spinner="" aria-hidden="true" />;
+}
+
 // ---------------------------------------------------------------------------
 // Inline overlay styling (dependency-free)
 // ---------------------------------------------------------------------------
 
-const OVERLAY_STYLE: React.CSSProperties = {
+const OVERLAY_STYLE: CSSProperties = {
   position: 'absolute',
   inset: 0,
   display: 'flex',
@@ -556,7 +781,7 @@ const OVERLAY_STYLE: React.CSSProperties = {
   pointerEvents: 'none',
 };
 
-const RETRY_BUTTON_STYLE: React.CSSProperties = {
+const RETRY_BUTTON_STYLE: CSSProperties = {
   pointerEvents: 'auto',
   cursor: 'pointer',
   padding: '8px 16px',
@@ -567,14 +792,23 @@ const RETRY_BUTTON_STYLE: React.CSSProperties = {
   borderRadius: 4,
 };
 
-const SPINNER_CSS = `
-.sluby-spinner {
-  width: 42px;
-  height: 42px;
-  border: 4px solid rgba(255, 255, 255, 0.25);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: sluby-spin 0.8s linear infinite;
-}
-@keyframes sluby-spin { to { transform: rotate(360deg); } }
-`;
+const SPINNER_STYLE: CSSProperties = {
+  width: 42,
+  height: 42,
+  boxSizing: 'border-box',
+  border: '4px solid rgba(255, 255, 255, 0.25)',
+  borderTopColor: '#fff',
+  borderRadius: '50%',
+};
+
+const VISUALLY_HIDDEN_STYLE: CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
