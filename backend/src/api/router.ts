@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { createUploadRoutes, type UploadRouteDeps } from './routes/uploads.js';
 import { createAssetRoutes, type AssetRouteDeps } from './routes/assets.js';
 import { createSiaInfoRoutes, type SiaInfoRouteDeps } from './routes/sia-info.js';
@@ -20,22 +20,8 @@ import {
 import { rateLimiter } from './rate-limiter.js';
 import { getMetricsJson } from '../metrics/collector.js';
 import { openapiDocument } from './openapi.js';
+import { DOCS_ASSET_PATH, DOCS_HTML, SCALAR_ASSET_DIR } from './docs-page.js';
 import type { Request, Response } from 'express';
-
-/** Redoc docs page rendering the served OpenAPI document. */
-const DOCS_HTML = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Sluby API Reference</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>body { margin: 0; }</style>
-  </head>
-  <body>
-    <redoc spec-url="/api/v1/openapi.json"></redoc>
-    <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
-  </body>
-</html>`;
 
 export interface ApiRouterDeps
   extends
@@ -67,6 +53,12 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   router.get('/docs', (_req: Request, res: Response) => {
     res.type('html').send(DOCS_HTML);
   });
+  // the reference page's script and its lazy chunks. a missing file is a 404
+  // here rather than falling through to the api-key check (a 401)
+  router.use(
+    DOCS_ASSET_PATH,
+    express.static(SCALAR_ASSET_DIR, { index: false, fallthrough: false }),
+  );
 
   // Apply middleware. Auth MUST run before the rate limiter: the limiter
   // buckets on req.apiKey.id and honours the key's own rateLimit, so if it
