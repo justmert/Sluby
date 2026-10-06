@@ -30,7 +30,7 @@ sequenceDiagram
   T->>W: upload.completed
 ```
 
-The tus server (`backend/src/upload/tus-server.ts`, built on `@tus/server` with a `FileStore` in `UPLOAD_DIR`) shares the `/api/v1/uploads` path with two REST routes. A request goes to tus when it carries a `Tus-Resumable` header or uses `PATCH`, `HEAD` or `OPTIONS`; a plain `GET` or `DELETE` on `/api/v1/uploads/:id` falls through to the REST status and cancel routes (`backend/src/upload/tus-dispatch.ts`).
+The tus server (`backend/src/upload/tus-server.ts`, built on `@tus/server` with a `@tus/file-store` store in `UPLOAD_DIR`, see `backend/src/upload/upload-store.ts`) shares the `/api/v1/uploads` path with two REST routes. A request goes to tus when it carries a `Tus-Resumable` header or uses `PATCH`, `HEAD` or `OPTIONS`; a plain `GET` or `DELETE` on `/api/v1/uploads/:id` falls through to the REST status and cancel routes (`backend/src/upload/tus-dispatch.ts`).
 
 Details worth knowing:
 
@@ -38,9 +38,26 @@ Details worth knowing:
 - **Metadata.** The SDK sends `filename`, `filetype`, `title`, `description` and `accessTier`. A `filetype` that does not start with `video/` is rejected with 415. Uploads larger than `MAX_UPLOAD_SIZE` (10 GiB by default) are refused by tus.
 - **Asset id.** The asset and the upload session are created in the tus creation hook, and their ids are written back into the tus upload's metadata. The creation response only carries a `Location`, so the SDK sends one `HEAD` to read `videoAssetId` from `Upload-Metadata`; that is what resolves the `assetId` promise on the SDK's upload handle.
 - **Progress.** The upload session's `uploaded_bytes` is updated from tus's post-receive event, so `GET /api/v1/uploads/:id` reports progress while bytes arrive.
-- **Cancelling.** A tus `DELETE` on the upload cancels the session and soft-deletes the asset it created, which then goes through the normal [deletion](./deletion-and-reconciliation) path.
+- **Cancelling.** A tus `DELETE` on the upload cancels the session and soft-deletes the asset it created, which then goes through the normal [deletion](./deletion-and-reconciliation) path. The file store deletes the upload's data file and its `{uploadId}.json` metadata file as part of the `DELETE`. A REST `DELETE /api/v1/uploads/:id` marks the session cancelled and deletes the same two files.
 - **Failure at the end.** If hashing, completing the session or enqueuing fails, the asset is marked `failed` and an `upload.failed` webhook is sent.
-- **The source file stays on disk.** The uploaded file remains in `UPLOAD_DIR` after processing; a manual retry that has to transcode again reads it from there. Nothing in the pipeline or the deletion worker removes it.
+- **The source file is kept only while it can still be needed.** See [the source file's lifecycle](#the-source-file-s-lifecycle) below.
+
+### The source file's lifecycle
+
+The tus file store keeps two files per upload in `UPLOAD_DIR`: the data under the tus upload id, and a `{uploadId}.json` file next to it with the upload's size, metadata and creation time. The data file's path is recorded in `upload_sessions.file_path` when the upload is created. Both files are removed together, at the first of these points:
+
+| When                                 | Who removes them                                               | Why then                                                                        |
+| ------------------------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| the asset becomes `ready`            | the finalize worker, after the transcode output is deleted     | nothing transcodes the source again once the asset is ready                     |
+| the asset is deleted                 | the deletion worker, before it unpins anything                 | covers a failed asset that kept its source, and an upload that is still running |
+| the uploader cancels                 | the tus file store on a tus `DELETE`, or the REST cancel route | a cancelled upload is never resumed                                             |
+| an incomplete upload is 24 hours old | the expiry sweep                                               | an abandoned upload would otherwise stay forever                                |
+
+A `failed` asset keeps its source, because a [manual retry](#retries-and-orphan-cleanup) that has to transcode again reads it from `UPLOAD_DIR`. The expiry sweep leaves it alone too, since the upload itself is complete; it goes when the asset is retried to `ready` or deleted.
+
+**Expiry.** The file store is created with a 24 hour expiry (`UPLOAD_EXPIRY_MS` in `backend/src/upload/upload-store.ts`), counted from the upload's creation as the tus expiration extension defines it. Creation and `PATCH` responses for an unfinished upload carry an `Upload-Expires` header, and after that time `HEAD` and `PATCH` answer 410, so the client has to start over. The backend calls `@tus/server`'s `cleanUpExpiredUploads()` once at startup and then every hour (`UPLOAD_SWEEP_INTERVAL_MS`), and logs how many uploads it removed. The stock `FileStore` decides whether an upload is complete from the offset in its `.json` file, which it writes once at creation and never updates, so it would delete finished uploads too. Sluby's store (`UploadFileStore`) reads the offset from the size of the data file instead, the same way tus answers a `HEAD`, and only removes uploads that are both expired and incomplete.
+
+**Failures.** Removing a source never fails the step that asked for it: an error is logged with the path of the file, the asset still becomes `ready`, and a deletion still completes. A file left behind that way is not retried automatically. Source files of assets that were already `ready` before this cleanup existed stay in `UPLOAD_DIR` until their asset is deleted, since finalize will not run for them again.
 
 ## Processing
 
@@ -70,7 +87,7 @@ sequenceDiagram
   FW->>DB: insert renditions and artifacts, asset status ready
   FW->>FW: warm the gateway cache with manifests and thumbnails
   FW->>W: asset.ready
-  FW->>FW: delete the transcode output directory
+  FW->>FW: delete the transcode output directory and the source upload
 ```
 
 Progress is written to `processing_jobs.progress_percent` as the job moves: the transcode maps FFmpeg's progress onto 0 to 60 percent and reaches 65 once thumbnails exist, the Sia uploads move it from 65 to 90, and finalize takes it to 100.
@@ -167,7 +184,7 @@ The paths are written without a host. A player resolves them against the URL it 
 
 The finalize worker (`backend/src/queue/processors.ts`) writes the storage graph in one transaction: a `renditions` row per rung (name, dimensions and bandwidth from the master's `EXT-X-STREAM-INF` lines, segment count, data and playlist object ids) and an `artifacts` row per stored object with its role (`master_manifest`, `variant_playlist`, `rendition_data`, `thumbnail`). Earlier rows for the asset are deleted first, so a retried finalize writes a clean set. Only then is the asset updated to `ready` with its `manifest_object_id`, `thumbnail_object_ids` and `sia_object_ids`.
 
-It then loads the master playlist, the variant playlists and the thumbnails into the gateway's memory cache so the first playback does not wait on Sia, sends `asset.ready`, and deletes `TRANSCODE_OUTPUT_DIR/{assetId}`.
+It then loads the master playlist, the variant playlists and the thumbnails into the gateway's memory cache so the first playback does not wait on Sia, sends `asset.ready`, deletes `TRANSCODE_OUTPUT_DIR/{assetId}`, and deletes the source upload from `UPLOAD_DIR`.
 
 ## Retries and orphan cleanup
 
