@@ -67,8 +67,11 @@ services:
       UPLOAD_DIR: /app/uploads
       TRANSCODE_OUTPUT_DIR: /app/transcode-output
       CACHE_DIR: /app/cache
+      LOG_LEVEL: ${LOG_LEVEL:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
       MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-}
       CACHE_MAX_SIZE_MB: ${CACHE_MAX_SIZE_MB:-}
+      API_RATE_LIMIT_PER_MIN: ${API_RATE_LIMIT_PER_MIN:-}
       # sia indexer. defaults to the hosted mainnet indexer; see the
       # production guide for a self-hosted indexd on the zen testnet.
       SIA_INDEXER_URL: ${SIA_INDEXER_URL:-https://sia.storage}
@@ -92,6 +95,9 @@ services:
       GITHUB_ALLOWED_USERS: ${GITHUB_ALLOWED_USERS:-}
       BOOTSTRAP_API_KEY: ${BOOTSTRAP_API_KEY:-}
       RECONCILE_ENABLED: ${RECONCILE_ENABLED:-}
+      RECONCILE_INTERVAL_MS: ${RECONCILE_INTERVAL_MS:-}
+      DELETION_GC_ENABLED: ${DELETION_GC_ENABLED:-}
+      DELETION_GC_INTERVAL_MS: ${DELETION_GC_INTERVAL_MS:-}
     volumes:
       - uploads:/app/uploads
       - transcode-output:/app/transcode-output
