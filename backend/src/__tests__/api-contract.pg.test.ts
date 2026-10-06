@@ -820,7 +820,10 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       const patched = await tusPatch('a', id, 0, Buffer.alloc(4));
       check('PATCH', '/api/v1/uploads/{id}', patched);
       expect(patched.status).toBe(204);
-      const assetId = (await call('GET', `/api/v1/uploads/${id}`, 'a')).body.video_asset_id;
+      const progress = await call('GET', `/api/v1/uploads/${id}`, 'a');
+      // right after the PATCH, not a throttle interval later
+      expect(progress.body).toMatchObject({ uploaded_bytes: 4, progress_percent: 40 });
+      const assetId = progress.body.video_asset_id;
 
       const byB = await call('DELETE', `/api/v1/uploads/${id}`, 'b');
       check('DELETE', '/api/v1/uploads/{id}', byB);

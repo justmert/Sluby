@@ -363,13 +363,25 @@ export function buildApiDeps(
   ctx: AppContext,
   sessionManager: SessionManager,
   deleteAsset: (id: string, owner?: string) => Promise<boolean>,
+  /** Bytes the tus store holds for upload `id`, or null when it has none. */
+  receivedBytes: (id: string) => Promise<number | null> = async () => null,
 ): ApiRouterDeps {
   return {
     // ── UploadRouteDeps ──
     // Upload creation happens through the TUS protocol (see tusServer); the REST
     // surface only exposes owner-scoped status and cancellation.
     getUploadStatus: async (id, owner) => {
-      return sessionManager.getStatus(id, owner);
+      const status = await sessionManager.getStatus(id, owner);
+      if (!status || status.status !== 'uploading') return status;
+      // the stored count comes from a throttled tus event that is dropped at
+      // the end of each PATCH, so the bytes on disk are the true progress
+      const received = await receivedBytes(id);
+      if (received === null) return status;
+      return {
+        ...status,
+        uploadedBytes: received,
+        progressPercent: status.fileSize > 0 ? Math.round((received / status.fileSize) * 100) : 0,
+      };
     },
 
     cancelUpload: async (id, owner) => {
@@ -830,7 +842,19 @@ export function createApp(ctx: AppContext): {
   // ── API Router ──
 
   // Mount API router at /api/v1 (but below the TUS handler which takes priority)
-  app.use('/api/v1', createApiRouter(buildApiDeps(ctx, sessionManager, deleteAsset)));
+  const receivedBytes = async (id: string): Promise<number | null> => {
+    try {
+      return (await tusServer.datastore.getUpload(id)).offset;
+    } catch {
+      // no such upload on disk (an id from before uploads and sessions
+      // shared one, or files already removed): keep the stored count
+      return null;
+    }
+  };
+  app.use(
+    '/api/v1',
+    createApiRouter(buildApiDeps(ctx, sessionManager, deleteAsset, receivedBytes)),
+  );
 
   // ── Delivery Routes ──
 

@@ -296,16 +296,18 @@ export function createTusServer(deps: TusServerDeps): Server {
   server.on(EVENTS.POST_CREATE, (req, upload: Upload) => {
     pendingCreates.delete(req);
     const metadata = upload.metadata ?? {};
-    void deps.dispatchWebhook(
-      'upload.started',
-      {
-        upload_id: upload.id,
-        session_id: metadata.sessionId ?? upload.id,
-        video_asset_id: metadata.videoAssetId || null,
-        file_size: upload.size,
-      },
-      metadata.creatorAddress ?? '',
-    );
+    void deps
+      .dispatchWebhook(
+        'upload.started',
+        {
+          upload_id: upload.id,
+          session_id: metadata.sessionId ?? upload.id,
+          video_asset_id: metadata.videoAssetId || null,
+          file_size: upload.size,
+        },
+        metadata.creatorAddress ?? '',
+      )
+      .catch((err) => logger.warn({ uploadId: upload.id, err }, 'upload.started webhook not sent'));
   });
 
   // keep the REST upload status (GET /uploads/:id) in step with the bytes
