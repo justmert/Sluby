@@ -88,8 +88,8 @@ RUN set -e; \
   fi; \
   rm -rf /tmp/sia-native /tmp/vendor
 
-RUN mkdir -p /app/uploads /app/transcode-output /app/cache \
-  && chown -R node:node /app/uploads /app/transcode-output /app/cache
+RUN mkdir -p /app/uploads /app/transcode-output \
+  && chown -R node:node /app/uploads /app/transcode-output
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=6 \

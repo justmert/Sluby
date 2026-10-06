@@ -124,7 +124,7 @@ export const logger = pino({
 // Ensure required directories exist
 // ──────────────────────────────────────────
 
-for (const dir of [env.UPLOAD_DIR, env.TRANSCODE_OUTPUT_DIR, env.CACHE_DIR]) {
+for (const dir of [env.UPLOAD_DIR, env.TRANSCODE_OUTPUT_DIR]) {
   mkdirSync(dir, { recursive: true });
 }
 

@@ -91,14 +91,10 @@ export const envSchema = z.object({
     .positive()
     .default(10 * 1024 * 1024 * 1024),
 
-  /** Local disk cache directory for aggregator */
-  CACHE_DIR: z.string().default('./cache'),
-
-  /** Maximum disk cache size in megabytes */
+  /** Size bound of the gateway's in-memory object cache, in megabytes. It
+   *  holds whole objects fetched without a Range header (manifests,
+   *  thumbnails). */
   CACHE_MAX_SIZE_MB: z.coerce.number().int().positive().default(10240),
-
-  /** API rate limit: max requests per minute per key */
-  API_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(100),
 
   /** Whether the background reconciliation worker runs on a schedule.
    *  Set to 'false' to disable the periodic sweep (on-demand runs via the
@@ -144,9 +140,10 @@ export const envSchema = z.object({
     .positive()
     .default(10 * 60 * 1000),
 
-  /** Optional bootstrap API key (raw sluby_ value).
-   *  If set and no API keys exist in the DB, this key is auto-seeded on startup
-   *  with full scopes (upload, read, manage). Solves the bootstrap problem. */
+  /** Optional bootstrap API key (raw sluby_ value). Seeded at startup with
+   *  every scope whenever that exact key is not in the database: a deleted one
+   *  comes back on the next start, a rotated one stays retired. It belongs to
+   *  its own `platform` account, not to any Studio user. */
   BOOTSTRAP_API_KEY: z.string().optional(),
 
   /** Public base URL the browser sees (no trailing slash).
