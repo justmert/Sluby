@@ -8,6 +8,7 @@ import { resolveCaller, type CallerDeps } from '../api/auth/caller.js';
 import { currentOwnerAddress } from '../api/auth/access.js';
 import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import { accessTierSchema, descriptionSchema, titleSchema } from '../api/validation.js';
+import { corsDecision } from '../api/cors.js';
 import { uploadBytesTotal, uploadFailureTotal, uploadSuccessTotal } from '../metrics/collector.js';
 
 export interface TusServerDeps {
@@ -101,6 +102,14 @@ export function createTusServer(deps: TusServerDeps): Server {
       log: logger,
     }),
     maxSize: env.MAX_UPLOAD_SIZE,
+    // tus sets its own cors headers, including on the preflights the api
+    // cors leaves alone; follow the same policy rather than its default of
+    // any origin
+    allowedOrigins: (origin) =>
+      corsDecision(origin, {
+        credentialedOrigins: env.CORS_ORIGIN,
+        authDisabled: env.AUTH_DISABLED,
+      }) !== 'none',
     // the session row takes this id, and session ids are uuids
     namingFunction: () => randomUUID(),
     // the upload url is the public origin, like every other url the api

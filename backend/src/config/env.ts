@@ -187,7 +187,72 @@ export const envSchema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true' || v === '1'),
+
+  /** Comma-separated browser origins that may call the API with the session
+   *  cookie (credentialed CORS). Every other origin may still call it with a
+   *  bearer key, without cookies, unless AUTH_DISABLED is on, in which case
+   *  unlisted origins get no CORS at all. */
+  CORS_ORIGIN: z
+    .string()
+    .default('')
+    .transform((value, ctx) => {
+      const origins = value
+        .split(',')
+        .map((o) => o.trim())
+        .filter((o) => o !== '');
+      for (const origin of origins) {
+        if (!isOrigin(origin)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              `"${origin}" is not an origin (scheme://host[:port], no path or trailing ` +
+              'slash). Leave CORS_ORIGIN unset to let any origin call the API without cookies.',
+          });
+        }
+      }
+      return origins;
+    }),
+
+  /** Which proxy hops Express trusts for the client address in
+   *  X-Forwarded-For: a hop count, true, or comma-separated addresses, CIDR
+   *  ranges and the names loopback, linklocal and uniquelocal. The default
+   *  trusts private networks, which covers nginx alone and Caddy in front of
+   *  nginx in the shipped stacks. */
+  TRUST_PROXY: z
+    .string()
+    .default('loopback, linklocal, uniquelocal')
+    .transform((v): boolean | number | string => {
+      if (v === 'true') return true;
+      if (v === 'false') return false;
+      if (/^\d+$/.test(v)) return Number(v);
+      return v;
+    }),
+
+  /** Requests per minute one client IP may make to /api/v1 without a valid
+   *  key or session (sign-in routes, the spec, failed authentication). */
+  API_IP_RATE_LIMIT: z.coerce.number().int().positive().default(600),
+
+  /** The highest per-minute rate_limit an API key gets. Keys asking for more
+   *  are refused at creation, and older ones are held to this at use. */
+  API_KEY_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10000),
+
+  /** How many usable API keys one account may hold. */
+  API_KEYS_PER_ACCOUNT_MAX: z.coerce.number().int().positive().default(100),
+
+  /** When set, GET /metrics (Prometheus) needs `Authorization: Bearer <token>`.
+   *  Unset, it answers anyone who reaches the backend port. */
+  METRICS_TOKEN: z.string().optional(),
 });
+
+/** True for a bare origin such as https://example.com or http://localhost:8080. */
+function isOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.origin === value;
+  } catch {
+    return false;
+  }
+}
 
 export type Env = z.infer<typeof envSchema>;
 

@@ -287,6 +287,24 @@ async function serveFull(
 }
 
 /**
+ * Preflights from players on other origins. Range is not a safelisted header
+ * for every value a player sends, so a cross-origin seek can need one. nginx
+ * answers these itself in the shipped stack; this covers a backend reached
+ * directly. A preflight is cors plumbing rather than an operation, so it is
+ * middleware and not a documented route.
+ */
+deliveryRouter.use((req: Request, res: Response, next) => {
+  if (req.method !== 'OPTIONS' || !/^\/v1\/(objects|stream|share)\//.test(req.path)) {
+    next();
+    return;
+  }
+  res
+    .status(204)
+    .set({ ...COMMON_CORS, 'Access-Control-Max-Age': '86400' })
+    .end();
+});
+
+/**
  * GET /v1/objects/:objectId
  */
 deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) => {

@@ -1,4 +1,4 @@
-import { eq, and, desc, or, isNull, gt, sql, type SQL } from 'drizzle-orm';
+import { eq, and, desc, or, isNull, gt, count, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { apiKeys, type ApiKey, type NewApiKey } from '../schema.js';
 import { generateApiKey, hashApiKey } from '../../api/auth/api-key.js';
@@ -21,6 +21,35 @@ export async function createApiKey(
     .returning();
 
   return { apiKey, rawKey };
+}
+
+/**
+ * Insert a key unless the account already holds `maxKeys` usable ones (active
+ * and unexpired, rotation grace periods included). A per-account advisory
+ * lock serialises concurrent creations, so parallel requests cannot all pass
+ * the count and overshoot the cap. Null when the account is full.
+ */
+export async function createApiKeyWithinCap(
+  values: Pick<NewApiKey, 'keyHash' | 'name' | 'scopes' | 'rateLimit' | 'creatorAddress'>,
+  maxKeys: number,
+): Promise<ApiKey | null> {
+  return db.transaction(async (tx) => {
+    const lockKey = `api-keys:${values.creatorAddress}`;
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+    const [{ usable }] = await tx
+      .select({ usable: count() })
+      .from(apiKeys)
+      .where(
+        and(
+          eq(apiKeys.creatorAddress, values.creatorAddress),
+          eq(apiKeys.isActive, true),
+          or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
+        ),
+      );
+    if (usable >= maxKeys) return null;
+    const [apiKey] = await tx.insert(apiKeys).values(values).returning();
+    return apiKey;
+  });
 }
 
 /**

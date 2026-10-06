@@ -20,7 +20,8 @@ import {
 } from './middleware/api-key.js';
 import { notFoundHandler } from './middleware/error-handler.js';
 import { listRoutes } from './list-routes.js';
-import { rateLimiter } from './rate-limiter.js';
+import { rateLimiter, type IpRateLimiter } from './rate-limiter.js';
+import { env } from '../config/env.js';
 import { getMetricsJson } from '../metrics/collector.js';
 import { openapiDocument } from './openapi.js';
 import { DOCS_ASSET_PATH, DOCS_HTML, SCALAR_ASSET_DIR } from './docs-page.js';
@@ -40,8 +41,17 @@ export interface ApiRouterDeps
     AuthRouteDeps,
     ApiKeyMiddlewareDeps {}
 
-export function createApiRouter(deps: ApiRouterDeps): Router {
+export interface ApiRouterOptions {
+  /** The per-IP limiter counting in front of the router; a request that
+   *  authenticates hands its hit back. */
+  ipLimiter?: IpRateLimiter;
+  /** The highest per-minute limit any key gets, whatever its rate_limit. */
+  keyRateLimitMax?: number;
+}
+
+export function createApiRouter(deps: ApiRouterDeps, options: ApiRouterOptions = {}): Router {
   const router = Router();
+  const { ipLimiter, keyRateLimitMax = env.API_KEY_RATE_LIMIT_MAX } = options;
 
   // Auth routes run BEFORE the API-key middleware: they are the path by
   // which the browser obtains a session in the first place, and /auth/me
@@ -82,13 +92,17 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     notFoundHandler(req, res);
   });
 
-  // Apply middleware. Auth MUST run before the rate limiter: the limiter
-  // buckets on req.apiKey.id and honours the key's own rateLimit, so if it
-  // ran first every caller would fall back to the IP bucket and the generic
-  // default limit, silently ignoring per-key limits.
-  const apiKeyMiddleware = createApiKeyMiddleware(deps);
-  router.use(apiKeyMiddleware);
-  router.use(rateLimiter());
+  // Auth runs before the per-key limiter, which buckets on req.apiKey.id and
+  // honours the key's own rate_limit. A caller that authenticates is no
+  // longer held to the per-IP limit for unauthenticated traffic.
+  router.use(createApiKeyMiddleware(deps));
+  if (ipLimiter) {
+    router.use((req: Request, _res: Response, next: NextFunction) => {
+      ipLimiter.release(req);
+      next();
+    });
+  }
+  router.use(rateLimiter(keyRateLimitMax));
 
   // Mount route modules
   router.use('/uploads', createUploadRoutes(deps));
