@@ -21,58 +21,56 @@ flowchart TB
     server["Your server<br/>(@sluby/sdk)"]
     player["Viewer browser<br/>(@sluby/player)"]
   end
-  caddy["Caddy<br/>(TLS, production only)"]
+  caddy["Caddy: TLS<br/>(production only)"]
   subgraph webc [web container: nginx]
+    direction LR
     spa[Studio static build]
-    pcache[("proxy_cache<br/>/v1/objects, /v1/stream")]
+    pcache[(proxy_cache)]
   end
   subgraph backendc [backend container: one Node process]
+    direction LR
     api["REST API and tus<br/>/api/v1"]
     gateway["Delivery gateway<br/>/v1/objects, /v1/stream"]
-    workers["BullMQ workers<br/>transcode, upload-segments, finalize,<br/>deletion, reconcile"]
+    workers[BullMQ workers]
   end
-  pg[(PostgreSQL)]
-  redis[(Redis)]
-  disk[("Local disk<br/>uploads, transcode output")]
-  indexer[Sia indexer]
-  hosts[(Sia hosts)]
+  subgraph state [State]
+    direction LR
+    pg[(PostgreSQL)]
+    redis[(Redis)]
+    disk[(Local disk)]
+  end
+  subgraph sia [Sia network]
+    direction LR
+    indexer[Indexer]
+    hosts[(Hosts)]
+  end
 
-  clients --> caddy --> webc
-  webc --> api
-  webc --> gateway
-  api --> pg
-  api --> redis
-  workers --> pg
-  workers --> redis
-  workers --> disk
-  workers -- "pin, unpin, object events" --> indexer
-  workers -- "encrypted shards" --> hosts
-  gateway -- "object metadata" --> indexer
-  gateway -- "byte ranges" --> hosts
-  player -. "direct-from-Sia: resolve share URL" .-> indexer
-  player -. "direct-from-Sia: byte ranges" .-> hosts
+  clients --> caddy --> webc --> backendc
+  backendc --> state
+  backendc -- "SDK: pin, unpin, upload, download" --> sia
+  player -. "direct-from-Sia playback" .-> sia
 ```
 
-| Component      | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Source                                                    |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Caddy          | Terminates TLS and forwards everything to the web container. Only in the production override.                                                                                                                                                                                                                                                                                                                                                                                     | `deploy/Caddyfile`, `docker-compose.prod.yml`             |
-| web (nginx)    | Serves the Studio build (`/` redirects to `/studio`), proxies `/api/`, `/v1/objects/`, `/v1/stream/` and `/health` to the backend, and caches whole-object delivery responses on disk.                                                                                                                                                                                                                                                                                            | `frontend/Dockerfile`, `nginx/conf.d/sia-aggregator.conf` |
-| backend        | One Node process on port 3000. It serves the REST API under `/api/v1` (tus uploads share the `/api/v1/uploads` path), the delivery gateway under `/v1/objects` and `/v1/stream`, `/health` and `/metrics`. The BullMQ workers for the `transcode`, `upload-segments`, `finalize`, `deletion` and `reconcile` queues are imported by `index.ts` and run inside this same process, with concurrency 2, 4, 4, 2 and 1. The transcode worker is also rate limited to 4 jobs a minute. | `backend/src/index.ts`, `backend/src/queue`               |
-| PostgreSQL     | The source of truth for asset metadata and for which Sia object belongs to which asset. Also stores API keys, webhooks, processing jobs and reconciliation runs.                                                                                                                                                                                                                                                                                                                  | `backend/src/db/schema.ts`                                |
-| Redis          | Backs the BullMQ queues. Compose runs it with `appendonly yes` and `maxmemory-policy noeviction` so queued jobs survive a restart and are never evicted.                                                                                                                                                                                                                                                                                                                          | `docker-compose.yml`                                      |
-| Local disk     | `UPLOAD_DIR` holds tus uploads, `TRANSCODE_OUTPUT_DIR` holds FFmpeg output until the asset is finalized. `CACHE_DIR` is created at startup, but nothing writes to it: the backend's object cache is in memory.                                                                                                                                                                                                                                                                    | `backend/src/config/env.ts`                               |
-| Sia indexer    | An `indexd` instance, self-hosted or hosted (such as sia.storage). The backend's app key is registered with an account on it. The indexer tracks the account's objects (slab layout, which hosts hold which sectors), pins and unpins them, publishes an object event feed, and resolves share URLs.                                                                                                                                                                              | `backend/src/storage/sia-client.ts`                       |
-| Sia hosts      | Store the erasure-coded sectors. The SDK uploads shards to them and downloads byte ranges from them directly; the indexer is not in the data path.                                                                                                                                                                                                                                                                                                                                |                                                           |
-| SDK and player | `@sluby/sdk` wraps the REST API and tus, verifies webhooks, and optionally runs a browser Sia session. `@sluby/player` is a React hls.js player that can stream through the gateway or directly from Sia.                                                                                                                                                                                                                                                                         | `packages/sdk/src`, `packages/player/src`                 |
+| Component      | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Source                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Caddy          | Terminates TLS and forwards everything to the web container. Only in the production override.                                                                                                                                                                                                                                                                                                                                                                                     | `deploy/Caddyfile`, `docker-compose.prod.yml`                                                |
+| web (nginx)    | Serves the Studio build (`/` redirects to `/studio`), proxies `/api/`, `/v1/objects/`, `/v1/stream/` and `/health` to the backend, and caches whole-object delivery responses on disk.                                                                                                                                                                                                                                                                                            | `frontend/Dockerfile`, `nginx/conf.d/sia-aggregator.conf`                                    |
+| backend        | One Node process on port 3000. It serves the REST API under `/api/v1` (tus uploads share the `/api/v1/uploads` path), the delivery gateway under `/v1/objects` and `/v1/stream`, `/health` and `/metrics`. The BullMQ workers for the `transcode`, `upload-segments`, `finalize`, `deletion` and `reconcile` queues are imported by `index.ts` and run inside this same process, with concurrency 2, 4, 4, 2 and 1. The transcode worker is also rate limited to 4 jobs a minute. | `backend/src/index.ts`, `backend/src/queue`, `backend/src/deletion`, `backend/src/reconcile` |
+| PostgreSQL     | The source of truth for asset metadata and for which Sia object belongs to which asset. Also stores API keys, webhooks, processing jobs and reconciliation runs.                                                                                                                                                                                                                                                                                                                  | `backend/src/db/schema.ts`                                                                   |
+| Redis          | Backs the BullMQ queues. Compose runs it with `appendonly yes` and `maxmemory-policy noeviction` so queued jobs survive a restart and are never evicted.                                                                                                                                                                                                                                                                                                                          | `docker-compose.yml`                                                                         |
+| Local disk     | `UPLOAD_DIR` holds tus uploads, `TRANSCODE_OUTPUT_DIR` holds FFmpeg output until the asset is finalized. `CACHE_DIR` is created at startup, but nothing writes to it: the backend's object cache is in memory.                                                                                                                                                                                                                                                                    | `backend/src/config/env.ts`                                                                  |
+| Sia indexer    | An `indexd` instance, self-hosted or hosted (such as sia.storage). The backend's app key is registered with an account on it. The indexer tracks the account's objects (slab layout, which hosts hold which sectors), pins and unpins them, publishes an object event feed, and resolves share URLs.                                                                                                                                                                              | `backend/src/storage/sia-client.ts`                                                          |
+| Sia hosts      | Store the erasure-coded sectors. The SDK uploads shards to them and downloads byte ranges from them directly; the indexer is not in the data path.                                                                                                                                                                                                                                                                                                                                |                                                                                              |
+| SDK and player | `@sluby/sdk` wraps the REST API and tus, verifies webhooks, and optionally runs a browser Sia session. `@sluby/player` is a React hls.js player that can stream through the gateway or directly from Sia.                                                                                                                                                                                                                                                                         | `packages/sdk/src`, `packages/player/src`                                                    |
 
 Because the API and the workers share one process, scaling out means running more backend containers against the same PostgreSQL and Redis. Some state is per process, though: the in-memory caches, the API rate limit counters, pending OAuth `state` values and pending webhook retries all live in memory and are not shared between processes.
 
 ## Trust boundaries
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph yours [Your infrastructure]
-    direction TB
+    direction LR
     be["backend<br/>holds SIA_APP_KEY and SESSION_SECRET"]
     db[("PostgreSQL<br/>titles, owners, object id map")]
     rd[(Redis)]
@@ -80,12 +78,12 @@ flowchart LR
     be --- rd
   end
   subgraph sia [Sia network]
-    direction TB
+    direction LR
     idx["Indexer<br/>object metadata, sealed keys"]
     hst[("Hosts<br/>encrypted sectors")]
   end
   subgraph browsers [Browsers]
-    direction TB
+    direction LR
     st["Studio<br/>session cookie"]
     vw["Player<br/>viewer app key, share URLs"]
   end

@@ -10,6 +10,7 @@ The diagrams show the columns that matter for understanding the system; most tab
 
 ```mermaid
 erDiagram
+  direction TB
   video_assets ||--o{ upload_sessions : "video_asset_id (set null)"
   video_assets ||--o{ processing_jobs : "video_asset_id (cascade)"
   upload_sessions ||--o{ processing_jobs : "upload_session_id (cascade)"
@@ -99,6 +100,7 @@ erDiagram
 
 ```mermaid
 erDiagram
+  direction TB
   api_keys |o--o{ webhook_endpoints : "api_key_id (set null)"
   webhook_endpoints ||--o{ webhook_deliveries : "webhook_endpoint_id (cascade)"
 

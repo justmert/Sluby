@@ -6,23 +6,19 @@ Every API request resolves to an identity with a set of scopes and an owner addr
 
 ```mermaid
 flowchart TB
-  req[Request to /api/v1] --> pub{"/auth/*, /openapi.json<br/>or /docs?"}
-  pub -- yes --> open[handled without auth]
-  pub -- no --> dis{AUTH_DISABLED?}
-  dis -- yes --> dev["identity github:dev<br/>upload, read, manage"]
+  req[Request to /api/v1] --> dis{AUTH_DISABLED?}
+  dis -- yes --> dev["github:dev<br/>all scopes"]
   dis -- no --> cookie{"valid sluby_session<br/>cookie?"}
-  cookie -- yes --> gh["identity github:login<br/>upload, read, manage<br/>1000 requests a minute"]
-  cookie -- no --> bearer{"Authorization:<br/>Bearer sluby_..."}
-  bearer -- missing --> e401[401]
-  bearer -- present --> hash["sha256(key), look up key_hash"]
-  hash --> valid{"found, is_active,<br/>not expired?"}
-  valid -- no --> e401
-  valid -- yes --> key["identity from the key<br/>its scopes, creator_address, rate_limit"]
-  dev --> rl[rate limiter]
-  gh --> rl
-  key --> rl
-  rl --> route["route: requireScope, then owner-scoped query"]
+  cookie -- yes --> gh["github:login<br/>all scopes, 1000 a minute"]
+  cookie -- no --> bearer{"Bearer key: hash found,<br/>active, not expired?"}
+  bearer -- no --> e401[401]
+  bearer -- yes --> key["the key's scopes,<br/>creator_address and rate_limit"]
+  dev --> route["rate limiter, then requireScope,<br/>then an owner-scoped query"]
+  gh --> route
+  key --> route
 ```
+
+`/api/v1/auth/*`, `/api/v1/openapi.json` and `/api/v1/docs` are mounted before this middleware and need no credentials.
 
 The tus endpoint resolves callers the same way, except that it checks the session cookie before `AUTH_DISABLED`, and a key must have the `upload` scope (`backend/src/upload/tus-server.ts`). With `AUTH_DISABLED=true`, bearer keys are not consulted at all: every request, key or no key, acts as `github:dev`.
 

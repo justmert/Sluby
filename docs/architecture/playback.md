@@ -36,11 +36,11 @@ sequenceDiagram
   participant I as Sia indexer
   participant H as Sia hosts
 
-  P->>N: GET /v1/objects/{master}?type=manifest
+  P->>N: GET /v1/objects/{master} ?type=manifest
   alt cached by nginx
     N-->>P: 200 from proxy_cache
   else miss
-    N->>G: GET /v1/objects/{master}?type=manifest
+    N->>G: GET /v1/objects/{master} ?type=manifest
     G->>G: resolve access tier of the object
     alt in the backend memory cache
       G-->>N: 200 (X-Cache-Status HIT)

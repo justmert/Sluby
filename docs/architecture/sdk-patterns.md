@@ -5,7 +5,7 @@
 The general shape: keep API keys on your server, do uploads and URL minting there, and give the browser only what it needs to play.
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph yourserver [Your server]
     sdk["@sluby/sdk<br/>secret API key"]
     hook[webhook receiver]

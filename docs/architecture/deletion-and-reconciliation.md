@@ -67,7 +67,7 @@ The deletion worker only knows objects that are in the database. An asset delete
 The reconciliation worker (`backend/src/reconcile`) checks that the database and the indexer agree about which objects exist. It is report-only: it flags drift and never unpins or deletes anything, leaving cleanup to an operator.
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph db [PostgreSQL]
     a[artifacts.object_id]
     v["video_assets: manifest_object_id,<br/>thumbnail_object_ids, sia_object_ids"]
