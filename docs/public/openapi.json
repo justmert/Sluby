@@ -176,7 +176,7 @@
         }
       },
       "TooManyRequests": {
-        "description": "Over the rate limit of the key or session.",
+        "description": "Over the rate limit of the key or session, or of the client address for a call without valid credentials.",
         "headers": {
           "Retry-After": {
             "$ref": "#/components/headers/RetryAfter"
@@ -3624,7 +3624,7 @@
                     "minimum": 1,
                     "maximum": 100000,
                     "default": 100,
-                    "description": "Requests per minute."
+                    "description": "Requests per minute, at most the server’s `API_KEY_RATE_LIMIT_MAX` (10000 by default)."
                   }
                 },
                 "required": [
@@ -3653,6 +3653,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "The account already holds the most usable keys allowed (`API_KEYS_PER_ACCOUNT_MAX`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"

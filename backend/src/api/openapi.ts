@@ -167,7 +167,8 @@ export const openapiDocument = {
       Forbidden: errorWith('The key lacks the scope (or identity) the operation needs.'),
       NotFound: errorWith('No such resource in the caller’s account.'),
       TooManyRequests: {
-        description: 'Over the rate limit of the key or session.',
+        description:
+          'Over the rate limit of the key or session, or of the client address for a call without valid credentials.',
         headers: {
           'Retry-After': { $ref: '#/components/headers/RetryAfter' },
           'X-RateLimit-Limit': { $ref: '#/components/headers/RateLimitLimit' },
@@ -1627,7 +1628,9 @@ export const openapiDocument = {
                     minimum: 1,
                     maximum: 100000,
                     default: 100,
-                    description: 'Requests per minute.',
+                    description:
+                      'Requests per minute, at most the server’s `API_KEY_RATE_LIMIT_MAX` ' +
+                      '(10000 by default).',
                   },
                 },
                 required: ['name'],
@@ -1638,6 +1641,9 @@ export const openapiDocument = {
         responses: {
           '201': jsonResponse('ApiKeyCreated', 'Created (the secret is shown once).'),
           '400': ref('BadRequest'),
+          '409': errorWith(
+            'The account already holds the most usable keys allowed (`API_KEYS_PER_ACCOUNT_MAX`).',
+          ),
           ...authFailures,
         },
       },
