@@ -6,6 +6,12 @@
 
 {$DOMAIN} {
 	encode zstd gzip
+	# the other security headers come from the web proxy behind; hsts belongs
+	# where tls ends. -Server drops caddy's and nginx's banners.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
 	# caddy sends X-Forwarded-Proto https, which the web proxy passes on so
 	# the backend builds https urls for uploads and sign-in
 	reverse_proxy web:80
