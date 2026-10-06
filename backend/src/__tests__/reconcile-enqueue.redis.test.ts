@@ -3,10 +3,10 @@ import { Queue, Worker } from 'bullmq';
 import {
   RECONCILE_JOB_OPTIONS,
   RECONCILE_WORKER_CONCURRENCY,
-  addReconcileSchedule,
   createReconcileProcessor,
   enqueueReconciliationRun,
 } from '../reconcile/enqueue.js';
+import { applySweepSchedule, RECONCILE_SWEEP } from '../queue/schedules.js';
 import type { ReconcileJobData } from '../queue/bull-config.js';
 import { hasTestRedis, testQueuePrefix, testRedisConnection } from './helpers/redis.js';
 
@@ -123,7 +123,7 @@ describe.skipIf(!hasTestRedis)('reconciliation run dedupe (redis)', () => {
     });
 
     try {
-      await addReconcileSchedule(queue, 100);
+      await applySweepSchedule(queue, RECONCILE_SWEEP, 100);
       await waitFor(async () => triggers.length === 1, 'the first scheduled run');
 
       // several more ticks fire while that run is still active

@@ -51,7 +51,7 @@ If any object could not be unpinned, the job throws without deleting the row. Bu
 
 ### Garbage collection sweep
 
-Jobs can still be lost, for example when the process dies mid-deletion or all retries fail while the indexer is down. A repeatable `gc` job on the same queue runs every `DELETION_GC_INTERVAL_MS` (15 minutes by default, disabled with `DELETION_GC_ENABLED=false`). It finds assets soft-deleted longer ago than `DELETION_STUCK_THRESHOLD_MS` (10 minutes by default) and enqueues a fresh `delete` job for each. The asset stays soft-deleted, invisible and unserved, until a run succeeds.
+Jobs can still be lost, for example when the process dies mid-deletion or all retries fail while the indexer is down. A `gc` job on the same queue runs every `DELETION_GC_INTERVAL_MS` (15 minutes by default, disabled with `DELETION_GC_ENABLED=false`), from a BullMQ job scheduler (`deletion-gc-scheduled`) that the backend brings in line with these settings at every start (see [sweep schedules](#sweep-schedules)). It finds assets soft-deleted longer ago than `DELETION_STUCK_THRESHOLD_MS` (10 minutes by default) and enqueues a fresh `delete` job for each. The asset stays soft-deleted, invisible and unserved, until a run succeeds.
 
 ### What deletion does not touch
 
@@ -59,6 +59,10 @@ Jobs can still be lost, for example when the process dies mid-deletion or all re
 - `webhook_deliveries` rows, and there is no webhook event for deletion
 - copies in nginx's `proxy_cache`: a manifest or thumbnail fetched before the delete can be served from it until the entry expires (60 seconds for manifests, up to a day for thumbnails); media ranges are never cached there
 - share URLs already handed to a player: Sluby does not track them, and they stay valid until they expire
+
+### Sweep schedules
+
+Both periodic sweeps live in Redis as BullMQ job schedulers, `deletion-gc-scheduled` on the `deletion` queue and `reconcile-scheduled` on the `reconcile` queue, so they outlive the process that registered them. At every start the backend makes them match its settings: it upserts the scheduler with the configured interval, which replaces the schedule in place when the interval changed and keeps the next run time when it did not, and it removes the scheduler, together with any run it had already made due, when the sweep is disabled. Earlier versions registered the sweeps with `queue.add(..., { repeat })`, which keys a schedule by its interval, so a changed interval used to add a second schedule and disabling a sweep left the old one running; the first start of a newer version removes those entries as well. A new or changed interval runs the sweep once right away and then every interval.
 
 ### Assets deleted while processing
 
@@ -92,7 +96,7 @@ flowchart TB
 
 How a run works:
 
-- **When.** A repeatable job every `RECONCILE_INTERVAL_MS` (one hour by default, off with `RECONCILE_ENABLED=false`), and on demand with `POST /api/v1/reconciliation/run` (scope `manage`, platform identity only, since a run scans the whole deployment). Only one run is ever pending, see [one run at a time](#one-run-at-a-time).
+- **When.** A scheduled job every `RECONCILE_INTERVAL_MS` (one hour by default, off with `RECONCILE_ENABLED=false`; see [sweep schedules](#sweep-schedules)), and on demand with `POST /api/v1/reconciliation/run` (scope `manage`, platform identity only, since a run scans the whole deployment). Only one run is ever pending, see [one run at a time](#one-run-at-a-time).
 - **The database side** is every object id in `artifacts` plus the ids stored on `video_assets`, for every asset of every owner, including soft-deleted ones whose objects have not been unpinned yet.
 - **The indexer side.** The SDK has no call that lists all objects, so the worker replays the indexer's object event feed (`objectEvents`) page by page (`RECONCILE_PAGE_SIZE`, 500 by default), keeps the latest event per object id, and treats every id whose latest event is not a deletion as pinned. It stops on a short page, or if the cursor stops advancing.
 - **The result.** Ids in both are in sync. Ids only the indexer has are orphans: storage the account pays for that no asset references. Ids only the database has are missing: an object the database expects but the indexer does not report, which is the worrying case. The run is stored in `reconciliation_runs` with counts and the full id lists, with status `ok` when there is no drift and `drift` otherwise.

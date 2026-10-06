@@ -49,22 +49,6 @@ export async function enqueueReconciliationRun(
   return { enqueued: job.id === requestedId, jobId: job.id! };
 }
 
-/**
- * Register the repeatable sweep. The fixed jobId makes repeated calls (e.g.
- * across restarts) reuse the same schedule rather than stack up. Each tick
- * only enqueues a run, see createReconcileProcessor.
- */
-export async function addReconcileSchedule(
-  queue: Queue<ReconcileJobData>,
-  everyMs: number,
-): Promise<void> {
-  await queue.add(
-    'reconcile',
-    { trigger: 'scheduled' },
-    { repeat: { every: everyMs }, jobId: 'reconcile-scheduled' },
-  );
-}
-
 export interface ReconcileProcessorDeps {
   queue: Queue<ReconcileJobData>;
   /** One reconciliation pass. */
@@ -72,7 +56,7 @@ export interface ReconcileProcessorDeps {
 }
 
 /**
- * Jobs made by the repeatable schedule (they carry a repeatJobKey) do not run
+ * Jobs made by the schedule (RECONCILE_SWEEP, they carry a repeatJobKey) do not run
  * a pass themselves: they enqueue one through the same deduplicated add as the
  * API trigger, so a tick that lands while a manual run is pending is dropped
  * instead of running a second pass right after it. Any other job is a run.

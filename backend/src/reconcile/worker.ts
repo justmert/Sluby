@@ -5,7 +5,6 @@ import { env } from '../config/env.js';
 import { runReconciliation } from './reconciler.js';
 import {
   RECONCILE_WORKER_CONCURRENCY,
-  addReconcileSchedule,
   createReconcileProcessor,
   enqueueReconciliationRun,
   type EnqueueRunResult,
@@ -13,6 +12,7 @@ import {
 import { collectObjectIds } from './collect-inventory.js';
 import { listObjectEventsPage } from '../storage/sia-client.js';
 import { getAllTrackedObjectIds, recordReconciliationRun } from '../db/queries/reconciliation.js';
+import { applySweepSchedule, RECONCILE_SWEEP } from '../queue/schedules.js';
 
 const logger = pino({ name: 'reconcile-worker' });
 
@@ -57,13 +57,14 @@ reconcileWorker.on('failed', (job, error) => {
   logger.error({ jobId: job?.id, error: error.message }, 'Reconciliation run failed');
 });
 
-/** Register the repeatable scheduled sweep. */
+/** Make the scheduled sweep match the settings, removing it when disabled. */
 export async function scheduleReconciliation(): Promise<void> {
   if (!env.RECONCILE_ENABLED) {
+    await applySweepSchedule(reconcileQueue, RECONCILE_SWEEP, null);
     logger.info('Reconciliation scheduling disabled (RECONCILE_ENABLED=false)');
     return;
   }
-  await addReconcileSchedule(reconcileQueue, env.RECONCILE_INTERVAL_MS);
+  await applySweepSchedule(reconcileQueue, RECONCILE_SWEEP, env.RECONCILE_INTERVAL_MS);
   logger.info({ everyMs: env.RECONCILE_INTERVAL_MS }, 'Reconciliation sweep scheduled');
 }
 
