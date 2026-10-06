@@ -130,7 +130,7 @@ app.post('/hooks/sluby', express.text({ type: 'application/json' }), async (req,
 ```
 
 - The signature is an HMAC-SHA256 of the exact bytes sent, so parse the body as text (`express.text`), not JSON, or re-serializing may change it.
-- Use `verifySignatureAsync`: it runs on Web Crypto and works in Node, browsers and edge runtimes. The synchronous `verifySignature` relies on CommonJS `require` and throws when the SDK is loaded as an ES module.
+- `verifySignatureAsync` runs on Web Crypto and works in Node, browsers and edge runtimes. The synchronous `verifySignature` works on Node only (from both the ESM and CommonJS builds) and throws elsewhere.
 - There is no timestamp or nonce in the signature beyond the `timestamp` field inside the signed body. Check that field if replayed deliveries matter to you.
 - Answer within 10 seconds with a 2xx. Failed deliveries are retried after 10 seconds, 1 minute and 5 minutes with the same body; make handling idempotent (key on `video_asset_id` and `event`).
 - Pending deliveries and retries are kept in the backend's Redis queue and survive a backend restart. After the last retry fails, the event is not sent again, so for anything that must not be missed while your receiver is down for more than a few minutes, keep a slow poll as a backstop, for example re-checking assets that have been processing for longer than expected.

@@ -11,7 +11,7 @@ sequenceDiagram
   participant T as backend: tus server
   participant DB as PostgreSQL
   participant Q as Redis (BullMQ)
-  participant W as Webhook endpoints
+  participant W as Webhook queue
 
   C->>T: POST /api/v1/uploads (Upload-Length, Upload-Metadata)
   T->>T: authenticate (cookie, AUTH_DISABLED or Bearer key with upload scope)
@@ -72,7 +72,7 @@ sequenceDiagram
   participant FW as finalize worker
   participant DB as PostgreSQL
   participant SIA as Sia (indexer and hosts)
-  participant W as Webhook endpoints
+  participant W as Webhook queue
 
   Q->>TW: transcode job
   TW->>DB: asset status processing
