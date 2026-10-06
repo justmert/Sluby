@@ -2,8 +2,7 @@ import 'express-async-errors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import pino from 'pino';
-import path from 'node:path';
-import { mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { env } from './config/env.js';
 import { db } from './config/database.js';
 import { closeDatabase } from './config/database.js';
@@ -24,7 +23,9 @@ import { isTusRequest } from './upload/tus-dispatch.js';
 import { buildSignedObjectQuery } from './delivery/signed-url.js';
 import { createAssetShareUrls } from './delivery/share-urls.js';
 import { deliveryRouter } from './delivery/aggregator.js';
-import { registry, getMetrics, setMetricSources } from './metrics/collector.js';
+import { setMetricSources } from './metrics/collector.js';
+import { createHealthHandler, createPrometheusHandler } from './api/service-routes.js';
+import { createErrorHandler, notFoundHandler } from './api/middleware/error-handler.js';
 
 // DB query imports
 import {
@@ -100,6 +101,7 @@ import {
 // in-process model as the transcode/reconcile workers).
 import { scheduleDeletionGc, closeDeletionWorker } from './deletion/worker.js';
 import { buildDeleteAsset } from './deletion/service.js';
+import { buildRetryAsset } from './queue/retry.js';
 
 // Other imports
 import { SessionManager } from './upload/session-manager.js';
@@ -282,15 +284,7 @@ const APP_VERSION = (
 ).version;
 const STARTED_AT = new Date();
 
-// liveness only: answers while the process is up. dependency health lives in
-// GET /api/v1/system/status so a flaky indexer never restarts the container.
-app.get('/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    version: APP_VERSION,
-  });
-});
+app.get('/health', createHealthHandler(APP_VERSION));
 
 // ──────────────────────────────────────────
 // TUS Upload Handler
@@ -560,73 +554,24 @@ const apiRouterDeps: ApiRouterDeps = {
     return getProcessingJobByVideoAssetId(videoAssetId);
   },
 
-  retryAsset: async (id, owner) => {
-    const asset = await getVideoAssetById(id, owner);
-    if (!asset) throw Object.assign(new Error('Video asset not found'), { statusCode: 404 });
-    if (asset.status !== 'failed')
-      throw Object.assign(new Error('Asset is not in failed state'), { statusCode: 400 });
-
-    const processingJob = await getProcessingJobByVideoAssetId(id);
-    const uploadSessionId = processingJob?.uploadSessionId ?? '';
-
-    const outputDir = path.join(env.TRANSCODE_OUTPUT_DIR, id);
-    const hasTranscodedOutput = existsSync(path.join(outputDir, 'master.m3u8'));
-
-    if (hasTranscodedOutput) {
-      // Transcoding done — retry from upload-segments stage
+  retryAsset: buildRetryAsset({
+    getAsset: (id, owner) => getVideoAssetById(id, owner),
+    getProcessingJob: (videoAssetId) => getProcessingJobByVideoAssetId(videoAssetId),
+    getUploadSession: (id) => getUploadSessionById(id),
+    markAssetProcessing: async (id) => {
       await updateVideoAsset(id, { status: 'processing' });
-      if (processingJob) {
-        await updateProcessingJobStatus(processingJob.id, {
-          status: 'processing',
-          errorMessage: null,
-        });
-      }
-      // Re-attach any thumbnails still on disk from the transcode stage, so a
-      // retried upload does not end up with an empty thumbnailObjectIds.
-      const thumbnailPaths = [25, 50, 75]
-        .map((p) => path.join(outputDir, `thumb_${p}.jpg`))
-        .filter((tp) => existsSync(tp));
-
-      await uploadSegmentsQueue.add(
-        'upload-segments',
-        {
-          videoAssetId: id,
-          uploadSessionId,
-          outputDir,
-          accessTier: asset.accessTier,
-          thumbnailPaths,
-        },
-        { jobId: `retry-upload-${id}-${Date.now()}` },
-      );
-      return { stage: 'upload-segments' };
-    }
-
-    // No transcoded output — need to find source file and re-transcode
-    const session = uploadSessionId ? await getUploadSessionById(uploadSessionId) : null;
-    if (!session?.filePath || !existsSync(session.filePath)) {
-      throw Object.assign(new Error('Source file not found — please re-upload the video'), {
-        statusCode: 410,
-      });
-    }
-
-    await updateVideoAsset(id, { status: 'processing' });
-    if (processingJob) {
-      await updateProcessingJobStatus(processingJob.id, {
-        status: 'processing',
-        errorMessage: null,
-      });
-    }
-    await transcodeQueue.add(
-      'transcode',
-      {
-        videoAssetId: id,
-        uploadSessionId,
-        filePath: session.filePath,
-      },
-      { jobId: `retry-transcode-${id}-${Date.now()}` },
-    );
-    return { stage: 'transcode' };
-  },
+    },
+    markJobProcessing: async (jobId) => {
+      await updateProcessingJobStatus(jobId, { status: 'processing', errorMessage: null });
+    },
+    enqueueUploadSegments: async (data, jobId) => {
+      await uploadSegmentsQueue.add('upload-segments', data, { jobId });
+    },
+    enqueueTranscode: async (data, jobId) => {
+      await transcodeQueue.add('transcode', data, { jobId });
+    },
+    transcodeOutputDir: env.TRANSCODE_OUTPUT_DIR,
+  }),
 
   // ── PlaybackRouteDeps ──
   getPlaybackAsset: async (id, owner) => {
@@ -881,57 +826,15 @@ app.use('/', deliveryRouter);
 // Metrics (Prometheus format)
 // ──────────────────────────────────────────
 
-app.get('/metrics', async (_req: Request, res: Response) => {
-  try {
-    const metricsText = await getMetrics();
-    res.set('Content-Type', registry.contentType);
-    res.end(metricsText);
-  } catch (err) {
-    logger.error({ err }, 'Failed to collect metrics');
-    res.status(500).json({ error: 'Failed to collect metrics' });
-  }
-});
+app.get('/metrics', createPrometheusHandler(logger));
 
 // ── 404 Handler ──
 
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({
-    error: 'Not Found',
-    message: `Route ${_req.method} ${_req.path} not found`,
-  });
-});
+app.use(notFoundHandler);
 
 // ── Error Handling Middleware ──
 
-app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  // A malformed path param that reaches a `uuid`/typed column makes Postgres
-  // raise SQLSTATE 22P02 (invalid_text_representation). That is a bad request,
-  // not a server fault — map it to 400 with a clean message instead of leaking
-  // a 500 + driver error. Applies uniformly to every id route.
-  const pgCode = (err as unknown as { code?: string }).code;
-  if (pgCode === '22P02') {
-    res.status(400).json({ error: 'Invalid identifier format' });
-    return;
-  }
-
-  const statusCode = (err as unknown as { statusCode?: number }).statusCode ?? 500;
-  const isProduction = process.env.NODE_ENV === 'production';
-
-  logger.error(
-    {
-      err,
-      method: req.method,
-      url: req.url,
-      statusCode,
-    },
-    'Unhandled error',
-  );
-
-  res.status(statusCode).json({
-    error: statusCode >= 500 ? 'Internal Server Error' : err.message,
-    ...(isProduction ? {} : { message: err.message, stack: err.stack }),
-  });
-});
+app.use(createErrorHandler(logger));
 
 // ──────────────────────────────────────────
 // Bootstrap API Key (if configured)

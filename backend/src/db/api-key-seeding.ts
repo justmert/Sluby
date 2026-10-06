@@ -15,8 +15,9 @@ export const BOOTSTRAP_CREATOR_ADDRESS = 'platform';
 
 /**
  * Make sure the operator-chosen BOOTSTRAP_API_KEY exists as a full-scope key
- * of the platform account. Idempotent across restarts: a key with the same
- * hash is left alone, so a revoked or rotated bootstrap key is not revived.
+ * of the platform account. Idempotent across restarts: a row with the same
+ * hash is left alone whatever its state (so a rotated, expired key stays
+ * expired), while a deleted one is inserted again on the next start.
  */
 export async function seedBootstrapApiKey(
   database: Database,
