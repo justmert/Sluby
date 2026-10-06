@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
 import { parseCidrList } from '../webhooks/egress.js';
+import { DEFAULT_MAX_RENDITION, RENDITION_NAMES } from '../transcode/ffmpeg-args.js';
 
 // Load .env file before parsing process.env.
 // Search upward from this file to find .env at the monorepo root.
@@ -91,6 +92,10 @@ export const envSchema = z.object({
     .int()
     .positive()
     .default(10 * 1024 * 1024 * 1024),
+
+  /** Tallest rung of the transcode ladder. 1440p and 2160p add rungs above
+   *  the default 1080p for sources that tall; a lower value drops rungs. */
+  TRANSCODE_MAX_RENDITION: z.enum(RENDITION_NAMES).default(DEFAULT_MAX_RENDITION),
 
   /** Size bound of the gateway's in-memory object cache, in megabytes. It
    *  holds whole objects fetched without a Range header (manifests,

@@ -14,7 +14,7 @@ import { env } from '../config/env.js';
 import pino from 'pino';
 
 // ── Module imports ──
-import { transcode } from '../transcode/ffmpeg-runner.js';
+import { TRANSCODE_CONCURRENCY, transcode } from '../transcode/ffmpeg-runner.js';
 import { extractThumbnails } from '../transcode/thumbnail-extractor.js';
 import { uploadSegments } from '../storage/segment-uploader.js';
 import { warmObjects } from '../storage/blob-manager.js';
@@ -192,7 +192,7 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
   },
   {
     connection: redisConnection,
-    concurrency: 2,
+    concurrency: TRANSCODE_CONCURRENCY,
     limiter: {
       max: 4,
       duration: 60_000,

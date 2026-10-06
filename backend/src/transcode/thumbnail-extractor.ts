@@ -1,51 +1,51 @@
-import { spawn } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import { logger } from '../config/logger.js';
 import { buildThumbnailArgs, planThumbnails } from './ffmpeg-args.js';
+import { THUMBNAIL_TIMEOUT_MS, probeSource, runFfmpegTool } from './ffmpeg-runner.js';
 
 /**
- * Extract thumbnails at 25%, 50%, and 75% of the video duration to
- * disk. Returns the local file paths so the caller can upload them in
- * a packed Sia batch alongside the variant playlists (see
- * uploadSegments). Decoupled from upload so we can pack many small
- * files into one Sia operation.
+ * Extract thumbnails at 25%, 50% and 75% of the video to disk and return the
+ * paths that were written, for the upload stage to pack with the media.
+ *
+ * Thumbnails are best effort: a shot that fails or comes out empty is logged
+ * and skipped, so a source whose frames cannot be grabbed still finishes as
+ * a video. The source is probed again for its video stream and colour (HDR
+ * thumbnails are tone-mapped like the renditions), and the shots are kept
+ * inside the video stream even when `durationMs` came from a longer
+ * container.
  */
 export async function extractThumbnails(
   inputPath: string,
   durationMs: number,
   outputDir: string,
 ): Promise<string[]> {
+  let source: Awaited<ReturnType<typeof probeSource>>;
+  try {
+    source = await probeSource(inputPath);
+  } catch (err) {
+    logger.warn({ err, inputPath }, 'Skipping thumbnails: the source could not be probed');
+    return [];
+  }
+  const videoMs = source.durationMs > 0 ? Math.min(durationMs, source.durationMs) : durationMs;
+
   const paths: string[] = [];
-  for (const { timeSeconds, outputPath } of planThumbnails(durationMs, outputDir)) {
+  for (const { timeSeconds, outputPath } of planThumbnails(videoMs, outputDir)) {
     logger.debug({ timeSeconds, outputPath }, 'Extracting thumbnail');
-    await extractThumbnail(inputPath, timeSeconds, outputPath);
-    paths.push(outputPath);
+    try {
+      await runFfmpegTool(
+        'ffmpeg',
+        buildThumbnailArgs(inputPath, timeSeconds, outputPath, source),
+        {
+          label: 'Thumbnail extraction',
+          timeoutMs: THUMBNAIL_TIMEOUT_MS,
+        },
+      );
+      const { size } = await stat(outputPath);
+      if (size === 0) throw new Error(`${outputPath} is empty`);
+      paths.push(outputPath);
+    } catch (err) {
+      logger.warn({ err, inputPath, timeSeconds, outputPath }, 'Skipping thumbnail');
+    }
   }
   return paths;
-}
-
-async function extractThumbnail(
-  inputPath: string,
-  timeSeconds: number,
-  outputPath: string,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const args = buildThumbnailArgs(inputPath, timeSeconds, outputPath);
-
-    const proc = spawn('ffmpeg', args);
-    let stderr = '';
-
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(`Thumbnail extraction failed (code ${code}): ${stderr.slice(-300)}`));
-        return;
-      }
-      resolve();
-    });
-
-    proc.on('error', reject);
-  });
 }
