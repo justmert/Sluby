@@ -1,6 +1,6 @@
 # @sluby/sdk
 
-TypeScript SDK for [Sluby](https://github.com/justmert/sluby), decentralized video
+TypeScript SDK for [Sluby](https://github.com/justmert/Sluby), decentralized video
 infrastructure on Sia. Typed asset management, resumable TUS uploads, and
 playback URL retrieval, for the browser and Node.
 
@@ -57,24 +57,29 @@ allow credentialed CORS for your origin on the API.
 
 ## API
 
-- `client.uploads` — `upload()` (resumable TUS; returns an awaitable handle with
+- `client.uploads`: `upload()` (resumable TUS; returns an awaitable handle with
   `pause()` / `resume()` / `abort()` / `isPaused` plus an `assetId` promise),
   `getStatus()`, `cancel()`.
-- `client.assets` — `list()`, `get()`, `update()`, `delete()`, `waitForReady()`.
-- `client.playback` — `getUrl()` and `getSignedUrl()`, both returning an absolute
+- `client.assets`: `list()` (with `search`, `sort`, `order` and cursor paging), `get()`, `update()`, `delete()`, `waitForReady()`, `processing()` (the processing job with its stage, progress and log), `retry()` for a failed asset.
+- `client.playback`: `getUrl()` and `getSignedUrl()`, both returning an absolute
   URL (`playbackUrl` / `signedUrl`) resolved against the delivery base, plus the
   raw server path (`playbackPath` / `signedPath`).
-- `client.webhooks` — signature verification and event parsing.
-- `client.resolveDeliveryUrl(path)` — turn a server-relative delivery path into an
+- `client.webhooks`: signature verification and event parsing.
+- `client.sia`: present when the client is created with a `sia` viewer config; `@sluby/player` uses it to stream straight from Sia hosts instead of the gateway.
+- `client.resolveDeliveryUrl(path)`: turn a server-relative delivery path into an
   absolute URL.
 
 Errors are typed: `AuthenticationError` (401/403), `NotFoundError` (404),
 `RateLimitError` (429, with `retryAfter`), `TimeoutError`, and the base
 `SlubyError` (with `statusCode` and `responseBody`).
 
+## TypeScript and CommonJS
+
+The package ships ESM and CommonJS builds with matching type declarations. One case needs `skipLibCheck: true`: a CommonJS TypeScript project using `moduleResolution: node16` or `nodenext`. The types of `@siafoundation/sia-storage`, which this SDK builds on, are declared as ESM for its CommonJS entry, so TypeScript reports TS1479 inside that package's declarations. ESM projects and bundler resolution are not affected.
+
 ## Pairs with
 
-[`@sluby/player`](https://www.npmjs.com/package/@sluby/player) — a React player
+[`@sluby/player`](https://www.npmjs.com/package/@sluby/player), a React player
 that accepts a `SlubyClient` and an `assetId` directly.
 
 ## License
