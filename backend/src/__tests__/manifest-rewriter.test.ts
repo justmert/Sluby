@@ -296,3 +296,204 @@ describe('parseMasterVariants', () => {
     ]);
   });
 });
+
+describe('manifest-rewriter edge cases', () => {
+  const variant = [
+    '#EXTM3U',
+    '#EXT-X-VERSION:7',
+    '#EXT-X-TARGETDURATION:6',
+    '#EXT-X-PLAYLIST-TYPE:VOD',
+    '#EXT-X-INDEPENDENT-SEGMENTS',
+    '#EXT-X-MAP:URI="data.m4s",BYTERANGE="1356@0"',
+    '#EXTINF:6.000000,',
+    '#EXT-X-BYTERANGE:757385@1356',
+    'data.m4s',
+    '#EXTINF:1.000000,',
+    '#EXT-X-BYTERANGE:109112@758741',
+    'data.m4s',
+    '#EXT-X-ENDLIST',
+    '',
+  ];
+  const mapping: SegmentBlobMapping = { dataObjectId: 'obj-1', dataFilename: 'data.m4s' };
+
+  it('changes only the data references and keeps every other line byte for byte', () => {
+    const out = rewriteVariantPlaylist(variant.join('\n'), mapping, '').split('\n');
+    expect(out).toEqual([
+      '#EXTM3U',
+      '#EXT-X-VERSION:7',
+      '#EXT-X-TARGETDURATION:6',
+      '#EXT-X-PLAYLIST-TYPE:VOD',
+      '#EXT-X-INDEPENDENT-SEGMENTS',
+      '#EXT-X-MAP:URI="/v1/objects/obj-1",BYTERANGE="1356@0"',
+      '#EXTINF:6.000000,',
+      '#EXT-X-BYTERANGE:757385@1356',
+      '/v1/objects/obj-1',
+      '#EXTINF:1.000000,',
+      '#EXT-X-BYTERANGE:109112@758741',
+      '/v1/objects/obj-1',
+      '#EXT-X-ENDLIST',
+      '',
+    ]);
+  });
+
+  it('rewrites an EXT-X-MAP that has no BYTERANGE', () => {
+    const out = rewriteVariantPlaylist(
+      ['#EXTM3U', '#EXT-X-MAP:URI="data.m4s"', '#EXTINF:6,', 'data.m4s'].join('\n'),
+      mapping,
+      BASE_URL,
+    );
+    expect(out).toBe(
+      [
+        '#EXTM3U',
+        `#EXT-X-MAP:URI="${BASE_URL}/v1/objects/obj-1"`,
+        '#EXTINF:6,',
+        `${BASE_URL}/v1/objects/obj-1`,
+      ].join('\n'),
+    );
+  });
+
+  it('is a no-op on a playlist it already rewrote', () => {
+    const once = rewriteVariantPlaylist(variant.join('\n'), mapping, '');
+    expect(rewriteVariantPlaylist(once, mapping, '')).toBe(once);
+  });
+
+  it('keeps blank lines and comment lines as they are', () => {
+    const input = [
+      '#EXTM3U',
+      '',
+      '## data.m4s is the single file',
+      '#EXT-X-MAP:URI="data.m4s",BYTERANGE="10@0"',
+      '',
+      '#EXTINF:6,',
+      '#EXT-X-BYTERANGE:5@10',
+      'data.m4s',
+      '',
+    ].join('\n');
+    const out = rewriteVariantPlaylist(input, mapping, '').split('\n');
+    expect(out[1]).toBe('');
+    expect(out[2]).toBe('## data.m4s is the single file');
+    expect(out[4]).toBe('');
+    expect(out[7]).toBe('/v1/objects/obj-1');
+    expect(parseVariantPlaylist(input)).toEqual({ dataFilename: 'data.m4s', segmentCount: 1 });
+  });
+
+  it('does not touch a different file whose name contains the data filename', () => {
+    const input = ['#EXT-X-MAP:URI="old-data.m4s"', 'old-data.m4s', 'data.m4s.bak'].join('\n');
+    expect(rewriteVariantPlaylist(input, mapping, '')).toBe(input);
+  });
+
+  describe('with CRLF line endings', () => {
+    const crlfVariant = variant.join('\r\n');
+
+    it('rewrites the variant and keeps the CRLF endings', () => {
+      const out = rewriteVariantPlaylist(crlfVariant, mapping, '');
+      expect(out).toBe(
+        rewriteVariantPlaylist(variant.join('\n'), mapping, '').split('\n').join('\r\n'),
+      );
+      expect(out).not.toMatch(/^data\.m4s\r?$/m);
+    });
+
+    it('parses the data filename without a trailing carriage return', () => {
+      expect(parseVariantPlaylist(crlfVariant)).toEqual({
+        dataFilename: 'data.m4s',
+        segmentCount: 2,
+      });
+    });
+
+    it('rewrites and parses the master', () => {
+      const master = [
+        '#EXTM3U',
+        '#EXT-X-STREAM-INF:BANDWIDTH=931280,RESOLUTION=640x360,CODECS="avc1.42c01e,mp4a.40.2"',
+        '360p/playlist.m3u8',
+        '',
+      ].join('\r\n');
+      expect(parseMasterPlaylist(master)).toEqual(['360p/playlist.m3u8']);
+      expect(parseMasterVariants(master)).toEqual([
+        { path: '360p/playlist.m3u8', width: 640, height: 360, bandwidthKbps: 931 },
+      ]);
+      expect(rewriteMasterPlaylist(master, new Map([['360p/playlist.m3u8', 'pl-1']]), '')).toBe(
+        [
+          '#EXTM3U',
+          '#EXT-X-STREAM-INF:BANDWIDTH=931280,RESOLUTION=640x360,CODECS="avc1.42c01e,mp4a.40.2"',
+          '/v1/objects/pl-1',
+          '',
+        ].join('\r\n'),
+      );
+    });
+  });
+
+  describe('master playlist', () => {
+    const master = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:7',
+      '#EXT-X-STREAM-INF:BANDWIDTH=3745000,RESOLUTION=1280x720',
+      '720p/playlist.m3u8',
+      '#EXT-X-STREAM-INF:BANDWIDTH=856000,RESOLUTION=640x360',
+      '360p/playlist.m3u8',
+      '',
+    ].join('\n');
+    const ids = new Map([
+      ['720p/playlist.m3u8', 'pl-720'],
+      ['360p/playlist.m3u8', 'pl-360'],
+    ]);
+
+    it('is a no-op on a master it already rewrote', () => {
+      const once = rewriteMasterPlaylist(master, ids, '');
+      expect(once).not.toContain('playlist.m3u8');
+      expect(rewriteMasterPlaylist(once, ids, '')).toBe(once);
+    });
+
+    it('ignores map entries for variants the master does not list', () => {
+      const withExtra = new Map([...ids, ['1080p/playlist.m3u8', 'pl-1080']]);
+      expect(rewriteMasterPlaylist(master, withExtra, '')).toBe(
+        rewriteMasterPlaylist(master, ids, ''),
+      );
+    });
+
+    it('does not rewrite a path that only contains a mapped path', () => {
+      const out = rewriteMasterPlaylist(
+        ['#EXT-X-STREAM-INF:BANDWIDTH=1', 'x720p/playlist.m3u8'].join('\n'),
+        ids,
+        '',
+      );
+      expect(out).toContain('x720p/playlist.m3u8');
+      expect(out).not.toContain('pl-720');
+    });
+
+    it('pairs STREAM-INF with its URI across blank and comment lines', () => {
+      const spaced = [
+        '#EXTM3U',
+        '#EXT-X-STREAM-INF:BANDWIDTH=856000,RESOLUTION=640x360',
+        '',
+        '# generated',
+        '360p/playlist.m3u8',
+      ].join('\n');
+      expect(parseMasterVariants(spaced)).toEqual([
+        { path: '360p/playlist.m3u8', width: 640, height: 360, bandwidthKbps: 856 },
+      ]);
+    });
+
+    it('skips a URI line that has no STREAM-INF before it', () => {
+      const orphan = [
+        '#EXTM3U',
+        'stray/playlist.m3u8',
+        '#EXT-X-STREAM-INF:BANDWIDTH=856000,RESOLUTION=640x360',
+        '360p/playlist.m3u8',
+      ].join('\n');
+      expect(parseMasterVariants(orphan).map((v) => v.path)).toEqual(['360p/playlist.m3u8']);
+    });
+
+    it('reports null bandwidth when a STREAM-INF has none', () => {
+      expect(
+        parseMasterVariants(
+          ['#EXT-X-STREAM-INF:RESOLUTION=640x360', '360p/playlist.m3u8'].join('\n'),
+        ),
+      ).toEqual([{ path: '360p/playlist.m3u8', width: 640, height: 360, bandwidthKbps: null }]);
+    });
+
+    it('finds no variants in a master with none', () => {
+      expect(parseMasterPlaylist('#EXTM3U\n#EXT-X-VERSION:7\n')).toEqual([]);
+      expect(parseMasterVariants('#EXTM3U\n#EXT-X-VERSION:7\n')).toEqual([]);
+    });
+  });
+});
