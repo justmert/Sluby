@@ -2,6 +2,7 @@ import 'express-async-errors';
 import { describe, it, expect, afterEach } from 'vitest';
 import express, { type Request, type Response } from 'express';
 import request from 'supertest';
+import { DrizzleQueryError } from 'drizzle-orm';
 import pino from 'pino';
 import { Writable } from 'node:stream';
 import { AppError, createErrorHandler, notFoundHandler } from '../api/middleware/error-handler.js';
@@ -72,6 +73,16 @@ describe('error handler', () => {
     const err = Object.assign(new Error('invalid input syntax for type uuid: "nope"'), {
       code: '22P02',
     });
+    const res = await request(appThrowing(err)).get('/boom');
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Invalid identifier format' });
+  });
+
+  it('maps the same error when drizzle wraps it in a query error', async () => {
+    const pg = Object.assign(new Error('invalid input syntax for type uuid: "nope"'), {
+      code: '22P02',
+    });
+    const err = new DrizzleQueryError('select 1 where id = $1', ['nope'], pg);
     const res = await request(appThrowing(err)).get('/boom');
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Invalid identifier format' });
