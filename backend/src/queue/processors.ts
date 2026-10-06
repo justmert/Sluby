@@ -270,13 +270,7 @@ export const uploadSegmentsWorker = new Worker<UploadSegmentsJobData>(
       await appendProcessingLog(processingJob.id, 'upload', 'Uploading segments to Sia');
     }
 
-    // Upload segments to Sia. Concurrency is bounded by host-pool size
-    // — each upload uses ~12 host streams, so over-parallelism causes
-    // "no more hosts available". Default tuned for Zen testnet's ~13
-    // contracted hosts. On mainnet (hundreds of hosts) bump this via
-    // SIA_UPLOAD_CONCURRENCY.
     const result = await uploadSegments(outputDir, {
-      concurrency: parseInt(process.env.SIA_UPLOAD_CONCURRENCY ?? '3', 10),
       thumbnailPaths,
       onProgress: async (uploaded, total) => {
         // Scale upload progress to 65-90% of overall pipeline
