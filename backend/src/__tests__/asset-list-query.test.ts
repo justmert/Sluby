@@ -47,7 +47,7 @@ describe('assetListQuery', () => {
       '"video_assets"."total_storage_bytes" desc, "video_assets"."id" desc',
     );
     expect(orderSql(assetListQuery({}))).toBe(
-      `date_trunc('milliseconds', "video_assets"."created_at") desc, "video_assets"."id" desc`,
+      '"video_assets"."created_at" desc, "video_assets"."id" desc',
     );
   });
 
@@ -58,6 +58,9 @@ describe('assetListQuery', () => {
     });
     expect(assetListQuery({ cursor }).cursorKey).not.toBeNull();
     expect(assetListQuery({ cursor, sort: 'title', order: 'asc' }).cursorKey).toBeNull();
-    expect(render(assetListQuery({ cursor }).dataWhere)!.sql).toContain('date_trunc');
+    // the plain columns, so the (created_at, id) index serves the keyset
+    expect(render(assetListQuery({ cursor }).dataWhere)!.sql).toContain(
+      '("video_assets"."created_at", "video_assets"."id") < ($1::timestamptz, $2::uuid)',
+    );
   });
 });

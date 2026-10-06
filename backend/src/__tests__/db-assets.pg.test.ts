@@ -287,8 +287,9 @@ describe.skipIf(!hasTestDatabase)('asset queries (postgres)', () => {
       it('stays exact with sub-millisecond timestamps the cursor cannot carry', async () => {
         const made = [];
         for (let i = 0; i < 6; i++) made.push(await asset({ title: `t${i}` }));
-        // postgres keeps microseconds; js dates (and so cursors) keep only
-        // milliseconds. put several rows inside the same millisecond.
+        // js dates (and so cursors) keep only milliseconds; the column rounds
+        // whatever it is written with to that, so these land on shared
+        // milliseconds and the cursor still walks them exactly
         const micros = ['000100', '000900', '000500', '999999', '123456', '000001'];
         for (let i = 0; i < made.length; i++) {
           await tdb.sql`
@@ -299,7 +300,7 @@ describe.skipIf(!hasTestDatabase)('asset queries (postgres)', () => {
         }
         const expected = await tdb.sql<{ id: string }[]>`
           select id from video_assets
-          order by date_trunc('milliseconds', created_at) desc, id desc
+          order by created_at desc, id desc
         `;
         const { seen } = await walk(1);
         expect(seen).toEqual(expected.map((r) => r.id));

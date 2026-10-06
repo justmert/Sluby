@@ -34,7 +34,7 @@ erDiagram
     int segment_count
     bigint total_storage_bytes
     timestamptz deleted_at "set while deleting"
-    timestamptz created_at
+    timestamptz created_at "millisecond precision"
     timestamptz updated_at
   }
   upload_sessions {
@@ -89,7 +89,7 @@ erDiagram
   }
 ```
 
-- **`video_assets`** is one row per video. `status` moves from `created` (set when tus creates the upload) to `processing` and then `ready` or `failed`; the enum also has `uploading`, which the tus path never sets. `deleted_at` marks an asset whose deletion is in progress; the row disappears once its objects are unpinned. The object id columns (`manifest_object_id`, `thumbnail_object_ids`, `sia_object_ids`) are written by finalize and duplicate what `artifacts` holds. The gateway, the deletion worker and reconciliation read both, so assets created before `artifacts` existed are still covered. `segment_count` is the number of segments in one rendition, and `total_storage_bytes` is the sum of the stored objects' sizes before erasure coding.
+- **`video_assets`** is one row per video. `status` moves from `created` (set when tus creates the upload) to `processing` and then `ready` or `failed`; the enum also has `uploading`, which the tus path never sets. `deleted_at` marks an asset whose deletion is in progress; the row disappears once its objects are unpinned. The object id columns (`manifest_object_id`, `thumbnail_object_ids`, `sia_object_ids`) are written by finalize and duplicate what `artifacts` holds. The gateway, the deletion worker and reconciliation read both, so assets created before `artifacts` existed are still covered. `segment_count` is the number of segments in one rendition, and `total_storage_bytes` is the sum of the stored objects' sizes before erasure coding. `created_at` is a `timestamptz(3)`: the listing cursor carries a JavaScript date, which has millisecond precision, so the column keeps exactly that and the newest-first listing pages on the plain `(created_at, id)` pair, read from the `(created_at, id)` index for the whole platform and from a partial `(creator_address, created_at, id)` index for one owner.
 - **`upload_sessions`** tracks one tus upload: size, bytes received, the SHA-256 of the finished file, and its path in `UPLOAD_DIR`. `metadata` holds the tus metadata plus the owner's `creatorAddress` and the `apiKeyId`, which the REST status and cancel routes use for owner checks.
 - **`processing_jobs`** mirrors the BullMQ pipeline for the API: status, percentage, the last error and the `logs` array of `{ timestamp, stage, message }`. It also has `retry_count` and `max_retries` columns, which the workers do not update; the retry count that matters lives in BullMQ.
 - **`renditions`** is one row per HLS rung, with the Sia object ids of its `data.m4s` and its rewritten playlist.

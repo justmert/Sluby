@@ -77,8 +77,9 @@ function likeContains(term: string): string {
  * can be checked without a database.
  *
  * Every order ends in `id` so pages are stable when the sort key ties.
- * Timestamps compare truncated to milliseconds so the JS-side cursor
- * (millisecond precision) and the SQL ordering agree exactly.
+ * created_at is stored at millisecond precision, the precision of the cursor,
+ * so the newest-first order and the keyset compare the plain column and an
+ * index serves them.
  */
 export function assetListQuery(opts: AssetListOptions) {
   const { status, accessTier, creatorAddress, search, cursor } = opts;
@@ -107,12 +108,12 @@ export function assetListQuery(opts: AssetListOptions) {
   const cursorKey = cursor && isDefaultAssetOrder(sort, order) ? decodeCursor(cursor) : null;
   if (cursorKey) {
     dataConditions.push(
-      sql`(date_trunc('milliseconds', ${videoAssets.createdAt}), ${videoAssets.id}) < (${cursorKey.createdAt.toISOString()}::timestamptz, ${cursorKey.id}::uuid)`,
+      sql`(${videoAssets.createdAt}, ${videoAssets.id}) < (${cursorKey.createdAt.toISOString()}::timestamptz, ${cursorKey.id}::uuid)`,
     );
   }
 
   const key: Record<AssetSortField, SQL> = {
-    created_at: sql`date_trunc('milliseconds', ${videoAssets.createdAt})`,
+    created_at: sql`${videoAssets.createdAt}`,
     title: sql`lower(${videoAssets.title})`,
     duration: sql`${videoAssets.durationMs}`,
     size: sql`${videoAssets.totalStorageBytes}`,
