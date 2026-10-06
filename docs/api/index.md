@@ -23,7 +23,7 @@ The Studio does not use a key. It signs in with GitHub and sends a session cooki
 
 In the Studio, open **Settings** and find the **API keys** card. Click **Create key**, give the key a name, pick its scopes and a rate limit in requests per minute, then copy the secret from the dialog that follows. New keys get the `upload` and `read` scopes and a limit of 100 requests per minute unless you change them.
 
-The same card rotates and revokes keys. Rotating issues a new secret with the same name, scopes and limit. The old secret stops working immediately or after a grace period of up to 7 days, which gives running clients time to switch.
+The same card rotates and revokes keys. Rotating issues a new secret with the same name, scopes and limit. The old secret stops working immediately or after a grace period of up to 7 days, which gives running clients time to switch. A key can be rotated once; to rotate again, rotate its replacement.
 
 Keys can also be managed through the API (`POST /api/v1/keys`, `POST /api/v1/keys/{id}/rotate`, `DELETE /api/v1/keys/{id}`) with a key that has the `manage` scope. To get a first key without signing in to the Studio, set `BOOTSTRAP_API_KEY` to a `sluby_...` value of your choice before starting the backend. It is stored with all three scopes and a limit of 1000 requests per minute (see [Configuration](/guide/configuration)).
 

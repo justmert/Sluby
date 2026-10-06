@@ -2126,6 +2126,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "The key was already rotated; rotate its replacement instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }

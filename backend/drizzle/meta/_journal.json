@@ -43,6 +43,13 @@
       "when": 1790953047238,
       "tag": "0005_webhook_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791309553950,
+      "tag": "0006_api_key_replaced_by",
+      "breakpoints": true
     }
   ]
 }

@@ -36,7 +36,11 @@ export interface KeyRouteDeps {
     owner: string | undefined,
     replacement: { keyHash: string },
     retireAt: Date,
-  ) => Promise<{ replacement: ApiKeyRecord; retiredAt: Date } | null>;
+  ) => Promise<
+    | { status: 'rotated'; replacement: ApiKeyRecord; retiredAt: Date }
+    | { status: 'not_found' }
+    | { status: 'already_rotated'; replacedById: string | null }
+  >;
 }
 
 const VALID_SCOPES = ['upload', 'read', 'manage'];
@@ -121,7 +125,8 @@ export function createKeyRoutes(deps: KeyRouteDeps): Router {
    * POST /api/v1/keys/:id/rotate
    * Replace a key: a new secret with the same name, scopes and rate limit.
    * The old key stops working immediately, or after `grace_period_seconds`
-   * (up to a week) so deployments can switch over without downtime.
+   * (up to a week) so deployments can switch over without downtime. A key
+   * that was already rotated is refused with 409: rotate its replacement.
    */
   router.post('/:id/rotate', requireScope('manage'), async (req: Request, res: Response) => {
     const grace = req.body?.grace_period_seconds ?? 0;
@@ -142,8 +147,11 @@ export function createKeyRoutes(deps: KeyRouteDeps): Router {
       { keyHash: hash },
       new Date(Date.now() + grace * 1000),
     );
-    if (!result) {
+    if (result.status === 'not_found') {
       throw new AppError(404, 'API key not found');
+    }
+    if (result.status === 'already_rotated') {
+      throw new AppError(409, 'API key was already rotated; rotate its replacement instead');
     }
 
     res.status(201).json({
