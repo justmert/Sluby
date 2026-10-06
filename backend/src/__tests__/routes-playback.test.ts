@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createPlaybackRoutes, type PlaybackRouteDeps } from '../api/routes/playback.js';
 import { createTestApp, withApiKey } from './helpers/express-helpers.js';
+import { registry } from '../metrics/collector.js';
 
 // Mock logger
 vi.mock('../config/logger.js', () => ({
@@ -228,6 +229,36 @@ describe('playback routes', () => {
       await request(createApp()).get('/asset-1/signed?expires_in=7200');
 
       expect(deps.generateSignedUrl).toHaveBeenCalledWith('manifest-obj-1', 7200);
+    });
+
+    it('counts a signed playback only when the url it hands out has not expired', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue({
+        id: 'asset-1',
+        manifestObjectId: 'manifest-obj-1',
+        thumbnailObjectIds: [],
+        durationMs: 60000,
+        resolution: '1280x720',
+        accessTier: 'private',
+        status: 'ready',
+      });
+      const signedCount = async () =>
+        (await registry.getMetricsAsJSON())
+          .find((m) => m.name === 'sluby_playback_initiation_total')
+          ?.values.find((v) => v.labels.mode === 'signed')?.value ?? 0;
+      const mint = (expiresAt: number) =>
+        vi.mocked(deps.generateSignedUrl).mockResolvedValueOnce({
+          signedUrl: 'https://signed.url/manifest',
+          expiresAt: new Date(expiresAt).toISOString(),
+        });
+
+      const before = await signedCount();
+      mint(Date.now() - 60_000);
+      await request(createApp()).get('/asset-1/signed?expires_in=-60');
+      expect(await signedCount()).toBe(before);
+
+      mint(Date.now() + 3_600_000);
+      await request(createApp()).get('/asset-1/signed');
+      expect(await signedCount()).toBe(before + 1);
     });
 
     it('should return 404 when asset not found', async () => {

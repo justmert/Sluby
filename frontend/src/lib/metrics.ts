@@ -16,12 +16,14 @@ export interface PromMetric {
 export interface MetricsSnapshot {
   takenAt: number;
   uploads: { succeeded: number; failed: number; bytes: number };
-  processing: { queueDepth: number; completed: number; avgSeconds: number | null };
+  /** queueDepth is null while the backend cannot read it from Redis. */
+  processing: { queueDepth: number | null; completed: number; avgSeconds: number | null };
   sia: { uploads: number; avgSeconds: number | null };
   delivery: {
     requests: Record<'manifest' | 'media' | 'object', number>;
     bytes: number;
-    cacheHitRatio: number;
+    /** Share of whole-object cache lookups served from memory; null before any. */
+    cacheHitRatio: number | null;
   };
   playback: Record<'public' | 'signed' | 'sia', number>;
   process: { startedAt: number | null; residentBytes: number | null; heapUsedBytes: number | null };
@@ -38,6 +40,12 @@ function sum(metric: PromMetric | undefined, labels: Record<string, string> = {}
     .reduce((n, v) => n + v.value, 0);
 }
 
+/** A gauge's value, null when the backend reported it unknown (NaN reaches json as null). */
+function gaugeValue(metric: PromMetric | undefined): number | null {
+  const v = metric?.values[0]?.value;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
 /** Histogram average from its _sum and _count samples; null before any observation. */
 function histogramAvg(metric: PromMetric | undefined): { count: number; avg: number | null } {
   if (!metric) return { count: 0, avg: null };
@@ -52,6 +60,9 @@ export function summarizeMetrics(metrics: PromMetric[], takenAt = Date.now()): M
   const processing = histogramAvg(find(metrics, 'sluby_processing_duration_seconds'));
   const sia = histogramAvg(find(metrics, 'sluby_sia_upload_duration_seconds'));
   const start = find(metrics, 'process_start_time_seconds')?.values[0]?.value;
+  const hits = sum(find(metrics, 'sluby_cache_hits_total'));
+  const misses = sum(find(metrics, 'sluby_cache_misses_total'));
+  const redisUp = gaugeValue(find(metrics, 'sluby_redis_up'));
 
   return {
     takenAt,
@@ -61,7 +72,7 @@ export function summarizeMetrics(metrics: PromMetric[], takenAt = Date.now()): M
       bytes: sum(find(metrics, 'sluby_upload_bytes_total')),
     },
     processing: {
-      queueDepth: sum(find(metrics, 'sluby_processing_queue_depth')),
+      queueDepth: redisUp === 0 ? null : gaugeValue(find(metrics, 'sluby_processing_queue_depth')),
       completed: processing.count,
       avgSeconds: processing.avg,
     },
@@ -73,7 +84,7 @@ export function summarizeMetrics(metrics: PromMetric[], takenAt = Date.now()): M
         object: sum(requests, { kind: 'object' }),
       },
       bytes: sum(find(metrics, 'sluby_bandwidth_bytes_total')),
-      cacheHitRatio: sum(find(metrics, 'sluby_cache_hit_ratio')),
+      cacheHitRatio: hits + misses > 0 ? hits / (hits + misses) : null,
     },
     playback: {
       public: sum(playback, { mode: 'public' }),
