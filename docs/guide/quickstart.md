@@ -68,7 +68,7 @@ Transcoding a short clip takes seconds. Storing it on Sia takes longer, and the 
 
 Sia erasure-codes data into slabs, and each slab goes to 30 hosts as 30 sectors of 4 MiB. That is about 120 MiB on the wire however little data the slab holds. Sluby packs everything it can into as few uploads as possible, but the manifests point at the object ids of what they reference, so one asset always needs three dependent uploads: the media and thumbnails, then the variant playlists, then the master playlist.
 
-On a 37 Mbps uplink a 10 second clip took 4 minutes from pressing **Start upload** to **Ready**. On a faster uplink it is proportionally quicker.
+On a 37 Mbps uplink, a 10 second clip took between 2.5 and 4 minutes from pressing **Start upload** to **Ready**, depending on how quickly the slowest hosts accepted their sectors. A faster uplink shortens it. For reference, a full run from `git clone` through the image build, the upload and the first playback took a little over 4 minutes on an Apple M3 Pro with the base images already pulled.
 
 ## 5. Use the API
 
