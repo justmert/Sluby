@@ -38,6 +38,22 @@ export interface GatewayRequest {
   status: number;
 }
 
+/** A call to the public share map endpoint, /v1/share/:id. */
+export interface ShareRequest {
+  id: string;
+  expires: string | null;
+  sig: string | null;
+  authorization: boolean;
+  cookie: boolean;
+}
+
+/** A request that reached the REST API (/api/...); keyless playback must make none. */
+export interface ApiRequest {
+  method: string;
+  path: string;
+  authorization: boolean;
+}
+
 interface Fault {
   status: number;
   /** only fail ranged requests that start at or after this byte */
@@ -139,6 +155,8 @@ function readBody(req: IncomingMessage): Promise<string> {
 export function hlsFixtureGateway(fixtureDir: string): Plugin {
   const { catalog, objects } = loadFixture(fixtureDir);
   let requests: GatewayRequest[] = [];
+  let shareRequests: ShareRequest[] = [];
+  let apiRequests: ApiRequest[] = [];
   let faults = new Map<string, Fault>();
 
   return {
@@ -194,6 +212,66 @@ export function hlsFixtureGateway(fixtureDir: string): Plugin {
           return;
         }
 
+        // the public master url, served like /v1/objects/{master} and logged
+        // as a gateway request so a keyless sia test can prove it never ran
+        const streamMatch = /^\/v1\/stream\/([^/]+)\/master\.m3u8$/.exec(url.pathname);
+        if (streamMatch) {
+          const master = objects.get(catalog.masterId)!;
+          requests.push({
+            id: `stream:${decodeURIComponent(streamMatch[1])}`,
+            method: req.method ?? '',
+            range: req.headers.range ?? null,
+            status: 200,
+          });
+          res.statusCode = 200;
+          res.setHeader('Content-Type', master.contentType);
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(master.bytes);
+          return;
+        }
+
+        // the backend's public share map: every object of the asset as a
+        // sia:// url the fake sia network (fake-sia-storage.ts) resolves
+        const shareMatch = /^\/v1\/share\/([^/]+)$/.exec(url.pathname);
+        if (shareMatch) {
+          shareRequests.push({
+            id: decodeURIComponent(shareMatch[1]),
+            expires: url.searchParams.get('expires'),
+            sig: url.searchParams.get('sig'),
+            authorization: req.headers.authorization !== undefined,
+            cookie: req.headers.cookie !== undefined,
+          });
+          const expiresAt = new Date(Date.now() + 3600_000).toISOString();
+          const shares: Record<string, string> = {};
+          for (const id of objects.keys()) {
+            shares[id] =
+              `sia://fixture.local/objects/${id}/shared?sv=${Date.now()}#encryption_key=x`;
+          }
+          sendJson(res, { master_object_id: catalog.masterId, shares, expires_at: expiresAt });
+          return;
+        }
+
+        if (url.pathname.startsWith('/api/')) {
+          apiRequests.push({
+            method: req.method ?? '',
+            path: url.pathname,
+            authorization: req.headers.authorization !== undefined,
+          });
+          res.statusCode = 404;
+          res.end('no api here');
+          return;
+        }
+
+        if (url.pathname === '/__fixture/share-requests') {
+          sendJson(res, shareRequests);
+          return;
+        }
+
+        if (url.pathname === '/__fixture/api-requests') {
+          sendJson(res, apiRequests);
+          return;
+        }
+
         if (url.pathname === '/__fixture/catalog') {
           sendJson(res, catalog);
           return;
@@ -216,6 +294,8 @@ export function hlsFixtureGateway(fixtureDir: string): Plugin {
 
         if (url.pathname === '/__fixture/reset' && req.method === 'POST') {
           requests = [];
+          shareRequests = [];
+          apiRequests = [];
           faults = new Map();
           sendJson(res, { ok: true });
           return;

@@ -3,9 +3,15 @@
 
 import type { ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { FixtureCatalog, GatewayRequest } from './gateway';
+import type { ApiRequest, FixtureCatalog, GatewayRequest, ShareRequest } from './gateway';
 
-export type { FixtureCatalog, FixtureRendition, GatewayRequest } from './gateway';
+export type {
+  ApiRequest,
+  FixtureCatalog,
+  FixtureRendition,
+  GatewayRequest,
+  ShareRequest,
+} from './gateway';
 
 export async function getCatalog(): Promise<FixtureCatalog> {
   const res = await fetch('/__fixture/catalog');
@@ -19,6 +25,16 @@ export async function resetGateway(): Promise<void> {
 export async function gatewayRequests(): Promise<GatewayRequest[]> {
   const res = await fetch('/__fixture/requests');
   return (await res.json()) as GatewayRequest[];
+}
+
+export async function shareRequests(): Promise<ShareRequest[]> {
+  const res = await fetch('/__fixture/share-requests');
+  return (await res.json()) as ShareRequest[];
+}
+
+export async function apiRequests(): Promise<ApiRequest[]> {
+  const res = await fetch('/__fixture/api-requests');
+  return (await res.json()) as ApiRequest[];
 }
 
 /** Make the gateway answer `status` for an object, optionally only past a byte. */

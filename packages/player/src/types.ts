@@ -21,15 +21,32 @@ export interface SiaShareMap {
 }
 
 /**
+ * Where the session gets an asset's share map. With `src` (the gateway
+ * playback URL being played, signed or not) it is the public
+ * `GET /v1/share/:id` next to that URL, with no credentials; without it, the
+ * authenticated `GET /api/v1/playback/:id/share`.
+ */
+export interface SiaShareSource {
+  src?: string;
+}
+
+/**
  * The `client.sia` viewer session the player drives for direct-from-Sia
  * playback. Structural (no hard dependency on `@sluby/sdk` or the WASM SDK):
  * resolved objects are opaque handles the loader passes straight back to
- * `download`.
+ * `download`. `source` is optional, so a session written against the older
+ * two-argument shape still fits; it then always uses the authenticated route.
  */
 export interface SiaPlaybackSession {
-  prepare(assetId: string): Promise<void>;
-  resolveObjectId(assetId: string, objectId: string): Promise<unknown>;
+  prepare(assetId: string, source?: SiaShareSource): Promise<void>;
+  resolveObjectId(assetId: string, objectId: string, source?: SiaShareSource): Promise<unknown>;
   download(object: unknown, options?: { offset?: number; length?: number }): ReadableStream;
+  /**
+   * The asset's HLS master object id. Needed to play a
+   * `/v1/stream/{id}/master.m3u8` URL, which names the asset rather than an
+   * object; `/v1/objects/{id}` URLs work without it.
+   */
+  masterObjectId?(assetId: string, source?: SiaShareSource): Promise<string>;
 }
 
 /**
@@ -53,13 +70,21 @@ export interface PlaybackResolver {
 
 export interface SlubyPlayerProps {
   /**
-   * Absolute HLS master manifest URL. Provide this, or `client` + `assetId`
-   * to have the player resolve the URL from the SDK.
+   * Absolute HLS master manifest URL on the gateway, such as
+   * `client.playback.streamUrl(id)` or a signed URL from your server. Provide
+   * this, or `client` + `assetId` to have the player resolve the URL through
+   * the API. With `src`, `assetId` and a `client` that has a Sia session, the
+   * player streams direct from Sia using the public share map for `src`, so
+   * no API key is needed.
    */
   src?: string;
-  /** A `SlubyClient` (or compatible resolver) used to resolve `assetId`. */
+  /**
+   * A `SlubyClient` (or compatible resolver). With `assetId` and no `src` it
+   * resolves the playback URL through the API; with `src` only its `sia`
+   * session is used.
+   */
   client?: PlaybackResolver;
-  /** Asset id to resolve into a playback URL via `client`. */
+  /** Asset id (or `pb_...` playback id) of the video: resolved via `client`, or paired with `src` for direct-from-Sia playback. */
   assetId?: string;
   /** Resolve a signed (private/gated) URL instead of the public one. */
   signed?: boolean;

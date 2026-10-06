@@ -537,6 +537,108 @@ describe('SlubyPlayer', () => {
       await waitFor(() => expect(client.playback.getUrl).toHaveBeenCalled());
       expect(sia.prepare).not.toHaveBeenCalled();
     });
+
+    describe('with src and assetId (keyless)', () => {
+      const SRC = 'https://cache.test/v1/stream/pb_abc/master.m3u8?expires=1&sig=a';
+
+      it('streams src from Sia using the public share map, without calling the api', async () => {
+        const sia = viewerSession();
+        const client = gatewayClient({ sia });
+        const onDeliveryChange = vi.fn();
+
+        render(
+          <SlubyPlayer
+            src={SRC}
+            client={client}
+            assetId="pb_abc"
+            onDeliveryChange={onDeliveryChange}
+          />,
+        );
+
+        await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(SRC));
+        expect(sia.prepare).toHaveBeenCalledWith('pb_abc', { src: SRC });
+        expect(typeof hlsInstanceRef.current.config.loader).toBe('function');
+        // no gateway load was started before the session was ready
+        expect(mockLoadSource).toHaveBeenCalledTimes(1);
+        expect(onDeliveryChange).toHaveBeenCalledWith('sia');
+        expect(client.playback.getUrl).not.toHaveBeenCalled();
+        expect(client.playback.getSignedUrl).not.toHaveBeenCalled();
+      });
+
+      it('hands the src source to the loader so objects resolve from the public map', async () => {
+        const sia = viewerSession({
+          resolveObjectId: vi.fn().mockRejectedValue(new Error('stop here')),
+        });
+
+        render(<SlubyPlayer src={SRC} client={gatewayClient({ sia })} assetId="pb_abc" />);
+
+        await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(SRC));
+        const Loader = hlsInstanceRef.current.config.loader;
+        const loader = new Loader({});
+        loader.load(
+          { url: 'https://cache.test/v1/objects/variant', responseType: 'text' },
+          { loadPolicy: { maxLoadTimeMs: 0 } },
+          { onSuccess: vi.fn(), onError: vi.fn(), onTimeout: vi.fn() },
+        );
+        await waitFor(() =>
+          expect(sia.resolveObjectId).toHaveBeenCalledWith('pb_abc', 'variant', { src: SRC }),
+        );
+      });
+
+      it('plays src through the gateway when there is no asset id', async () => {
+        const sia = viewerSession();
+
+        render(<SlubyPlayer src={SRC} client={gatewayClient({ sia })} />);
+
+        await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(SRC));
+        expect(sia.prepare).not.toHaveBeenCalled();
+        expect(hlsInstanceRef.current.config.loader).toBeUndefined();
+      });
+
+      it('falls back to the gateway when the public share map fails', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const sia = viewerSession({ prepare: vi.fn().mockRejectedValue(new Error('403')) });
+        const onDeliveryChange = vi.fn();
+
+        render(
+          <SlubyPlayer
+            src={SRC}
+            client={gatewayClient({ sia })}
+            assetId="pb_abc"
+            onDeliveryChange={onDeliveryChange}
+          />,
+        );
+
+        await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(SRC));
+        expect(hlsInstanceRef.current.config.loader).toBeUndefined();
+        expect(onDeliveryChange).toHaveBeenCalledWith('gateway');
+        expect(warn).toHaveBeenCalled();
+        warn.mockRestore();
+      });
+
+      it('does not attempt Sia on the Safari-native path', async () => {
+        mockIsSupported.mockReturnValue(false);
+        const canPlay = vi
+          .spyOn(HTMLMediaElement.prototype, 'canPlayType')
+          .mockReturnValue('maybe');
+        const sia = viewerSession();
+        const onDeliveryChange = vi.fn();
+
+        const { container } = render(
+          <SlubyPlayer
+            src={SRC}
+            client={gatewayClient({ sia })}
+            assetId="pb_abc"
+            onDeliveryChange={onDeliveryChange}
+          />,
+        );
+
+        await waitFor(() => expect(container.querySelector('video')!.src).toBe(SRC));
+        expect(onDeliveryChange).toHaveBeenCalledWith('gateway');
+        expect(sia.prepare).not.toHaveBeenCalled();
+        canPlay.mockRestore();
+      });
+    });
   });
 
   describe('timer safety', () => {

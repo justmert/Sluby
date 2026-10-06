@@ -91,7 +91,8 @@ describe('SiaLoader', () => {
     );
 
     await vi.waitFor(() => expect(onSuccess).toHaveBeenCalled());
-    expect(resolveObjectId).toHaveBeenCalledWith(ASSET_ID, 'master');
+    // no source given: the session picks the authenticated route
+    expect(resolveObjectId).toHaveBeenCalledWith(ASSET_ID, 'master', undefined);
     const [response] = onSuccess.mock.calls[0];
     expect(response.data).toBe(manifest);
     expect(typeof response.data).toBe('string');
@@ -115,11 +116,51 @@ describe('SiaLoader', () => {
     );
 
     await vi.waitFor(() => expect(onSuccess).toHaveBeenCalled());
-    expect(resolveObjectId).toHaveBeenCalledWith(ASSET_ID, 'data');
+    expect(resolveObjectId).toHaveBeenCalledWith(ASSET_ID, 'data', undefined);
     expect(download).toHaveBeenCalledWith({ handle: 'data' }, { offset: 10, length: 20 });
     const [response] = onSuccess.mock.calls[0];
     expect(response.data).toBeInstanceOf(ArrayBuffer);
     expect(new Uint8Array(response.data)).toEqual(new Uint8Array([1, 2, 3, 4]));
+  });
+
+  it('passes the playback url source through to the session', async () => {
+    const { session, resolveObjectId } = makeSession();
+    const source = { src: 'https://cache.test/v1/stream/pb_x/master.m3u8?expires=1&sig=a' };
+    const Ctor = createSiaLoader(session, ASSET_ID, source);
+    const loader = new Ctor({} as HlsConfig);
+    const { cbs, onSuccess } = callbacks();
+
+    loader.load(ctx({ url: 'https://cache.test/v1/objects/data' }), config, cbs);
+
+    await vi.waitFor(() => expect(onSuccess).toHaveBeenCalled());
+    expect(resolveObjectId).toHaveBeenCalledWith(ASSET_ID, 'data', source);
+  });
+
+  it('loads a /v1/stream master url through the master object id from the session', async () => {
+    const masterObjectId = vi.fn(async () => 'master-obj');
+    const { session, resolveObjectId } = makeSession({ masterObjectId });
+    const source = { src: 'https://cache.test/v1/stream/pb_x/master.m3u8' };
+    const Ctor = createSiaLoader(session, ASSET_ID, source);
+    const loader = new Ctor({} as HlsConfig);
+    const { cbs, onSuccess } = callbacks();
+
+    loader.load(ctx({ url: source.src }), config, cbs);
+
+    await vi.waitFor(() => expect(onSuccess).toHaveBeenCalled());
+    expect(masterObjectId).toHaveBeenCalledWith(ASSET_ID, source);
+    expect(resolveObjectId).toHaveBeenCalledWith(ASSET_ID, 'master-obj', source);
+  });
+
+  it('fails a /v1/stream url clearly when the session cannot name the master', async () => {
+    const { session, resolveObjectId } = makeSession();
+    const loader = newLoader(session);
+    const { cbs, onError } = callbacks();
+
+    loader.load(ctx({ url: 'https://cache.test/v1/stream/pb_x/master.m3u8' }), config, cbs);
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(onError.mock.calls[0][0].text).toMatch(/cannot resolve a \/v1\/stream master url/);
+    expect(resolveObjectId).not.toHaveBeenCalled();
   });
 
   it('downloads the whole object when no range is given', async () => {
