@@ -9,7 +9,7 @@ const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 export default defineConfig(({ mode }) => {
   // the studio talks to the api on its own origin; in dev, vite proxies to it
   const env = loadEnv(mode, here('.'), '');
-  const target = env.STUDIO_API_PROXY_TARGET || 'http://localhost:4500';
+  const target = env.STUDIO_API_PROXY_TARGET || 'http://localhost:3000';
   // keep the browser's Host so the oauth callback and tus upload urls the
   // backend builds point back at the studio origin, not the proxy target
   const proxy = { target, changeOrigin: false, xfwd: true };

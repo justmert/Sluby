@@ -110,3 +110,23 @@ jobs:
 
       - name: Build example
         run: npm run build --workspace=@sluby/example-quickstart
+
+  docs-build:
+    name: Docs site builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      # the docs site has its own lockfile so its vite 5 (from vitepress) stays
+      # out of the app workspaces
+      - name: Install docs dependencies
+        run: npm ci --prefix docs
+
+      - name: Build docs
+        run: npm run docs:build
