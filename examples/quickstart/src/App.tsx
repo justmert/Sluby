@@ -1,15 +1,23 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { SlubyClient, type UploadHandle, type VideoAsset } from '@sluby/sdk';
-import { SlubyPlayer } from '@sluby/player';
+import { SlubyClient, type AccessTier, type AssetUploadHandle, type VideoAsset } from '@sluby/sdk';
+import { SlubyPlayer, type QualityLevel, type SlubyPlayerHandle } from '@sluby/player';
+import { describeError } from './errors.js';
 
 // Defaults come from the Vite env; every field is overridable in the form so
 // the example runs against any Sluby backend without rebuilding.
 const ENV = import.meta.env as Record<string, string | undefined>;
 
-type Phase = 'config' | 'uploading' | 'processing' | 'ready' | 'deleting' | 'deleted';
+type Phase = 'idle' | 'uploading' | 'processing';
+
+interface Playing {
+  assetId: string;
+  signed: boolean;
+  /** Present when this page uploaded the asset; absent for a pasted id. */
+  asset?: VideoAsset;
+}
 
 export function App() {
-  const [baseUrl, setBaseUrl] = useState(ENV.VITE_SLUBY_BASE_URL ?? 'http://localhost:4500');
+  const [baseUrl, setBaseUrl] = useState(ENV.VITE_SLUBY_BASE_URL ?? 'http://localhost:8080');
   const [deliveryUrl, setDeliveryUrl] = useState(ENV.VITE_SLUBY_DELIVERY_URL ?? '');
   const [apiKey, setApiKey] = useState(ENV.VITE_SLUBY_API_KEY ?? '');
 
@@ -20,52 +28,103 @@ export function App() {
   const [siaAppId, setSiaAppId] = useState(ENV.VITE_SLUBY_SIA_APP_ID ?? '');
   const [siaAppKey, setSiaAppKey] = useState(ENV.VITE_SLUBY_SIA_APP_KEY ?? '');
 
-  const [phase, setPhase] = useState<Phase>('config');
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [accessTier, setAccessTier] = useState<AccessTier>('public');
   const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState('');
   const [paused, setPaused] = useState(false);
-  const [asset, setAsset] = useState<VideoAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const uploadRef = useRef<UploadHandle | null>(null);
+  const [assetIdInput, setAssetIdInput] = useState('');
+  const [signedInput, setSignedInput] = useState(false);
+  const [playing, setPlaying] = useState<Playing | null>(null);
 
+  const [qualities, setQualities] = useState<QualityLevel[]>([]);
+  const [currentQuality, setCurrentQuality] = useState<QualityLevel | null>(null);
+  // -1 is adaptive, otherwise the pinned rendition's index
+  const [pinnedQuality, setPinnedQuality] = useState(-1);
+  const [delivery, setDelivery] = useState<'sia' | 'gateway' | null>(null);
+
+  const uploadRef = useRef<AssetUploadHandle | null>(null);
+  const playerRef = useRef<SlubyPlayerHandle>(null);
+
+  // One client per configuration. The player's effects key on the client, so a
+  // new instance on every render would restart playback.
   const client = useMemo(() => {
-    if (!apiKey || !baseUrl) return null;
+    if (!baseUrl) return null;
     const sia =
       siaIndexerUrl && siaAppId && siaAppKey
         ? { indexerUrl: siaIndexerUrl, appId: siaAppId, appKey: siaAppKey }
         : undefined;
     return new SlubyClient({
-      apiKey,
+      // no key means the base url is a server of yours that adds it
+      apiKey: apiKey || undefined,
       baseUrl,
       deliveryBaseUrl: deliveryUrl || undefined,
       sia,
     });
   }, [apiKey, baseUrl, deliveryUrl, siaIndexerUrl, siaAppId, siaAppKey]);
 
+  function play(next: Playing) {
+    setQualities([]);
+    setCurrentQuality(null);
+    setPinnedQuality(-1);
+    setDelivery(null);
+    setPlaying(next);
+  }
+
   async function handleUpload(file: File) {
     if (!client) return;
     setError(null);
+    setNotice(null);
     setPhase('uploading');
     setProgress(0);
     try {
       const upload = client.uploads.upload(file, {
         title: file.name,
         description: 'Uploaded from the Sluby quickstart example',
-        accessTier: 'public',
+        accessTier,
         onProgress: (pct) => setProgress(pct),
       });
       uploadRef.current = upload;
 
+      // the asset exists as soon as the upload starts
       const videoAssetId = await upload.assetId;
       await upload;
 
       setPhase('processing');
-      const ready = await client.assets.waitForReady(videoAssetId, { pollInterval: 3000 });
-      setAsset(ready);
-      setPhase('ready');
+      setStage('');
+      const stagePoll = setInterval(() => {
+        client.assets
+          .processing(videoAssetId)
+          .then((job) => setStage(`${job.stage}, ${job.progressPercent}%`))
+          .catch(() => {
+            // the next poll tries again; waitForReady reports real failures
+          });
+      }, 3000);
+      let ready: VideoAsset;
+      try {
+        ready = await client.assets.waitForReady(videoAssetId, {
+          pollInterval: 3000,
+          timeout: 30 * 60_000,
+        });
+      } catch (err) {
+        // waitForReady throws a plain Error when processing failed; the
+        // processing job carries the reason
+        const job = await client.assets.processing(videoAssetId).catch(() => null);
+        throw job?.errorMessage ? new Error(`Processing failed: ${job.errorMessage}`) : err;
+      } finally {
+        clearInterval(stagePoll);
+      }
+      setAssetIdInput(ready.id);
+      play({ assetId: ready.id, signed: ready.accessTier === 'private', asset: ready });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setPhase('config');
+      setError(describeError(err));
+    } finally {
+      uploadRef.current = null;
+      setPaused(false);
+      setPhase('idle');
     }
   }
 
@@ -81,16 +140,22 @@ export function App() {
     }
   }
 
+  function pickQuality(value: string) {
+    const index = Number(value);
+    // -1 hands the choice back to hls.js's adaptive bitrate logic
+    playerRef.current?.setQuality(index);
+    setPinnedQuality(index);
+  }
+
   async function handleDelete() {
-    if (!client || !asset) return;
-    setPhase('deleting');
+    if (!client || !playing) return;
+    setError(null);
     try {
-      await client.assets.delete(asset.id);
-      setPhase('deleted');
-      setAsset(null);
+      await client.assets.delete(playing.assetId);
+      setNotice(`Deleted ${playing.assetId}. Its Sia objects are being unpinned.`);
+      setPlaying(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setPhase('ready');
+      setError(describeError(err));
     }
   }
 
@@ -103,6 +168,7 @@ export function App() {
       </p>
 
       {error && <div style={styles.error}>{error}</div>}
+      {notice && <p style={{ color: 'green' }}>{notice}</p>}
 
       <section style={styles.card}>
         <label style={styles.label}>API base URL</label>
@@ -114,7 +180,9 @@ export function App() {
           placeholder="e.g. http://localhost:8080 (nginx cache)"
           onChange={(e) => setDeliveryUrl(e.target.value)}
         />
-        <label style={styles.label}>API key</label>
+        <label style={styles.label}>
+          API key (leave empty when the base URL is your own playback server)
+        </label>
         <input
           style={styles.input}
           value={apiKey}
@@ -149,11 +217,17 @@ export function App() {
         />
       </section>
 
-      {(phase === 'config' || phase === 'deleted') && (
+      {phase === 'idle' && (
         <section style={styles.card}>
-          {phase === 'deleted' && (
-            <p style={{ color: 'green' }}>Asset deleted. Objects are being unpinned from Sia.</p>
-          )}
+          <label style={styles.label}>Access</label>
+          <select
+            value={accessTier}
+            onChange={(e) => setAccessTier(e.target.value === 'private' ? 'private' : 'public')}
+          >
+            <option value="public">public</option>
+            <option value="private">private (plays from a signed URL)</option>
+          </select>
+          <label style={styles.label}>Upload a video</label>
           <input
             type="file"
             accept="video/*"
@@ -163,9 +237,7 @@ export function App() {
               if (file) void handleUpload(file);
             }}
           />
-          {!client && (
-            <p style={{ color: '#a00', fontSize: 13 }}>Enter an API key and base URL first.</p>
-          )}
+          {!client && <p style={{ color: '#a00', fontSize: 13 }}>Enter a base URL first.</p>}
         </section>
       )}
 
@@ -186,28 +258,83 @@ export function App() {
       {phase === 'processing' && (
         <section style={styles.card}>
           <p>Transcoding and storing on Sia. This can take a while for large files.</p>
+          {stage && <p style={{ color: '#666', fontSize: 13 }}>Stage: {stage}</p>}
         </section>
       )}
 
-      {phase === 'ready' && asset && client && (
+      <section style={styles.card}>
+        <label style={styles.label}>Play an asset by id</label>
+        <input
+          style={styles.input}
+          value={assetIdInput}
+          onChange={(e) => setAssetIdInput(e.target.value)}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+          <label style={{ fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={signedInput}
+              onChange={(e) => setSignedInput(e.target.checked)}
+            />{' '}
+            signed URL
+          </label>
+          <button
+            type="button"
+            disabled={!client || !assetIdInput.trim()}
+            onClick={() => play({ assetId: assetIdInput.trim(), signed: signedInput })}
+          >
+            Play
+          </button>
+        </div>
+      </section>
+
+      {playing && client && (
         <section style={styles.card}>
-          <SlubyPlayer client={client} assetId={asset.id} controls style={{ width: '100%' }} />
-          <div style={{ marginTop: 12 }}>
-            <strong>{asset.title}</strong> · {asset.resolution} ·{' '}
-            {(asset.totalStorageBytes / 1_000_000).toFixed(1)} MB ·{' '}
-            <span style={{ color: client.sia ? '#059669' : '#666' }}>
-              {client.sia ? 'direct from Sia' : 'gateway delivery'}
-            </span>
+          <SlubyPlayer
+            key={`${playing.assetId}:${playing.signed}`}
+            ref={playerRef}
+            client={client}
+            assetId={playing.assetId}
+            signed={playing.signed}
+            expiresIn={3600}
+            controls
+            style={{ width: '100%' }}
+            onQualitiesChange={setQualities}
+            onQualityChange={setCurrentQuality}
+            onDeliveryChange={setDelivery}
+            onError={(err) => setError(`Playback failed: ${err.message}`)}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
+            <label style={{ fontSize: 13 }}>Quality</label>
+            <select
+              value={String(pinnedQuality)}
+              disabled={qualities.length === 0}
+              onChange={(e) => pickQuality(e.target.value)}
+            >
+              <option value="-1">
+                Auto{pinnedQuality === -1 && currentQuality ? ` (${currentQuality.name})` : ''}
+              </option>
+              {qualities.map((q) => (
+                <option key={q.index} value={q.index}>
+                  {q.name} · {Math.round(q.bitrate / 1000)} kbps
+                </option>
+              ))}
+            </select>
+            {delivery && (
+              <span style={{ color: delivery === 'sia' ? '#059669' : '#666', fontSize: 13 }}>
+                {delivery === 'sia' ? 'direct from Sia' : 'gateway delivery'}
+              </span>
+            )}
           </div>
+          {playing.asset && (
+            <div style={{ marginTop: 12 }}>
+              <strong>{playing.asset.title}</strong> · {playing.asset.resolution} ·{' '}
+              {(playing.asset.totalStorageBytes / 1_000_000).toFixed(1)} MB
+            </div>
+          )}
           <button type="button" style={styles.deleteBtn} onClick={() => void handleDelete()}>
             Delete asset
           </button>
-        </section>
-      )}
-
-      {phase === 'deleting' && (
-        <section style={styles.card}>
-          <p>Deleting asset and unpinning Sia objects…</p>
         </section>
       )}
     </main>
