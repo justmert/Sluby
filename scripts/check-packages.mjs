@@ -37,7 +37,9 @@ try {
     }
 
     for (const [tool, args] of [
-      ['attw', [tarball]],
+      // node10 resolution predates package.json exports, so it can never see a
+      // subpath like @sluby/player/hls; every other resolution mode is checked
+      ['attw', ['--profile', 'node16', tarball]],
       ['publint', ['--strict', tarball]],
     ]) {
       try {

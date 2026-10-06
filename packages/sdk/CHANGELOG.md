@@ -17,6 +17,8 @@
 
 ### Fixed
 
+- `upload.abort()` now rejects the upload handle (it used to stay pending forever), and aborting before the upload starts no longer uploads the file anyway.
+- `RateLimitError.retryAfter` reads a `Retry-After` given as an HTTP date instead of returning `NaN`.
 - CommonJS consumers now get CommonJS type declarations (`index.d.cts`) instead of the ESM ones.
 
 ## 0.1.0
