@@ -263,23 +263,57 @@ export const playbackIds = pgTable(
  * reconciliation_runs records each pass of the background worker that
  * compares PostgreSQL's tracked object ids against the indexer's pinned
  * inventory. Orphaned/missing ids are captured for operator review; the
- * worker never deletes automatically.
+ * worker never deletes automatically. Only the latest runs are kept
+ * (RECONCILE_RUNS_KEPT), since each carries its full id lists.
  */
-export const reconciliationRuns = pgTable('reconciliation_runs', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
-  finishedAt: timestamp('finished_at', { withTimezone: true }).notNull(),
-  status: reconcileStatusEnum('status').notNull(),
-  dbObjectCount: integer('db_object_count').notNull().default(0),
-  indexerObjectCount: integer('indexer_object_count').notNull().default(0),
-  inSyncCount: integer('in_sync_count').notNull().default(0),
-  orphanCount: integer('orphan_count').notNull().default(0),
-  missingCount: integer('missing_count').notNull().default(0),
-  orphanedIds: jsonb('orphaned_ids').$type<string[]>().notNull().default([]),
-  missingIds: jsonb('missing_ids').$type<string[]>().notNull().default([]),
-  /** Populated when status is 'failed' so outages are visible, not just logged. */
-  errorMessage: text('error_message'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+export const reconciliationRuns = pgTable(
+  'reconciliation_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }).notNull(),
+    status: reconcileStatusEnum('status').notNull(),
+    dbObjectCount: integer('db_object_count').notNull().default(0),
+    indexerObjectCount: integer('indexer_object_count').notNull().default(0),
+    inSyncCount: integer('in_sync_count').notNull().default(0),
+    orphanCount: integer('orphan_count').notNull().default(0),
+    missingCount: integer('missing_count').notNull().default(0),
+    orphanedIds: jsonb('orphaned_ids').$type<string[]>().notNull().default([]),
+    missingIds: jsonb('missing_ids').$type<string[]>().notNull().default([]),
+    /** Populated when status is 'failed' so outages are visible, not just logged. */
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  // the latest run is read by finish time, and retention drops the oldest
+  (t) => [index('reconciliation_runs_finished_at_idx').on(t.finishedAt)],
+);
+
+/**
+ * indexer_objects is reconciliation's copy of the indexer's object inventory:
+ * the latest event the indexer's object feed reported for each object id.
+ * Each run reads only the events after reconcile_feed's cursor and applies
+ * them here, instead of replaying the whole feed. Deleted objects are kept for
+ * the grace window only, to tell a deletion in progress from a missing object.
+ */
+export const indexerObjects = pgTable('indexer_objects', {
+  objectId: text('object_id').primaryKey(),
+  deleted: boolean('deleted').notNull(),
+  /** The indexer's updatedAt for the event, at the millisecond precision the SDK gives. */
+  eventAt: timestamp('event_at', { withTimezone: true, precision: 3 }).notNull(),
+});
+
+/**
+ * reconcile_feed is the one row naming the indexer feed indexer_objects was
+ * built from and how far it has been read. A run against another feed
+ * (another indexer url or account) starts the copy over.
+ */
+export const reconcileFeed = pgTable('reconcile_feed', {
+  /** The indexer url and account key the inventory belongs to. */
+  feed: text('feed').primaryKey(),
+  /** Where the next run resumes the feed; null reads it from the start. */
+  cursorId: text('cursor_id'),
+  cursorAfter: timestamp('cursor_after', { withTimezone: true, precision: 3 }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 /**

@@ -146,12 +146,23 @@ erDiagram
     timestamptz started_at
     timestamptz finished_at
   }
+  indexer_objects {
+    text object_id PK
+    boolean deleted
+    timestamptz event_at
+  }
+  reconcile_feed {
+    text feed PK "indexer url and account key"
+    text cursor_id
+    timestamptz cursor_after
+  }
 ```
 
 - **`api_keys`** stores only the SHA-256 of each key. `expires_at` is how rotation retires the old key after its grace period.
 - **`webhook_endpoints`** belong to an owner through `creator_address`. `api_key_id` records which key registered the endpoint (null when it was the Studio) and is kept for audit only: revoking the key leaves the endpoint working. The `secret` is stored in plain text because the backend needs it to sign every delivery; it is returned once, when the endpoint is created.
 - **`webhook_deliveries`** logs every delivery attempt, one row per try.
-- **`reconciliation_runs`** keeps one row per run, including failed ones, with the full lists of orphaned and missing object ids. The API only returns those lists in full to the platform identity; a tenant gets the missing ids of its own assets (see [what each caller sees](./deletion-and-reconciliation#what-each-caller-sees)).
+- **`reconciliation_runs`** keeps one row per run, including failed ones, with the full lists of orphaned and missing object ids; only the latest 100 are kept. The API only returns those lists in full to the platform identity; a tenant gets the missing ids of its own assets (see [what each caller sees](./deletion-and-reconciliation#what-each-caller-sees)).
+- **`indexer_objects`** is reconciliation's copy of the indexer's inventory: per object id, whether its latest event was a delete and when the indexer recorded it. **`reconcile_feed`** is its one row naming the indexer URL and account key the copy came from and the feed cursor it was read up to (see [reconciliation](./deletion-and-reconciliation#reconciliation)).
 
 ## Enums
 

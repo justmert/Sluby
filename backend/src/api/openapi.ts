@@ -416,7 +416,10 @@ export const openapiDocument = {
           'The latest run. Its shape depends on `scope`: the platform identity ' +
           '(`deployment`) gets the whole run; any other caller (`account`) gets only the ' +
           'drift of its own assets, because the deployment-wide counts, orphans and failure ' +
-          'text describe other accounts and the operator’s setup.',
+          'text describe other accounts and the operator’s setup. Objects the indexer ' +
+          'pinned or unpinned within the hour before the run are work in progress and in ' +
+          'neither list, so the in-sync count plus the orphan or missing count can be lower ' +
+          'than the indexer or database count.',
         oneOf: [
           { $ref: '#/components/schemas/ReconciliationRunDeployment' },
           { $ref: '#/components/schemas/ReconciliationRunAccount' },

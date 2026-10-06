@@ -1,22 +1,46 @@
-import { desc, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import { reconciliationRuns, artifacts, videoAssets, type ReconciliationRun } from '../schema.js';
-import type { ReconciliationSummary } from '../../reconcile/reconciler.js';
+import {
+  reconciliationRuns,
+  artifacts,
+  videoAssets,
+  indexerObjects,
+  reconcileFeed,
+  type ReconciliationRun,
+} from '../schema.js';
+import { RECONCILE_RUNS_KEPT, type ReconciliationSummary } from '../../reconcile/reconciler.js';
+import type { FeedStore, ObjectEventLite } from '../../reconcile/collect-inventory.js';
+import type { IndexerObjectState } from '../../reconcile/inventory-diff.js';
 
-/** Persist a completed reconciliation run. */
-export async function recordReconciliationRun(summary: ReconciliationSummary): Promise<void> {
-  await db.insert(reconciliationRuns).values({
-    startedAt: summary.startedAt,
-    finishedAt: summary.finishedAt,
-    status: summary.status,
-    dbObjectCount: summary.dbObjectCount,
-    indexerObjectCount: summary.indexerObjectCount,
-    inSyncCount: summary.inSyncCount,
-    orphanCount: summary.orphanCount,
-    missingCount: summary.missingCount,
-    orphanedIds: summary.orphanedIds,
-    missingIds: summary.missingIds,
-    errorMessage: summary.errorMessage ?? null,
+/**
+ * Persist a completed reconciliation run and drop the runs before the latest
+ * `keep`, so the table (each row carries full id lists) stays bounded.
+ */
+export async function recordReconciliationRun(
+  summary: ReconciliationSummary,
+  keep = RECONCILE_RUNS_KEPT,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.insert(reconciliationRuns).values({
+      startedAt: summary.startedAt,
+      finishedAt: summary.finishedAt,
+      status: summary.status,
+      dbObjectCount: summary.dbObjectCount,
+      indexerObjectCount: summary.indexerObjectCount,
+      inSyncCount: summary.inSyncCount,
+      orphanCount: summary.orphanCount,
+      missingCount: summary.missingCount,
+      orphanedIds: summary.orphanedIds,
+      missingIds: summary.missingIds,
+      errorMessage: summary.errorMessage ?? null,
+    });
+    await tx.execute(sql`
+      delete from ${reconciliationRuns} where id in (
+        select id from ${reconciliationRuns}
+        order by finished_at desc, id desc
+        offset ${keep}
+      )
+    `);
   });
 }
 
@@ -24,6 +48,77 @@ export async function getLatestReconciliationRun(): Promise<ReconciliationRun | 
   return db.query.reconciliationRuns.findFirst({
     orderBy: [desc(reconciliationRuns.finishedAt)],
   });
+}
+
+/**
+ * The saved copy of the indexer's inventory (indexer_objects) and the feed
+ * cursor it was read up to (reconcile_feed), see syncObjectFeed.
+ */
+export const indexerFeedStore: FeedStore = {
+  begin: (feed) =>
+    db.transaction(async (tx) => {
+      // the row lock also keeps two runs from syncing at once
+      const [row] = await tx.select().from(reconcileFeed).for('update');
+      if (row?.feed === feed) {
+        return row.cursorId && row.cursorAfter
+          ? { id: row.cursorId, after: row.cursorAfter }
+          : null;
+      }
+      // another indexer or account, or the first run: start the copy over
+      await tx.delete(indexerObjects);
+      await tx.delete(reconcileFeed);
+      await tx.insert(reconcileFeed).values({ feed });
+      return null;
+    }),
+
+  applyPage: (feed, events, cursor) =>
+    db.transaction(async (tx) => {
+      // one row per id, the later event winning, as one statement cannot
+      // update a row twice
+      const latest = new Map<string, ObjectEventLite>();
+      for (const e of events) latest.set(e.id, e);
+      if (latest.size > 0) {
+        await tx
+          .insert(indexerObjects)
+          .values(
+            [...latest.values()].map((e) => ({
+              objectId: e.id,
+              deleted: e.deleted,
+              eventAt: e.updatedAt,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: indexerObjects.objectId,
+            set: { deleted: sql`excluded.deleted`, eventAt: sql`excluded.event_at` },
+            // a re-read older event never overwrites a newer one
+            setWhere: sql`${indexerObjects.eventAt} <= excluded.event_at`,
+          });
+      }
+      const saved = await tx
+        .update(reconcileFeed)
+        .set({
+          cursorId: cursor?.id ?? null,
+          cursorAfter: cursor?.after ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(reconcileFeed.feed, feed))
+        .returning({ feed: reconcileFeed.feed });
+      if (saved.length === 0) {
+        throw new Error(`the saved indexer inventory is no longer for ${feed}`);
+      }
+    }),
+
+  pruneDeleted: async (before) => {
+    await db
+      .delete(indexerObjects)
+      .where(and(eq(indexerObjects.deleted, true), lt(indexerObjects.eventAt, before)));
+  },
+};
+
+/** The saved copy of the indexer's inventory, by object id. */
+export async function getIndexerInventory(): Promise<Map<string, IndexerObjectState>> {
+  const rows = await db.select().from(indexerObjects);
+  return new Map(rows.map((r) => [r.objectId, { deleted: r.deleted, eventAt: r.eventAt }]));
 }
 
 /**

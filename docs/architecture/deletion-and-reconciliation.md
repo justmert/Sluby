@@ -77,18 +77,21 @@ flowchart TB
   subgraph db [PostgreSQL]
     a[artifacts.object_id]
     v["video_assets: manifest_object_id,<br/>thumbnail_object_ids, sia_object_ids"]
+    copy[("indexer_objects<br/>reconcile_feed cursor")]
   end
   subgraph idx [Sia indexer]
-    f["object event feed<br/>(created, updated, deleted)"]
+    f["object event feed<br/>(one latest event per object)"]
   end
-  a --> dbset[Tracked ids]
+  a -- "1. read first" --> dbset[Tracked ids]
   v --> dbset
-  f -- "replay, keep ids whose<br/>latest event is not a delete" --> ixset[Pinned ids]
+  f -- "2. events after the saved cursor" --> copy
+  copy --> ixset[Indexer inventory]
   dbset --> diff{compare}
   ixset --> diff
   diff --> sync[in sync: in both]
   diff --> orphan[orphaned: indexer only]
   diff --> missing[missing: database only]
+  diff --> flight[in flight: changed within the grace window]
   sync --> run[(reconciliation_runs)]
   orphan --> run
   missing --> run
@@ -97,10 +100,11 @@ flowchart TB
 How a run works:
 
 - **When.** A scheduled job every `RECONCILE_INTERVAL_MS` (one hour by default, off with `RECONCILE_ENABLED=false`; see [sweep schedules](#sweep-schedules)), and on demand with `POST /api/v1/reconciliation/run` (scope `manage`, platform identity only, since a run scans the whole deployment). Only one run is ever pending, see [one run at a time](#one-run-at-a-time).
-- **The database side** is every object id in `artifacts` plus the ids stored on `video_assets`, for every asset of every owner, including soft-deleted ones whose objects have not been unpinned yet.
-- **The indexer side.** The SDK has no call that lists all objects, so the worker replays the indexer's object event feed (`objectEvents`) page by page (`RECONCILE_PAGE_SIZE`, 500 by default), keeps the latest event per object id, and treats every id whose latest event is not a deletion as pinned. It stops on a short page, or if the cursor stops advancing.
-- **The result.** Ids in both are in sync. Ids only the indexer has are orphans: storage the account pays for that no asset references. Ids only the database has are missing: an object the database expects but the indexer does not report, which is the worrying case. The run is stored in `reconciliation_runs` with counts and the full id lists, with status `ok` when there is no drift and `drift` otherwise.
-- **Failures.** If either side cannot be read, a run with status `failed` and the error message is stored, so an outage shows up as a failed run rather than as a stale report.
+- **The database side** is every object id in `artifacts` plus the ids stored on `video_assets`, for every asset of every owner, including soft-deleted ones whose objects have not been unpinned yet. It is read first, before the indexer, so whatever an upload records or a deletion forgets while the run goes on shows up as a recent change on the indexer side.
+- **The indexer side.** The SDK has no call that lists all objects. The indexer keeps one event per object, its latest pin or delete, and serves them as a feed (`objectEvents`) ordered by time and id after a cursor. The worker keeps a copy of that inventory in `indexer_objects` and the cursor it read up to in `reconcile_feed`, so a run reads only the events since the previous one, page by page (`RECONCILE_PAGE_SIZE`, at most the indexer's maximum of 500), applies each page together with the new cursor in one transaction, and stops on a page shorter than the limit. The saved cursor stays an hour behind the newest events: the indexer stamps an event with the start of its transaction, so an event can arrive after later-stamped ones were read, and re-reading the last hour on each run picks it up. The copy belongs to one indexer URL and account key; a run against another one starts it over from the start of the feed, as does the first run after an upgrade.
+- **The grace window.** Objects the indexer pinned or unpinned within the hour before the run started are work in progress, not drift: an upload pins its objects during the Sia upload stage, minutes before finalize records them, and a deletion unpins objects moments before it forgets them. They are left out of the orphan and missing lists (the worker logs how many), and the next run looks at them again. Deleted objects are kept in `indexer_objects` only for that hour.
+- **The result.** Ids in both are in sync. Ids only the indexer has are orphans: storage the account pays for that no asset references. Ids only the database has are missing: an object the database expects but the indexer does not report, which is the worrying case. The run is stored in `reconciliation_runs` with counts and the full id lists, with status `ok` when there is no drift and `drift` otherwise. Only the latest 100 runs are kept; each run deletes the ones before them.
+- **Failures.** If either side cannot be read, a run with status `failed` and the error message is stored, so an outage shows up as a failed run rather than as a stale report. That includes a feed that cannot be paged: a full page whose last event is not past the cursor it was asked from (the SDK passes times at millisecond precision, so more than 500 events inside one millisecond would stall it) fails the run instead of recording every object not read yet as missing. The pages read before the failure stay applied, and the next run resumes from them.
 
 `GET /api/v1/reconciliation` (scope `manage`) returns the latest run, and the Studio dashboard shows the status and time of the last run.
 
@@ -134,4 +138,4 @@ Every run, manual or scheduled, is added to the `reconcile` queue under one Bull
 
 The repeatable schedule does not run a pass itself. Each tick enqueues a run through the same deduplicated add, so a tick that lands while a manual run is pending is dropped, and a manual trigger while a scheduled run is pending is answered with `already_pending`. The worker has two slots so that a tick is handled while a run is active rather than waiting behind it and queuing a second run as soon as the first finishes; the deduplication keeps two runs from overlapping.
 
-Some drift is expected and temporary. Objects of an asset that is between its Sia upload and its finalize step are pinned but not yet in the database, so a run at that moment counts them as orphans. Objects from a processing run whose finalize never succeeded stay orphaned until someone removes them.
+Objects from a processing run whose finalize never succeeded are not in flight: once they are older than the grace window, they are reported as orphans until someone removes them. Because in-flight objects are in neither list, `in_sync_count` plus `orphan_count` can be less than `indexer_object_count`, and `in_sync_count` plus `missing_count` less than `db_object_count`.

@@ -120,6 +120,7 @@ describe.skipIf(!hasTestDatabase)(
         missingCount: 0,
         orphanedIds: [],
         missingIds: [],
+        inFlightCount: 0,
         ...overrides,
       });
 

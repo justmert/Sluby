@@ -9,9 +9,14 @@ import {
   enqueueReconciliationRun,
   type EnqueueRunResult,
 } from './enqueue.js';
-import { collectObjectIds } from './collect-inventory.js';
-import { listObjectEventsPage } from '../storage/sia-client.js';
-import { getAllTrackedObjectIds, recordReconciliationRun } from '../db/queries/reconciliation.js';
+import { syncObjectFeed } from './collect-inventory.js';
+import { getAccountInfo, listObjectEventsPage } from '../storage/sia-client.js';
+import {
+  getAllTrackedObjectIds,
+  getIndexerInventory,
+  indexerFeedStore,
+  recordReconciliationRun,
+} from '../db/queries/reconciliation.js';
 import { applySweepSchedule, RECONCILE_SWEEP } from '../queue/schedules.js';
 
 const logger = pino({ name: 'reconcile-worker' });
@@ -21,10 +26,21 @@ async function runPass(trigger: ReconcileJobData['trigger']) {
 
   const summary = await runReconciliation({
     getDbObjectIds: () => getAllTrackedObjectIds(),
-    getIndexerObjectIds: () =>
-      collectObjectIds((cursor, limit) => listObjectEventsPage(cursor, limit), {
-        pageSize: env.RECONCILE_PAGE_SIZE,
-      }),
+    syncIndexer: async (settledBefore) => {
+      // the saved inventory belongs to one indexer account; another one
+      // (a new app key or indexer) starts it over
+      const { accountKey } = await getAccountInfo();
+      await syncObjectFeed(
+        (cursor, limit) => listObjectEventsPage(cursor, limit),
+        indexerFeedStore,
+        {
+          feed: `${env.SIA_INDEXER_URL} ${accountKey}`,
+          settledBefore,
+          pageSize: env.RECONCILE_PAGE_SIZE,
+        },
+      );
+    },
+    getIndexerInventory: () => getIndexerInventory(),
     recordRun: (s) => recordReconciliationRun(s),
     now: () => new Date(),
   });
@@ -36,6 +52,7 @@ async function runPass(trigger: ReconcileJobData['trigger']) {
       indexer: summary.indexerObjectCount,
       orphans: summary.orphanCount,
       missing: summary.missingCount,
+      inFlight: summary.inFlightCount,
     },
     'Reconciliation run complete',
   );
@@ -44,7 +61,7 @@ async function runPass(trigger: ReconcileJobData['trigger']) {
 
 /**
  * BullMQ worker for the reconcile queue. The heavy lifting (diffing,
- * replaying the change feed) lives in unit-tested pure modules; this file
+ * reading the change feed) lives in unit-tested pure modules; this file
  * just wires the real DB + indexer into them.
  */
 export const reconcileWorker = new Worker<ReconcileJobData>(

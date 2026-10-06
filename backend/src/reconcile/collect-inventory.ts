@@ -1,12 +1,13 @@
 /**
- * Turns the indexer's object-event change feed into a snapshot of the
- * currently-pinned object ids.
+ * Keeps a saved copy of the indexer's object inventory up to date from its
+ * object event feed.
  *
- * The `sia-storage` SDK does not expose a "list all objects" call. What it
- * offers is `objectEvents(cursor, limit)` — a cursor-paginated feed of
- * create/update/delete events ordered oldest-first. To reconstruct the
- * current inventory we replay the whole feed, applying last-write-wins per
- * id, and keep the ids whose most recent event is not a delete.
+ * The `sia-storage` SDK has no "list all objects" call. What it offers is
+ * `objectEvents(cursor, limit)`: the indexer keeps one event per object (its
+ * latest pin or delete), ordered by (updatedAt, id), and returns the events
+ * after a cursor. Applying them last-write-wins per id gives the inventory.
+ * The copy and the cursor are saved (see FeedStore), so each run reads only
+ * what changed since the last one instead of the whole feed.
  */
 
 /** The minimal event shape this collector needs from the SDK. */
@@ -27,45 +28,86 @@ export type FetchEventsPage = (
   limit: number,
 ) => Promise<ObjectEventLite[]>;
 
-const DEFAULT_PAGE_SIZE = 500;
+/** Where the copy of the inventory and the feed's cursor are kept. */
+export interface FeedStore {
+  /**
+   * The saved cursor to resume `feed` from, or null to read it from the
+   * start. A copy built from another feed is dropped first.
+   */
+  begin: (feed: string) => Promise<ObjectsCursor | null>;
+  /** Apply one page of events and save the cursor, atomically. */
+  applyPage: (
+    feed: string,
+    events: ObjectEventLite[],
+    cursor: ObjectsCursor | null,
+  ) => Promise<void>;
+  /** Forget deleted objects whose delete is older than `before`. */
+  pruneDeleted: (before: Date) => Promise<void>;
+}
+
+/** The indexer rejects a larger limit (indexd's documented maximum). */
+export const INDEXER_MAX_PAGE = 500;
+
+/** (after, id) order, the order the indexer pages in; ids are lowercase hex. */
+function isAfter(a: ObjectsCursor, b: ObjectsCursor | null): boolean {
+  if (!b) return true;
+  const t = a.after.getTime() - b.after.getTime();
+  return t > 0 || (t === 0 && a.id > b.id);
+}
+
+const describeCursor = (c: ObjectsCursor | null) =>
+  c ? `${c.after.toISOString()} / ${c.id}` : 'the start';
 
 /**
- * Replay the object-event feed and return the set of ids currently pinned.
+ * Read the feed from the saved cursor to its end and apply it to the saved
+ * copy.
  *
- * Termination: we stop when a page comes back shorter than `pageSize` (the
- * feed is exhausted). As a defence against a misbehaving feed that keeps
- * returning full pages without advancing, we also stop if the derived
- * cursor does not move between iterations.
+ * The end is a page shorter than the limit: the indexer pages with a plain
+ * `LIMIT` and rejects limits above 500, so a short page means nothing is left.
+ * A full page whose last event is not past the cursor it was asked from means
+ * the feed cannot be paged further (the SDK passes times at millisecond
+ * precision, so more than a page of events inside one millisecond stalls it).
+ * That throws: carrying on would record every object not read yet as missing.
+ *
+ * The saved cursor only moves past events from before `settledBefore`. The
+ * indexer stamps an event with its transaction's start time, so an event can
+ * commit after later-stamped ones were already read; holding the cursor back
+ * re-reads recent events on the next run, and applying them again is harmless.
  */
-export async function collectObjectIds(
+export async function syncObjectFeed(
   fetchPage: FetchEventsPage,
-  opts?: { pageSize?: number },
-): Promise<Set<string>> {
-  const pageSize = opts?.pageSize ?? DEFAULT_PAGE_SIZE;
-  const latest = new Map<string, boolean>(); // id -> most recent `deleted`
+  store: FeedStore,
+  opts: { feed: string; settledBefore: Date; pageSize?: number },
+): Promise<{ events: number }> {
+  const limit = Math.min(opts.pageSize ?? INDEXER_MAX_PAGE, INDEXER_MAX_PAGE);
+  let cursor = await store.begin(opts.feed);
+  let saved = cursor;
+  let events = 0;
 
-  let cursor: ObjectsCursor | null = null;
-  let lastCursorKey: string | null = null;
+  for (;;) {
+    const page = await fetchPage(cursor, limit);
+    events += page.length;
 
-  while (true) {
-    const page = await fetchPage(cursor, pageSize);
-    for (const event of page) {
-      latest.set(event.id, event.deleted);
+    let settled = saved;
+    for (const e of page) {
+      const at: ObjectsCursor = { id: e.id, after: e.updatedAt };
+      if (e.updatedAt <= opts.settledBefore && isAfter(at, settled)) settled = at;
     }
+    await store.applyPage(opts.feed, page, settled);
+    saved = settled;
 
-    if (page.length < pageSize) break;
-
+    if (page.length < limit) break;
     const last = page[page.length - 1];
-    const nextCursor: ObjectsCursor = { id: last.id, after: last.updatedAt };
-    const nextKey = `${nextCursor.id}@${nextCursor.after.getTime()}`;
-    if (nextKey === lastCursorKey) break; // cursor did not advance — bail out
-    lastCursorKey = nextKey;
-    cursor = nextCursor;
+    const next: ObjectsCursor = { id: last.id, after: last.updatedAt };
+    if (!isAfter(next, cursor)) {
+      throw new Error(
+        `the indexer's object feed did not advance past ${describeCursor(cursor)}: ` +
+          `a full page of ${limit} events ended at ${describeCursor(next)}`,
+      );
+    }
+    cursor = next;
   }
 
-  const alive = new Set<string>();
-  for (const [id, deleted] of latest) {
-    if (!deleted) alive.add(id);
-  }
-  return alive;
+  await store.pruneDeleted(opts.settledBefore);
+  return { events };
 }
