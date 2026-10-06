@@ -65,12 +65,20 @@ const VARIANT =
   '#EXTM3U\n#EXT-X-MAP:URI="/v1/objects/data",BYTERANGE="16@0"\n' +
   '#EXTINF:1.0,\n#EXT-X-BYTERANGE:16@16\n/v1/objects/data\n#EXT-X-ENDLIST\n';
 
-/** Minimal nginx that serves the origin files with native Range support. */
+/**
+ * Minimal nginx that serves the origin files with native Range support. Like
+ * the backend's delivery routes, it sends its own CORS headers.
+ */
 const ORIGIN_CONF = `events { worker_connections 128; }
 http {
   server {
     listen 80;
-    location / { root /origin; }
+    location / {
+      root /origin;
+      add_header Access-Control-Allow-Origin * always;
+      add_header Access-Control-Allow-Credentials true always;
+      add_header Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges" always;
+    }
   }
 }
 `;
@@ -228,6 +236,25 @@ describe.skipIf(!HAS_DOCKER)('HLS delivery through nginx', () => {
       expect(r.buf[r.buf.length - 1]).toBe(end);
       // Ranged reads bypass the proxy cache.
       expect(r.headers.get('x-cache-status')).toBe('BYPASS');
+    }
+  });
+
+  it('sends a single Access-Control-Allow-Origin, cached or not', async () => {
+    // fetch joins repeated headers with ", ", and a browser rejects "*, *"
+    const path = '/v1/objects/master?corstest=1';
+    const first = await fetchThroughNginx(base, path, { Origin: 'http://example.test' });
+    const cached = await fetchThroughNginx(base, path, { Origin: 'http://example.test' });
+    const ranged = await fetchThroughNginx(base, '/v1/objects/data', {
+      Origin: 'http://example.test',
+      Range: 'bytes=0-15',
+    });
+    expect(cached.headers.get('x-cache-status')).toBe('HIT');
+    for (const r of [first, cached, ranged]) {
+      expect(r.headers.get('access-control-allow-origin')).toBe('*');
+      expect(r.headers.get('access-control-allow-credentials')).toBeNull();
+      expect(r.headers.get('access-control-expose-headers')).toBe(
+        'Content-Length, Content-Range, Accept-Ranges',
+      );
     }
   });
 
