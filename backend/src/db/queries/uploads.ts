@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { uploadSessions, type UploadSession, type NewUploadSession } from '../schema.js';
 
@@ -51,13 +51,18 @@ export async function updateUploadSession(
 }
 
 /**
- * The upload file paths of every session that fed an asset. Sessions created
+ * The upload file paths of an asset's sessions, for removing them when the
+ * asset is deleted. Cancelled sessions are left out: whoever cancelled one
+ * removes its files (the tus DELETE handler or the REST cancel route), and
+ * racing a tus DELETE to them would make it answer 404. Sessions created
  * before the path was recorded at creation hold '' until they complete.
  */
 export async function listUploadFilePaths(videoAssetId: string): Promise<string[]> {
   const rows = await db
     .select({ filePath: uploadSessions.filePath })
     .from(uploadSessions)
-    .where(eq(uploadSessions.videoAssetId, videoAssetId));
+    .where(
+      and(eq(uploadSessions.videoAssetId, videoAssetId), ne(uploadSessions.status, 'cancelled')),
+    );
   return rows.map((r) => r.filePath).filter(Boolean);
 }

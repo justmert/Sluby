@@ -24,7 +24,8 @@ vi.mock('../config/env.js', () => ({
 
 import { createTusServer, type TusServerDeps } from '../upload/tus-server.js';
 import { sweepExpiredUploads, UPLOAD_EXPIRY_MS } from '../upload/upload-store.js';
-import { removeSessionSource } from '../upload/source-files.js';
+import { removeAssetSources, removeSessionSource } from '../upload/source-files.js';
+import { SessionManager } from '../upload/session-manager.js';
 import { buildRetryAsset } from '../queue/retry.js';
 import { logger } from '../config/logger.js';
 
@@ -125,6 +126,46 @@ describe('tus upload files', () => {
   });
 
   it('removes the data and the sidecar when the uploader terminates the upload', async () => {
+    // wired like index.ts: the session is cancelled without touching the files,
+    // and the asset deletion removes the sources of sessions that are not
+    // cancelled (listUploadFilePaths). it runs here before tus's own removal,
+    // the worst case of the race with the deletion worker
+    const sessions = new SessionManager({
+      insertSession: async () => {},
+      getSession: async (id) => {
+        const s = w.sessions.get(id);
+        return s
+          ? {
+              id,
+              videoAssetId: s.videoAssetId,
+              uploadUrl: '',
+              filePath: s.filePath,
+              fileSize: 10,
+              uploadedBytes: 0,
+              sha256Hash: null,
+              status: s.status as 'uploading',
+              metadata: {},
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              expiresAt: new Date(),
+            }
+          : null;
+      },
+      updateSession: async (id, data) => {
+        if (data.status) w.sessions.get(id)!.status = data.status;
+      },
+    });
+    w.deps.cancelUpload = async (id) => {
+      await sessions.cancel(id, undefined, { removeFiles: false });
+    };
+    w.deps.discardAsset = (assetId) =>
+      removeAssetSources(assetId, {
+        listSourcePaths: async (a) =>
+          [...w.sessions.values()]
+            .filter((s) => s.videoAssetId === a && s.status !== 'cancelled')
+            .map((s) => s.filePath),
+        log: logger,
+      });
     const server = createTusServer(w.deps);
     const { id, location } = await create(server, 10);
     await patch(server, location, 'hello');
@@ -134,8 +175,23 @@ describe('tus upload files', () => {
 
     expect(res.status).toBe(204);
     expect(onDisk(id)).toEqual({ data: false, sidecar: false });
-    expect(w.deps.cancelUpload).toHaveBeenCalledWith('session-' + nextAsset);
-    expect(w.deps.discardAsset).toHaveBeenCalledWith('asset-' + nextAsset);
+    expect(w.sessions.get(`session-${nextAsset}`)!.status).toBe('cancelled');
+  });
+
+  it('answers 404 on the next request once the asset of an upload in flight is deleted', async () => {
+    const server = createTusServer(w.deps);
+    const { id, location } = await create(server, 10);
+    await patch(server, location, 'hello');
+
+    // what the deletion worker does for an asset whose upload is still running
+    await removeAssetSources(`asset-${nextAsset}`, {
+      listSourcePaths: async () => [`${uploadDir}/${id}`],
+      log: logger,
+    });
+
+    expect(onDisk(id)).toEqual({ data: false, sidecar: false });
+    const head = await server.handleWeb(new Request(location, { method: 'HEAD', headers: TUS }));
+    expect(head.status).toBe(404);
   });
 });
 

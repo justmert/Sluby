@@ -364,7 +364,8 @@ const tusServerDeps: TusServerDeps = {
   },
 
   cancelUpload: async (uploadId) => {
-    await sessionManager.cancel(uploadId);
+    // only reached from a tus DELETE, whose file store removes the files
+    await sessionManager.cancel(uploadId, undefined, { removeFiles: false });
   },
 
   enqueueTranscoding: async (data) => {

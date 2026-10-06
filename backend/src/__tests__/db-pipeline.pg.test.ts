@@ -225,7 +225,7 @@ describe.skipIf(!hasTestDatabase)('pipeline record queries (postgres)', () => {
       expect(await uploads.updateUploadSession(unknown, { status: 'failed' })).toBeUndefined();
     });
 
-    it('lists the upload file paths of one asset, skipping sessions without one', async () => {
+    it('lists the upload file paths of one asset, skipping cancelled sessions and those without one', async () => {
       const a = await newAsset();
       const other = await newAsset();
       const session = (filePath: string, videoAssetId: string) =>
@@ -238,6 +238,8 @@ describe.skipIf(!hasTestDatabase)('pipeline record queries (postgres)', () => {
       await session('/uploads/first', a.id);
       await session('/uploads/second', a.id);
       await session('', a.id);
+      const cancelled = await session('/uploads/cancelled', a.id);
+      await uploads.updateUploadSession(cancelled.id, { status: 'cancelled' });
       await session('/uploads/other', other.id);
 
       expect((await uploads.listUploadFilePaths(a.id)).sort()).toEqual([

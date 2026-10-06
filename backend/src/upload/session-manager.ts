@@ -92,14 +92,25 @@ export class SessionManager {
     return { uploadUrl: session.uploadUrl };
   }
 
-  async cancel(sessionId: string, owner?: string): Promise<boolean> {
+  /**
+   * Mark a session cancelled and delete its upload files. `removeFiles: false`
+   * is for a tus DELETE, where the file store deletes them itself right after:
+   * removing them here first would make that DELETE answer 404.
+   */
+  async cancel(
+    sessionId: string,
+    owner?: string,
+    { removeFiles = true }: { removeFiles?: boolean } = {},
+  ): Promise<boolean> {
     const session = await this.deps.getSession(sessionId);
     if (!session || (owner && session.metadata.creatorAddress !== owner)) return false;
 
     await this.deps.updateSession(sessionId, { status: 'cancelled' });
 
     // a cancelled upload is never resumed, so its partial file goes now
-    if (session.filePath) await removeSourceUpload(session.filePath, logger, { sessionId });
+    if (removeFiles && session.filePath) {
+      await removeSourceUpload(session.filePath, logger, { sessionId });
+    }
 
     logger.info({ sessionId }, 'Upload session cancelled');
     return true;

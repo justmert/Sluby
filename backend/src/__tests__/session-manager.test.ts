@@ -282,6 +282,21 @@ describe('SessionManager', () => {
         expect(existsSync(`${filePath}.json`)).toBe(false);
       });
 
+      it('leaves the files to the tus file store when asked to', async () => {
+        const filePath = path.join(dir, 'abc123');
+        writeFileSync(filePath, 'partial');
+        writeFileSync(`${filePath}.json`, '{}');
+        vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ filePath }));
+
+        await expect(manager.cancel('session-1', undefined, { removeFiles: false })).resolves.toBe(
+          true,
+        );
+
+        expect(deps.updateSession).toHaveBeenCalledWith('session-1', { status: 'cancelled' });
+        expect(existsSync(filePath)).toBe(true);
+        expect(existsSync(`${filePath}.json`)).toBe(true);
+      });
+
       it('logs with the path and still cancels when the file can not be removed', async () => {
         // a non-empty directory where the upload should be makes rm fail for real
         const filePath = path.join(dir, 'stuck');
