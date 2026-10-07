@@ -507,9 +507,6 @@ export async function inspectObject(objectId: string): Promise<ObjectSnapshot> {
  * download the object until `validUntil` without holding the owner's key. This
  * is what lets the player pull bytes directly from Sia with the backend out of
  * the byte path. One object = one URL (the SDK has no graph share).
- *
- * Uses the raw `sdk.object(id)` handle — NOT the adapted {@link getObject},
- * whose stand-in is shaped for the aggregator and is not a real SDK handle.
  */
 export async function shareObjectUrl(objectId: string, validUntil: Date): Promise<string> {
   const sdk = await getClient();
