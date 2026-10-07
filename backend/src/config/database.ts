@@ -11,6 +11,8 @@ const client = postgres(env.DATABASE_URL, {
   max: 20,
   idle_timeout: 20,
   connect_timeout: 10,
+  // notices such as "relation already exists, skipping" are not problems
+  onnotice: () => {},
 });
 
 /**

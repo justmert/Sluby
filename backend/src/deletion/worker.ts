@@ -1,5 +1,5 @@
 import { Worker, type Job } from 'bullmq';
-import pino from 'pino';
+import { logger as rootLogger } from '../config/logger.js';
 import { redisConnection, deletionQueue, type DeletionJobData } from '../queue/bull-config.js';
 import { env } from '../config/env.js';
 import { getAssetObjectIds, listAssetsPendingDeletion } from '../db/queries/assets.js';
@@ -8,7 +8,7 @@ import { buildDeletionGc } from './service.js';
 import { assetDeletionDeps, releaseLeftoverObjects, sweepTranscodeOutput } from './wiring.js';
 import { applySweepSchedule, DELETION_GC_SWEEP } from '../queue/schedules.js';
 
-const logger = pino({ name: 'deletion-worker' });
+const logger = rootLogger.child({ name: 'deletion-worker' });
 
 const IN_FLIGHT = new Set(['waiting', 'delayed', 'active', 'prioritized', 'waiting-children']);
 

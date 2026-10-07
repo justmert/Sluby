@@ -202,11 +202,11 @@ export const openapiDocument = {
           },
           message: {
             type: 'string',
-            description: 'Outside NODE_ENV=production only: the internal error message.',
+            description: 'Only with EXPOSE_ERROR_STACKS=true: the internal error message.',
           },
           stack: {
             type: 'string',
-            description: 'Outside NODE_ENV=production only: the stack trace.',
+            description: 'Only with EXPOSE_ERROR_STACKS=true: the stack trace.',
           },
         },
         required: ['error'],

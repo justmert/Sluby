@@ -1,6 +1,5 @@
 import { Worker, type ConnectionOptions, type Job, type Queue, type WorkerOptions } from 'bullmq';
 import path from 'node:path';
-import pino from 'pino';
 import type { TranscodeJobData, UploadSegmentsJobData, FinalizeJobData } from './bull-config.js';
 import { stageJobId } from './job-ids.js';
 import {
@@ -28,8 +27,9 @@ import {
 import { getUploadSessionById } from '../db/queries/uploads.js';
 import { removeSessionSource } from '../upload/source-files.js';
 import { processingDurationSeconds } from '../metrics/collector.js';
+import { logger as rootLogger } from '../config/logger.js';
 
-const logger = pino({ name: 'queue-processors' });
+const logger = rootLogger.child({ name: 'queue-processors' });
 
 /**
  * A pipeline job holds its lock this long between renewals. BullMQ's 30 s

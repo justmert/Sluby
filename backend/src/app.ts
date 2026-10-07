@@ -23,6 +23,7 @@ import {
   requireMetricsToken,
 } from './api/service-routes.js';
 import { createErrorHandler, notFoundHandler } from './api/middleware/error-handler.js';
+import { loggableUrl } from './api/log-url.js';
 import { buildDeleteAsset } from './deletion/service.js';
 import { buildRetryAsset } from './queue/retry.js';
 import type { TranscodeJobData, UploadSegmentsJobData } from './queue/bull-config.js';
@@ -871,9 +872,14 @@ export function createApp(ctx: AppContext): {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
 
-  // Request logging
+  // health checks come every few seconds from docker and the web proxy, so
+  // they log at debug; urls lose query values that could be capabilities
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    logger.info({ method: req.method, url: req.url, ip: req.ip }, 'incoming request');
+    const level = req.path === '/health' ? 'debug' : 'info';
+    logger[level](
+      { method: req.method, url: loggableUrl(req.url), ip: req.ip },
+      'incoming request',
+    );
     next();
   });
 
@@ -970,7 +976,7 @@ export function createApp(ctx: AppContext): {
 
   // ── Error Handling Middleware ──
 
-  app.use(createErrorHandler(logger));
+  app.use(createErrorHandler(logger, { exposeStacks: env.EXPOSE_ERROR_STACKS }));
 
   return { app, tusServer, expireAbandonedUploads: buildUploadExpiry(ctx, deleteAsset) };
 }

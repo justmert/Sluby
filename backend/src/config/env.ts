@@ -1,37 +1,40 @@
-import { resolve, dirname } from 'node:path';
-import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { config as dotenvConfig } from 'dotenv';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
+import { loadDotenv } from './dotenv.js';
 import { parseCidrList } from '../webhooks/egress.js';
 import { parseOperatorUsers } from '../api/auth/operator-list.js';
 import { DEFAULT_MAX_RENDITION, RENDITION_NAMES } from '../transcode/ffmpeg-args.js';
 
-// Load .env file before parsing process.env.
-// Search upward from this file to find .env at the monorepo root.
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const envPaths = [
-  resolve(__dirname, '../../../.env'), // backend/src/config -> monorepo root
-  resolve(__dirname, '../../.env'), // backend/src -> monorepo root (if running from src)
-  resolve(process.cwd(), '.env'), // CWD
-  resolve(process.cwd(), '../.env'), // one level up from CWD
-];
-
-for (const envPath of envPaths) {
-  if (existsSync(envPath)) {
-    dotenvConfig({ path: envPath });
-    break;
-  }
-}
+loadDotenv();
 
 /**
- * Placeholder session secret used for local development only. Sessions
- * signed with it grant full `manage` scope, so booting production with this
- * value would let anyone forge an admin cookie. loadEnv() hard-fails on it.
+ * The fixed secret older versions fell back to when SESSION_SECRET was unset.
+ * It is public, so production refuses it for anyone who copied it into .env.
  */
-const DEV_SESSION_SECRET = 'dev-only-do-not-use-in-production-change-me';
+const PUBLIC_DEV_SESSION_SECRET = 'dev-only-do-not-use-in-production-change-me';
+
+/** A generated key, as POST /keys and db:seed-key print them. */
+const BOOTSTRAP_KEY_FORMAT = /^sluby_[A-Za-z0-9_-]{32,}$/;
+
+/** A flag. Anything but these is refused, so `TRUE` or `yes` never silently mean false. */
+const flag = (fallback: 'true' | 'false') =>
+  z
+    .enum(['true', 'false', '1', '0'])
+    .default(fallback)
+    .transform((v) => v === 'true' || v === '1');
 
 export const envSchema = z.object({
+  /** production arms the startup guards below and switches logs to json.
+   *  Nothing else depends on it: error stacks have their own setting. */
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+
+  /** pino level for the backend and the sia sdk's own messages. */
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+
+  /** Adds the internal message and stack trace to error responses. For
+   *  debugging only: they carry file paths and internals. */
+  EXPOSE_ERROR_STACKS: flag('false'),
+
   /** PostgreSQL connection string */
   DATABASE_URL: z.string().url().default('postgresql://sluby:sluby@localhost:5432/sluby'),
 
@@ -42,7 +45,7 @@ export const envSchema = z.object({
    *  e.g. `http://127.0.0.1:9982` or `http://sia-indexd:9982` inside
    *  a Docker network. The SDK signs every request with the AppKey,
    *  so this URL doesn't need authentication of its own. */
-  SIA_INDEXER_URL: z.string().url().default('http://127.0.0.1:9982'),
+  SIA_INDEXER_URL: z.string().url().default('https://sia.storage'),
 
   /** Base URL of the indexd admin API (no trailing slash). Used for
    *  out-of-band reads (wallet address, contract list) that the SDK
@@ -73,7 +76,7 @@ export const envSchema = z.object({
 
   /** Which Sia network the connected indexd runs against. Used for
    *  UI labelling only (badge on the asset detail page, etc). */
-  SIA_NETWORK: z.enum(['zen', 'mainnet', 'testnet', 'anagami']).default('zen'),
+  SIA_NETWORK: z.enum(['zen', 'mainnet', 'testnet', 'anagami']).default('mainnet'),
 
   /** HTTP server port */
   PORT: z.coerce.number().int().positive().default(3000),
@@ -107,10 +110,7 @@ export const envSchema = z.object({
   /** Whether the background reconciliation worker runs on a schedule.
    *  Set to 'false' to disable the periodic sweep (on-demand runs via the
    *  API still work). */
-  RECONCILE_ENABLED: z
-    .string()
-    .default('true')
-    .transform((v) => v === 'true' || v === '1'),
+  RECONCILE_ENABLED: flag('true'),
 
   /** How often the reconciliation worker compares the DB against the
    *  indexer inventory, in milliseconds. Defaults to hourly. */
@@ -121,16 +121,14 @@ export const envSchema = z.object({
     .default(60 * 60 * 1000),
 
   /** Page size when reading the indexer's object change feed during
-   *  reconciliation; the indexer's maximum, 500, applies above it. */
-  RECONCILE_PAGE_SIZE: z.coerce.number().int().positive().default(500),
+   *  reconciliation. The indexer answers 400 to more than 500, which would
+   *  fail every run. */
+  RECONCILE_PAGE_SIZE: z.coerce.number().int().positive().max(500).default(500),
 
   /** Whether the deletion garbage-collector sweep runs. It re-drives assets
    *  that were soft-deleted but whose objects were never fully unpinned (e.g.
    *  the worker crashed mid-way). */
-  DELETION_GC_ENABLED: z
-    .string()
-    .default('true')
-    .transform((v) => v === 'true' || v === '1'),
+  DELETION_GC_ENABLED: flag('true'),
 
   /** How often the deletion GC sweep runs, in milliseconds. Defaults to
    *  every 15 minutes. */
@@ -148,10 +146,11 @@ export const envSchema = z.object({
     .positive()
     .default(10 * 60 * 1000),
 
-  /** Optional bootstrap API key (raw sluby_ value). Seeded at startup with
-   *  every scope whenever that exact key is not in the database: a deleted one
-   *  comes back on the next start, a rotated one stays retired. It belongs to
-   *  its own `platform` account, not to any Studio user. */
+  /** Optional bootstrap API key (raw sluby_ value). Seeded with every scope
+   *  before the server listens, once: after it is deleted or rotated away it is
+   *  never seeded again (see db/api-key-seeding.ts). It belongs to its own
+   *  `platform` account, not to any Studio user. Production requires the
+   *  format of a generated key. */
   BOOTSTRAP_API_KEY: z.string().optional(),
 
   /** Public base URL the browser sees (no trailing slash).
@@ -202,15 +201,13 @@ export const envSchema = z.object({
       }
     }),
 
-  /** HMAC secret for signing session cookies. Must be set in production;
-   *  loadEnv() refuses to boot with the dev default when NODE_ENV=production. */
-  SESSION_SECRET: z.string().default(DEV_SESSION_SECRET),
+  /** HMAC secret for session cookies and signed object urls. Unset outside
+   *  production, a random one is made for each run (see resolveEnv);
+   *  production refuses to start without a strong one. */
+  SESSION_SECRET: z.string().optional(),
 
   /** When set to 'true', bypasses the GitHub auth gate entirely (dev only). */
-  AUTH_DISABLED: z
-    .string()
-    .default('false')
-    .transform((v) => v === 'true' || v === '1'),
+  AUTH_DISABLED: flag('false'),
 
   /** Comma-separated browser origins that may call the API with the session
    *  cookie (credentialed CORS). Every other origin may still call it with a
@@ -278,7 +275,8 @@ function isOrigin(value: string): boolean {
   }
 }
 
-export type Env = z.infer<typeof envSchema>;
+type ParsedEnv = z.infer<typeof envSchema>;
+export type Env = Omit<ParsedEnv, 'SESSION_SECRET'> & { SESSION_SECRET: string };
 
 /**
  * Docker compose turns `${VAR:-}` for an unset variable into an empty string,
@@ -294,57 +292,87 @@ export function withoutEmpty(source: NodeJS.ProcessEnv): Record<string, string> 
   return out;
 }
 
-function loadEnv(): Env {
-  const result = envSchema.safeParse(withoutEmpty(process.env));
-  if (!result.success) {
-    const formatted = result.error.format();
-    const messages: string[] = [];
-    for (const [key, value] of Object.entries(formatted)) {
-      if (key === '_errors') continue;
-      const errors = (value as { _errors?: string[] })?._errors;
-      if (errors && errors.length > 0) {
-        messages.push(`  ${key}: ${errors.join(', ')}`);
-      }
-    }
-    console.error('Environment validation failed:');
-    console.error(messages.join('\n'));
-    process.exit(1);
-  }
+/**
+ * Why this configuration must not run in production, or an empty list.
+ * Outside production nothing is refused, so the quickstart keeps working.
+ */
+export function checkProductionSafety(config: ParsedEnv): string[] {
+  if (config.NODE_ENV !== 'production') return [];
+  const problems: string[] = [];
 
-  // Refuse to run production auth on a weak or publicly-known secret. Session
-  // cookies signed with it map to a full upload+read+manage identity, so a
-  // guessable secret makes admin sessions trivially forgeable.
-  //
-  // The empty-string case matters in Docker: compose expands an unset
-  // `${SESSION_SECRET}` to "", which is NOT undefined, so zod's .default()
-  // never fires and the value would silently be the empty string.
-  const sessionSecret = result.data.SESSION_SECRET;
-  if (
-    process.env.NODE_ENV === 'production' &&
-    (sessionSecret === DEV_SESSION_SECRET || sessionSecret.trim().length < 32)
-  ) {
-    const why =
-      sessionSecret === DEV_SESSION_SECRET
-        ? 'it is still the development default'
-        : sessionSecret.trim().length === 0
-          ? 'it is empty (an unset ${SESSION_SECRET} expands to "" in docker compose)'
-          : `it is only ${sessionSecret.trim().length} characters (minimum 32)`;
-    console.error(
-      `Refusing to start: SESSION_SECRET is unsafe because ${why}, while NODE_ENV=production.\n` +
-        '  Set a strong SESSION_SECRET, e.g.\n' +
-        "  node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\"",
+  // session cookies map to a full upload, read and manage identity, so a
+  // missing or guessable secret makes them forgeable
+  const secret = config.SESSION_SECRET?.trim() ?? '';
+  if (secret === '') {
+    problems.push(
+      'SESSION_SECRET is not set. Set a strong one (openssl rand -base64 32), so sessions ' +
+        'survive restarts and cannot be forged.',
     );
-    process.exit(1);
+  } else if (secret === PUBLIC_DEV_SESSION_SECRET) {
+    problems.push('SESSION_SECRET is the old development default, which is public.');
+  } else if (secret.length < 32) {
+    problems.push(`SESSION_SECRET is only ${secret.length} characters (minimum 32).`);
   }
 
-  // AUTH_DISABLED grants every request full manage scope with no key; it must
-  // never be on in production. Mirror the SESSION_SECRET guard and refuse boot.
-  if (process.env.NODE_ENV === 'production' && result.data.AUTH_DISABLED) {
-    console.error('Refusing to start: AUTH_DISABLED=true while NODE_ENV=production.');
-    process.exit(1);
+  if (config.AUTH_DISABLED) {
+    problems.push('AUTH_DISABLED=true gives every visitor full access.');
   }
 
-  return result.data;
+  if (
+    config.BOOTSTRAP_API_KEY !== undefined &&
+    !BOOTSTRAP_KEY_FORMAT.test(config.BOOTSTRAP_API_KEY)
+  ) {
+    problems.push(
+      'BOOTSTRAP_API_KEY is not a generated key (sluby_ and at least 32 more letters, digits, ' +
+        "- or _). Generate one: node -e \"console.log('sluby_' + require('crypto').randomBytes(32).toString('base64url'))\"",
+    );
+  }
+  return problems;
 }
 
-export const env = loadEnv();
+export type EnvResult =
+  { ok: true; env: Env; sessionSecretGenerated: boolean } | { ok: false; problems: string[] };
+
+/**
+ * Parse and check a set of variables: schema errors first, then the
+ * production guards. An unset SESSION_SECRET outside production becomes a
+ * random one for this run, so no public secret ever signs anything.
+ */
+export function resolveEnv(source: NodeJS.ProcessEnv): EnvResult {
+  const result = envSchema.safeParse(withoutEmpty(source));
+  if (!result.success) {
+    const problems: string[] = [];
+    for (const issue of result.error.issues) {
+      problems.push(`${issue.path.join('.')}: ${issue.message}`);
+    }
+    return { ok: false, problems };
+  }
+  const problems = checkProductionSafety(result.data);
+  if (problems.length > 0) return { ok: false, problems };
+
+  const sessionSecretGenerated = result.data.SESSION_SECRET === undefined;
+  return {
+    ok: true,
+    sessionSecretGenerated,
+    env: {
+      ...result.data,
+      SESSION_SECRET: result.data.SESSION_SECRET ?? randomBytes(32).toString('base64url'),
+    },
+  };
+}
+
+function loadEnv(): { env: Env; sessionSecretGenerated: boolean } {
+  const result = resolveEnv(process.env);
+  if (!result.ok) {
+    // the logger is configured from this module, so plain stderr here
+    console.error('Refusing to start, the configuration is not valid:');
+    console.error(result.problems.map((p) => `  ${p}`).join('\n'));
+    process.exit(1);
+  }
+  return result;
+}
+
+const loaded = loadEnv();
+export const env: Env = loaded.env;
+/** SESSION_SECRET was unset and this run uses a random one. */
+export const sessionSecretGenerated = loaded.sessionSecretGenerated;

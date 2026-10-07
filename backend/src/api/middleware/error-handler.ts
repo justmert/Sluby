@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler, Request, Response } from 'express';
 import type { Logger } from 'pino';
+import { loggableUrl } from '../log-url.js';
 
 export class AppError extends Error {
   constructor(
@@ -36,10 +37,14 @@ const CLIENT_SQLSTATES: Record<string, string> = {
  * The app's last middleware. Any error carrying a `statusCode` (AppError, or
  * an Error with the property assigned, such as body-parser's) answers with
  * that status; an error without one is a 500. The client sees the message for
- * 4xx and for any AppError, and a generic text otherwise. Outside production
- * the body also carries the message and stack for debugging.
+ * 4xx and for any AppError, and a generic text otherwise. With `exposeStacks`
+ * (EXPOSE_ERROR_STACKS) the body also carries the message and stack for
+ * debugging; never by default, whatever NODE_ENV is.
  */
-export function createErrorHandler(log: Logger): ErrorRequestHandler {
+export function createErrorHandler(
+  log: Logger,
+  opts: { exposeStacks?: boolean } = {},
+): ErrorRequestHandler {
   return (err: Error, req, res, next) => {
     // a response that already started (a stream that failed midway) cannot
     // get a JSON error body; express closes the connection instead
@@ -51,15 +56,17 @@ export function createErrorHandler(log: Logger): ErrorRequestHandler {
     const sqlstate = postgresCode(err);
     const clientMessage = sqlstate ? CLIENT_SQLSTATES[sqlstate] : undefined;
     if (clientMessage) {
-      log.warn({ method: req.method, url: req.url, sqlstate }, 'Request rejected by the database');
+      log.warn(
+        { method: req.method, url: loggableUrl(req.originalUrl), sqlstate },
+        'Request rejected by the database',
+      );
       res.status(400).json({ error: clientMessage });
       return;
     }
 
     const statusCode = (err as unknown as { statusCode?: number }).statusCode ?? 500;
-    const isProduction = process.env.NODE_ENV === 'production';
 
-    const context = { err, method: req.method, url: req.url, statusCode };
+    const context = { err, method: req.method, url: loggableUrl(req.originalUrl), statusCode };
     if (statusCode >= 500) log.error(context, 'Request failed');
     else log.warn(context, 'Request rejected');
 
@@ -70,7 +77,7 @@ export function createErrorHandler(log: Logger): ErrorRequestHandler {
     res.status(statusCode).json({
       error: exposeMessage ? err.message : 'Internal Server Error',
       ...(details !== undefined ? { details } : {}),
-      ...(isProduction ? {} : { message: err.message, stack: err.stack }),
+      ...(opts.exposeStacks ? { message: err.message, stack: err.stack } : {}),
     });
   };
 }

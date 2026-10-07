@@ -1,11 +1,11 @@
-import pino from 'pino';
 import { redisConnection, uploadSegmentsQueue, finalizeQueue } from './bull-config.js';
 import { createPipelineWorkers } from './pipeline.js';
 import { env } from '../config/env.js';
+import { logger as rootLogger } from '../config/logger.js';
 import { getVideoAssetById } from '../db/queries/assets.js';
 import { webhookDispatcher } from '../webhooks/worker.js';
 
-const logger = pino({ name: 'queue-processors' });
+const logger = rootLogger.child({ name: 'queue-processors' });
 
 /**
  * Send an asset event to the webhooks of the account that owns the asset.

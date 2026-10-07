@@ -28,7 +28,7 @@
  */
 
 import { env } from '../config/env.js';
-import { logger } from '../config/logger.js';
+import { logger, sdkLogLevel } from '../config/logger.js';
 import { initSia, AppKey, Builder, setLogger } from '@siafoundation/sia-storage';
 import type {
   Host,
@@ -72,10 +72,14 @@ export function getClient(): Promise<Sdk> {
     sdkPromise = (async () => {
       logger.info({ indexer: env.SIA_INDEXER_URL }, 'Connecting to indexd via sia-storage SDK');
       await initSia();
-      // Forward SDK debug logs into pino at the matching level so
-      // upload/download progress shows up in the same stream as the
-      // rest of the backend.
-      setLogger((msg) => logger.debug({ src: 'sia-storage' }, msg), 'debug');
+      // the sdk filters by level itself and hands over bare messages, so ask
+      // it for LOG_LEVEL and log what it sends at that level; asking for
+      // debug always made it format every debug message for nothing
+      const sdkLevel = sdkLogLevel(env.LOG_LEVEL);
+      if (sdkLevel !== 'off') {
+        const pinoLevel = env.LOG_LEVEL === 'fatal' ? 'error' : env.LOG_LEVEL;
+        setLogger((msg) => logger[pinoLevel as 'info']({ src: 'sia-storage' }, msg), sdkLevel);
+      }
 
       const appKey = new AppKey(Buffer.from(env.SIA_APP_KEY, 'hex'));
       const builder = new Builder(env.SIA_INDEXER_URL, APP_META);
