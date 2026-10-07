@@ -1,4 +1,5 @@
 import { CopyButton } from './CopyButton';
+import { truncateMiddle } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 
 export interface ObjectIdBadgeProps {
@@ -10,11 +11,6 @@ export interface ObjectIdBadgeProps {
   className?: string;
   /** Hide the copy control if you just want the truncated label (default: false). */
   hideCopy?: boolean;
-}
-
-function truncateMiddle(value: string, chars: number): string {
-  if (value.length <= chars * 2 + 3) return value;
-  return `${value.slice(0, chars)}\u2026${value.slice(-chars)}`;
 }
 
 /**
