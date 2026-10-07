@@ -154,7 +154,7 @@ Give `<SlubyPlayer>` a playback URL, the client and the asset id:
 />
 ```
 
-- `client.playback.streamUrl(id)` returns the public master manifest URL, `{deliveryBaseUrl}/v1/stream/{id}/master.m3u8`, for an asset id or a `pb_...` playback id. It makes no request and needs no key, and the gateway serves it to anyone while the asset is public (a private asset or a `signed` playback id answers 403).
+- `client.playback.streamUrl(id)` returns the public master manifest URL, `{deliveryBaseUrl}/v1/stream/{id}/master.m3u8`, for an asset id or a `pb_...` playback id. It makes no request and needs no key, and the gateway serves it to anyone while the asset is public (a private asset or a `signed` playback id answers 403). A `signed` playback id gates only its own stream URL: the asset's other playback ids keep playing, and its objects stay public, so make the asset private to keep the video private.
 - With `src` and `assetId`, a `client` that has a [viewer identity](#direct-from-sia-playback) streams that URL straight from Sia. Without one, the player plays `src` through the gateway.
 - With `client` and `assetId` but no `src`, the player asks the API for the URL (`playback.getUrl`, or `playback.getSignedUrl` when `signed` is set), which needs a key or a signed-in session. The example uses this only for `signed`.
 
@@ -254,7 +254,7 @@ Upload with `accessTier: 'private'` and the gateway refuses to serve the asset's
 <SlubyPlayer client={client} assetId={id} signed expiresIn={3600} />
 ```
 
-`playback.getSignedUrl` returns a manifest URL carrying an expiry and an HMAC signature. The gateway signs every playlist and segment URL inside the manifests it serves with the same expiry, so the one URL authorizes the whole video until it expires (one hour by default). The same signature unlocks the asset's share map on `/v1/share/:id`; share maps for private assets are capped at one hour and never outlive the signature.
+`playback.getSignedUrl` returns a manifest URL carrying an expiry and an HMAC signature, and a `posterUrl` signed the same way, which the player shows as the poster. The gateway signs every playlist and segment URL inside the manifests it serves with the same expiry, so the one URL authorizes the whole video until it expires (one hour by default, six at most; the player renews a URL it signed itself before then). The same signature unlocks the asset's share map on `/v1/share/:id`; share maps for private assets are capped at one hour and never outlive the signature. Changing the asset's tier, or `POST /api/v1/playback/{id}/signed/revoke`, voids every signed URL of the asset at once.
 
 `assets.update(id, { accessTier })` changes the tier of an existing asset. It needs the `manage` scope.
 

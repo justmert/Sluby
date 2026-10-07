@@ -37,19 +37,24 @@ sequenceDiagram
   participant H as Sia hosts
 
   P->>N: GET /v1/objects/{master} ?type=manifest
-  alt cached by nginx
+  alt fresh in nginx (kept under a minute)
     N-->>P: 200 from proxy_cache
+  else stale in nginx
+    N->>G: same request with If-None-Match
+    G->>G: check access again
+    G-->>N: 304 while still public (403 or 404 otherwise)
+    N-->>P: 200 from proxy_cache, or the 403 or 404
   else miss
     N->>G: GET /v1/objects/{master} ?type=manifest
-    G->>G: resolve access tier of the object
+    G->>G: check access of the object
     alt in the backend memory cache
       G-->>N: 200 (X-Cache-Status HIT)
     else
       G->>I: object metadata
-      G->>H: download the whole object
+      G->>H: download the whole object (8 MB at most)
       G-->>N: 200 (MISS), kept in memory
     end
-    N-->>P: 200, stored in proxy_cache
+    N-->>P: 200, kept by nginx for a minute
   end
   P->>N: GET /v1/objects/{720p playlist}
   N-->>P: 200 (same path as above)
@@ -57,43 +62,63 @@ sequenceDiagram
   N->>G: same request, cache bypassed
   G->>I: object metadata (size)
   G->>H: download only that byte range
-  G-->>N: 206 Partial Content
+  G-->>N: 206 Partial Content, streamed as it arrives
   N-->>P: 206
 ```
 
 `GET /v1/objects/:objectId` (`backend/src/delivery/aggregator.ts`) has no login. For each request it:
 
-1. **Resolves the object's access tier** (`backend/src/delivery/access-control.ts`) by mapping the object id back to its asset through `artifacts` and the ids stored on `video_assets`. An object whose asset is being deleted is `gone` and gets a 404. An object of a `private` asset, or of any asset that has a playback id with the `signed` policy, needs a valid signature. Anything else, including an object no asset claims, is served openly. If the database lookup fails, the gateway answers 404 rather than serving bytes that might be private. Results are cached for 60 seconds.
-2. **Serves a `Range` request by passthrough.** It asks the indexer for the object's size, parses the range (`bytes=N-M`, `bytes=N-` and `bytes=-N`; anything else, such as a multi-range request, is ignored and the whole object is served), downloads only those bytes from the hosts, and answers 206. A range starting past the end gets 416. Ranged responses are never cached by the backend. HLS segment reads are always ranged, since every segment is a byte range of one `data.m4s`.
-3. **Serves a full `GET` from memory.** Without a `Range` header, the whole object goes through an in-memory LRU cache bounded by `CACHE_MAX_SIZE_MB` (entries live up to 24 hours). This is meant for manifests and thumbnails, which are small. The `Content-Type` comes from the `?type=` hint (`manifest`, `playlist`, `thumbnail`, `poster`, `video`, `segment`, `data`), from the body for manifests, or from the magic bytes for images.
+1. **Checks the id.** Anything but 64 lowercase hex characters gets a 400 without touching the database or the indexer.
+2. **Decides access from the owning asset** (`backend/src/delivery/access-control.ts`), found through `artifacts`, which holds every stored object id of every asset (migration 0009 backfilled older assets). Access follows only the asset itself: an object of a `public` asset is open, an object of a `private` asset needs a valid signature, an object whose asset is being deleted gets a 404, and so does an object no asset claims (an unpinning leftover, say), without asking the indexer. Playback ids play no part here: a `signed` playback id gates its own `/v1/stream` entry, not the objects. If one object were ever claimed by two assets, the stricter claim wins. If the database cannot be read the gateway answers 503, so it neither serves nor refuses on a guess.
+3. **Serves a `Range` request by streaming passthrough.** One indexer lookup gives the size and the handle the download uses. The range is parsed (`bytes=N-M`, `bytes=N-` and `bytes=-N`; anything else, such as a multi-range or inverted request, is ignored and the whole object is served, as is a range whose `If-Range` names another version), only the slabs it overlaps are fetched from the hosts, and the bytes are streamed to the client as they arrive, with the client's backpressure, as a 206. A range starting past the end gets 416. An open-ended `bytes=0-` of a large file is streamed the same way, so it is never held in memory. A range of an object already in the memory cache is cut from there.
+4. **Serves a whole object by size.** Without a usable `Range`, an object of up to 8 MB (manifests, playlists, thumbnails) is read once into an in-memory LRU bounded by `CACHE_MAX_SIZE_MB` (default 256) and served from it; concurrent misses on one object share one download. A larger object is streamed from Sia uncached. `HEAD` takes the same path without a body, so a large object costs only the indexer lookup. The `Content-Type` comes from the `?type=` hint (`manifest`, `playlist`, `thumbnail`, `poster`, `video`, `segment`, `data`), from the body for manifests, or from the magic bytes for images.
+5. **Maps failures.** The indexer reporting no such object is a 404, any other indexer or host failure a 502, the database a 503. A stream that breaks off or ends short after the headers went out is cut, so the client sees a broken response, never wrong bytes.
 
-Response caching headers: manifests are `public, max-age=60`, thumbnails and media `public, max-age=86400`, and anything private is `no-store`.
+Every public answer carries `ETag: "<object id>"` (objects never change under their id) and `Cache-Control: public, no-cache`: a browser, CDN or other cache must revalidate before reusing it, and the gateway answers that revalidation with 304 only after checking access again. A small whole public object also carries `X-Accel-Expires: 60`, which lets the shipped nginx keep it for a minute between checks (nginx strips that header). Ranged and large answers never carry it, so nginx keeps no media. Private answers are `no-store`, and errors are never cacheable.
 
 Both the backend and `nginx/conf.d/sia-aggregator.conf` set `Access-Control-Allow-Origin: *` on gateway responses. nginx drops the backend's CORS headers before adding its own, so a response carries each header once and players on other origins can read it.
 
-`GET /v1/stream/:id/master.m3u8` serves the master manifest for an asset id or a `pb_...` playback id from a separate manifest cache (1000 entries, 60 seconds). It applies the same gate: a private asset, or a playback id with the `signed` policy, needs a signature over the master manifest's object id.
+`GET /v1/stream/:id/master.m3u8` serves the master manifest for an asset id or a `pb_...` playback id from a separate manifest cache (1000 entries, 32 MB). Its gate depends on the asset and on the handle used: a private asset, or a playback id with the `signed` policy, needs a signature over the master manifest's object id, and the child urls in the answer are then signed. A public asset reached by its id or a public playback id needs nothing, even when the asset also has a `signed` playback id: a signed handle gates only itself, so adding one never breaks another embed. It also means a signed handle on a public asset does not make the asset's bytes private, since its objects stay public under their own ids; make the asset private for that. A public answer is cached like a public object (ETag of the master object, revalidated, a minute in nginx).
 
 ### Cache layers
 
-| Layer                | Where                   | Holds                                                                  | Bound and lifetime                                                                                                                                               |
-| -------------------- | ----------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| nginx `proxy_cache`  | web container, on disk  | 200 responses of `/v1/objects/`, `/v1/stream/` and public `/v1/share/` | 10 GB, entries dropped after 24 h without a hit; honours the backend's `Cache-Control`, so manifests expire after 60 s and `no-store` responses are never stored |
-| backend object LRU   | backend process, memory | whole objects fetched without `Range`                                  | `CACHE_MAX_SIZE_MB` (default 10240), 24 h                                                                                                                        |
-| backend manifest LRU | backend process, memory | master manifests for `/v1/stream`                                      | 1000 entries, 60 s                                                                                                                                               |
-| share map cache      | backend process, memory | minted share maps, per asset, master and expiry slot                   | 5000 entries, each kept until its share URLs expire                                                                                                              |
-| access tier cache    | backend process, memory | object id to `public`, `private`, `gone` or `unknown`                  | 10000 entries, 60 s                                                                                                                                              |
+| Layer                | Where                   | Holds                                                                    | Bound and lifetime                                                                                                   |
+| -------------------- | ----------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| nginx `proxy_cache`  | web container, on disk  | small public objects, public masters of `/v1/stream/`, public share maps | 10 GB; fresh for at most 60 s (the backend's `X-Accel-Expires`), then revalidated against the backend's access check |
+| backend object LRU   | backend process, memory | whole objects of up to 8 MB                                              | `CACHE_MAX_SIZE_MB` (default 256); objects never change, so entries only leave by eviction                           |
+| backend manifest LRU | backend process, memory | master manifests for `/v1/stream`                                        | 1000 entries, 32 MB                                                                                                  |
+| share map cache      | backend process, memory | minted share maps, per asset, master and expiry slot                     | 5000 entries, each kept until its share URLs expire                                                                  |
+| object owners cache  | backend process, memory | object id to the assets that claim it                                    | 50000 entries, 5 minutes (1 minute for an id no asset claims)                                                        |
+| asset access cache   | backend process, memory | an asset's tier, deletion and signing state                              | 20000 entries, 60 s, dropped at once by a tier edit, a revoke or a delete made through this process                  |
 
-nginx keys its cache on the full URI including the query string, so signed and unsigned requests never share an entry, and it neither caches nor serves cached copies for requests with a `Range` header: many segments share one object URL and differ only by range. It also sets its own `X-Cache-Status` (HIT, MISS, BYPASS, ...) in place of the backend's.
+nginx keys its cache on the method, the path and the `type` hint (the only part of the query that changes an answer), so a junk query string cannot force a miss. A request with a `Range` header or a `sig` bypasses the cache both ways: many segments share one object URL and differ only by range, and a signed request is answered per request. nginx never serves a stale entry in place of an answer, not even when the backend is down, streams what it does not keep through its memory buffers only, and sets its own `X-Cache-Status` (HIT, MISS, REVALIDATED, BYPASS, ...) in place of the backend's.
 
-When finalize marks an asset ready it warms the backend object LRU with the master playlist, the variant playlists and the thumbnails, and the manifest LRU with the master. The large `data.m4s` objects are never cached whole; their bytes are fetched from Sia per range on every request that misses nginx, and nginx does not cache ranges either. So on the gateway path, every segment a viewer plays is downloaded from Sia hosts by the backend.
+When finalize marks an asset ready it warms the backend object LRU with the master playlist, the variant playlists and the thumbnails, and the manifest LRU with the master. The large `data.m4s` objects are never cached whole; their bytes are fetched from Sia per range on every request, and nginx does not keep them either. So on the gateway path, every segment a viewer plays is downloaded from Sia hosts by the backend. (Caching media segments, promised for milestone 2, is a recorded deviation.)
+
+### How long an access change takes
+
+| Change                                    | The backend                                  | Copies in nginx                                                         | Browsers and other caches       |
+| ----------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------- |
+| `PATCH` to `private`                      | at once                                      | at most 60 s, then 403 on revalidation                                  | revalidate on every use, so 403 |
+| `DELETE`                                  | at once (404 while the objects are unpinned) | at most 60 s, then 404                                                  | the same                        |
+| revoke, or a tier change, for signed URLs | at once: every older signature is refused    | signed requests are never cached                                        | private answers are `no-store`  |
+| a `signed` playback id added              | its own `/v1/stream` entry needs a signature | nothing changes: the asset and its other entries stay public, by design | nothing changes                 |
+
+"At once" holds for the backend process that handled the change; another backend process notices within its 60 second asset cache. The integration test in `backend/src/__tests__/nginx-delivery.integration.test.ts` runs the real backend behind the shipped nginx config and checks the 403 and 404 after the window. Share URLs already handed out for direct-from-Sia playback are not covered by any of this: they keep working until they expire (see below).
 
 ### Private assets and signed URLs
 
-An asset is gated when its `access_tier` is `private` (set at upload or with `PATCH /api/v1/assets/:id`), or when it has a playback id with the `signed` policy. Gated objects need `expires` and `sig` query parameters, where `sig` is the hex HMAC-SHA256 of `{objectId}:{expires}` under `SESSION_SECRET` (`backend/src/delivery/signed-url.ts`). The signature is checked in constant time before the expiry, so an attacker cannot use the error to learn which object ids exist.
+An object is gated when its asset's `access_tier` is `private` (set at upload or with `PATCH /api/v1/assets/:id`). The `/v1/stream` and `/v1/share` entries are also gated when reached through a playback id with the `signed` policy. Gated requests need `expires` and `sig` query parameters (`backend/src/delivery/signed-url.ts`):
 
-`GET /api/v1/playback/:id/signed?expires_in=N` (SDK: `playback.getSignedUrl`) returns an absolute URL for the master manifest built on `PUBLIC_URL`, signed until now plus `N` seconds (3600 when omitted). One signature covers the whole asset: when the gateway serves a gated manifest, it adds `expires` and `sig` to every `/v1/objects/` path inside it, using the same expiry the request proved. The variant playlists are then signed the same way when they are fetched, and the segment URLs in them carry valid signatures. Because every URL in the tree shares the original expiry, a viewer still watching when it passes gets a 403 on the next segment; pick an expiry longer than the video.
+- `sig` is the hex HMAC-SHA256 of `v2:{objectId}:{expires}:{generation}` under a key derived from `SESSION_SECRET` with HKDF for this use alone, so a signature can never stand in for a session cookie or the other way round. Rotating `SESSION_SECRET` still voids every signed URL as well as every session.
+- `generation` is the asset's signing generation (`video_assets.signing_generation`). It goes up when the asset's tier changes (in the same statement as the change) and when the owner calls `POST /api/v1/playback/:id/signed/revoke` (scope `manage`). Every URL signed under an older generation, and every child URL signed from one, is refused from then on, while other assets are untouched.
+- `expires` is a unix time no more than six hours ahead. A URL whose expiry lies further out is refused even with a valid signature, so no URL outlives the cap whatever minted it.
 
-Changing an asset's tier with `PATCH` clears the tier cache for its objects immediately. It does not purge nginx: a manifest or thumbnail that nginx cached while the asset was public stays servable from nginx until its entry expires (60 seconds for manifests, up to a day for thumbnails). Media segments are not affected, since ranged reads are never cached. Adding a `signed` playback id does not clear the tier cache, so it takes effect within 60 seconds.
+The signature is checked in constant time before the expiry, so the error cannot be used to learn which object ids exist.
+
+`GET /api/v1/playback/:id/signed?expires_in=N` (SDK: `playback.getSignedUrl`) returns an absolute URL for the master manifest built on `PUBLIC_URL`, signed until now plus `N` seconds. `N` defaults to 3600 and is kept between 60 and 21600 (six hours); a value that is not a whole number gets a 400. The answer also has `poster_url`, the first thumbnail signed the same way (null when there is none), so a player can show a poster for a private video. One signature covers the whole asset: when the gateway serves a gated manifest, it adds `expires` and `sig` to every `/v1/objects/` path inside it, using the expiry the request proved and the asset's current generation. The variant playlists are signed the same way when they are fetched, and the segment URLs in them carry valid signatures. Because every URL in the tree shares the original expiry, a player has to fetch a new signed URL before it passes; `SlubyPlayer` does so itself when it signed the URL.
+
+URLs signed by versions before signing generations (the session secret itself over `{objectId}:{expires}`, with no cap) keep working for six hours after migration 0014, never past their own expiry, and only for assets that existed then (`video_assets.legacy_signatures_until`). The children of a manifest served through one are signed no further than that window, and raising the asset's generation closes it at once. After six hours no such URL works any more, so a long-lived link minted before the upgrade cannot outlive it.
 
 ## The direct-from-Sia path
 
@@ -129,8 +154,8 @@ sequenceDiagram
 
 Two endpoints return the same share map, minted by the same code (`backend/src/delivery/share-urls.ts`) under the same expiry rules (`backend/src/delivery/share-expiry.ts`):
 
-- `GET /v1/share/:id` is public and lives in the delivery namespace next to `/v1/stream` (`backend/src/delivery/aggregator.ts`). It accepts an asset id or a `pb_...` playback id and is gated exactly like `/v1/stream`: a public asset with a public playback id needs nothing, while a private asset, a `signed` playback id, or a public asset that has a `signed` playback id (whose objects the gateway gates) needs the `expires` and `sig` of its signed master URL. A missing, invalid or expired signature gets 403, an asset that is unknown, not ready or being deleted gets 404. This is what the SDK uses when the player has a playback URL, so a public page plays direct from Sia without a key.
-- `GET /api/v1/playback/:id/share` (scope `read`, owner-scoped, `backend/src/api/routes/playback.ts`) answers 409 until the asset is ready. The SDK uses it when it has no playback URL (`client` and `assetId` without `src`), with the caller's key or session.
+- `GET /v1/share/:id` is public and lives in the delivery namespace next to `/v1/stream` (`backend/src/delivery/aggregator.ts`). It accepts an asset id or a `pb_...` playback id and is gated exactly like `/v1/stream`: a public asset by its id or a public playback id needs nothing, while a private asset or a `signed` playback id needs the `expires` and `sig` of its signed master URL. A missing, invalid, expired or revoked signature gets 403, an asset that is unknown, not ready or being deleted gets 404. This is what the SDK uses when the player has a playback URL, so a public page plays direct from Sia without a key.
+- `GET /api/v1/playback/:id/share` (scope `read`, owner-scoped, `backend/src/api/routes/playback.ts`) answers 409 until the asset is ready. It treats the asset as gated only when it is private. The SDK uses it when it has no playback URL (`client` and `assetId` without `src`), with the caller's key or session.
 
 Both read `expires_in` from the query (default 3600 seconds) and clamp it to 60 seconds at least and 6 hours at most, or 1 hour at most when the asset is gated. On the public endpoint the share URLs of a signed request also never outlive the signature's `expires`. The expiry is then rounded up to a five-minute slot (or down, if rounding up would pass the limit), and one `sia://` share URL is minted per object of the asset (master, playlists, data files and thumbnails) through the SDK, all valid until that moment:
 
@@ -142,9 +167,9 @@ Both read `expires_in` from the query (default 3600 seconds) and clamp it to 60 
 }
 ```
 
-Minting needs one indexer lookup per object, and the public endpoint lets anyone call it, so the map is cached per asset, master object and expiry slot until its URLs expire, and concurrent requests for a slot that is still being minted wait for that one mint. However often it is called and with whichever `expires_in`, an asset is minted at most once per slot: about 73 slots inside the six-hour cap, 13 inside the one-hour gated cap, plus one for a signature that is within a few minutes of expiring. A gated map is sent with `Cache-Control: private, no-store`. A public map from `/v1/share` may be cached for at most 60 seconds, and never so long that a cached copy would be handed out within two minutes of the shares expiring; nginx follows that header. If the indexer fails during minting, both endpoints answer 502.
+Minting needs one indexer lookup per object, and the public endpoint lets anyone call it, so the map is cached per asset, master object and expiry slot until its URLs expire, and concurrent requests for a slot that is still being minted wait for that one mint. However often it is called and with whichever `expires_in`, an asset is minted at most once per slot: about 73 slots inside the six-hour cap, 13 inside the one-hour gated cap, plus one for a signature that is within a few minutes of expiring. A gated map is sent with `Cache-Control: private, no-store`. A public map from `/v1/share` is sent `public, no-cache`, so browsers and other caches ask again each time, with `X-Accel-Expires` letting nginx keep it for at most 60 seconds, and never so long that a cached copy would be handed out within two minutes of the shares expiring. If the indexer fails during minting, both endpoints answer 502; if the database fails, 503.
 
-A share URL bypasses the HMAC gateway entirely: whoever holds it can fetch and decrypt that object until it expires, and it cannot be revoked earlier. That is why the map is minted per playback, with the shorter cap for gated assets.
+A share URL bypasses the HMAC gateway entirely: whoever holds it can fetch and decrypt that object until it expires, and it cannot be revoked earlier, not by a tier change, a revoke or a delete (until the delete unpins the objects). A viewer who fetched the map of a public asset can therefore keep playing it for up to six hours after the asset is made private. That is why the map is minted per playback, with the shorter cap for gated assets.
 
 ### The browser side
 
@@ -175,7 +200,7 @@ The player attempts direct-from-Sia in two cases. With `src`, `assetId` and a cl
 | Who downloads from hosts   | the backend, with its own indexer app                                                       | each viewer's browser, with the viewer app; the viewer app's account pays the egress, so it needs a balance |
 | Server bandwidth           | every byte passes through the backend and nginx                                             | one share map request per playback; no media bytes                                                          |
 | Caching                    | manifests and thumbnails in memory and in nginx; segments are fetched from Sia per request  | no shared cache; every viewer downloads every segment from hosts                                            |
-| Access control             | checked on every request; private bytes are `no-store`                                      | bearer share URLs valid until they expire, at most 1 hour for gated assets                                  |
+| Access control             | checked on every request, cached copies within a minute; private bytes are `no-store`       | bearer share URLs valid until they expire, at most 1 hour for gated assets                                  |
 | Browser support            | any browser with hls.js or native HLS                                                       | needs hls.js (Media Source Extensions); not used on native-only HLS                                         |
 | Client cost                | none beyond hls.js                                                                          | about 1.7 MB of WASM, loaded on first use                                                                   |
 | Credentials in the browser | none for public assets via `/v1/stream/{pb_...}/master.m3u8`; a signed URL for private ones | the same: none for public assets, the signed URL for private ones (`/v1/share` checks its signature)        |

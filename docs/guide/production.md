@@ -25,6 +25,7 @@ flowchart LR
 - a domain name with an A (and optionally AAAA) record pointing at the server
 - ports 80 and 443 reachable from the internet. Caddy needs port 80 for the ACME HTTP challenge and to redirect HTTP to HTTPS.
 - disk for uploads in flight, transcoder output and the delivery caches. Finished videos live on Sia, not on this disk.
+- memory for the backend: the gateway's object cache (`CACHE_MAX_SIZE_MB`, 256 MB by default) on top of the process itself. Video bytes are streamed from Sia to the viewer and never held whole, so the number of viewers does not grow it.
 
 ## 1. Configure
 

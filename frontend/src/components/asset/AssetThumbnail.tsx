@@ -9,8 +9,9 @@ interface AssetThumbnailProps {
   className?: string;
 }
 
-// thumbnails stream through the gateway; private assets answer 403 there, so
-// fall back to an icon rather than a broken image
+// thumbnails stream through the gateway; private assets answer 403 there
+// (a copy cached while public within a minute), so fall back to an icon
+// rather than a broken image
 export function AssetThumbnail({ thumbnailObjectIds, title, className }: AssetThumbnailProps) {
   const [failed, setFailed] = useState(false);
   const id = thumbnailObjectIds[0];
