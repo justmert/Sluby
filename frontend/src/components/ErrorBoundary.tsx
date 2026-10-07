@@ -82,13 +82,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <EmptyMedia variant="icon">
             <AlertTriangle className="text-destructive" />
           </EmptyMedia>
-          <EmptyTitle>{chunk ? 'This page could not be loaded' : 'Something went wrong'}</EmptyTitle>
+          <EmptyTitle>
+            {chunk ? 'This page could not be loaded' : 'Something went wrong'}
+          </EmptyTitle>
           <EmptyDescription>
             {chunk
               ? 'The Studio may have been updated since this tab opened. Reload to get the new version.'
               : 'Reload the page, or open another page from the menu.'}
           </EmptyDescription>
-          <EmptyDescription className="break-all font-mono text-xs">{error.message}</EmptyDescription>
+          <EmptyDescription className="break-all font-mono text-xs">
+            {error.message}
+          </EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
           <Button onClick={reloadPage}>

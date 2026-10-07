@@ -28,9 +28,11 @@ describe('apiClient', () => {
   it('surfaces the server error message, status and details', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        respond(400, { error: 'Validation failed', details: [{ field: 'name' }] }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          respond(400, { error: 'Validation failed', details: [{ field: 'name' }] }),
+        ),
     );
 
     const err = await apiClient.get('/keys').catch((e: unknown) => e);

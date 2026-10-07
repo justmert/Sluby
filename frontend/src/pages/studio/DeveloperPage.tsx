@@ -475,10 +475,7 @@ function ApiExplorer() {
             onChange={(e) => setPath(e.target.value)}
             className="font-mono text-xs"
           />
-          <Button
-            onClick={() => void send()}
-            disabled={sending || unfilled || !sendable}
-          >
+          <Button onClick={() => void send()} disabled={sending || unfilled || !sendable}>
             <Send />
             Send
           </Button>

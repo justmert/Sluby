@@ -314,11 +314,7 @@ function LatestUploads() {
                   to={`/studio/assets/${asset.id}`}
                   className="flex items-center gap-3 rounded-md py-2.5 transition-colors hover:bg-muted/50"
                 >
-                  <AssetThumbnail
-                    thumbnailObjectIds={asset.thumbnailObjectIds}
-                    title={asset.title}
-                    className="w-20"
-                  />
+                  <AssetThumbnail thumbnailObjectIds={asset.thumbnailObjectIds} className="w-20" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{asset.title}</p>
                     <p className="text-xs text-muted-foreground">

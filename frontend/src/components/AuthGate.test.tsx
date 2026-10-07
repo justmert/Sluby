@@ -122,7 +122,9 @@ describe('AuthGate', () => {
     signedIn = false;
     await client.refetchQueries({ queryKey: ['stats'] });
 
-    expect(await screen.findByText('Your session ended. Sign in again to continue.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Your session ended. Sign in again to continue.'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
     expect(screen.queryByText('3 videos')).not.toBeInTheDocument();
     await waitFor(() => expect(client.getQueryCache().getAll()).toHaveLength(0));

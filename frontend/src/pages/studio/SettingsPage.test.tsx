@@ -6,7 +6,6 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { WithSession } from '@/test/session';
 import SettingsPage, { timeLeft } from './SettingsPage';
 
-
 let keys: Array<Record<string, unknown>>;
 let sessions: Array<Record<string, unknown>>;
 let fetchMock: ReturnType<typeof vi.fn>;

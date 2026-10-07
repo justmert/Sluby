@@ -43,10 +43,15 @@ describe('UserMenu', () => {
   });
 
   it('stays signed in and says so when the logout call fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Internal Server Error' }, 500)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(json({ error: 'Internal Server Error' }, 500)),
+    );
     renderMenu();
     await signOut();
-    expect(await screen.findByText('Could not sign out: Internal Server Error')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Could not sign out: Internal Server Error'),
+    ).toBeInTheDocument();
     expect(loadPage).not.toHaveBeenCalled();
   });
 

@@ -11,7 +11,9 @@ describe('CopyButton', () => {
     await act(async () => screen.getByRole('button').click());
 
     expect(writeText).toHaveBeenCalledWith('abc');
-    expect(screen.getByRole('button')).toHaveAccessibleName('Copied');
+    // announced through a live region; the button keeps its name
+    expect(screen.getByRole('status')).toHaveTextContent('Copied');
+    expect(screen.getByRole('button')).toHaveAccessibleName('Copy to clipboard');
   });
 
   it('reports a failed copy instead of claiming success', async () => {
@@ -22,6 +24,6 @@ describe('CopyButton', () => {
 
     await act(async () => screen.getByRole('button').click());
 
-    expect(screen.getByRole('button')).toHaveAccessibleName('Copy failed');
+    expect(screen.getByRole('status')).toHaveTextContent('Copy failed: clipboard unavailable');
   });
 });
