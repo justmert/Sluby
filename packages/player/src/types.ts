@@ -43,7 +43,7 @@ export interface PlaybackResolver extends SiaPlaybackClient {
     getSignedUrl(
       assetId: string,
       options?: { expiresIn?: number },
-    ): Promise<{ signedUrl: string; expiresAt?: string }>;
+    ): Promise<{ signedUrl: string; expiresAt?: string; posterUrl?: string | null }>;
   };
 }
 

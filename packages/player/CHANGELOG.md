@@ -14,6 +14,7 @@
 
 ### Added
 
+- A private asset played through `client` + `assetId` shows the poster the backend signs with the playback URL (`posterUrl` from `playback.getSignedUrl`); before, signed playback never had one. A backend before this change signs none, and the player then shows no poster as before.
 - `useVideo(playerRef)`: pass a `<SlubyPlayer>` ref and the hook follows the player's `<video>` and every hls.js instance it builds. The README's pattern of copying the handle's element into refs never updated.
 - `refreshSrc`: called shortly before a signed `src` expires (and when a load fails after it), it returns a newly signed `src`, and playback continues from the same position.
 - Signed URLs the player fetches itself are renewed before they expire, and playback continues from the same position.
