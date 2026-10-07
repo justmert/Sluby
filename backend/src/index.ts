@@ -1,8 +1,7 @@
-import pino from 'pino';
 import { mkdirSync, readFileSync } from 'node:fs';
-import { env } from './config/env.js';
-import { db } from './config/database.js';
-import { closeDatabase } from './config/database.js';
+import { env, sessionSecretGenerated } from './config/env.js';
+import { logger } from './config/logger.js';
+import { db, closeDatabase } from './config/database.js';
 import {
   closeQueues,
   transcodeQueue,
@@ -12,6 +11,7 @@ import {
 } from './queue/bull-config.js';
 import { closeWorkers } from './queue/processors.js';
 import { createApp } from './app.js';
+import { createShutdown } from './shutdown.js';
 import { sweepExpiredUploads, UPLOAD_SWEEP_INTERVAL_MS } from './upload/upload-store.js';
 import { sweepFinishedSources } from './upload/source-files.js';
 import { sourceFileStates, deleteDetachedUploadSessions } from './db/queries/uploads.js';
@@ -33,22 +33,7 @@ import { scheduleDeletionGc, closeDeletionWorker } from './deletion/worker.js';
 // deliveries
 import { webhookDispatcher, closeWebhookWorker } from './webhooks/worker.js';
 
-// ──────────────────────────────────────────
-// Logger
-// ──────────────────────────────────────────
-
-export const logger = pino({
-  name: 'sluby',
-  level: process.env.LOG_LEVEL || 'info',
-  transport:
-    process.env.NODE_ENV !== 'production'
-      ? { target: 'pino-pretty', options: { colorize: true } }
-      : undefined,
-});
-
-// ──────────────────────────────────────────
-// Ensure required directories exist
-// ──────────────────────────────────────────
+export { logger };
 
 for (const dir of [env.UPLOAD_DIR, env.TRANSCODE_OUTPUT_DIR]) {
   mkdirSync(dir, { recursive: true });
@@ -81,26 +66,38 @@ const { app, tusServer, expireAbandonedUploads } = createApp({
   triggerReconciliation: () => triggerReconciliation(),
 });
 
-// ──────────────────────────────────────────
-// Bootstrap API Key (if configured)
-// ──────────────────────────────────────────
-
-async function bootstrapApiKey(): Promise<void> {
-  if (!env.BOOTSTRAP_API_KEY) return;
-  const outcome = await seedBootstrapApiKey(db, env.BOOTSTRAP_API_KEY);
-  if (outcome === 'created') {
-    logger.info({ platformAddress: BOOTSTRAP_CREATOR_ADDRESS }, 'Bootstrap API key seeded');
-  }
+if (sessionSecretGenerated) {
+  logger.warn(
+    'SESSION_SECRET is not set: using a random one for this run, so Studio sessions and ' +
+      'signed URLs stop working when the backend restarts. Set SESSION_SECRET to keep them.',
+  );
+}
+if (env.EXPOSE_ERROR_STACKS) {
+  logger.warn(
+    'EXPOSE_ERROR_STACKS is on: error responses carry internal messages and stack traces',
+  );
 }
 
-// ──────────────────────────────────────────
-// Server Startup
-// ──────────────────────────────────────────
-
-// Seed bootstrap key before accepting requests
-bootstrapApiKey().catch((err) => {
-  logger.warn({ err }, 'Failed to seed bootstrap API key (non-fatal)');
-});
+// the bootstrap key exists before the first request, so a script that waits
+// for /health can use it at once; a server without its only key is no use,
+// so a failure stops the boot
+if (env.BOOTSTRAP_API_KEY) {
+  try {
+    const outcome = await seedBootstrapApiKey(db, env.BOOTSTRAP_API_KEY);
+    if (outcome === 'created') {
+      logger.info({ platformAddress: BOOTSTRAP_CREATOR_ADDRESS }, 'Bootstrap API key seeded');
+    } else if (outcome === 'retired') {
+      logger.warn(
+        'BOOTSTRAP_API_KEY was deleted or rotated away earlier and is not seeded again. ' +
+          'Remove it from the environment, or set a new key.',
+      );
+    }
+  } catch (err) {
+    logger.fatal({ err }, 'Could not seed BOOTSTRAP_API_KEY');
+    await closeDatabase().catch(() => {});
+    process.exit(1);
+  }
+}
 
 // Make an open Studio or a plaintext session cookie explicit rather than silent.
 for (const warning of signInWarnings({
@@ -163,57 +160,34 @@ const server = app.listen(env.PORT, env.HOST, () => {
   }
 });
 
-// ──────────────────────────────────────────
-// Graceful Shutdown
-// ──────────────────────────────────────────
-
-async function gracefulShutdown(signal: string): Promise<void> {
-  logger.info({ signal }, 'Received shutdown signal, starting graceful shutdown');
-
-  clearInterval(uploadSweepTimer);
-
-  // Stop accepting new connections
-  server.close(() => {
-    logger.info('HTTP server closed');
-  });
-
-  try {
-    // Close workers first (stop processing new jobs)
-    logger.info('Closing queue workers...');
-    await Promise.all([
+const shutdown = createShutdown({
+  server,
+  log: logger,
+  stopTimers: () => clearInterval(uploadSweepTimer),
+  closeWorkers: () =>
+    Promise.all([
       closeWorkers(),
       closeReconcileWorker(),
       closeDeletionWorker(),
       closeWebhookWorker(),
-    ]);
-
-    // Close queue connections
-    logger.info('Closing queue connections...');
-    await closeQueues();
-
-    // Close database connection pool
-    logger.info('Closing database connection...');
-    await closeDatabase();
-
-    logger.info('Graceful shutdown complete');
-    process.exit(0);
-  } catch (err) {
-    logger.error({ err }, 'Error during graceful shutdown');
-    process.exit(1);
-  }
-}
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-// Catch unhandled rejections and exceptions
-process.on('unhandledRejection', (reason) => {
-  logger.error({ reason }, 'Unhandled promise rejection');
+    ]),
+  closeQueues,
+  closeDatabase,
+  exit: (code) => process.exit(code),
 });
 
-process.on('uncaughtException', (error) => {
-  logger.fatal({ error }, 'Uncaught exception, shutting down');
-  gracefulShutdown('uncaughtException');
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// after either of these the process state is unknown, so it shuts down and
+// exits non-zero for the restart policy to bring it back clean
+process.on('unhandledRejection', (reason) => {
+  logger.fatal({ reason }, 'Unhandled promise rejection, shutting down');
+  shutdown('unhandledRejection', true);
+});
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err }, 'Uncaught exception, shutting down');
+  shutdown('uncaughtException', true);
 });
 
 export { app };
