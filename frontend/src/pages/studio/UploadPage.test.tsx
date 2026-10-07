@@ -125,6 +125,7 @@ describe('UploadPage', () => {
     await startUpload(video('my_trip-video.mp4', 20_000_000));
     act(() => {
       f.current().resolveUpload('u1');
+      f.current().resolveAsset('a1');
       f.current().progress(9_000_000, 20_000_000);
     });
     f.getStatus.mockResolvedValue({ uploadedBytes: 8_000_000 });
@@ -137,6 +138,8 @@ describe('UploadPage', () => {
     expect(uploadStep).toHaveAttribute('data-state', 'paused');
     expect(within(uploadStep).getByText('paused')).toBeInTheDocument();
     expect(screen.getByText('my trip video: Paused')).toHaveAttribute('role', 'status');
+    // the asset is an empty placeholder until the bytes arrive
+    expect(screen.queryByRole('link', { name: 'View asset' })).not.toBeInTheDocument();
   });
 
   it('cancels and only claims removal once the server confirmed it', async () => {

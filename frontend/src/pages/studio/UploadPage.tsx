@@ -579,7 +579,7 @@ function UploadCard({ store, s }: { store: UploadStore; s: UploadState }) {
                 Check again
               </Button>
             )}
-            {s.phase !== 'ready' && assetLink && s.phase !== 'cancelled' && (
+            {(s.phase === 'processing' || s.phase === 'failed') && assetLink && (
               <Button variant="outline" asChild>
                 <Link to={`/studio/assets/${assetLink}`}>View asset</Link>
               </Button>
