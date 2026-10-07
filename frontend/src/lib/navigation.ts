@@ -6,3 +6,8 @@
 export function loadPage(path: string): void {
   window.location.assign(path);
 }
+
+/** Load the current page again from the server. */
+export function reloadPage(): void {
+  window.location.reload();
+}
