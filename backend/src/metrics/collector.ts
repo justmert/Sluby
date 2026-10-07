@@ -1,4 +1,4 @@
-import { Registry, Counter, Histogram, Gauge, collectDefaultMetrics } from 'prom-client';
+import { Registry, Counter, Histogram, Gauge, collectDefaultMetrics } from '@prometheus-io/client';
 
 export const registry = new Registry();
 

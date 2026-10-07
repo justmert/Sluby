@@ -700,7 +700,7 @@ export const openapiDocument = {
           timestamp: { type: 'string', format: 'date-time' },
           metrics: {
             type: 'array',
-            description: 'The prom-client registry as JSON, one entry per metric.',
+            description: 'The metrics registry as JSON, one entry per metric.',
             items: {
               type: 'object',
               required: ['name', 'type', 'values'],
