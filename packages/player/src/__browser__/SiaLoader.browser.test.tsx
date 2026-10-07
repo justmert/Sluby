@@ -246,7 +246,10 @@ describe('SiaLoader through SlubyPlayer with real hls.js', () => {
     expect(events.errors[0].message).toBe(
       'Network error, gave up after 1 retries (manifestLoadError).',
     );
-    expect(container.querySelector('[data-sluby-overlay="error"]')).not.toBeNull();
+    // onError runs from the hls.js event; react renders the overlay after it
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-sluby-overlay="error"]')).not.toBeNull(),
+    );
     expect(session.downloads).toEqual([]);
     expect(await gatewayRequests()).toEqual([]);
   });
