@@ -36,21 +36,21 @@ export const envSchema = z.object({
   EXPOSE_ERROR_STACKS: flag('false'),
 
   /** PostgreSQL connection string */
-  DATABASE_URL: z.string().url().default('postgresql://sluby:sluby@localhost:5432/sluby'),
+  DATABASE_URL: z.url().default('postgresql://sluby:sluby@localhost:5432/sluby'),
 
   /** Redis connection string for BullMQ and caching */
-  REDIS_URL: z.string().url().default('redis://localhost:6379'),
+  REDIS_URL: z.url().default('redis://localhost:6379'),
 
   /** Base URL of the indexd application API (no trailing slash).
    *  e.g. `http://127.0.0.1:9982` or `http://sia-indexd:9982` inside
    *  a Docker network. The SDK signs every request with the AppKey,
    *  so this URL doesn't need authentication of its own. */
-  SIA_INDEXER_URL: z.string().url().default('https://sia.storage'),
+  SIA_INDEXER_URL: z.url().default('https://sia.storage'),
 
   /** Base URL of the indexd admin API (no trailing slash). Used for
    *  out-of-band reads (wallet address, contract list) that the SDK
    *  doesn't expose. Must be HTTP-Basic-protected. */
-  SIA_ADMIN_URL: z.string().url().default('http://127.0.0.1:9980'),
+  SIA_ADMIN_URL: z.url().default('http://127.0.0.1:9980'),
 
   /** HTTP-Basic password for the indexd admin API. Set in the indexd
    *  config file (`adminAPI.password`) and mirrored here. */
@@ -155,7 +155,7 @@ export const envSchema = z.object({
 
   /** Public base URL the browser sees (no trailing slash).
    *  Used to construct OAuth callback URLs and post-login redirects. */
-  PUBLIC_URL: z.string().url().default('http://localhost:3000'),
+  PUBLIC_URL: z.url().default('http://localhost:3000'),
 
   /** GitHub OAuth app client id (from https://github.com/settings/developers). */
   GITHUB_CLIENT_ID: z.string().optional(),
@@ -182,7 +182,7 @@ export const envSchema = z.object({
       try {
         parseOperatorUsers(v);
       } catch (err) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+        ctx.addIssue({ code: 'custom', message: (err as Error).message });
       }
     }),
 
@@ -197,7 +197,7 @@ export const envSchema = z.object({
       try {
         parseCidrList(v);
       } catch (err) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+        ctx.addIssue({ code: 'custom', message: (err as Error).message });
       }
     }),
 
@@ -224,7 +224,7 @@ export const envSchema = z.object({
       for (const origin of origins) {
         if (!isOrigin(origin)) {
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: 'custom',
             message:
               `"${origin}" is not an origin (scheme://host[:port], no path or trailing ` +
               'slash). Leave CORS_ORIGIN unset to let any origin call the API without cookies.',

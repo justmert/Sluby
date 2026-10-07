@@ -35,7 +35,7 @@
     "pino-pretty": "^13.2.0",
     "postgres": "^3.4.0",
     "prom-client": "^15.1.0",
-    "zod": "^3.24.0"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@scalar/api-reference": "1.73.0",
