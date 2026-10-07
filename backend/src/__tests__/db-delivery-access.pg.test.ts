@@ -3,6 +3,8 @@ import { sql as dsql } from 'drizzle-orm';
 import { hasTestDatabase, createTestDatabase, type TestDatabase } from './helpers/pg.js';
 import type * as AccessControl from '../delivery/access-control.js';
 import type * as AssetQueries from '../db/queries/assets.js';
+import type * as StorageQueries from '../db/queries/storage-records.js';
+import { buildStorageRecords } from '../storage/artifact-records.js';
 import type * as Database from '../config/database.js';
 
 // the gateway's access decision for an object, on a real database: which
@@ -12,12 +14,14 @@ describe.skipIf(!hasTestDatabase)('delivery access per object (postgres)', () =>
   let tdb: TestDatabase;
   let access: typeof AccessControl;
   let assets: typeof AssetQueries;
+  let storage: typeof StorageQueries;
   let database: typeof Database;
 
   beforeAll(async () => {
     tdb = await createTestDatabase();
     access = await import('../delivery/access-control.js');
     assets = await import('../db/queries/assets.js');
+    storage = await import('../db/queries/storage-records.js');
     database = await import('../config/database.js');
   }, 60_000);
 
@@ -154,6 +158,60 @@ describe.skipIf(!hasTestDatabase)('delivery access per object (postgres)', () =>
     expect(await assets.raiseSigningGeneration(asset, 'alice')).toBe(1);
     await assets.softDeleteVideoAsset(asset);
     expect(await assets.raiseSigningGeneration(asset)).toBeUndefined();
+  });
+
+  // the pipeline only writes artifacts in finalize, from the run's pending
+  // objects, and the tier lookup reads nothing else
+  it('serves every object of an asset finalize just made ready, and none before', async () => {
+    const a = await assets.createVideoAsset({ title: 'v', creatorAddress: 'alice' });
+    await assets.updateVideoAsset(a.id, { status: 'processing' });
+    const [data, playlist, thumb, master, early] = [oid(), oid(), oid(), oid(), oid()];
+    await storage.recordUploadingObjects(a.id, 'initial', [data, playlist, thumb, master, early]);
+
+    // pinned and pending is not a claim
+    expect(await access.resolveObjectAccess(early)).toEqual({ kind: 'unknown' });
+
+    const records = buildStorageRecords({
+      variants: [
+        {
+          name: '360p',
+          width: 640,
+          height: 360,
+          videoBitrateKbps: 900,
+          segmentCount: 2,
+          dataObjectId: data,
+          dataByteSize: 1000,
+          playlistObjectId: playlist,
+          playlistByteSize: 100,
+        },
+      ],
+      thumbnails: [{ objectId: thumb, byteSize: 10 }],
+      master: { objectId: master, byteSize: 50 },
+    });
+    const done = await storage.finalizeAssetStorage(a.id, {
+      records,
+      manifestObjectId: master,
+      thumbnailObjectIds: [thumb],
+      siaObjectIds: [data, playlist, thumb, master],
+      durationMs: 4000,
+      resolution: '640x360',
+      segmentCount: 2,
+      totalStorageBytes: 1160,
+    });
+    expect(done.outcome).toBe('ready');
+
+    for (const id of [master, playlist, data, thumb]) {
+      expect(await access.resolveObjectAccess(id)).toEqual({ kind: 'public', assetId: a.id });
+    }
+
+    // made private after it went ready: the poster needs a signature too
+    const flipped = await assets.updateAssetMetadata(a.id, { accessTier: 'private' });
+    access.invalidateAssetAccess(a.id);
+    expect(await access.resolveObjectAccess(thumb)).toEqual({
+      kind: 'private',
+      assetId: a.id,
+      signing: { generation: flipped?.signingGeneration, legacyUntilSec: null },
+    });
   });
 
   it('finds the owners through the artifacts index, never a scan of the assets', async () => {
