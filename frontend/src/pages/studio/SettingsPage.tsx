@@ -700,11 +700,11 @@ export default function SettingsPage() {
     <PageContainer>
       <PageHeader title="Settings" description="API keys, sessions, appearance and account" />
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="flex flex-col gap-4 lg:col-span-2">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
           <ApiKeysCard />
           <SessionsCard />
         </div>
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <AppearanceCard />
           <AccountCard />
         </div>
