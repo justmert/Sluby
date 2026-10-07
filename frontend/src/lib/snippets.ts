@@ -1,7 +1,9 @@
 // integration snippets for the developer page. the javascript ones are
 // typechecked against the real @sluby/sdk and @sluby/player in
-// snippets.test.ts, so a renamed sdk method breaks the build instead of the
-// docs. every snippet uses the studio's own origin as the api base url.
+// snippets.test.ts, and every url, query and body in them is checked against
+// the openapi document in api-paths.test.ts, so a renamed sdk method or
+// field breaks the build instead of the docs. every snippet uses the
+// studio's own origin as the api base url.
 
 export interface Snippet {
   id: string;
@@ -12,7 +14,8 @@ export interface Snippet {
   curl: string;
 }
 
-const KEY_NOTE = '// a key from Settings > API keys, kept out of source control';
+const KEY_NOTE =
+  '// server-side code: a key from Settings > API keys, kept out of source control and\n// never sent to a browser';
 
 export function buildSnippets(baseUrl: string): Snippet[] {
   const base = baseUrl.replace(/\/+$/, '');
@@ -47,12 +50,13 @@ curl -s "${base}/api/v1/assets?limit=1" \\
       id: 'upload',
       title: 'Upload a video',
       description:
-        'Resumable tus upload. The asset is created when the upload starts; its id comes back right away.',
+        'Resumable tus upload from your server. The asset is created when the upload starts; its id comes back right away.',
       js: {
         lang: 'ts',
-        code: `${client}
+        code: `import { openAsBlob } from 'node:fs';
+${client}
 
-const file = document.querySelector<HTMLInputElement>('input[type=file]')!.files![0];
+const file = await openAsBlob('video.mp4', { type: 'video/mp4' });
 
 const upload = sluby.uploads.upload(file, {
   title: 'My video',
@@ -81,8 +85,12 @@ curl -s -X PATCH "$LOCATION" \\
   -H "Content-Type: application/offset+octet-stream" \\
   --data-binary @video.mp4
 
-# 3. the created asset id is in the upload metadata
-curl -s -I "$LOCATION" ${auth} -H "Tus-Resumable: 1.0.0" | grep -i upload-metadata`,
+# 3. read the created asset id, the base64 videoAssetId entry of the upload metadata
+curl -s -I "$LOCATION" \\
+  ${auth} \\
+  -H "Tus-Resumable: 1.0.0" \\
+  | grep -i '^upload-metadata:' | tr -d '\\r' | cut -d ' ' -f 2- | tr ',' '\\n' \\
+  | awk '$1 == "videoAssetId" {print $2}' | base64 -d; echo`,
     },
     {
       id: 'processing',
@@ -91,19 +99,23 @@ curl -s -I "$LOCATION" ${auth} -H "Tus-Resumable: 1.0.0" | grep -i upload-metada
         'Each upload is transcoded to adaptive HLS and pinned to Sia. Poll the stage, or wait for ready.',
       js: {
         lang: 'ts',
-        code: `${client}
+        code: `${client.replace("import { SlubyClient } from '@sluby/sdk';", "import { ProcessingFailedError, SlubyClient } from '@sluby/sdk';")}
 
 const assetId = 'YOUR_ASSET_ID';
 
 const job = await sluby.assets.processing(assetId);
 console.log(job.stage, \`\${job.progressPercent}%\`, job.errorMessage ?? '');
 
-// or block until the asset can play (throws if processing fails)
-const asset = await sluby.assets.waitForReady(assetId, { pollInterval: 3000 });
-console.log(asset.status, asset.durationMs);
-
-// a failed asset can be re-run from the step that failed
-if (job.status === 'failed') await sluby.assets.retry(assetId);`,
+// or wait until the asset can play
+try {
+  const asset = await sluby.assets.waitForReady(assetId, { pollInterval: 3000 });
+  console.log(asset.status, asset.durationMs);
+} catch (err) {
+  if (!(err instanceof ProcessingFailedError)) throw err;
+  // a failed asset can be re-run from the step that failed
+  const { stage } = await sluby.assets.retry(assetId);
+  console.log('retrying from', stage);
+}`,
       },
       curl: `curl -s "${base}/api/v1/assets/YOUR_ASSET_ID/processing" \\
   ${auth}
@@ -178,7 +190,7 @@ curl -s "${base}/v1/stream/YOUR_ASSET_ID/master.m3u8"`,
       id: 'private',
       title: 'Private playback',
       description:
-        'Private assets only stream through signed URLs that expire. The player signs for you with `signed`.',
+        'Private assets only stream through signed URLs that expire. Sign on your server: a read key lists your library and signs any of your assets, so it must never reach a browser. Hand the signed URL to the player as src.',
       js: {
         lang: 'ts',
         code: `${client}
@@ -186,8 +198,8 @@ curl -s "${base}/v1/stream/YOUR_ASSET_ID/master.m3u8"`,
 const { signedUrl, expiresAt } = await sluby.playback.getSignedUrl('YOUR_ASSET_ID', {
   expiresIn: 3600,
 });
-console.log(signedUrl, 'valid until', expiresAt);
-// in React: <SlubyPlayer client={sluby} assetId="..." signed expiresIn={3600} />`,
+// send signedUrl to the page; it plays until expiresAt
+console.log(signedUrl, 'valid until', expiresAt);`,
       },
       curl: `curl -s "${base}/api/v1/playback/YOUR_ASSET_ID/signed?expires_in=3600" \\
   ${auth}`,
@@ -224,16 +236,21 @@ curl -s "${base}/v1/share/YOUR_ASSET_ID"`,
         'Every object behind an asset with its slabs, sectors, encoded size, redundancy and the hosts holding it.',
       js: {
         lang: 'ts',
-        code: `const res = await fetch('${base}/api/v1/assets/YOUR_ASSET_ID/sia', {
-  headers: { Authorization: \`Bearer \${process.env.SLUBY_API_KEY}\` },
-});
-const sia = await res.json();
+        code: `${KEY_NOTE}
+const headers = { Authorization: \`Bearer \${process.env.SLUBY_API_KEY}\` };
+
+const res = await fetch('${base}/api/v1/assets/YOUR_ASSET_ID/sia', { headers });
+const sia: {
+  totals: { redundancy_ratio: number | null; unique_slab_count: number; host_count: number };
+  countries: { country_code: string; hosts: number }[];
+} = await res.json();
 console.log(sia.totals.redundancy_ratio, sia.totals.unique_slab_count, sia.countries);
 
-const renditions = await fetch('${base}/api/v1/assets/YOUR_ASSET_ID/renditions', {
-  headers: { Authorization: \`Bearer \${process.env.SLUBY_API_KEY}\` },
-}).then((r) => r.json());
-console.log(renditions.data);`,
+const listed = await fetch('${base}/api/v1/assets/YOUR_ASSET_ID/renditions', { headers });
+const renditions: {
+  data: { name: string; video_bitrate_kbps: number | null; byte_size: number }[];
+} = await listed.json();
+for (const r of renditions.data) console.log(r.name, r.video_bitrate_kbps, r.byte_size);`,
       },
       curl: `curl -s "${base}/api/v1/assets/YOUR_ASSET_ID/sia" \\
   ${auth}
@@ -245,26 +262,28 @@ curl -s "${base}/api/v1/assets/YOUR_ASSET_ID/renditions" \\
       id: 'webhooks',
       title: 'Receive webhooks',
       description:
-        'Events for your own assets, signed with HMAC-SHA256 over the raw body. Verify before trusting them.',
+        'Events for your own assets, signed with HMAC-SHA256 over a timestamp and the raw body. Verify before trusting them.',
       js: {
         lang: 'ts',
         code: `import { createServer } from 'node:http';
-import { SlubyClient } from '@sluby/sdk';
+import { WebhookManager } from '@sluby/sdk';
 
-const sluby = new SlubyClient({ baseUrl: '${base}', apiKey: process.env.SLUBY_API_KEY! });
+// verifying needs no api key, only the endpoint's signing secret
+const webhooks = new WebhookManager();
 const secret = process.env.SLUBY_WEBHOOK_SECRET!; // returned once when the webhook is created
 
 createServer((req, res) => {
-  let body = '';
-  req.on('data', (chunk) => (body += chunk));
+  const chunks: Buffer[] = [];
+  req.on('data', (chunk: Buffer) => chunks.push(chunk));
   req.on('end', () => {
-    const signature = String(req.headers['x-sluby-signature'] ?? '');
-    // verify the raw body exactly as it arrived, before parsing it
-    if (!sluby.webhooks.verifySignature(body, signature, secret)) {
+    // decode once at the end: a character can be split across chunks
+    const body = Buffer.concat(chunks).toString('utf8');
+    // checks X-Sluby-Signature-V1 over the raw body and refuses old timestamps
+    if (!webhooks.verifyRequest(body, req.headers, secret)) {
       res.writeHead(401).end();
       return;
     }
-    const event = sluby.webhooks.parseEvent(body);
+    const event = webhooks.parseEvent(body);
     console.log(event.event, event.data);
     res.writeHead(204).end();
   });
@@ -282,7 +301,8 @@ createServer((req, res) => {
         'Issue a new secret and keep the old one working for a grace period while deployments switch.',
       js: {
         lang: 'ts',
-        code: `const res = await fetch('${base}/api/v1/keys/YOUR_KEY_ID/rotate', {
+        code: `${KEY_NOTE}
+const res = await fetch('${base}/api/v1/keys/YOUR_KEY_ID/rotate', {
   method: 'POST',
   headers: {
     Authorization: \`Bearer \${process.env.SLUBY_API_KEY}\`,
@@ -290,8 +310,8 @@ createServer((req, res) => {
   },
   body: JSON.stringify({ grace_period_seconds: 86400 }),
 });
-const { key, previous_key_expires_at } = await res.json();
-console.log('new key (shown once):', key, 'old key ends', previous_key_expires_at);`,
+const rotated: { key: string; previous_key_expires_at: string } = await res.json();
+console.log('new key (shown once):', rotated.key, 'old key ends', rotated.previous_key_expires_at);`,
       },
       curl: `curl -s -X POST "${base}/api/v1/keys/YOUR_KEY_ID/rotate" \\
   ${auth} \\
