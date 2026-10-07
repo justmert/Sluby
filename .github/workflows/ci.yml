@@ -6,14 +6,24 @@ on:
   pull_request:
     branches: [main]
 
+# the jobs only read the repository
+permissions:
+  contents: read
+
+# a new push to a pull request replaces its running checks; main keeps every run
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-and-format:
     name: Lint & Format Check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -27,11 +37,23 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # what the images and the published packages run must have no known
+      # advisory. the dev tree is checked by dependabot instead: its current
+      # advisories (shadcn, drizzle-kit, scalar) have no fixed release yet
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev
+
+      # optional platform builds bundle their own dependencies, which npm ls
+      # reports as missing, so the tree check leaves optional ones out
+      - name: Check the dependency tree
+        run: npm ls --omit=optional
+
   # the backend has its own job: its tests need postgres, redis and the
   # ffmpeg binaries, and they refuse to skip under CI when any is missing
   backend:
     name: 'backend - Typecheck & Test'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18-alpine
@@ -60,9 +82,9 @@ jobs:
       SLUBY_TEST_REDIS_URL: redis://localhost:6379
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -87,6 +109,7 @@ jobs:
   typecheck-and-test:
     name: '${{ matrix.package }} - Typecheck & Test'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -104,9 +127,9 @@ jobs:
             path: frontend
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -129,10 +152,11 @@ jobs:
   player-browser:
     name: Browser tests (chromium, firefox, webkit)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -154,10 +178,11 @@ jobs:
   studio-build:
     name: Studio builds
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -173,10 +198,11 @@ jobs:
   example-build:
     name: Quickstart example builds
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -201,10 +227,11 @@ jobs:
   docs-build:
     name: Docs site builds
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -221,10 +248,11 @@ jobs:
   packages:
     name: Packages pack cleanly
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -236,3 +264,39 @@ jobs:
       # and publint on the tarballs
       - name: Check packages
         run: npm run check:packages
+
+  # the deliverable is "clone, docker compose up": build both images, start
+  # the stack the quickstart starts, check the front door and that the backend
+  # stops cleanly on SIGTERM
+  stack:
+    name: Compose stack builds, starts and stops
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure like the quickstart
+        run: |
+          cp .env.example .env
+          key="sluby_$(openssl rand -hex 32)"
+          echo "BOOTSTRAP_API_KEY=$key" >> .env
+          echo "::add-mask::$key"
+
+      - name: Build the images
+        run: docker compose build
+
+      - name: Start the stack
+        run: docker compose up -d --wait --wait-timeout 300
+
+      - name: Check the stack
+        run: |
+          set -a; . ./.env; set +a
+          scripts/stack-check.sh
+
+      - name: Logs
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Remove the stack
+        if: always()
+        run: docker compose down -v
