@@ -3,17 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '@/test/render';
 import { ThemeProvider } from '@/components/theme-provider';
+import { WithSession } from '@/test/session';
 import SettingsPage, { timeLeft } from './SettingsPage';
 
-vi.mock('@/components/AuthGate', () => ({
-  useSession: () => ({
-    id: '00000000-0000-4000-8000-000000000001',
-    name: 'Alice',
-    username: 'alice',
-    provider: 'github',
-    providerLabel: 'GitHub',
-  }),
-}));
 
 let keys: Array<Record<string, unknown>>;
 let sessions: Array<Record<string, unknown>>;
@@ -88,7 +80,9 @@ afterEach(() => vi.unstubAllGlobals());
 const render = () =>
   renderPage(
     <ThemeProvider>
-      <SettingsPage />
+      <WithSession>
+        <SettingsPage />
+      </WithSession>
     </ThemeProvider>,
   );
 

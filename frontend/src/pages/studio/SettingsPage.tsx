@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { AlertTriangle, KeyRound, LogOut, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
-import { useSession } from '@/components/AuthGate';
 import { useTheme, type Theme } from '@/components/theme-provider';
 import { THEME_OPTIONS } from '@/components/theme-toggle';
 import { CopyButton } from '@/components/shared/CopyButton';
@@ -82,6 +81,8 @@ import {
 import { useSystemStatus } from '@/hooks/useStats';
 import { useRevokeAllSessions, useRevokeSession, useSessions } from '@/hooks/useSessions';
 import { formatDate, formatRelativeTime } from '@/lib/formatters';
+import { loadPage } from '@/lib/navigation';
+import { useSession } from '@/lib/session';
 
 const SCOPES: { value: KeyScope; label: string; detail: string }[] = [
   { value: 'upload', label: 'upload', detail: 'Upload videos through tus' },
@@ -467,7 +468,7 @@ function SessionsCard() {
       await revoke.mutateAsync(id);
       if (current) {
         // this browser's session is gone; let the auth gate show sign-in
-        window.location.href = '/';
+        loadPage('/studio');
         return;
       }
       toast.success('Session ended');
@@ -480,7 +481,7 @@ function SessionsCard() {
     setConfirmAll(false);
     try {
       await revokeAll.mutateAsync();
-      window.location.href = '/';
+      loadPage('/studio');
     } catch (err) {
       toast.error(`Could not sign out: ${err instanceof Error ? err.message : String(err)}`);
     }

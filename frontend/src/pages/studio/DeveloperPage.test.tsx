@@ -68,6 +68,25 @@ describe('DeveloperPage', () => {
     expect(new Headers((init as RequestInit).headers).get('Authorization')).toBeNull();
   });
 
+  it('sends exactly the path shown, also outside /api', async () => {
+    fetchMock.mockImplementation(async () => json({ entries: 0 }));
+    renderPage(<DeveloperPage />);
+    const path = screen.getByRole('textbox', { name: 'Path' });
+    await userEvent.clear(path);
+    await userEvent.type(path, '/health');
+    await userEvent.click(screen.getByRole('button', { name: /send/i }));
+    expect(await screen.findByText('200')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([u]) => String(u))).toContain('/health');
+  });
+
+  it('will not send to another origin', async () => {
+    renderPage(<DeveloperPage />);
+    const path = screen.getByRole('textbox', { name: 'Path' });
+    await userEvent.clear(path);
+    await userEvent.type(path, '//example.com/api/v1/assets');
+    expect(screen.getByRole('button', { name: /send/i })).toBeDisabled();
+  });
+
   it('will not send a template until its id is filled in', async () => {
     renderPage(<DeveloperPage />);
     const path = screen.getByRole('textbox', { name: 'Path' });

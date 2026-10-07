@@ -62,7 +62,6 @@ import {
   useWebhooks,
   type CreatedWebhook,
 } from '@/hooks/useWebhooks';
-import { apiRawFetch } from '@/lib/api-client';
 import { REQUEST_TEMPLATES, type RequestTemplate } from '@/lib/explorer-templates';
 import { formatRelativeTime } from '@/lib/formatters';
 import { buildSnippets } from '@/lib/snippets';
@@ -386,10 +385,13 @@ function ApiExplorer() {
     setError(null);
     const started = performance.now();
     try {
-      // same origin: the session cookie authenticates, exactly as the studio does
-      const res = await apiRawFetch(path, {
+      const payload = method === 'GET' || method === 'DELETE' || !body.trim() ? undefined : body;
+      // exactly the path shown, on this origin: the session cookie
+      // authenticates, as it does for the rest of the studio
+      const res = await fetch(path, {
         method,
-        body: method === 'GET' || method === 'DELETE' || !body.trim() ? undefined : body,
+        body: payload,
+        headers: payload ? { 'Content-Type': 'application/json' } : undefined,
       });
       const text = await res.text();
       let pretty = text;
@@ -416,6 +418,8 @@ function ApiExplorer() {
   };
 
   const unfilled = /\{id\}/.test(path);
+  // a path on this origin only; "//host/..." would be another site
+  const sendable = path.startsWith('/') && !path.startsWith('//');
 
   return (
     <Card>
@@ -473,7 +477,7 @@ function ApiExplorer() {
           />
           <Button
             onClick={() => void send()}
-            disabled={sending || unfilled || !path.startsWith('/')}
+            disabled={sending || unfilled || !sendable}
           >
             <Send />
             Send
