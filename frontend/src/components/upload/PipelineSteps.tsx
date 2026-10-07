@@ -1,4 +1,4 @@
-import { Check, Circle, X } from 'lucide-react';
+import { Check, Circle, Pause, X } from 'lucide-react';
 import type { ProcessingJob } from '@sluby/sdk';
 import { Spinner } from '@/components/ui/spinner';
 import type { UploadState } from '@/lib/upload-store';
@@ -11,7 +11,7 @@ export const PIPELINE_STEPS = [
   { key: 'finalize', label: 'Finalize', detail: 'Manifests rewritten, asset goes live' },
 ] as const;
 
-type StepState = 'done' | 'active' | 'pending' | 'failed';
+type StepState = 'done' | 'active' | 'paused' | 'pending' | 'failed';
 
 const STAGE_INDEX: Record<string, number> = { transcode: 1, upload: 2, finalize: 3 };
 
@@ -33,8 +33,10 @@ export function stepStates(state: UploadState): StepState[] {
 
   switch (state.phase) {
     case 'uploading':
-    case 'paused':
+    case 'finishing':
       return states(0);
+    case 'paused':
+      return states(0).map((s) => (s === 'active' ? 'paused' : s));
     case 'processing':
       return states(jobStepIndex(state.job));
     case 'ready':
@@ -63,6 +65,7 @@ export function PipelineSteps({ state }: { state: UploadState }) {
                 'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border',
                 s === 'done' && 'border-success bg-success/10 text-success',
                 s === 'active' && 'border-primary text-primary',
+                s === 'paused' && 'border-muted-foreground text-muted-foreground',
                 s === 'failed' && 'border-destructive bg-destructive/10 text-destructive',
                 s === 'pending' && 'text-muted-foreground',
               )}
@@ -73,6 +76,8 @@ export function PipelineSteps({ state }: { state: UploadState }) {
                 <X className="size-3.5" />
               ) : s === 'active' ? (
                 <Spinner className="size-3.5" aria-hidden="true" />
+              ) : s === 'paused' ? (
+                <Pause className="size-3" aria-hidden="true" />
               ) : (
                 <Circle className="size-2 fill-current" />
               )}
@@ -88,6 +93,9 @@ export function PipelineSteps({ state }: { state: UploadState }) {
                 {step.label}
                 {s === 'active' && i === 1 && queued && (
                   <span className="ml-2 text-xs font-normal text-muted-foreground">queued</span>
+                )}
+                {s === 'paused' && (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">paused</span>
                 )}
               </p>
               <p className="text-xs text-muted-foreground">{step.detail}</p>
