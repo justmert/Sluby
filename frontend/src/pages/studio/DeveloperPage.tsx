@@ -97,7 +97,8 @@ function Snippets() {
           <Link to="/studio/settings" className="underline underline-offset-4">
             Settings
           </Link>{' '}
-          and export it as <code className="font-mono">SLUBY_API_KEY</code>.
+          and export it as <code className="font-mono">SLUBY_API_KEY</code> on your server. A key
+          never goes into browser code: whoever holds it can act as you.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 lg:grid-cols-[220px_1fr]">
