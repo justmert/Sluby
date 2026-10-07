@@ -5,8 +5,8 @@ The production setup is the same Compose stack as the [quickstart](./quickstart)
 - adds [Caddy](https://caddyserver.com) in front of everything. It gets a TLS certificate for your domain from Let's Encrypt and renews it on its own, and sends `Strict-Transport-Security` so browsers stay on HTTPS. The other security headers (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and the Studio's `Content-Security-Policy`) come from the web container in every setup.
 - sets `CORS_ORIGIN` to `https://$DOMAIN`, so only the Studio's own origin is trusted with the session cookie. Apps on other origins can still call the API with a key.
 - publishes only ports 80 and 443. PostgreSQL, Redis and the web container are reachable only inside the Compose network.
-- runs the backend with `NODE_ENV=production`, which refuses to start with a weak `SESSION_SECRET` or with `AUTH_DISABLED=true`.
-- requires a PostgreSQL password, a session secret, GitHub sign-in and the Sia app identity, and stops with a message naming whichever one is missing.
+- runs the backend with `NODE_ENV=production`, which refuses to start with a missing or weak `SESSION_SECRET`, with `AUTH_DISABLED=true`, or with a `BOOTSTRAP_API_KEY` that is not a generated key.
+- requires a PostgreSQL password, a session secret, GitHub sign-in with an allowlist (`GITHUB_ALLOWED_USERS`) and the Sia app identity, and stops with a message naming whichever one is missing.
 
 ```mermaid
 flowchart LR
@@ -63,7 +63,7 @@ GITHUB_ALLOWED_USERS=your-login,a-colleague
 OPERATOR_USERS=github:id:<your numeric GitHub id>
 ```
 
-`GITHUB_ALLOWED_USERS` says who may sign in: GitHub logins, `id:<numeric GitHub id>` entries, or `*` for anyone. Each person gets their own account, keyed on their numeric GitHub id rather than the login, so a renamed or re-registered login never moves data between people. A login entry is matched when someone signs in and then pinned to that account: it keeps admitting them after a rename and refuses whoever registers the freed login next. To move an entry to another account, write it as `id:<number>` (`https://api.github.com/users/<login>` shows the id). Removing an entry signs that person out and stops their API keys on their next request; adding it back restores the keys. `*` opens sign-up to every GitHub account, and so does an empty value, which the backend warns about at startup. An open Studio lets anyone store and transcode video on your Sia account with no quota, so put limits in front of it before opening it. See [the allowlist](/architecture/auth-and-tenancy#the-allowlist).
+`GITHUB_ALLOWED_USERS` says who may sign in: GitHub logins, `id:<numeric GitHub id>` entries, or `*` for anyone. Each person gets their own account, keyed on their numeric GitHub id rather than the login, so a renamed or re-registered login never moves data between people. A login entry is matched when someone signs in and then pinned to that account: it keeps admitting them after a rename and refuses whoever registers the freed login next. To move an entry to another account, write it as `id:<number>` (`https://api.github.com/users/<login>` shows the id). Removing an entry signs that person out and stops their API keys on their next request; adding it back restores the keys. `*` opens sign-up to every GitHub account. The production override refuses to start with `GITHUB_ALLOWED_USERS` empty, so open sign-up is always a choice you write down; without the override an empty value also lets everyone in, with a warning at startup. An open Studio lets anyone store and transcode video on your Sia account with no quota, so put limits in front of it before opening it. See [the allowlist](/architecture/auth-and-tenancy#the-allowlist).
 
 `OPERATOR_USERS` names the accounts that run the deployment. Set it to your own account, so your Studio sign-in shows the indexer account, storage, cache, reconciliation and analytics views; without it those views stay empty for every Studio user, and only a platform key from `npm run db:seed-key -- --platform` sees that data. Each entry names the sign-in provider first: `github:id:<number>` (`https://api.github.com/users/<login>` shows the number), or `github:<login>`, which is pinned to the account that first signs in with it, like an allowlist login. An operator sees deployment-wide operations data through their sessions and their API keys, but still only their own videos, keys and webhooks. Removing an entry ends the role on that person's next request. See [operators](/architecture/auth-and-tenancy#operators).
 
@@ -109,7 +109,9 @@ The admin API is password protected and should never be exposed publicly. Only s
 
 ### Zen testnet
 
-[Zen](https://docs.sia.tech/testnet/zen-testnet) is Sia's testnet, where coins have no value. There is no hosted Zen indexer, so you run indexd yourself. `docker-compose.sia.yml` in the repository runs indexd on Zen, plus walletd and a CPU miner so you can mine the Zen coins indexd needs to form contracts. Its header comments walk through the setup.
+[Zen](https://docs.sia.tech/testnet/zen-testnet) is Sia's testnet, where coins have no value. There is no hosted Zen indexer, so you run indexd yourself. `docker-compose.sia.yml` in the repository runs indexd on Zen with PostgreSQL 18, plus walletd and a CPU miner so you can mine the Zen coins indexd needs to form contracts. Its header comments walk through the setup.
+
+This path was not re-verified for this release. The file pins indexd 0.6.0 and walletd 2.15.2, but nobody ran the setup end to end with those versions, so check its steps against the indexd README as you go. Every release on mainnet with sia.storage was tested.
 
 Zen's host pool is small: 14 hosts were online in October 2026 ([zen.siascan.com](https://zen.siascan.com)). Two defaults assume a mainnet sized pool and have to change:
 
@@ -164,7 +166,7 @@ along with `SESSION_SECRET`, `POSTGRES_PASSWORD` and the GitHub settings. Your p
 
 ## Operating it
 
-**Upgrades.** Pull and rebuild; migrations run when the backend starts.
+**Upgrades.** Pull and rebuild; migrations run when the backend starts. Replicas starting together take turns on a database lock, so each migration runs once. A migration that adds an index locks its table while it builds, which takes a while on a large table, so plan the upgrade window for a big database.
 
 ```sh
 git pull
@@ -177,8 +179,12 @@ docker compose up -d --build
 docker compose exec postgres pg_dump -U sluby sluby | gzip > sluby-$(date +%F).sql.gz
 ```
 
-**Health.** `GET /health` is a liveness check. `GET /api/v1/system/status` reports PostgreSQL, Redis, the indexer account and host counts to a platform key (minted by `npm run db:seed-key --workspace=backend`) and to the accounts in `OPERATOR_USERS`, their Studio sessions and keys included; other callers get a health summary without the account, error details or caches. The backend serves Prometheus metrics at `GET /metrics` on port 3000. The web proxy does not expose that path (it answers 404), so scrape it from a container on the Compose network. Set `METRICS_TOKEN` and the endpoint also needs `Authorization: Bearer <token>`, which a Prometheus scrape config sends with `authorization: { credentials: <token> }`; do that whenever port 3000 is reachable from outside the Compose network. A scrape answers even while Redis is down: the queue depth read is cut off after 2 seconds, `sluby_redis_up` is then 0 and `sluby_processing_queue_depth` is `NaN`. Cache use is exposed as the counters `sluby_cache_hits_total` and `sluby_cache_misses_total` (whole-object reads only; ranged media reads bypass that cache), so take a rate over a window rather than a ratio since start.
+**Health.** `GET /health` is a liveness check. `GET /api/v1/system/status` reports PostgreSQL, Redis, the indexer account and host counts to a platform key (one minted with `docker compose exec backend node dist/db/seed-api-key.js --platform`; the `BOOTSTRAP_API_KEY` is not one) and to the accounts in `OPERATOR_USERS`, their Studio sessions and keys included; other callers get a health summary without the account, error details or caches. The backend serves Prometheus metrics at `GET /metrics` on port 3000. The web proxy does not expose that path (it answers 404), so scrape it from a container on the Compose network. Set `METRICS_TOKEN` and the endpoint also needs `Authorization: Bearer <token>`, which a Prometheus scrape config sends with `authorization: { credentials: <token> }`; do that whenever port 3000 is reachable from outside the Compose network. A scrape answers even while Redis is down: the queue depth read is cut off after 2 seconds, `sluby_redis_up` is then 0 and `sluby_processing_queue_depth` is `NaN`. Cache use is exposed as the counters `sluby_cache_hits_total` and `sluby_cache_misses_total` (whole-object reads only; ranged media reads bypass that cache), so take a rate over a window rather than a ratio since start.
 
 **Limits.** The web container limits each client address on delivery and sign-in, and the backend limits unauthenticated API calls per address and every key per minute. The defaults are generous; the [configuration reference](./configuration#rate-limits) lists the knobs.
+
+**Stopping.** On `docker compose stop`, `down` or an upgrade the backend stops taking requests and jobs, finishes what is running for up to 25 seconds, closes its connections and exits with code 0, logging `Graceful shutdown complete`. Compose waits 30 seconds (`stop_grace_period`) before killing it. A transcode or Sia upload still running after 25 seconds is cut off and runs again from the start once the backend is back.
+
+**Logs.** Each container keeps at most five 10 MB log files (Docker's `json-file` driver).
 
 **Volumes.** Every piece of state is in a named volume: `pgdata`, `redis-data`, `uploads`, `transcode-output`, `nginx-cache`, and in production `caddy-data` (certificates) and `caddy-config`. `docker compose down` keeps them; `docker compose down -v` deletes them.

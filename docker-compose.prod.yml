@@ -4,7 +4,8 @@
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
 # needs in .env: DOMAIN, ACME_EMAIL, POSTGRES_PASSWORD, SESSION_SECRET,
-# GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, SIA_APP_ID, SIA_APP_KEY.
+# GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_ALLOWED_USERS, SIA_APP_ID,
+# SIA_APP_KEY.
 
 services:
   postgres:
@@ -27,6 +28,9 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID in .env}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:?set GITHUB_CLIENT_SECRET in .env}
+      # who may sign in. every account uploads to this deployment's sia
+      # account, so open sign-up is a choice: set it to * to make it
+      GITHUB_ALLOWED_USERS: ${GITHUB_ALLOWED_USERS:?set GITHUB_ALLOWED_USERS in .env (github logins, id:<number> entries, or * for open sign-up)}
       SIA_APP_ID: ${SIA_APP_ID:?run the indexer connect step and set SIA_APP_ID}
       SIA_APP_KEY: ${SIA_APP_KEY:?run the indexer connect step and set SIA_APP_KEY}
 
@@ -49,6 +53,11 @@ services:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '5'
     restart: unless-stopped
 
 volumes:

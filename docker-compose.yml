@@ -3,12 +3,21 @@
 # to localhost, which is what the quickstart uses.
 #
 #   cp .env.example .env
-#   docker compose run --rm backend node scripts/connect-indexer.mjs   # once, writes SIA_APP_* for you to paste
+#   docker compose run --rm --no-deps backend node scripts/connect-indexer.mjs   # once, prints SIA_APP_* for you to paste
 #   docker compose up -d
 #   open http://localhost:8080
 #
 # for a public server with tls, layer the production override on top:
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# to run the backend from source against these databases, publish their ports:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
+
+# docker's json-file logs grow without bound unless capped
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '5'
 
 services:
   postgres:
@@ -20,14 +29,12 @@ services:
     volumes:
       # postgres 18 keeps its data under a versioned dir inside this path
       - pgdata:/var/lib/postgresql
-    ports:
-      # published on localhost only, so the backend can also run from source
-      - '127.0.0.1:5433:5432'
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U sluby -d sluby']
       interval: 5s
       timeout: 5s
       retries: 10
+    logging: *logging
     restart: unless-stopped
 
   redis:
@@ -36,13 +43,12 @@ services:
     command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
     volumes:
       - redis-data:/data
-    ports:
-      - '127.0.0.1:6380:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 5s
       retries: 10
+    logging: *logging
     restart: unless-stopped
 
   backend:
@@ -52,6 +58,11 @@ services:
       args:
         SIA_STORAGE_NATIVE: ${SIA_STORAGE_NATIVE:-}
     image: sluby-backend
+    # tini as pid 1 reaps ffmpeg children and passes signals on to node.
+    # the backend gives running work 25 s to finish on SIGTERM, then exits;
+    # docker waits this long before it kills
+    init: true
+    stop_grace_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,7 +71,10 @@ services:
     environment:
       DATABASE_URL: postgresql://sluby:${POSTGRES_PASSWORD:-sluby}@postgres:5432/sluby
       REDIS_URL: redis://redis:6379
+      # development keeps the quickstart's AUTH_DISABLED allowed and logs
+      # readable; it no longer exposes stacks or a fixed session secret
       NODE_ENV: ${NODE_ENV:-development}
+      EXPOSE_ERROR_STACKS: ${EXPOSE_ERROR_STACKS:-}
       PORT: '3000'
       HOST: 0.0.0.0
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
@@ -105,11 +119,14 @@ services:
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       RECONCILE_ENABLED: ${RECONCILE_ENABLED:-}
       RECONCILE_INTERVAL_MS: ${RECONCILE_INTERVAL_MS:-}
+      RECONCILE_PAGE_SIZE: ${RECONCILE_PAGE_SIZE:-}
       DELETION_GC_ENABLED: ${DELETION_GC_ENABLED:-}
       DELETION_GC_INTERVAL_MS: ${DELETION_GC_INTERVAL_MS:-}
+      DELETION_STUCK_THRESHOLD_MS: ${DELETION_STUCK_THRESHOLD_MS:-}
     volumes:
       - uploads:/app/uploads
       - transcode-output:/app/transcode-output
+    logging: *logging
     restart: unless-stopped
 
   web:
@@ -138,6 +155,7 @@ services:
       WEB_AUTH_CONN: ${WEB_AUTH_CONN:-}
     volumes:
       - nginx-cache:/var/cache/nginx/sia
+    logging: *logging
     restart: unless-stopped
 
 volumes:

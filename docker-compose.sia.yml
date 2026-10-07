@@ -4,6 +4,15 @@
 #   - indexd   (Sia Foundation's indexer; admin UI :9980, app API :9982)
 #   - postgres (dedicated DB for indexd; NOT the app database)
 #
+# Not re-verified end to end in this release: the images below are pinned to
+# the versions current when it was written (indexd 0.6.0, walletd 2.15.2,
+# cpuminer master of 2026-07-21), and the setup steps were written for
+# earlier indexd builds. Check them against the indexd README.
+#
+# Upgrading from the PostgreSQL 16 version of this file: the database now
+# lives in the indexd-pgdata-18 volume. Dump the old one first
+# (pg_dump from the 16 container) and restore it into the new one.
+#
 # Why a separate compose file?
 #   Keeps the Sia infrastructure decoupled from the Sluby app's own
 #   postgres/redis stack. Bring this up/down independently.
@@ -45,7 +54,7 @@
 #      Log in with the admin password from step 3.
 #
 # After indexd is synced, connect sluby to it (approve in the admin ui):
-#   SIA_INDEXER_URL=http://localhost:9982 npm run connect-indexer --workspace=backend
+#   npm run connect-indexer --workspace=backend -- http://localhost:9982
 #
 # Funding for actual uploads:
 #   - Zen testnet requires Siacoin to form storage contracts with hosts.
@@ -55,7 +64,8 @@
 
 services:
   indexd-postgres:
-    image: postgres:16-alpine
+    # indexd requires PostgreSQL 18
+    image: postgres:18-alpine
     container_name: sia-indexd-postgres
     restart: unless-stopped
     shm_size: 128mb
@@ -64,7 +74,8 @@ services:
       POSTGRES_PASSWORD: ${INDEXD_POSTGRES_PASSWORD}
       POSTGRES_DB: indexd
     volumes:
-      - indexd-pgdata:/var/lib/postgresql/data
+      # postgres 18 keeps its data under a versioned dir inside this path
+      - indexd-pgdata-18:/var/lib/postgresql
     ports:
       # Expose on a host port that doesn't conflict with other projects.
       # Container-to-container traffic uses the service name + 5432 regardless.
@@ -76,7 +87,7 @@ services:
       retries: 10
 
   indexd:
-    image: ghcr.io/siafoundation/indexd:master
+    image: ghcr.io/siafoundation/indexd:0.6.0
     container_name: sia-indexd
     restart: unless-stopped
     depends_on:
@@ -97,7 +108,7 @@ services:
   # that cpuminer mines pay out to indexd's wallet address and propagate to
   # indexd over the Zen testnet p2p network.
   walletd:
-    image: ghcr.io/siafoundation/walletd:latest
+    image: ghcr.io/siafoundation/walletd:2.15.2
     container_name: sia-walletd
     restart: unless-stopped
     ports:
@@ -112,7 +123,8 @@ services:
   # Single-threaded CPU miner for Zen testnet. Connects to walletd's API,
   # mines blocks paying out to MINER_ADDRESS (= indexd's wallet address).
   cpuminer:
-    image: ghcr.io/siafoundation/cpuminer:master
+    # cpuminer has no releases; this is master as of 2026-07-21
+    image: ghcr.io/siafoundation/cpuminer:master@sha256:2ac294702f61257757cd04a3c6b57e1bb18749c527b550a21cb5f00146353479
     container_name: sia-cpuminer
     restart: unless-stopped
     depends_on:
@@ -130,6 +142,6 @@ services:
       ]
 
 volumes:
-  indexd-pgdata:
+  indexd-pgdata-18:
   indexd-data:
   walletd-data:
