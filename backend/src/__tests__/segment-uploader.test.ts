@@ -1,21 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-vi.mock('../storage/sia-client.js', () => ({
-  uploadAndPin: vi.fn(),
-  uploadAndPinPacked: vi.fn(),
-  deleteObject: vi.fn(),
-}));
+const fake = await vi.hoisted(async () => (await import('./helpers/fake-sia.js')).createFakeSia());
+vi.mock('@siafoundation/sia-storage', () => fake.module);
 
 import { uploadSegments } from '../storage/segment-uploader.js';
-import { uploadAndPin, uploadAndPinPacked, deleteObject } from '../storage/sia-client.js';
-import type { PackedSource } from '../storage/sia-client.js';
-
-const mockedPin = vi.mocked(uploadAndPin);
-const mockedPacked = vi.mocked(uploadAndPinPacked);
-const mockedDelete = vi.mocked(deleteObject);
+import { deleteObject } from '../storage/sia-client.js';
+import type { ObjectLedger } from '../storage/object-ledger.js';
 
 const MASTER = [
   '#EXTM3U',
@@ -42,11 +35,41 @@ const variantPlaylist = (initSize: number, segSize: number) =>
     '',
   ].join('\n');
 
+/**
+ * The ledger the pipeline keeps in pending_objects, in memory: ids are
+ * recorded before their pin, and released ones are unpinned through the real
+ * sia client.
+ */
+function memoryLedger() {
+  const uploading = new Set<string>();
+  const pinnedWhenRecorded: number[] = [];
+  const ledger: ObjectLedger = {
+    record: async (ids) => {
+      pinnedWhenRecorded.push(ids.filter((id) => fake.objects.has(id)).length);
+      for (const id of ids) uploading.add(id);
+    },
+    release: async (ids) => {
+      for (const id of ids) {
+        await deleteObject(id);
+        uploading.delete(id);
+      }
+    },
+  };
+  return { ledger, uploading, pinnedWhenRecorded };
+}
+
+/** Every pinned object is one the ledger still holds: none is pinned without a record. */
+function expectEveryPinnedObjectRecorded(uploading: Set<string>) {
+  for (const id of fake.pinnedIds()) expect(uploading.has(id)).toBe(true);
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 20));
+
 let dir: string;
 let thumbs: string[];
 
 beforeEach(async () => {
-  vi.clearAllMocks();
+  fake.reset();
   dir = await mkdtemp(path.join(tmpdir(), 'sluby-segments-'));
   for (const [name, size] of [
     ['720p', 3000],
@@ -59,25 +82,6 @@ beforeEach(async () => {
   await writeFile(path.join(dir, 'master.m3u8'), MASTER);
   thumbs = [path.join(dir, 'thumb-0.jpg'), path.join(dir, 'thumb-1.jpg')];
   for (const t of thumbs) await writeFile(t, Buffer.alloc(50, 1));
-
-  // ids name what was uploaded so the assertions below can follow them
-  mockedPacked.mockImplementation(async (items: PackedSource[]) =>
-    Promise.all(
-      items.map(async (item) =>
-        item instanceof Uint8Array
-          ? { objectId: `bytes-${new TextDecoder().decode(item).length}`, size: item.length }
-          : {
-              objectId: `file:${path.relative(dir, item.path)}`,
-              size: (await stat(item.path)).size,
-            },
-      ),
-    ),
-  );
-  mockedPin.mockImplementation(async (data: Uint8Array) => ({
-    objectId: 'master-obj',
-    size: data.length,
-  }));
-  mockedDelete.mockResolvedValue(undefined);
 });
 
 afterEach(async () => {
@@ -86,67 +90,46 @@ afterEach(async () => {
 
 describe('uploadSegments', () => {
   it('uploads data and thumbnails, then playlists, then the master: three uploads', async () => {
+    const { ledger, uploading, pinnedWhenRecorded } = memoryLedger();
     const progress: Array<[number, number]> = [];
     const result = await uploadSegments(dir, {
       thumbnailPaths: thumbs,
+      ledger,
       onProgress: (done, total) => progress.push([done, total]),
     });
 
-    expect(mockedPacked).toHaveBeenCalledTimes(2);
-    expect(mockedPin).toHaveBeenCalledTimes(1);
-
-    // first batch: every variant data file and every thumbnail, read from disk
-    expect(mockedPacked.mock.calls[0][0]).toEqual([
-      { path: path.join(dir, '720p', 'data.m4s') },
-      { path: path.join(dir, '360p', 'data.m4s') },
-      { path: thumbs[0] },
-      { path: thumbs[1] },
-    ]);
-
-    // second batch: the variant playlists, pointing at their data objects
-    const playlists = (mockedPacked.mock.calls[1][0] as Uint8Array[]).map((b) =>
-      new TextDecoder().decode(b),
-    );
-    expect(playlists).toHaveLength(2);
-    expect(playlists[0]).toContain('/v1/objects/file:720p/data.m4s');
-    expect(playlists[0]).not.toMatch(/^data\.m4s$/m);
-    expect(playlists[1]).toContain('/v1/objects/file:360p/data.m4s');
-    expect(playlists[0]).toContain('#EXT-X-BYTERANGE:1450@100');
-
-    // the master points at the playlist objects
-    const master = new TextDecoder().decode(mockedPin.mock.calls[0][0]);
-    expect(master).toContain(`/v1/objects/bytes-${playlists[0].length}`);
-    expect(master).toContain(`/v1/objects/bytes-${playlists[1].length}`);
-    expect(master).toContain('RESOLUTION=1280x720');
-
+    expect(fake.calls.finalize).toBe(3);
     expect(progress).toEqual([
       [1, 3],
       [2, 3],
       [3, 3],
     ]);
+    // recorded before pinned, every batch
+    expect(pinnedWhenRecorded).toEqual([0, 0, 0]);
+    expect(fake.pinnedIds()).toEqual([...result.allObjectIds].sort());
+    expect([...uploading].sort()).toEqual([...result.allObjectIds].sort());
 
-    expect(result.masterManifestObjectId).toBe('master-obj');
-    expect(result.thumbnailObjectIds).toEqual(['file:thumb-0.jpg', 'file:thumb-1.jpg']);
-    expect(result.totalSegments).toBe(2);
-    expect(result.allObjectIds).toHaveLength(7);
-    expect(result.totalBytes).toBe(
-      3000 + 1000 + 50 + 50 + playlists[0].length + playlists[1].length + master.length,
-    );
-
-    const renditions = result.storageRecords.renditions;
-    expect(renditions.map((r) => [r.name, r.width, r.height, r.videoBitrateKbps])).toEqual([
+    const [r720, r360] = result.storageRecords.renditions;
+    expect([r720, r360].map((r) => [r.name, r.width, r.height, r.videoBitrateKbps])).toEqual([
       ['720p', 1280, 720, 2800],
       ['360p', 640, 360, 800],
     ]);
+    expect(fake.objects.get(r720.dataObjectId)!.size).toBe(3000);
+    expect(fake.objects.get(r360.dataObjectId)!.size).toBe(1000);
+    expect(result.thumbnailObjectIds.map((id) => fake.objects.get(id)!.size)).toEqual([50, 50]);
+    expect(result.totalSegments).toBe(2);
+    expect(result.allObjectIds).toHaveLength(7);
+    expect(result.totalBytes).toBe([...fake.objects.values()].reduce((n, o) => n + o.size, 0));
   });
 
-  it('retries the data batch, then fails the job with the last error', async () => {
+  it('retries the data batch, then fails with the last error and leaves nothing pinned', async () => {
     // only the backoff sleeps are faked; the file reads stay real
     vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const { ledger, uploading } = memoryLedger();
     try {
-      mockedPacked.mockRejectedValue(new Error('no more hosts available'));
+      fake.fail('add', new Error('no more hosts available'), 5);
       let settled = false;
-      const run = uploadSegments(dir, { thumbnailPaths: thumbs });
+      const run = uploadSegments(dir, { thumbnailPaths: thumbs, ledger });
       const assertion = expect(run).rejects.toThrow(
         'variant data upload failed after 5 attempts: no more hosts available',
       );
@@ -156,31 +139,124 @@ describe('uploadSegments', () => {
         await vi.advanceTimersByTimeAsync(60_000);
       }
       await assertion;
-      expect(mockedPacked).toHaveBeenCalledTimes(5);
-      expect(mockedPin).not.toHaveBeenCalled();
-      // nothing was pinned, so there is nothing to clean up
-      expect(mockedDelete).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
+    await settle();
+    expect(fake.calls.add).toBe(5);
+    expect(fake.objects.size).toBe(0);
+    expect(uploading.size).toBe(0);
+    // the slabs the failed adds stored are pruned
+    expect(fake.orphanSlabs()).toEqual([]);
   });
 
-  it('unpins everything already pinned when a later upload fails', async () => {
-    mockedPin.mockRejectedValue(new Error('indexer unavailable'));
-    await expect(uploadSegments(dir, { thumbnailPaths: thumbs })).rejects.toThrow(
+  it('releases everything it pinned when a later upload fails', async () => {
+    const { ledger, uploading } = memoryLedger();
+    // the master's pin: four data and thumbnail objects and two playlists are pinned by then
+    fake.before('pinObject', () => {
+      if (fake.calls.pinObject === 7) throw new Error('indexer unavailable');
+    });
+    await expect(uploadSegments(dir, { thumbnailPaths: thumbs, ledger })).rejects.toThrow(
       'indexer unavailable',
     );
-    // four data/thumbnail objects and two playlists were pinned before the master failed
-    expect(mockedDelete).toHaveBeenCalledTimes(6);
-    expect(mockedDelete).toHaveBeenCalledWith('file:720p/data.m4s');
-    expect(mockedDelete).toHaveBeenCalledWith('file:thumb-1.jpg');
+    await settle();
+    expect(fake.objects.size).toBe(0);
+    expect(uploading.size).toBe(0);
+    expect(fake.orphanSlabs()).toEqual([]);
   });
 
-  it('rejects output that was not transcoded in single file mode', async () => {
-    await writeFile(path.join(dir, '360p', 'playlist.m3u8'), '#EXTM3U\n#EXT-X-ENDLIST\n');
-    await expect(uploadSegments(dir, {})).rejects.toThrow(
-      'variant 360p/playlist.m3u8 has no data file reference',
+  it('keeps a record of what it could not unpin', async () => {
+    const { ledger, uploading } = memoryLedger();
+    const releasing: ObjectLedger = {
+      record: ledger.record,
+      // the indexer is down for the cleanup too
+      release: async () => {},
+    };
+    fake.before('pinObject', () => {
+      if (fake.calls.pinObject === 5) throw new Error('indexer unavailable');
+    });
+    await expect(
+      uploadSegments(dir, { thumbnailPaths: thumbs, ledger: releasing }),
+    ).rejects.toThrow('indexer unavailable');
+    expect(fake.objects.size).toBeGreaterThan(0);
+    expectEveryPinnedObjectRecorded(uploading);
+  });
+
+  it('pins nothing of a batch whose ids could not be recorded', async () => {
+    const { ledger, uploading } = memoryLedger();
+    let records = 0;
+    const flaky: ObjectLedger = {
+      record: async (ids) => {
+        if (++records === 2) throw new Error('db down');
+        await ledger.record(ids);
+      },
+      release: ledger.release,
+    };
+    await expect(uploadSegments(dir, { thumbnailPaths: thumbs, ledger: flaky })).rejects.toThrow(
+      'db down',
     );
-    expect(mockedPacked).not.toHaveBeenCalled();
+    await settle();
+    expect(fake.objects.size).toBe(0);
+    expect(uploading.size).toBe(0);
+    expect(fake.orphanSlabs()).toEqual([]);
+  });
+
+  it('stops between uploads when the checkpoint says so, releasing what it pinned', async () => {
+    const { ledger, uploading } = memoryLedger();
+    let checks = 0;
+    await expect(
+      uploadSegments(dir, {
+        thumbnailPaths: thumbs,
+        ledger,
+        checkpoint: async () => {
+          if (++checks === 2) throw new Error('asset deleted');
+        },
+      }),
+    ).rejects.toThrow('asset deleted');
+    await settle();
+    expect(fake.calls.finalize).toBe(1);
+    expect(fake.objects.size).toBe(0);
+    expect(uploading.size).toBe(0);
+  });
+
+  it.each([
+    [
+      'a master without variants, as FFmpeg leaves it after a failure',
+      async () => writeFile(path.join(dir, 'master.m3u8'), '#EXTM3U\n#EXT-X-VERSION:7\n'),
+      'lists no variant playlists',
+    ],
+    [
+      'a variant cut off before its end tag',
+      async () =>
+        writeFile(
+          path.join(dir, '360p', 'playlist.m3u8'),
+          variantPlaylist(100, 450).replace('#EXT-X-ENDLIST\n', ''),
+        ),
+      'variant 360p/playlist.m3u8 is not finished',
+    ],
+    [
+      'a variant without segments',
+      async () =>
+        writeFile(
+          path.join(dir, '360p', 'playlist.m3u8'),
+          '#EXTM3U\n#EXT-X-MAP:URI="data.m4s",BYTERANGE="100@0"\n#EXT-X-ENDLIST\n',
+        ),
+      'variant 360p/playlist.m3u8 has no segments',
+    ],
+    [
+      'output that was not transcoded in single file mode',
+      async () => writeFile(path.join(dir, '360p', 'playlist.m3u8'), '#EXTM3U\n#EXT-X-ENDLIST\n'),
+      'variant 360p/playlist.m3u8 has no data file reference',
+    ],
+    [
+      'an empty data file',
+      async () => writeFile(path.join(dir, '720p', 'data.m4s'), ''),
+      'data.m4s is empty',
+    ],
+  ])('refuses %s before uploading anything', async (_label, damage, message) => {
+    await damage();
+    const { ledger } = memoryLedger();
+    await expect(uploadSegments(dir, { thumbnailPaths: thumbs, ledger })).rejects.toThrow(message);
+    expect(fake.calls.add).toBe(0);
   });
 });

@@ -16,6 +16,7 @@ import { db } from '../../config/database.js';
 import {
   videoAssets,
   artifacts,
+  pendingObjects,
   uploadSessions,
   type VideoAsset,
   type NewVideoAsset,
@@ -303,17 +304,22 @@ export async function softDeleteVideoAsset(
 
 /**
  * Gather every Sia object id belonging to one asset, so the deletion worker
- * can unpin each. Reads the authoritative `artifacts` rows plus the
- * denormalized ids on the asset itself (covering assets that predate artifact
- * normalization). Deliberately does NOT filter on `deletedAt`: it must see
- * the just-soft-deleted row.
+ * can unpin each. Reads the authoritative `artifacts` rows, the denormalized
+ * ids on the asset itself (covering assets that predate artifact
+ * normalization), and the objects a run pinned that finalize has not
+ * recorded yet. Deliberately does NOT filter on `deletedAt`: it must see the
+ * just-soft-deleted row.
  */
 export async function getAssetObjectIds(assetId: string): Promise<string[]> {
-  const [artifactRows, asset] = await Promise.all([
+  const [artifactRows, pendingRows, asset] = await Promise.all([
     db
       .select({ objectId: artifacts.objectId })
       .from(artifacts)
       .where(eq(artifacts.videoAssetId, assetId)),
+    db
+      .select({ objectId: pendingObjects.objectId })
+      .from(pendingObjects)
+      .where(eq(pendingObjects.videoAssetId, assetId)),
     db.query.videoAssets.findFirst({
       where: eq(videoAssets.id, assetId),
       columns: { manifestObjectId: true, thumbnailObjectIds: true, siaObjectIds: true },
@@ -321,7 +327,7 @@ export async function getAssetObjectIds(assetId: string): Promise<string[]> {
   ]);
 
   return collectAssetObjectIds({
-    artifactObjectIds: artifactRows.map((r) => r.objectId),
+    artifactObjectIds: [...artifactRows, ...pendingRows].map((r) => r.objectId),
     manifestObjectId: asset?.manifestObjectId ?? null,
     thumbnailObjectIds: asset?.thumbnailObjectIds ?? [],
     siaObjectIds: (asset?.siaObjectIds ?? []) as string[],
@@ -330,33 +336,108 @@ export async function getAssetObjectIds(assetId: string): Promise<string[]> {
 
 /**
  * Record that specific objects have been unpinned during a deletion: remove
- * their artifact rows and strip them from the asset's denormalized id fields.
- * This is what lets a retried or GC-re-driven deletion converge — the next
- * `getAssetObjectIds` returns only the objects that still need unpinning.
+ * their artifact and pending rows and strip them from the asset's
+ * denormalized id fields. This is what lets a retried or GC-re-driven
+ * deletion converge: the next `getAssetObjectIds` returns only the objects
+ * that still need unpinning. The fields are filtered inside one UPDATE, so
+ * two deletions of the same asset cannot write back an id the other removed.
  */
 export async function markObjectsUnpinned(assetId: string, unpinnedIds: string[]): Promise<void> {
   if (unpinnedIds.length === 0) return;
-  const set = new Set(unpinnedIds);
-
-  await db
-    .delete(artifacts)
-    .where(and(eq(artifacts.videoAssetId, assetId), inArray(artifacts.objectId, unpinnedIds)));
-
-  const asset = await db.query.videoAssets.findFirst({
-    where: eq(videoAssets.id, assetId),
-    columns: { manifestObjectId: true, thumbnailObjectIds: true, siaObjectIds: true },
+  const ids = sql`${sql.param(unpinnedIds)}::text[]`;
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(artifacts)
+      .where(and(eq(artifacts.videoAssetId, assetId), inArray(artifacts.objectId, unpinnedIds)));
+    await tx.delete(pendingObjects).where(inArray(pendingObjects.objectId, unpinnedIds));
+    await tx
+      .update(videoAssets)
+      .set({
+        manifestObjectId: sql`case when ${videoAssets.manifestObjectId} = any(${ids}) then null else ${videoAssets.manifestObjectId} end`,
+        thumbnailObjectIds: sql`array(
+          select t from unnest(${videoAssets.thumbnailObjectIds}) with ordinality as u(t, n)
+          where not (t = any(${ids})) order by n
+        )`,
+        siaObjectIds: sql`coalesce((
+          select jsonb_agg(e order by n)
+          from jsonb_array_elements_text(coalesce(${videoAssets.siaObjectIds}, '[]'::jsonb)) with ordinality as u(e, n)
+          where not (e = any(${ids}))
+        ), '[]'::jsonb)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(videoAssets.id, assetId));
   });
-  if (!asset) return;
+}
 
+/**
+ * Move a failed asset back to processing for a retry. Only one caller can
+ * win: the status check and the write are one statement, so two retries at
+ * once start one run. Returns false when the asset is not failed (or not the
+ * caller's, or being deleted).
+ */
+export async function claimFailedAssetForRetry(id: string, owner?: string): Promise<boolean> {
+  const scope = [
+    eq(videoAssets.id, id),
+    eq(videoAssets.status, 'failed'),
+    isNull(videoAssets.deletedAt),
+  ];
+  if (owner !== undefined) scope.push(eq(videoAssets.creatorAddress, owner));
+  const rows = await db
+    .update(videoAssets)
+    .set({ status: 'processing', updatedAt: new Date() })
+    .where(and(...scope))
+    .returning({ id: videoAssets.id });
+  return rows.length > 0;
+}
+
+/**
+ * Mark an asset whose pipeline gave up failed. A ready or failed asset does
+ * not match, so a stale execution failing after its asset became ready (or
+ * after the run already failed) changes nothing. Created counts, for a first
+ * transcode attempt that failed before it could mark the asset processing.
+ * Returns whether it moved.
+ */
+export async function failProcessingAsset(id: string): Promise<boolean> {
+  const rows = await db
+    .update(videoAssets)
+    .set({ status: 'failed', updatedAt: new Date() })
+    .where(
+      and(
+        eq(videoAssets.id, id),
+        inArray(videoAssets.status, ['created', 'uploading', 'processing']),
+        isNull(videoAssets.deletedAt),
+      ),
+    )
+    .returning({ id: videoAssets.id });
+  return rows.length > 0;
+}
+
+/** Undo a retry claim whose job could not be queued, so the asset can be retried again. */
+export async function releaseRetryClaim(id: string): Promise<void> {
   await db
     .update(videoAssets)
-    .set({
-      manifestObjectId:
-        asset.manifestObjectId && set.has(asset.manifestObjectId) ? null : asset.manifestObjectId,
-      thumbnailObjectIds: (asset.thumbnailObjectIds ?? []).filter((t) => !set.has(t)),
-      siaObjectIds: ((asset.siaObjectIds ?? []) as string[]).filter((s) => !set.has(s)),
-    })
-    .where(eq(videoAssets.id, assetId));
+    .set({ status: 'failed', updatedAt: new Date() })
+    .where(and(eq(videoAssets.id, id), eq(videoAssets.status, 'processing')));
+}
+
+/**
+ * Whether each asset still needs its transcode output: a processing or
+ * failed asset does (the pipeline or a retry reads it), a ready, deleted or
+ * missing one does not.
+ */
+export async function transcodeOutputDispositions(
+  ids: string[],
+): Promise<Map<string, 'keep' | 'remove'>> {
+  const result = new Map<string, 'keep' | 'remove'>(ids.map((id) => [id, 'remove']));
+  if (ids.length === 0) return result;
+  const rows = await db
+    .select({ id: videoAssets.id, status: videoAssets.status, deletedAt: videoAssets.deletedAt })
+    .from(videoAssets)
+    .where(inArray(videoAssets.id, ids));
+  for (const row of rows) {
+    if (row.deletedAt === null && row.status !== 'ready') result.set(row.id, 'keep');
+  }
+  return result;
 }
 
 /**

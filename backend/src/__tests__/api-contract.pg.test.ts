@@ -12,6 +12,7 @@ import pino from 'pino';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { writeCompletionMarker } from '../queue/output-dirs.js';
 import type { Express } from 'express';
 import { hasTestDatabase, createTestDatabase, type TestDatabase } from './helpers/pg.js';
 import {
@@ -462,9 +463,16 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
 
     it('retries a failed asset whose transcode output is on disk', async () => {
-      const dir = path.join(outputDir, assetAFailed.id);
+      // a master FFmpeg left behind on a failure is not a finished transcode
+      const unfinished = path.join(outputDir, assetAFailed.id, 'run-1');
+      mkdirSync(unfinished, { recursive: true });
+      writeFileSync(path.join(unfinished, 'master.m3u8'), '#EXTM3U\n');
+      const refused = await call('POST', `/api/v1/assets/${assetAFailed.id}/retry`, 'a');
+      expect(refused.status).toBe(410);
+
+      const dir = path.join(outputDir, assetAFailed.id, 'run-2');
       mkdirSync(dir, { recursive: true });
-      writeFileSync(path.join(dir, 'master.m3u8'), '#EXTM3U\n');
+      await writeCompletionMarker(dir, { durationMs: 1000, resolution: '640x360', thumbnails: [] });
       const res = await call('POST', `/api/v1/assets/${assetAFailed.id}/retry`, 'a');
       check('POST', '/api/v1/assets/{id}/retry', res);
       expect(res.status).toBe(200);

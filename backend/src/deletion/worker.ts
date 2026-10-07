@@ -2,74 +2,61 @@ import { Worker, type Job } from 'bullmq';
 import pino from 'pino';
 import { redisConnection, deletionQueue, type DeletionJobData } from '../queue/bull-config.js';
 import { env } from '../config/env.js';
-import { deleteObject, pruneSlabs } from '../storage/sia-client.js';
-import {
-  deleteVideoAsset,
-  getAssetObjectIds,
-  markObjectsUnpinned,
-  listAssetsPendingDeletion,
-} from '../db/queries/assets.js';
-import { listUploadFilePaths } from '../db/queries/uploads.js';
-import { evictObjects } from '../storage/blob-manager.js';
-import { removeAssetSources } from '../upload/source-files.js';
-import { invalidateObjectAccessTier } from '../delivery/access-control.js';
+import { getAssetObjectIds, listAssetsPendingDeletion } from '../db/queries/assets.js';
 import { runAssetDeletion } from './deleter.js';
 import { buildDeletionGc } from './service.js';
+import { assetDeletionDeps, releaseLeftoverObjects, sweepTranscodeOutput } from './wiring.js';
 import { applySweepSchedule, DELETION_GC_SWEEP } from '../queue/schedules.js';
 
 const logger = pino({ name: 'deletion-worker' });
 
-/** Enqueue a deletion attempt. GC re-drives use a unique job id so a prior
- *  failed job (kept for inspection) does not block re-adding. */
-async function enqueueDeletion(videoAssetId: string, opts: { jobId?: string } = {}): Promise<void> {
-  await deletionQueue.add('delete', { kind: 'delete', videoAssetId }, opts);
-}
+const IN_FLIGHT = new Set(['waiting', 'delayed', 'active', 'prioritized', 'waiting-children']);
 
-/** Drop unpinned objects from both the LRU blob cache and the tier cache. */
-function evictCache(objectIds: string[]): void {
-  evictObjects(objectIds);
-  for (const id of objectIds) invalidateObjectAccessTier(id);
-}
+/** The job ids a delete of one asset runs under: the API's, and the gc sweep's. */
+const deleteJobIds = (videoAssetId: string) => [
+  `delete-${videoAssetId}`,
+  `redrive-${videoAssetId}`,
+];
 
 const runGc = buildDeletionGc({
   listPending: () => listAssetsPendingDeletion(env.DELETION_STUCK_THRESHOLD_MS),
-  enqueue: (id) => enqueueDeletion(id, { jobId: `redrive-${id}-${Date.now()}` }),
+  deletionInFlight: async (videoAssetId) => {
+    for (const jobId of deleteJobIds(videoAssetId)) {
+      const job = await deletionQueue.getJob(jobId);
+      if (job && IN_FLIGHT.has(await job.getState())) return true;
+    }
+    return false;
+  },
+  redrive: async (videoAssetId) => {
+    // one re-drive job per asset, replaced each time, so the count carries over
+    const jobId = `redrive-${videoAssetId}`;
+    const previous = await deletionQueue.getJob(jobId);
+    const redrive = (previous?.data.kind === 'delete' ? (previous.data.redrive ?? 0) : 0) + 1;
+    await previous?.remove();
+    await deletionQueue.add('delete', { kind: 'delete', videoAssetId, redrive }, { jobId });
+    return redrive;
+  },
+  releaseObjects: releaseLeftoverObjects,
+  sweepOutput: () => sweepTranscodeOutput(logger),
   logger,
 });
 
 /**
  * BullMQ worker for the deletion queue. A `delete` job unpins one asset's
- * objects and removes its row; a `gc` job re-drives stuck deletions. Object
- * ids are collected fresh on every attempt, so a retry only re-attempts the
- * objects that still remain (markObjectsUnpinned removes the rest).
+ * objects and removes its row; a `gc` job re-drives stuck deletions and
+ * cleans up after the pipeline. Object ids are collected fresh on every
+ * attempt, so a retry only re-attempts the objects that still remain
+ * (markObjectsUnpinned removes the rest).
  */
 export const deletionWorker = new Worker<DeletionJobData>(
   'deletion',
   async (job: Job<DeletionJobData>) => {
-    if (job.data.kind === 'gc') {
-      const redriven = await runGc();
-      return { redriven };
-    }
+    if (job.data.kind === 'gc') return runGc();
 
     const { videoAssetId } = job.data;
     const objectIds = await getAssetObjectIds(videoAssetId);
     logger.info({ videoAssetId, objectCount: objectIds.length }, 'Starting asset deletion');
-
-    return runAssetDeletion(
-      {
-        deleteObject,
-        pruneSlabs,
-        markUnpinned: markObjectsUnpinned,
-        evictCache,
-        removeAsset: async (id) => {
-          await deleteVideoAsset(id);
-        },
-        removeSources: (id) =>
-          removeAssetSources(id, { listSourcePaths: listUploadFilePaths, log: logger }),
-        logger,
-      },
-      { videoAssetId, objectIds },
-    );
+    return runAssetDeletion(assetDeletionDeps(logger), { videoAssetId, objectIds });
   },
   { connection: redisConnection, concurrency: 2 },
 );

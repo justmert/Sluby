@@ -29,6 +29,7 @@ import type { TranscodeJobData, UploadSegmentsJobData } from './queue/bull-confi
 
 import {
   createUploadSession as dbCreateUploadSession,
+  getCompletedUploadSessionForAsset,
   getUploadSessionById,
   listExpiredUploadingSessions,
   updateUploadSession,
@@ -42,12 +43,15 @@ import {
   updateAssetMetadata,
   softDeleteVideoAsset,
   getAssetObjectIds,
+  claimFailedAssetForRetry,
+  releaseRetryClaim,
 } from './db/queries/assets.js';
 import {
   createProcessingJob,
   getProcessingJobByVideoAssetId,
-  updateProcessingJobStatus,
+  restartProcessingJob,
 } from './db/queries/jobs.js';
+import { findCompletedOutput } from './queue/output-dirs.js';
 import {
   getApiKeyByHash,
   createApiKeyWithinCap,
@@ -560,20 +564,20 @@ export function buildApiDeps(
     retryAsset: buildRetryAsset({
       getAsset: (id, owner) => getVideoAssetById(id, owner),
       getProcessingJob: (videoAssetId) => getProcessingJobByVideoAssetId(videoAssetId),
-      getUploadSession: (id) => getUploadSessionById(id),
-      markAssetProcessing: async (id) => {
-        await updateVideoAsset(id, { status: 'processing' });
-      },
-      markJobProcessing: async (jobId) => {
-        await updateProcessingJobStatus(jobId, { status: 'processing', errorMessage: null });
-      },
+      createProcessingJob: (videoAssetId, uploadSessionId) =>
+        createProcessingJob({ videoAssetId, uploadSessionId }),
+      getUploadSession: (videoAssetId) => getCompletedUploadSessionForAsset(videoAssetId),
+      findCompletedOutput: (videoAssetId) =>
+        findCompletedOutput(env.TRANSCODE_OUTPUT_DIR, videoAssetId),
+      claimFailedAsset: (id, owner) => claimFailedAssetForRetry(id, owner),
+      releaseClaim: (id) => releaseRetryClaim(id),
+      restartJob: (jobId) => restartProcessingJob(jobId),
       enqueueUploadSegments: async (data, jobId) => {
         await ctx.queues.uploadSegments.add('upload-segments', data, { jobId });
       },
       enqueueTranscode: async (data, jobId) => {
         await ctx.queues.transcode.add('transcode', data, { jobId });
       },
-      transcodeOutputDir: env.TRANSCODE_OUTPUT_DIR,
     }),
 
     // ── PlaybackRouteDeps ──
