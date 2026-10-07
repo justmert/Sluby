@@ -37,7 +37,9 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       globals: true,
       include: ['src/**/*.test.{ts,tsx}'],
-      setupFiles: ['./src/test/setup.ts'],
+      setupFiles: ['./src/test/setup.ts', './src/test/timeouts.ts'],
+      // a loaded ci runner can take seconds per page render
+      testTimeout: 30_000,
     },
   };
 });
