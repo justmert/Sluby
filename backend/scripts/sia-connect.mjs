@@ -9,6 +9,37 @@ const { initSia, Builder, generateRecoveryPhrase } = siaPkg;
 const READY_POLL_MS = 5000;
 
 /**
+ * The indexer url for a connect script: the first argument, else
+ * SIA_INDEXER_URL, else the hosted https://sia.storage. The argument wins
+ * because compose always sets the variable inside the container. Prints
+ * `usage` and exits for --help, and exits 2 on anything that is not an http
+ * or https url.
+ */
+export function indexerUrlFromArgs(usage, argv = process.argv.slice(2), env = process.env) {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log(usage);
+    process.exit(0);
+  }
+  if (argv.length > 1) {
+    console.error(`expected at most one argument, the indexer url\n\n${usage}`);
+    process.exit(2);
+  }
+  const value = argv[0] || env.SIA_INDEXER_URL || 'https://sia.storage';
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    url = null;
+  }
+  if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
+    console.error(`"${value}" is not an http or https url\n\n${usage}`);
+    process.exit(2);
+  }
+  // the sdk wants the base url without a trailing slash
+  return value.replace(/\/+$/, '');
+}
+
+/**
  * Ask the indexer for a connection, wait until the account owner approves it
  * in the browser, then register a fresh app key. Waits up to `readyWaitMs` for
  * the account to report ready (a new account forms contracts first).

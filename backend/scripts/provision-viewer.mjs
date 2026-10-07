@@ -9,16 +9,21 @@
 // ship to browsers as a publishable key (like a Mux public key).
 //
 // Run once per deployment:
-//   SIA_INDEXER_URL=https://sia.storage node scripts/provision-viewer.mjs
-//   (or: npm run provision-viewer, or pass the indexer URL as the first arg)
+//   node scripts/provision-viewer.mjs [indexer url]
+//   (or: npm run provision-viewer; the url defaults to SIA_INDEXER_URL, then
+//   https://sia.storage)
 //
 // It prints a connect URL you approve in your indexer account, then prints the
 // publishable browser config to put in the frontend env (VITE_SLUBY_SIA_*).
 // ---------------------------------------------------------------------------
 
-import { connectApp } from './sia-connect.mjs';
+import { connectApp, indexerUrlFromArgs } from './sia-connect.mjs';
 
-const indexerUrl = process.env.SIA_INDEXER_URL || process.argv[2] || 'https://sia.storage';
+const indexerUrl = indexerUrlFromArgs(
+  'usage: node scripts/provision-viewer.mjs [indexer url]\n' +
+    '  registers a separate viewer app and prints the VITE_SLUBY_SIA_* settings for the studio.\n' +
+    '  the indexer defaults to SIA_INDEXER_URL, then https://sia.storage',
+);
 
 async function main() {
   console.log(`Provisioning a viewer identity against ${indexerUrl}\n`);
