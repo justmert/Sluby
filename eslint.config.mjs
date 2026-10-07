@@ -65,7 +65,8 @@ export default tseslint.config(
       'frontend/src/components/ui/**',
       'frontend/src/test/**',
       'frontend/src/**/*.test.{ts,tsx}',
-      // until fix/fg10 moves their helpers into plain modules
+      // these still export helpers on this base; fix/fg10 (f30ec9b) moves them
+      // into plain modules, and these two entries go with that merge
       'frontend/src/components/upload/ChunkStrip.tsx',
       'frontend/src/components/upload/PipelineSteps.tsx',
     ],
