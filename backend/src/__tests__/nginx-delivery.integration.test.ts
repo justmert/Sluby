@@ -424,7 +424,7 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
     });
 
     it('keys the cache on the path and the type hint only, so junk queries cannot force misses', async () => {
-      const first = await fetchThroughNginx(base, '/v1/objects/master-qs?x=1');
+      const first = await fetchThroughNginx(base, '/v1/objects/master-qs');
       const junk = await fetchThroughNginx(base, '/v1/objects/master-qs?x=2&y=3');
       const typed = await fetchThroughNginx(base, '/v1/objects/master-qs?type=manifest');
       expect(first.headers.get('x-cache-status')).toBe('MISS');

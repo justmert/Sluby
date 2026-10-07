@@ -358,6 +358,12 @@ export interface ObjectHandle {
   read(range?: { offset: number; length: number }): ReadableStream<Uint8Array>;
 }
 
+// decoded 128 KiB chunks the sdk may queue ahead of a slow reader. Left to
+// its default it reads far ahead: a 240 MiB object read in full grew the
+// process by about 200 MB, and by about 100 MB with 4, which is then the
+// sdk's own per-download working set and no longer grows with the object.
+const DOWNLOAD_BUFFERED_CHUNKS = 4;
+
 /**
  * Look an object up on the indexer once and return a handle that streams it.
  * One indexer call: the handle carries what the download needs.
@@ -370,10 +376,10 @@ export async function openObject(objectId: string): Promise<ObjectHandle> {
     id: objectId,
     size,
     read: (range) =>
-      sdk.download(
-        obj,
-        range ? { offset: BigInt(range.offset), length: BigInt(range.length) } : undefined,
-      ) as ReadableStream<Uint8Array>,
+      sdk.download(obj, {
+        maxBufferedChunks: DOWNLOAD_BUFFERED_CHUNKS,
+        ...(range ? { offset: BigInt(range.offset), length: BigInt(range.length) } : {}),
+      }) as ReadableStream<Uint8Array>,
   };
 }
 

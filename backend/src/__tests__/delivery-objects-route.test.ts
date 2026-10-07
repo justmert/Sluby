@@ -281,6 +281,8 @@ describe('public objects and caching', () => {
     expect(res.headers['cache-control']).toBe('public, no-cache');
     expect(res.headers['etag']).toBe(`"${DATA}"`);
     expect(res.headers['x-accel-expires']).toBeUndefined();
+    // one indexer lookup gives both the size and the download handle
+    expect(openObject).toHaveBeenCalledTimes(1);
   });
 
   it('serves a range of a cached object from memory', async () => {
