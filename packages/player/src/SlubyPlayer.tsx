@@ -595,6 +595,22 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       // failed manifest load has to be retried with loadSource instead
       let manifestParsed = false;
 
+      // webkit can leave the clock stopped for good (playing, readyState 4,
+      // currentTime frozen) when play() is pending while hls.js seeks, to the
+      // start position of a resumed load or over the gap before the first
+      // buffered frame, so play() waits until the element has settled
+      const settleEvents = ['seeked', 'canplay'] as const;
+      const stopWaitingToPlay = () => {
+        for (const name of settleEvents) video.removeEventListener(name, playWhenSettled);
+      };
+      const playWhenSettled = () => {
+        if (video.seeking || video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+        stopWaitingToPlay();
+        video.play().catch(() => {
+          /* autoplay policy may block */
+        });
+      };
+
       // Tear down after an unrecoverable error, exactly once: cancel any pending
       // reload so its callback cannot fire on a destroyed instance, mark the
       // error terminal, destroy, and report.
@@ -604,6 +620,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         destroyed = true;
         terminalRef.current = true;
         stopTracking();
+        stopWaitingToPlay();
         hls.destroy();
         hlsRef.current = null;
         fail(message, cause);
@@ -619,11 +636,8 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         }
         moveTo('ready');
         cb.current.onReady?.();
-        if (shouldPlay()) {
-          video.play().catch(() => {
-            /* autoplay policy may block */
-          });
-        }
+        if (!shouldPlay()) return;
+        for (const name of settleEvents) video.addEventListener(name, playWhenSettled);
       });
 
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
@@ -695,6 +709,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       return () => {
         if (backoffTimer) clearTimeout(backoffTimer);
         stopTracking();
+        stopWaitingToPlay();
         // A give-up already destroyed the instance; do not destroy twice.
         if (!destroyed) {
           destroyed = true;

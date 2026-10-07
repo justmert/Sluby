@@ -822,9 +822,46 @@ describe('SlubyPlayer', () => {
 
       expect(hlsInstances).toHaveLength(2);
       expect(hlsInstances[1].config.startPosition).toBe(31.5);
+      play.mockClear();
       fireHls(MockHlsEvents.MANIFEST_PARSED);
+      // not while hls.js is still seeking to the start position (webkit can
+      // leave the clock stopped), but as soon as that seek is done
+      Object.defineProperty(video, 'seeking', { value: true, configurable: true });
+      Object.defineProperty(video, 'readyState', { value: 1, configurable: true });
+      video.dispatchEvent(new Event('canplay'));
+      expect(play).not.toHaveBeenCalled();
+      Object.defineProperty(video, 'seeking', { value: false, configurable: true });
+      Object.defineProperty(video, 'readyState', { value: 4, configurable: true });
+      video.dispatchEvent(new Event('seeked'));
       // it was playing, so it plays on
-      expect(play).toHaveBeenCalled();
+      expect(play).toHaveBeenCalledTimes(1);
+      video.dispatchEvent(new Event('canplay'));
+      expect(play).toHaveBeenCalledTimes(1);
+    });
+
+    it('plays a load from the start once the element can play, not at the manifest', () => {
+      const { container } = render(<SlubyPlayer src={SRC} autoPlay />);
+      const video = container.querySelector('video')!;
+      const play = vi.spyOn(video, 'play').mockResolvedValue(undefined);
+
+      fireHls(MockHlsEvents.MANIFEST_PARSED);
+      expect(hlsInstances[0].config.startPosition).toBe(-1);
+      // hls.js may still jump the gap before the first buffered frame
+      expect(play).not.toHaveBeenCalled();
+      Object.defineProperty(video, 'readyState', { value: 4, configurable: true });
+      video.dispatchEvent(new Event('canplay'));
+      expect(play).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not play when the load was not meant to play', () => {
+      const { container } = render(<SlubyPlayer src={SRC} />);
+      const video = container.querySelector('video')!;
+      const play = vi.spyOn(video, 'play').mockResolvedValue(undefined);
+
+      fireHls(MockHlsEvents.MANIFEST_PARSED);
+      Object.defineProperty(video, 'readyState', { value: 4, configurable: true });
+      video.dispatchEvent(new Event('canplay'));
+      expect(play).not.toHaveBeenCalled();
     });
 
     it('a newly signed src for the same video continues from the same position', () => {

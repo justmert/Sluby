@@ -34,6 +34,7 @@
 
 ### Fixed
 
+- The player calls `play()` once the video can play and hls.js has finished seeking (to the position a retry or a renewed URL continues from, or over the gap before the first buffered frame), not as soon as the manifest is parsed. In WebKit a `play()` pending during that seek could leave the video playing with its clock stopped for good.
 - `onStateChange` skipped `loading` when the manifest was parsed before React rendered it; every transition is now reported as it happens, in order.
 - The overlay Retry built an hls.js instance on the stale (possibly expired) URL or share map before the fresh one.
 - A poster resolved for one asset stayed after switching to another asset or to a plain `src`.

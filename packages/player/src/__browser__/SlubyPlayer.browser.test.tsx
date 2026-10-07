@@ -2,7 +2,7 @@
 // requests to the fixture gateway, real decode and playback.
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { createRef } from 'react';
+import { createRef, useState } from 'react';
 import Hls from 'hls.js';
 import { SlubyPlayer, type SlubyPlayerHandle } from '../SlubyPlayer.js';
 import type { PlayerState, QualityLevel } from '../types.js';
@@ -183,8 +183,13 @@ describe('SlubyPlayer with real hls.js', () => {
     expect(events.states[events.states.length - 1]).toBe('error');
     // giving up tears hls.js down
     expect(ref.current?.getHlsInstance()).toBeNull();
+    // onError runs from the hls.js event; react renders the overlay after it
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-sluby-overlay="error"]')?.textContent).toContain(
+        events.errors[0].message,
+      ),
+    );
     const overlay = container.querySelector('[data-sluby-overlay="error"]');
-    expect(overlay?.textContent).toContain(events.errors[0].message);
 
     const log = await gatewayRequests();
     const failed = log.filter((r) => r.status === 404);
@@ -207,6 +212,64 @@ describe('SlubyPlayer with real hls.js', () => {
     expect(events.errors).toHaveLength(1);
   }, 90_000);
 
+  it('keeps playing after every reload that resumes near the start', async () => {
+    // a new url for the same video (a renewed signature) reloads hls.js at the
+    // position reached. webkit can stop the clock for good when play() is
+    // pending during the seek to a position near the start; before
+    // the player waited for that seek, about half of the runs of 16 reloads did
+    const ref = createRef<SlubyPlayerHandle>();
+    let setSrc: (src: string) => void = () => {};
+    function Swapper() {
+      const [src, set] = useState(objectUrl(catalog.masterId));
+      setSrc = set;
+      return <SlubyPlayer ref={ref} src={src} muted autoPlay controls={false} />;
+    }
+    mounted = mount(<Swapper />);
+    await vi.waitFor(() => expect(ref.current?.getVideoElement()).toBeTruthy());
+    const video = ref.current!.getVideoElement()!;
+
+    for (let i = 1; i <= 16; i++) {
+      await vi.waitFor(
+        () => {
+          expect(video.paused).toBe(false);
+          expect(video.readyState).toBeGreaterThanOrEqual(HTMLMediaElement.HAVE_FUTURE_DATA);
+        },
+        { timeout: 15_000, interval: 20 },
+      );
+      video.currentTime = 0.3;
+      await vi.waitFor(() => expect(video.seeking).toBe(false), { timeout: 5_000, interval: 20 });
+
+      const previous = ref.current!.getHlsInstance();
+      setSrc(`${objectUrl(catalog.masterId)}?reload=${i}`);
+      await vi.waitFor(() => {
+        const hls = ref.current!.getHlsInstance();
+        expect(hls).toBeInstanceOf(Hls);
+        expect(hls).not.toBe(previous);
+      });
+      // near 0.3, plus however far it played before the new url took over
+      const resumeAt = ref.current!.getHlsInstance()!.config.startPosition;
+      expect(resumeAt).toBeGreaterThan(0.2);
+
+      // the reload lands on the position, then plays on from it
+      await vi.waitFor(
+        () => {
+          expect(video.seeking).toBe(false);
+          expect(video.readyState).toBeGreaterThanOrEqual(HTMLMediaElement.HAVE_FUTURE_DATA);
+          expect(Math.abs(video.currentTime - resumeAt)).toBeLessThan(0.05);
+        },
+        { timeout: 15_000, interval: 20 },
+      );
+      const landed = video.currentTime;
+      await vi.waitFor(
+        () => {
+          expect(video.paused).toBe(false);
+          expect(video.currentTime).not.toBe(landed);
+        },
+        { timeout: 5_000, interval: 20 },
+      );
+    }
+  }, 120_000);
+
   it('re-requests a master that 404s on each retry, then reports the error', async () => {
     await injectFault(catalog.masterId, 404);
     const { events, container } = renderPlayer({ maxNetworkRetries: 2 });
@@ -223,6 +286,8 @@ describe('SlubyPlayer with real hls.js', () => {
     expect(log).toHaveLength(3);
     expect(log.every((r) => r.id === catalog.masterId && r.status === 404)).toBe(true);
     expect(events.states[events.states.length - 1]).toBe('error');
-    expect(container.querySelector('[data-sluby-overlay="error"]')).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-sluby-overlay="error"]')).not.toBeNull(),
+    );
   });
 });
