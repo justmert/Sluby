@@ -35,7 +35,6 @@ import type {
   PackedUploadOptions,
   PinnedObject as SdkPinnedObject,
   Sdk,
-  Slab,
 } from '@siafoundation/sia-storage';
 import type { ObjectSnapshot } from './sia-breakdown.js';
 import { siaUploadDurationSeconds } from '../metrics/collector.js';
@@ -44,38 +43,12 @@ import { siaUploadDurationSeconds } from '../metrics/collector.js';
 // through the "node" export condition, see customConditions in tsconfig)
 
 // ---------------------------------------------------------------------------
-// Public types (kept identical to the previous shape so the rest of
-// the codebase — uploader, aggregator, sia-info — compiles unchanged).
+// Public types
 // ---------------------------------------------------------------------------
 
 export interface UploadResult {
   objectId: string;
   size: number;
-}
-
-/**
- * A lightweight "PinnedObject" stand-in. Upstream callers only use
- * `.id()`, `.size()`, `.slabs()`, `.createdAt()`, `.updatedAt()`.
- */
-export interface PinnedObject {
-  id(): string;
-  size(): bigint;
-  slabs(): RawSlab[];
-  createdAt(): Date | null;
-  updatedAt(): Date | null;
-}
-
-/** Matches the shape upstream code pulls `minShards` / `sectors` from. */
-export interface RawSlab {
-  minShards: number;
-  sectors: Array<{
-    root: string;
-    hostKey: string;
-    /** Sia file-contract id committing this host to storing the sector.
-     *  Pulled from the indexd contracts list and joined on hostKey;
-     *  empty string when no active contract is on file for the host. */
-    contractId: string;
-  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -211,37 +184,6 @@ async function refreshHostContracts(): Promise<HostContractMap> {
 export async function getHostContracts(): Promise<Map<string, string[]> | null> {
   if (!ADMIN_API_CONFIGURED) return null;
   return (await refreshHostContracts()).contracts;
-}
-
-// ---------------------------------------------------------------------------
-// Slab/object adapters
-// ---------------------------------------------------------------------------
-
-function adaptSlabs(slabs: Slab[], hostContracts: Map<string, string[]>): RawSlab[] {
-  return slabs.map((slab) => ({
-    minShards: slab.minShards,
-    sectors: slab.sectors.map((sec) => {
-      const contractId = hostContracts.get(sec.hostKey)?.[0] ?? '';
-      return { root: sec.root, hostKey: sec.hostKey, contractId };
-    }),
-  }));
-}
-
-function adaptObject(obj: SdkPinnedObject, hostContracts: Map<string, string[]>): PinnedObject {
-  // Snapshot the SDK fields once — calling them across an async boundary
-  // re-acquires the inner mutex on every call.
-  const id = obj.id();
-  const size = obj.size();
-  const slabs = adaptSlabs(obj.slabs(), hostContracts);
-  const createdAt = obj.createdAt();
-  const updatedAt = obj.updatedAt();
-  return {
-    id: () => id,
-    size: () => size,
-    slabs: () => slabs,
-    createdAt: () => createdAt,
-    updatedAt: () => updatedAt,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -404,40 +346,93 @@ async function packedUpload(
 // Download (with byte-range passthrough)
 // ---------------------------------------------------------------------------
 
+/** One object as the indexer describes it, ready to stream. */
+export interface ObjectHandle {
+  id: string;
+  size: number;
+  /**
+   * Stream the object, or `length` bytes of it from `offset`. The hosts are
+   * only asked for the slabs the window overlaps, and the stream applies
+   * backpressure, so a slow reader never makes the whole window sit in memory.
+   */
+  read(range?: { offset: number; length: number }): ReadableStream<Uint8Array>;
+}
+
+/**
+ * Look an object up on the indexer once and return a handle that streams it.
+ * One indexer call: the handle carries what the download needs.
+ */
+export async function openObject(objectId: string): Promise<ObjectHandle> {
+  const sdk = await getClient();
+  const obj = await sdk.object(objectId);
+  const size = Number(obj.size());
+  return {
+    id: objectId,
+    size,
+    read: (range) =>
+      sdk.download(
+        obj,
+        range ? { offset: BigInt(range.offset), length: BigInt(range.length) } : undefined,
+      ) as ReadableStream<Uint8Array>,
+  };
+}
+
+/**
+ * Read a whole stream into one buffer of the length it must have. Throws when
+ * the stream ends short or runs long, so a truncated read is never passed on
+ * as the object. Only for objects small enough to hold in memory.
+ */
+export async function readExactly(
+  stream: ReadableStream<Uint8Array>,
+  length: number,
+): Promise<Uint8Array> {
+  const out = new Uint8Array(length);
+  const reader = stream.getReader();
+  let filled = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (filled + value.length > length) {
+        throw new Error(`object stream ran past its ${length} bytes`);
+      }
+      out.set(value, filled);
+      filled += value.length;
+    }
+  } catch (err) {
+    await reader.cancel().catch(() => {});
+    throw err;
+  }
+  if (filled !== length) throw new Error(`object stream ended at ${filled} of ${length} bytes`);
+  return out;
+}
+
+/**
+ * Download a whole object (or a window of it) into memory. For small objects
+ * only: the gateway streams anything large instead.
+ */
 export async function downloadObject(
   objectId: string,
   options?: { offset?: number; length?: number },
 ): Promise<Uint8Array> {
-  const sdk = await getClient();
-  const obj = await sdk.object(objectId);
-  const stream = sdk.download(obj, {
-    offset: options?.offset !== undefined ? BigInt(options.offset) : undefined,
-    length: options?.length !== undefined ? BigInt(options.length) : undefined,
-  });
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    total += value.length;
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  logger.debug(
-    {
-      objectId,
-      size: out.length,
-      range: options ? `${options.offset ?? 0}+${options.length ?? '∞'}` : 'full',
-    },
-    'Object downloaded from Sia',
-  );
+  const handle = await openObject(objectId);
+  const offset = options?.offset ?? 0;
+  const length = options?.length ?? handle.size - offset;
+  const out =
+    length === 0 ? new Uint8Array(0) : await readExactly(handle.read({ offset, length }), length);
+  logger.debug({ objectId, offset, length }, 'Object downloaded from Sia');
   return out;
+}
+
+/**
+ * Whether an SDK error is the indexer saying it has no such object (it was
+ * unpinned, or never existed on this account). The SDK reports indexer api
+ * errors as `Api(<status>, "<message>")` in the error text and carries no
+ * status field, so the status is read from there.
+ */
+export function isIndexerNotFound(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /\bApi\(404\b/.test(message);
 }
 
 // ---------------------------------------------------------------------------
@@ -470,15 +465,8 @@ export async function listObjectEventsPage(
 }
 
 // ---------------------------------------------------------------------------
-// Metadata / object handle (used by aggregator + sia-info)
+// Metadata (used by sia-info)
 // ---------------------------------------------------------------------------
-
-export async function getObject(objectId: string): Promise<PinnedObject> {
-  const sdk = await getClient();
-  const obj = await sdk.object(objectId);
-  const { contracts } = await refreshHostContracts();
-  return adaptObject(obj, contracts);
-}
 
 /**
  * Everything the indexer reports about one object, as plain data: sizes
@@ -612,16 +600,6 @@ export async function deleteObject(objectId: string): Promise<UnpinOutcome> {
 }
 
 /**
- * The napi binding hands errors over as text, so the indexer's status is read
- * from the `Api(<status>, <body>)` part the SDK formats into the message
- * (sia_storage sdk.rs maps app client errors with `{e:?}`), not from the body.
- */
-export function isIndexerNotFound(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return /\bApi\(404\b/.test(message);
-}
-
-/**
  * Keeps slab pruning and uploads apart. indexd prunes every slab of the
  * account that no pinned object references (persist/postgres/slabs.go
  * PruneSlabs), and the SDK pins each slab of an upload as soon as it is
@@ -723,7 +701,7 @@ export async function getWalletAddress(): Promise<string | null> {
 }
 
 // NOTE: signed playback URLs are built in delivery/signed-url.ts, which
-// HMACs the object id together with its expiry so the gateway can verify
-// them. An earlier helper here produced an `?expires=` URL with no
+// HMACs the object id together with its expiry and the asset's signing
+// generation so the gateway can verify them. An earlier helper here produced an `?expires=` URL with no
 // signature and nothing enforcing the expiry, which only looked like access
 // control; it was removed rather than left as a false guarantee.

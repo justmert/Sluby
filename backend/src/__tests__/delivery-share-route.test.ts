@@ -2,22 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 
-// /v1/share/:id is the unauthenticated share map. The db, indexer and tier
-// lookups are mocked; the gate, the expiry rules and the mint cache are real.
+// /v1/share/:id is the unauthenticated share map. The db and indexer are
+// mocked; the gate, the expiry rules and the mint cache are real.
 vi.mock('../config/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
-vi.mock('../storage/blob-manager.js', () => ({
-  getCachedObject: vi.fn(),
-  getCacheStats: vi.fn(() => ({})),
-}));
-vi.mock('../storage/sia-client.js', () => ({
-  getObject: vi.fn(),
-  downloadObject: vi.fn(),
+vi.mock('../storage/sia-client.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../storage/sia-client.js')>()),
+  openObject: vi.fn(),
   shareObjectUrl: vi.fn(),
-}));
-vi.mock('../delivery/access-control.js', () => ({
-  getObjectAccessTier: vi.fn(),
 }));
 vi.mock('../db/queries/assets.js', () => ({
   getVideoAssetById: vi.fn(),
@@ -29,7 +22,6 @@ vi.mock('../db/queries/playback-ids.js', () => ({
 
 const { deliveryRouter } = await import('../delivery/aggregator.js');
 const { shareObjectUrl } = await import('../storage/sia-client.js');
-const { getObjectAccessTier } = await import('../delivery/access-control.js');
 const { getVideoAssetById, getAssetObjectIds } = await import('../db/queries/assets.js');
 const { getPlaybackIdByPublicId } = await import('../db/queries/playback-ids.js');
 const { buildSignedObjectQuery } = await import('../delivery/signed-url.js');
@@ -46,8 +38,8 @@ function app() {
   return a;
 }
 const nowSec = () => Math.floor(Date.now() / 1000);
-const signed = (objectId: string, expires: number) =>
-  buildSignedObjectQuery(objectId, expires, SECRET);
+const signed = (objectId: string, expires: number, generation = 0) =>
+  buildSignedObjectQuery(objectId, expires, generation, SECRET);
 
 // the mint cache is module state, so every test gets its own asset and master
 let seq = 0;
@@ -60,6 +52,8 @@ function asset(overrides: Record<string, unknown> = {}) {
     manifestObjectId: master,
     accessTier: 'public',
     status: 'ready',
+    signingGeneration: 0,
+    legacySignaturesUntil: null,
     ...overrides,
   } as never;
 }
@@ -67,10 +61,9 @@ function asset(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   seq += 1;
-  assetId = `asset-${seq}`;
+  assetId = `00000000-0000-4000-8000-${String(seq).padStart(12, '0')}`;
   master = `master-${seq}`;
   vi.mocked(getVideoAssetById).mockResolvedValue(asset());
-  vi.mocked(getObjectAccessTier).mockResolvedValue('public');
   vi.mocked(getPlaybackIdByPublicId).mockResolvedValue(undefined);
   vi.mocked(getAssetObjectIds).mockImplementation(async () => [master, `data-${seq}`]);
   vi.mocked(shareObjectUrl).mockImplementation(
@@ -86,8 +79,9 @@ describe('/v1/share/:id gate', () => {
     expect(res.body.master_object_id).toBe(master);
     expect(Object.keys(res.body.shares).sort()).toEqual([`data-${seq}`, master].sort());
     expect(res.headers['access-control-allow-origin']).toBe('*');
-    const maxAge = Number(/max-age=(\d+)/.exec(res.headers['cache-control'])?.[1]);
-    expect(res.headers['cache-control']).toMatch(/^public, max-age=\d+$/);
+    // nginx may keep it briefly; browsers and other caches revalidate
+    const maxAge = Number(res.headers['x-accel-expires']);
+    expect(res.headers['cache-control']).toBe('public, no-cache');
     expect(maxAge).toBeGreaterThan(0);
     expect(maxAge).toBeLessThanOrEqual(60);
     // the cached copy cannot outlive the shares
@@ -148,7 +142,8 @@ describe('/v1/share/:id gate', () => {
 
   it('caps a gated share map at an hour even under a longer signature', async () => {
     vi.mocked(getVideoAssetById).mockResolvedValue(asset({ accessTier: 'private' }));
-    const expires = nowSec() + 86400;
+    // the longest a signed url may run
+    const expires = nowSec() + 21600;
 
     const res = await request(app()).get(
       `/v1/share/${assetId}?${signed(master, expires)}&expires_in=21600`,
@@ -196,13 +191,31 @@ describe('/v1/share/:id gate', () => {
     expect(Date.parse(ok.body.expires_at) / 1000).toBeLessThanOrEqual(expires);
   });
 
-  it('gates a public asset that has a signed handle when asked by asset id', async () => {
-    // the gateway gates its objects (tier private), so the share map must too
-    vi.mocked(getObjectAccessTier).mockResolvedValue('private');
+  it('leaves a public asset open by its id even when it also has a signed handle', async () => {
+    // a signed handle gates only itself; the asset's objects stay public, so
+    // its map does too and other embeds keep playing
+    vi.mocked(getPlaybackIdByPublicId).mockImplementation(async (pb: string) =>
+      pb === PB_SIGNED ? ({ videoAssetId: assetId, policy: 'signed' } as never) : undefined,
+    );
 
-    const res = await request(app()).get(`/v1/share/${assetId}`);
+    expect((await request(app()).get(`/v1/share/${assetId}`)).status).toBe(200);
+    expect((await request(app()).get(`/v1/share/${PB_SIGNED}`)).status).toBe(403);
+  });
 
-    expect(res.status).toBe(403);
+  it('refuses a signature of an older signing generation', async () => {
+    vi.mocked(getVideoAssetById).mockResolvedValue(
+      asset({ accessTier: 'private', signingGeneration: 2 }),
+    );
+    const expires = nowSec() + 600;
+    const old = await request(app()).get(`/v1/share/${assetId}?${signed(master, expires, 1)}`);
+    expect(old.status).toBe(403);
+    const current = await request(app()).get(`/v1/share/${assetId}?${signed(master, expires, 2)}`);
+    expect(current.status).toBe(200);
+  });
+
+  it('answers 404 for a path that is neither an asset id nor a playback id', async () => {
+    expect((await request(app()).get('/v1/share/not-an-id')).status).toBe(404);
+    expect(getVideoAssetById).not.toHaveBeenCalled();
   });
 
   it('answers 404 for an asset that is not ready', async () => {
@@ -224,11 +237,6 @@ describe('/v1/share/:id gate', () => {
     // getVideoAssetById hides soft-deleted rows
     vi.mocked(getVideoAssetById).mockResolvedValue(undefined);
     expect((await request(app()).get(`/v1/share/${assetId}`)).status).toBe(404);
-
-    // and a deletion in progress resolves the objects to 'gone'
-    vi.mocked(getVideoAssetById).mockResolvedValue(asset());
-    vi.mocked(getObjectAccessTier).mockResolvedValue('gone');
-    expect((await request(app()).get(`/v1/share/${assetId}`)).status).toBe(404);
     expect(shareObjectUrl).not.toHaveBeenCalled();
   });
 
@@ -246,6 +254,18 @@ describe('/v1/share/:id gate', () => {
 
     expect(res.status).toBe(502);
     expect(res.body.error).toMatch(/Sia indexer/);
+  });
+
+  it('answers 503, not an indexer error, when the database fails', async () => {
+    vi.mocked(getVideoAssetById).mockRejectedValueOnce(new Error('connection refused'));
+    const lookup = await request(app()).get(`/v1/share/${assetId}`);
+    expect(lookup.status).toBe(503);
+    expect(lookup.headers['cache-control']).toBe('no-store');
+
+    vi.mocked(getAssetObjectIds).mockRejectedValueOnce(new Error('connection refused'));
+    const mint = await request(app()).get(`/v1/share/${assetId}`);
+    expect(mint.status).toBe(503);
+    expect(mint.body.error).not.toMatch(/indexer/);
   });
 });
 

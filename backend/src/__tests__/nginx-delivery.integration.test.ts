@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -14,6 +14,13 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import http from 'node:http';
+import { hasTestDatabase, createTestDatabase, type TestDatabase } from './helpers/pg.js';
+
+// the real backend suite below streams objects from memory instead of the indexer
+vi.mock('../storage/sia-client.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../storage/sia-client.js')>()),
+  openObject: vi.fn(),
+}));
 
 /**
  * End-to-end tests through the REAL nginx config the project ships
@@ -100,8 +107,16 @@ http {
       add_header Access-Control-Allow-Credentials true always;
       add_header Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges" always;
     }
-    location /v1/objects/slow {
+    # any name after master- is the master again, so a test can take a cache
+    # key no other test has warmed
+    location ~ ^/v1/objects/master-[a-z0-9-]+$ {
       root /origin;
+      try_files /v1/objects/master =404;
+      add_header Access-Control-Allow-Origin * always;
+    }
+    location ~ ^/v1/objects/slow {
+      root /origin;
+      try_files /v1/objects/slow =404;
       limit_rate 4k;
     }
     # share maps: the backend marks a public map briefly cacheable and a gated
@@ -381,7 +396,7 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
 
     it('sends a single Access-Control-Allow-Origin, cached or not', async () => {
       // fetch joins repeated headers with ", ", and a browser rejects "*, *"
-      const path = '/v1/objects/master?corstest=1';
+      const path = '/v1/objects/master-cors';
       const first = await fetchThroughNginx(base, path, { Origin: 'http://example.test' });
       const cached = await fetchThroughNginx(base, path, { Origin: 'http://example.test' });
       const ranged = await fetchThroughNginx(base, '/v1/objects/data', {
@@ -393,7 +408,7 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
         expect(r.headers.get('access-control-allow-origin')).toBe('*');
         expect(r.headers.get('access-control-allow-credentials')).toBeNull();
         expect(r.headers.get('access-control-expose-headers')).toBe(
-          'Content-Length, Content-Range, Accept-Ranges',
+          'Content-Length, Content-Range, Accept-Ranges, ETag',
         );
       }
     });
@@ -401,11 +416,27 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
     it('still caches whole-object responses (MISS then HIT)', async () => {
       // Use a fresh cache key the readiness probe never warmed, so the first
       // request is a genuine MISS.
-      const path = '/v1/objects/master?cachetest=1';
+      const path = '/v1/objects/master-cachetest';
       const first = await fetchThroughNginx(base, path);
       const second = await fetchThroughNginx(base, path);
       expect(first.headers.get('x-cache-status')).toBe('MISS');
       expect(second.headers.get('x-cache-status')).toBe('HIT');
+    });
+
+    it('keys the cache on the path and the type hint only, so junk queries cannot force misses', async () => {
+      const first = await fetchThroughNginx(base, '/v1/objects/master-qs?x=1');
+      const junk = await fetchThroughNginx(base, '/v1/objects/master-qs?x=2&y=3');
+      const typed = await fetchThroughNginx(base, '/v1/objects/master-qs?type=manifest');
+      expect(first.headers.get('x-cache-status')).toBe('MISS');
+      expect(junk.headers.get('x-cache-status')).toBe('HIT');
+      // the hint changes the content type, so it is its own entry
+      expect(typed.headers.get('x-cache-status')).toBe('MISS');
+    });
+
+    it('never answers a signed request from the cache', async () => {
+      await fetchThroughNginx(base, '/v1/objects/master-signed');
+      const signed = await fetchThroughNginx(base, '/v1/objects/master-signed?expires=1&sig=ab');
+      expect(signed.headers.get('x-cache-status')).toBe('BYPASS');
     });
 
     it('proxies share maps with one set of cors headers, caching only public ones', async () => {
@@ -580,7 +611,7 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       const controller = new AbortController();
       // distinct cache keys, so the second does not wait on the first's cache lock
       const open = [0, 1].map((i) =>
-        fetch(`${limited}/v1/objects/slow?open=${i}`, {
+        fetch(`${limited}/v1/objects/slow-${i}`, {
           headers: client,
           signal: controller.signal,
         }),
@@ -588,7 +619,7 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       try {
         const started = await Promise.all(open);
         expect(started.map((r) => r.status)).toEqual([200, 200]);
-        const third = await fetch(`${limited}/v1/objects/slow?third=1`, {
+        const third = await fetch(`${limited}/v1/objects/slow-third`, {
           headers: client,
           signal: AbortSignal.timeout(4000),
         });
@@ -602,7 +633,7 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       const client = { 'X-Forwarded-For': '203.0.113.5' };
       const page = await Promise.all(
         Array.from({ length: 60 }, (_, i) =>
-          fetchThroughNginx(base, `/v1/objects/master?thumb=${i}`, client),
+          fetchThroughNginx(base, `/v1/objects/master-thumb-${i}`, client),
         ),
       );
       expect(page.every((r) => r.status === 200)).toBe(true);
@@ -664,3 +695,277 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
     }, 60000);
   });
 });
+
+/**
+ * The same proxy config in front of the REAL backend app (createApp, the real
+ * delivery gateway, access checks, signing and routes) on a real Postgres
+ * database, so the cache directives are tested against what the backend
+ * actually sends. Only the Sia indexer is a stand-in: objects stream from
+ * memory. The app listens on the host; a small stream forwarder on the docker
+ * network carries the proxy's traffic to it.
+ *
+ * It checks what an access change does to copies nginx already holds: once
+ * the shared window has passed, an asset made private answers 403, a deleted
+ * one 404, and one that only gained a signed playback id keeps playing.
+ */
+const FORWARDER = 'sluby-itest-backend';
+const BACKEND_PROXY = 'sluby-itest-backend-proxy';
+
+describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
+  'the web proxy in front of the real backend: access changes reach cached copies',
+  () => {
+    let tdb: TestDatabase;
+    let server: http.Server;
+    let base: string;
+    let closeDatabase: () => Promise<void>;
+    let sharedWindowSec: number;
+    const OWNER = 'github:nginx-itest';
+    const KEY = `sluby_${'f'.repeat(40)}`;
+    const auth = { Authorization: `Bearer ${KEY}` };
+
+    // three ready public assets, each with a master, a variant and a thumbnail
+    const assets: Record<'tier' | 'handle' | 'deleted', { id: string; ids: string[] }> = {
+      tier: { id: '', ids: [] },
+      handle: { id: '', ids: [] },
+      deleted: { id: '', ids: [] },
+    };
+    const bytes = new Map<string, Uint8Array>();
+
+    function cleanupBackend(): void {
+      for (const name of [BACKEND_PROXY, FORWARDER]) {
+        try {
+          docker(['rm', '-f', name]);
+        } catch {
+          /* not running */
+        }
+      }
+    }
+
+    beforeAll(async () => {
+      process.env.PUBLIC_URL = 'http://sluby.test';
+      process.env.AUTH_DISABLED = 'false';
+      process.env.UPLOAD_DIR = mkdtempSync(join(tmpdir(), 'sluby-nginx-up-'));
+      tdb = await createTestDatabase();
+      const appModule = await import('../app.js');
+      const keys = await import('../db/queries/api-keys.js');
+      const siaClient = await import('../storage/sia-client.js');
+      ({ closeDatabase } = await import('../config/database.js'));
+      sharedWindowSec = (await import('../delivery/aggregator.js')).SHARED_CACHE_SECONDS;
+
+      await keys.createApiKey({
+        name: 'itest',
+        scopes: ['read', 'manage'],
+        creatorAddress: OWNER,
+        rawKey: KEY,
+      });
+
+      let n = 0;
+      const oid = () => (++n).toString(16).padStart(64, 'c');
+      for (const name of Object.keys(assets) as Array<keyof typeof assets>) {
+        const [master, variant, thumb] = [oid(), oid(), oid()];
+        bytes.set(variant, new TextEncoder().encode('#EXTM3U\n#EXT-X-ENDLIST\n'));
+        bytes.set(
+          master,
+          new TextEncoder().encode(
+            `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\n/v1/objects/${variant}?type=playlist\n`,
+          ),
+        );
+        bytes.set(thumb, new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 1, 2, 3]));
+        const [row] = await tdb.sql<{ id: string }[]>`
+          insert into video_assets (title, creator_address, status, manifest_object_id,
+            thumbnail_object_ids)
+          values (${name}, ${OWNER}, 'ready', ${master}, ${[thumb]})
+          returning id
+        `;
+        for (const [objectId, role] of [
+          [master, 'master_manifest'],
+          [variant, 'variant_playlist'],
+          [thumb, 'thumbnail'],
+        ] as const) {
+          await tdb.sql`
+            insert into artifacts (video_asset_id, role, object_id, byte_size)
+            values (${row.id}, ${role}, ${objectId}, ${bytes.get(objectId)!.length})
+          `;
+        }
+        assets[name] = { id: row.id, ids: [master, variant, thumb] };
+      }
+
+      // the indexer, from memory; both the current and the older download
+      // functions, so this suite also runs against earlier versions
+      const handle = async (id: string) => {
+        const data = bytes.get(id);
+        if (!data) throw new Error('app error: Api(404, "object not found")');
+        return {
+          id,
+          size: data.length,
+          read: (range?: { offset: number; length: number }) =>
+            new ReadableStream<Uint8Array>({
+              start(c) {
+                const start = range?.offset ?? 0;
+                c.enqueue(data.slice(start, range ? start + range.length : data.length));
+                c.close();
+              },
+            }),
+        };
+      };
+      vi.mocked(siaClient.openObject).mockImplementation(handle);
+
+      const queue = { add: async () => undefined, getJobCounts: async () => ({}) };
+      const { app } = appModule.createApp({
+        logger: (await import('pino')).default({ level: 'silent' }),
+        version: 'itest',
+        startedAt: new Date(),
+        queues: { transcode: queue, uploadSegments: queue, finalize: queue, deletion: queue },
+        pingRedis: async () => {},
+        webhookDispatcher: { dispatch: async () => {} },
+        triggerReconciliation: async () => ({ enqueued: false }),
+      });
+      server = http.createServer(app);
+      await new Promise<void>((ok) => server.listen(0, '0.0.0.0', ok));
+      const port = (server.address() as { port: number }).port;
+
+      cleanupBackend();
+      try {
+        docker(['network', 'create', NET]);
+      } catch {
+        /* the first suite made it */
+      }
+      const dir = mkdtempSync(join(tmpdir(), 'sluby-nginx-backend-'));
+      writeFileSync(
+        join(dir, 'forwarder.conf'),
+        `events {}\nstream { server { listen 80; proxy_pass host.docker.internal:${port}; } }\n`,
+      );
+      docker([
+        'run',
+        '-d',
+        '--name',
+        FORWARDER,
+        '--network',
+        NET,
+        '--add-host',
+        'host.docker.internal:host-gateway',
+        '-v',
+        `${dir}/forwarder.conf:/etc/nginx/nginx.conf:ro`,
+        NGINX_IMAGE,
+      ]);
+      const siteConf = readFileSync(join(repoRoot, 'nginx/conf.d/sia-aggregator.conf'), 'utf8');
+      writeFileSync(
+        join(dir, 'proxy.conf'),
+        siteConf.replace('server backend:3000 resolve;', `server ${FORWARDER}:80 resolve;`),
+      );
+      copyFileSync(join(repoRoot, 'nginx/limits.envsh'), join(dir, 'limits.envsh'));
+      chmodSync(join(dir, 'limits.envsh'), 0o755);
+      mkdirSync(join(dir, 'html'));
+      writeFileSync(join(dir, 'html', 'index.html'), '<div id="root"></div>');
+      base = startProxy(dir, BACKEND_PROXY);
+      await waitFor(BACKEND_PROXY, `${base}/v1/cache/stats`);
+    }, 120_000);
+
+    afterAll(async () => {
+      cleanupBackend();
+      await new Promise((ok) => server?.close(ok));
+      await closeDatabase?.();
+      await tdb?.drop();
+    });
+
+    const objectPath = (id: string) => `/v1/objects/${id}`;
+
+    it('stops serving cached copies within the shared window after a tier change or a delete, and keeps playing next to a new signed handle', async () => {
+      // fill nginx with every object and master of the three assets
+      for (const a of Object.values(assets)) {
+        for (const id of a.ids) {
+          expect((await fetchThroughNginx(base, objectPath(id))).status).toBe(200);
+          const again = await fetchThroughNginx(base, objectPath(id));
+          expect(again.headers.get('x-cache-status')).toBe('HIT');
+        }
+        const master = `/v1/stream/${a.id}/master.m3u8`;
+        expect((await fetchThroughNginx(base, master)).status).toBe(200);
+        expect((await fetchThroughNginx(base, master)).headers.get('x-cache-status')).toBe('HIT');
+      }
+      const filledAt = Date.now();
+
+      const patch = await fetch(`${base}/api/v1/assets/${assets.tier.id}`, {
+        method: 'PATCH',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_tier: 'private' }),
+      });
+      expect(patch.status).toBe(200);
+      const handle = await fetch(`${base}/api/v1/assets/${assets.handle.id}/playback-ids`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policy: 'signed' }),
+      });
+      expect(handle.status).toBe(201);
+      const signedHandle = ((await handle.json()) as { playback_id: string }).playback_id;
+      const del = await fetch(`${base}/api/v1/assets/${assets.deleted.id}`, {
+        method: 'DELETE',
+        headers: auth,
+      });
+      expect(del.status).toBe(200);
+
+      // inside the window nginx may still hand out what it holds; this is
+      // the bound the docs promise, not more
+      const held = await fetchThroughNginx(base, objectPath(assets.tier.ids[2]));
+      expect(held.headers.get('x-cache-status')).toBe('HIT');
+
+      // past the shared window, nginx asks the backend again and passes on its answer
+      const wait = filledAt + (sharedWindowSec + 2) * 1000 - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+
+      for (const id of assets.tier.ids) {
+        const r = await fetchThroughNginx(base, objectPath(id));
+        expect(r.status, `private ${id}`).toBe(403);
+        expect(r.headers.get('cache-control')).toBe('no-store');
+      }
+      expect(
+        (await fetchThroughNginx(base, `/v1/stream/${assets.tier.id}/master.m3u8`)).status,
+      ).toBe(403);
+
+      for (const id of assets.deleted.ids) {
+        expect((await fetchThroughNginx(base, objectPath(id))).status, `deleted ${id}`).toBe(404);
+      }
+      expect(
+        (await fetchThroughNginx(base, `/v1/stream/${assets.deleted.id}/master.m3u8`)).status,
+      ).toBe(404);
+
+      // a signed handle gates only its own entry: every object and the
+      // asset's own master keep playing, revalidated rather than refetched
+      for (const id of assets.handle.ids) {
+        const r = await fetchThroughNginx(base, objectPath(id));
+        expect(r.status, `handle ${id}`).toBe(200);
+        expect(r.headers.get('x-cache-status')).toBe('REVALIDATED');
+      }
+      expect(
+        (await fetchThroughNginx(base, `/v1/stream/${assets.handle.id}/master.m3u8`)).status,
+      ).toBe(200);
+      expect((await fetchThroughNginx(base, `/v1/stream/${signedHandle}/master.m3u8`)).status).toBe(
+        403,
+      );
+    }, 180_000);
+
+    it('serves the signed playback of the private asset through the proxy, per request', async () => {
+      const signed = await fetch(`${base}/api/v1/playback/${assets.tier.id}/signed`, {
+        headers: auth,
+      });
+      expect(signed.status).toBe(200);
+      const body = (await signed.json()) as { signed_url: string; poster_url: string };
+      const path = new URL(body.signed_url).pathname + new URL(body.signed_url).search;
+      const master = await fetchThroughNginx(base, path);
+      expect(master.status).toBe(200);
+      expect(master.headers.get('x-cache-status')).toBe('BYPASS');
+      const child = /\/v1\/objects\/[0-9a-f]{64}\?[^\s]+/.exec(master.buf.toString())![0];
+      expect((await fetchThroughNginx(base, child)).status).toBe(200);
+      const poster = new URL(body.poster_url);
+      expect((await fetchThroughNginx(base, poster.pathname + poster.search)).status).toBe(200);
+
+      // revoked: the same links stop working at once
+      const revoke = await fetch(`${base}/api/v1/playback/${assets.tier.id}/signed/revoke`, {
+        method: 'POST',
+        headers: auth,
+      });
+      expect(revoke.status).toBe(200);
+      expect((await fetchThroughNginx(base, path)).status).toBe(403);
+      expect((await fetchThroughNginx(base, child)).status).toBe(403);
+    });
+  },
+);

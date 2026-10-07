@@ -4,32 +4,47 @@ import { playbackInitiationTotal } from '../../metrics/collector.js';
 import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
 import { logger } from '../../config/logger.js';
-import { shareExpiryBounds } from '../../delivery/share-expiry.js';
+import { ShareMintError, shareExpiryBounds } from '../../delivery/share-expiry.js';
+import {
+  DEFAULT_SIGNED_URL_TTL_SEC,
+  MAX_SIGNED_URL_TTL_SEC,
+  MIN_SIGNED_URL_TTL_SEC,
+} from '../../delivery/signed-url.js';
+
+export interface PlaybackAsset {
+  id: string;
+  manifestObjectId: string | null;
+  thumbnailObjectIds: string[];
+  /** null until processing has measured it */
+  durationMs: number | null;
+  resolution: string | null;
+  accessTier: string;
+  status: string;
+  /** part of every signed url of the asset; see delivery/signed-url.ts */
+  signingGeneration: number;
+}
 
 export interface PlaybackRouteDeps {
   // `owner` is the caller's creatorAddress (undefined for a platform key).
   // Scoping the lookup by it stops a caller reading another tenant's asset
   // by guessing its id or playback id.
-  getPlaybackAsset: (
-    id: string,
-    owner?: string,
-  ) => Promise<{
-    id: string;
-    manifestObjectId: string | null;
-    thumbnailObjectIds: string[];
-    /** null until processing has measured it */
-    durationMs: number | null;
-    resolution: string | null;
-    accessTier: string;
-    status: string;
-  } | null>;
+  getPlaybackAsset: (id: string, owner?: string) => Promise<PlaybackAsset | null>;
+  // Sign the asset's master manifest url (and its first thumbnail, when it
+  // has one) for `expiresIn` seconds, already bounded by the route.
   generateSignedUrl: (
-    manifestObjectId: string,
+    asset: { manifestObjectId: string; posterObjectId: string | null; signingGeneration: number },
     expiresIn: number,
   ) => Promise<{
     signedUrl: string;
+    posterUrl: string | null;
     expiresAt: string;
   }>;
+  // Raise the asset's signing generation so every url signed before stops
+  // working. Null when the caller has no such asset.
+  revokeSignedUrls: (
+    assetId: string,
+    owner?: string,
+  ) => Promise<{ signingGeneration: number } | null>;
   // Mint per-object sia:// share URLs so the player can stream directly from
   // Sia. `masterObjectId` is the asset's manifest object; `expiresIn` is in
   // seconds and already clamped by the route, and `notAfterSec` (unix
@@ -44,11 +59,19 @@ export interface PlaybackRouteDeps {
     shares: Record<string, string>;
     expiresAt: string;
   }>;
-  // Delivery access tier for an object, so the share route gates the same way
-  // the gateway does. Returns 'private' for a private-tier asset OR a
-  // public-tier asset carrying a signed-policy playback id (a signed handle
-  // gates the whole object graph, not just the /v1/stream entry).
-  resolveObjectTier: (objectId: string) => Promise<'public' | 'private' | 'unknown' | 'gone'>;
+}
+
+/**
+ * The lifetime a caller asked for, bounded to what a signed url may have. A
+ * value that is not a whole number of seconds is refused rather than read as
+ * the default, so a typo never quietly mints something else.
+ */
+function signedLifetime(raw: unknown): number {
+  if (raw === undefined) return DEFAULT_SIGNED_URL_TTL_SEC;
+  if (typeof raw !== 'string' || !/^\d{1,15}$/.test(raw)) {
+    throw new AppError(400, 'expires_in must be a whole number of seconds');
+  }
+  return Math.min(Math.max(Number(raw), MIN_SIGNED_URL_TTL_SEC), MAX_SIGNED_URL_TTL_SEC);
 }
 
 export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
@@ -93,9 +116,11 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
 
   /**
    * GET /api/v1/playback/:id/signed
-   * Get a time-limited signed playback URL (for private/gated content).
+   * Get a time-limited signed playback URL (for private/gated content), and a
+   * poster url signed the same way.
    */
   router.get('/:id/signed', requireScope('read'), async (req: Request, res: Response) => {
+    const expiresIn = signedLifetime(req.query.expires_in);
     const asset = await deps.getPlaybackAsset(
       String(req.params.id),
       ownerFilter(req.apiKey!.creatorAddress),
@@ -109,17 +134,41 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
       throw new AppError(409, 'Video is not ready for playback');
     }
 
-    const expiresIn = parseInt(req.query.expires_in as string) || 3600;
+    const signed = await deps.generateSignedUrl(
+      {
+        manifestObjectId: asset.manifestObjectId,
+        posterObjectId: asset.thumbnailObjectIds[0] ?? null,
+        signingGeneration: asset.signingGeneration,
+      },
+      expiresIn,
+    );
 
-    const signed = await deps.generateSignedUrl(asset.manifestObjectId, expiresIn);
-
+    playbackInitiationTotal.inc({ mode: 'signed' });
     // Serialize as snake_case to match the rest of the API and what the SDK
     // reads. The deps contract stays camelCase for internal callers.
-    // a url minted already expired (a negative expires_in) starts no playback
-    if (Date.parse(signed.expiresAt) > Date.now()) {
-      playbackInitiationTotal.inc({ mode: 'signed' });
+    res.json({
+      signed_url: signed.signedUrl,
+      poster_url: signed.posterUrl,
+      expires_at: signed.expiresAt,
+    });
+  });
+
+  /**
+   * POST /api/v1/playback/:id/signed/revoke
+   * Stop every signed url of the asset minted so far, at once. New ones can
+   * be minted right after.
+   */
+  router.post('/:id/signed/revoke', requireScope('manage'), async (req: Request, res: Response) => {
+    const owner = ownerFilter(req.apiKey!.creatorAddress);
+    const asset = await deps.getPlaybackAsset(String(req.params.id), owner);
+    if (!asset) {
+      throw new AppError(404, 'Video asset not found');
     }
-    res.json({ signed_url: signed.signedUrl, expires_at: signed.expiresAt });
+    const revoked = await deps.revokeSignedUrls(asset.id, owner);
+    if (!revoked) {
+      throw new AppError(404, 'Video asset not found');
+    }
+    res.json({ success: true, signing_generation: revoked.signingGeneration });
   });
 
   /**
@@ -143,13 +192,10 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
       throw new AppError(409, 'Video is not ready for playback');
     }
 
-    // Gate the same way the delivery gateway does: private tier OR a
-    // signed-policy playback id both mean the content is access-controlled, so
-    // its share URLs get the shorter cap and must not be cached. Checking only
-    // asset.accessTier would hand a public-tier-but-signed asset a long-lived,
-    // cacheable capability map that bypasses the gateway it opted into.
-    const tier = await deps.resolveObjectTier(asset.manifestObjectId);
-    const gated = tier === 'private' || asset.accessTier === 'private';
+    // a private asset's map gets the shorter cap and must not be cached; the
+    // objects follow only the asset's tier, so a signed playback id on a
+    // public asset changes nothing here
+    const gated = asset.accessTier === 'private';
 
     const { expiresIn, notAfterSec } = shareExpiryBounds(
       req.query.expires_in,
@@ -161,6 +207,10 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
     try {
       result = await deps.createShareUrls(asset.id, asset.manifestObjectId, expiresIn, notAfterSec);
     } catch (err) {
+      if (err instanceof ShareMintError && err.source === 'database') {
+        logger.error({ assetId: asset.id, err }, 'Could not read the asset objects to mint');
+        throw new AppError(503, 'The database did not answer while minting share URLs; try again');
+      }
       // minting talks to the indexer for every object; when that fails the
       // problem is upstream, so say so instead of answering a bare 500
       logger.warn({ assetId: asset.id, err }, 'Could not mint share urls');

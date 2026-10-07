@@ -184,10 +184,24 @@ describe('createAssetShareUrls', () => {
     const asset = nextAsset();
     const limit = nowSec() + 21600;
 
-    await expect(createAssetShareUrls(asset, 'a', 3600, limit)).rejects.toThrow('indexer down');
+    await expect(createAssetShareUrls(asset, 'a', 3600, limit)).rejects.toMatchObject({
+      source: 'indexer',
+      cause: new Error('indexer down'),
+    });
     const ok = await createAssetShareUrls(asset, 'a', 3600, limit);
 
     expect(ok.shares).toEqual({ a: 'sia://a#key' });
+  });
+
+  it('says a failure to read the object list came from the database', async () => {
+    mockedIds.mockRejectedValueOnce(new Error('connection refused'));
+    const limit = nowSec() + 21600;
+
+    await expect(createAssetShareUrls(nextAsset(), 'a', 3600, limit)).rejects.toMatchObject({
+      name: 'ShareMintError',
+      source: 'database',
+    });
+    expect(mockedShare).not.toHaveBeenCalled();
   });
 
   it('re-mints for a different asset or a new master', async () => {

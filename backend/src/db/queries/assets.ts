@@ -231,12 +231,49 @@ export async function updateAssetMetadata(
 ): Promise<VideoAsset | undefined> {
   const scope = [eq(videoAssets.id, id), isNull(videoAssets.deletedAt)];
   if (owner !== undefined) scope.push(eq(videoAssets.creatorAddress, owner));
+  // a tier that actually changes revokes every signed url of the asset, in
+  // the same statement, so no url outlives the change it was minted under
+  const tierChange =
+    data.accessTier !== undefined
+      ? sql`${videoAssets.accessTier} <> ${data.accessTier}::access_tier`
+      : undefined;
   const [updated] = await db
     .update(videoAssets)
-    .set({ ...data, updatedAt: new Date() })
+    .set({
+      ...data,
+      ...(tierChange
+        ? {
+            signingGeneration: sql`case when ${tierChange} then ${videoAssets.signingGeneration} + 1 else ${videoAssets.signingGeneration} end`,
+            legacySignaturesUntil: sql`case when ${tierChange} then null else ${videoAssets.legacySignaturesUntil} end`,
+          }
+        : {}),
+      updatedAt: new Date(),
+    })
     .where(and(...scope))
     .returning();
   return updated;
+}
+
+/**
+ * Revoke every signed url of an asset by raising its signing generation (and
+ * closing the window of urls signed before generations existed). Returns the
+ * new generation, or undefined when there is no such live asset.
+ */
+export async function raiseSigningGeneration(
+  id: string,
+  owner?: string,
+): Promise<number | undefined> {
+  const scope = [eq(videoAssets.id, id), isNull(videoAssets.deletedAt)];
+  if (owner !== undefined) scope.push(eq(videoAssets.creatorAddress, owner));
+  const [row] = await db
+    .update(videoAssets)
+    .set({
+      signingGeneration: sql`${videoAssets.signingGeneration} + 1`,
+      legacySignaturesUntil: null,
+    })
+    .where(and(...scope))
+    .returning({ signingGeneration: videoAssets.signingGeneration });
+  return row?.signingGeneration;
 }
 
 /**

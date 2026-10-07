@@ -3,6 +3,7 @@ import request from 'supertest';
 import { createPlaybackRoutes, type PlaybackRouteDeps } from '../api/routes/playback.js';
 import { createTestApp, withApiKey } from './helpers/express-helpers.js';
 import { registry } from '../metrics/collector.js';
+import { ShareMintError } from '../delivery/share-expiry.js';
 
 // Mock logger
 vi.mock('../config/logger.js', () => ({
@@ -30,14 +31,15 @@ describe('playback routes', () => {
       getPlaybackAsset: vi.fn().mockResolvedValue(null),
       generateSignedUrl: vi.fn().mockResolvedValue({
         signedUrl: 'https://signed.url/manifest',
+        posterUrl: 'https://signed.url/poster',
         expiresAt: '2025-06-01T00:00:00Z',
       }),
+      revokeSignedUrls: vi.fn().mockResolvedValue({ signingGeneration: 1 }),
       createShareUrls: vi.fn().mockResolvedValue({
         masterObjectId: 'manifest-obj-1',
         shares: { 'manifest-obj-1': 'sia://ref#key', 'data-obj-1': 'sia://ref2#key2' },
         expiresAt: '2025-06-01T01:00:00Z',
       }),
-      resolveObjectTier: vi.fn().mockResolvedValue('public'),
     };
   });
 
@@ -57,6 +59,7 @@ describe('playback routes', () => {
         resolution: '1920x1080',
         accessTier: 'public',
         status: 'ready',
+        signingGeneration: 0,
       });
 
       const res = await request(createApp()).get('/asset-1');
@@ -80,6 +83,7 @@ describe('playback routes', () => {
         resolution: '1280x720',
         accessTier: 'public',
         status: 'ready',
+        signingGeneration: 0,
       });
 
       const res = await request(createApp()).get('/asset-1');
@@ -106,6 +110,7 @@ describe('playback routes', () => {
         resolution: '',
         accessTier: 'public',
         status: 'processing',
+        signingGeneration: 0,
       });
 
       const res = await request(createApp()).get('/asset-1');
@@ -123,6 +128,7 @@ describe('playback routes', () => {
         resolution: '1280x720',
         accessTier: 'public',
         status: 'ready',
+        signingGeneration: 0,
       });
 
       const res = await request(createApp()).get('/asset-1');
@@ -150,6 +156,7 @@ describe('playback routes', () => {
         resolution: '1280x720',
         accessTier: 'public',
         status: 'ready',
+        signingGeneration: 0,
       });
 
       await request(createApp()).get('/asset-1');
@@ -170,6 +177,7 @@ describe('playback routes', () => {
         resolution: '1280x720',
         accessTier: 'private',
         status: 'ready',
+        signingGeneration: 0,
       });
 
       const res = await request(createApp()).get('/asset-1/signed');
@@ -179,6 +187,7 @@ describe('playback routes', () => {
       // SDK reads. Returning camelCase here left the SDK with undefined fields.
       expect(res.body).toEqual({
         signed_url: 'https://signed.url/manifest',
+        poster_url: 'https://signed.url/poster',
         expires_at: '2025-06-01T00:00:00Z',
       });
     });
@@ -192,11 +201,15 @@ describe('playback routes', () => {
         resolution: '1280x720',
         accessTier: 'private',
         status: 'ready',
+        signingGeneration: 0,
       });
 
       await request(createApp()).get('/asset-1/signed');
 
-      expect(deps.generateSignedUrl).toHaveBeenCalledWith('manifest-obj-1', 3600);
+      expect(deps.generateSignedUrl).toHaveBeenCalledWith(
+        { manifestObjectId: 'manifest-obj-1', posterObjectId: null, signingGeneration: 0 },
+        3600,
+      );
     });
 
     it('scopes the signed lookup to the calling tenant', async () => {
@@ -208,6 +221,7 @@ describe('playback routes', () => {
         resolution: '1280x720',
         accessTier: 'private',
         status: 'ready',
+        signingGeneration: 0,
       });
 
       await request(createApp()).get('/asset-1/signed');
@@ -224,14 +238,35 @@ describe('playback routes', () => {
         resolution: '1280x720',
         accessTier: 'private',
         status: 'ready',
+        signingGeneration: 0,
       });
 
       await request(createApp()).get('/asset-1/signed?expires_in=7200');
 
-      expect(deps.generateSignedUrl).toHaveBeenCalledWith('manifest-obj-1', 7200);
+      expect(deps.generateSignedUrl).toHaveBeenCalledWith(expect.anything(), 7200);
     });
 
-    it('counts a signed playback only when the url it hands out has not expired', async () => {
+    it('signs the first thumbnail as the poster, under the asset signing generation', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue({
+        id: 'asset-1',
+        manifestObjectId: 'manifest-obj-1',
+        thumbnailObjectIds: ['thumb-1', 'thumb-2'],
+        durationMs: 60000,
+        resolution: '1280x720',
+        accessTier: 'private',
+        status: 'ready',
+        signingGeneration: 5,
+      });
+
+      await request(createApp()).get('/asset-1/signed');
+
+      expect(deps.generateSignedUrl).toHaveBeenCalledWith(
+        { manifestObjectId: 'manifest-obj-1', posterObjectId: 'thumb-1', signingGeneration: 5 },
+        3600,
+      );
+    });
+
+    it('bounds expires_in to between a minute and six hours', async () => {
       vi.mocked(deps.getPlaybackAsset).mockResolvedValue({
         id: 'asset-1',
         manifestObjectId: 'manifest-obj-1',
@@ -240,23 +275,52 @@ describe('playback routes', () => {
         resolution: '1280x720',
         accessTier: 'private',
         status: 'ready',
+        signingGeneration: 0,
+      });
+
+      for (const [asked, minted] of [
+        ['315360000', 21600],
+        ['99999999999999', 21600],
+        ['21601', 21600],
+        ['21600', 21600],
+        ['0', 60],
+        ['5', 60],
+      ] as const) {
+        vi.mocked(deps.generateSignedUrl).mockClear();
+        const res = await request(createApp()).get(`/asset-1/signed?expires_in=${asked}`);
+        expect(res.status, asked).toBe(200);
+        expect(deps.generateSignedUrl).toHaveBeenCalledWith(expect.anything(), minted);
+      }
+    });
+
+    it('refuses an expires_in that is not a whole number of seconds', async () => {
+      for (const bad of ['-100', '1.5', 'abc', '1e9', '']) {
+        const res = await request(createApp()).get(`/asset-1/signed?expires_in=${bad}`);
+        expect(res.status, bad).toBe(400);
+      }
+      expect(deps.generateSignedUrl).not.toHaveBeenCalled();
+    });
+
+    it('counts a signed playback once per url handed out, never for a refused request', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue({
+        id: 'asset-1',
+        manifestObjectId: 'manifest-obj-1',
+        thumbnailObjectIds: [],
+        durationMs: 60000,
+        resolution: '1280x720',
+        accessTier: 'private',
+        status: 'ready',
+        signingGeneration: 0,
       });
       const signedCount = async () =>
         (await registry.getMetricsAsJSON())
           .find((m) => m.name === 'sluby_playback_initiation_total')
           ?.values.find((v) => v.labels.mode === 'signed')?.value ?? 0;
-      const mint = (expiresAt: number) =>
-        vi.mocked(deps.generateSignedUrl).mockResolvedValueOnce({
-          signedUrl: 'https://signed.url/manifest',
-          expiresAt: new Date(expiresAt).toISOString(),
-        });
 
       const before = await signedCount();
-      mint(Date.now() - 60_000);
       await request(createApp()).get('/asset-1/signed?expires_in=-60');
       expect(await signedCount()).toBe(before);
 
-      mint(Date.now() + 3_600_000);
       await request(createApp()).get('/asset-1/signed');
       expect(await signedCount()).toBe(before + 1);
     });
@@ -278,11 +342,51 @@ describe('playback routes', () => {
         resolution: '',
         accessTier: 'public',
         status: 'processing',
+        signingGeneration: 0,
       });
 
       const res = await request(createApp()).get('/asset-1/signed');
 
       expect(res.status).toBe(409);
+    });
+  });
+
+  describe('POST /:id/signed/revoke', () => {
+    const readyAsset = {
+      id: 'asset-uuid-1',
+      manifestObjectId: 'manifest-obj-1',
+      thumbnailObjectIds: [],
+      durationMs: 60000,
+      resolution: '1280x720',
+      accessTier: 'private',
+      status: 'ready',
+      signingGeneration: 0,
+    };
+
+    it('raises the generation of the resolved asset, scoped to the caller', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
+
+      const res = await request(createApp()).post('/pb_abc/signed/revoke');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, signing_generation: 1 });
+      expect(deps.getPlaybackAsset).toHaveBeenCalledWith('pb_abc', '0xabc123');
+      expect(deps.revokeSignedUrls).toHaveBeenCalledWith('asset-uuid-1', '0xabc123');
+    });
+
+    it('answers 404 for an unknown asset', async () => {
+      const res = await request(createApp()).post('/asset-1/signed/revoke');
+      expect(res.status).toBe(404);
+      expect(deps.revokeSignedUrls).not.toHaveBeenCalled();
+    });
+
+    it('requires manage scope', async () => {
+      const app = withApiKey(createTestApp(createPlaybackRoutes(deps)), {
+        ...defaultApiKey,
+        scopes: ['read'],
+      });
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
+      expect((await request(app).post('/asset-1/signed/revoke')).status).toBe(403);
     });
   });
 
@@ -295,6 +399,7 @@ describe('playback routes', () => {
       resolution: '1280x720',
       accessTier: 'public' as const,
       status: 'ready',
+      signingGeneration: 0,
     };
 
     // the fourth argument is the hard limit (unix seconds): now plus the cap
@@ -325,12 +430,26 @@ describe('playback routes', () => {
 
     it('answers 502 when the indexer fails while minting', async () => {
       vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
-      vi.mocked(deps.createShareUrls).mockRejectedValue(new Error('app error: Reqwest(...)'));
+      vi.mocked(deps.createShareUrls).mockRejectedValue(
+        new ShareMintError('indexer', new Error('app error: Reqwest(...)')),
+      );
 
       const res = await request(createApp()).get('/asset-1/share');
 
       expect(res.status).toBe(502);
       expect(res.body.error).toMatch(/Sia indexer/);
+    });
+
+    it('answers 503 and names the database when the object list cannot be read', async () => {
+      vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
+      vi.mocked(deps.createShareUrls).mockRejectedValue(
+        new ShareMintError('database', new Error('connection refused')),
+      );
+
+      const res = await request(createApp()).get('/asset-1/share');
+
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/database/);
     });
 
     it('mints against the resolved asset id and the default hour', async () => {
@@ -361,18 +480,13 @@ describe('playback routes', () => {
       expect(res.headers['cache-control']).toBe('private, no-store');
     });
 
-    it('caps + no-stores a public asset that has a signed-policy playback id', async () => {
-      // Public tier, but the delivery tier resolves to private because a
-      // signed-policy playback id gates the object graph. The share route must
-      // treat it as gated, not hand it a long-lived cacheable capability map.
+    it('follows only the asset tier, so a signed playback id on a public asset changes nothing', async () => {
       vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
-      vi.mocked(deps.resolveObjectTier).mockResolvedValue('private');
 
       const res = await request(createApp()).get('/asset-1/share?expires_in=999999');
 
-      expect(deps.resolveObjectTier).toHaveBeenCalledWith('manifest-obj-1');
-      expectMint(3600, 3600);
-      expect(res.headers['cache-control']).toBe('private, no-store');
+      expectMint(21600, 21600);
+      expect(res.headers['cache-control']).toBeUndefined();
     });
 
     it('returns 404 when the asset is not found', async () => {
@@ -382,7 +496,6 @@ describe('playback routes', () => {
 
       expect(res.status).toBe(404);
       expect(deps.createShareUrls).not.toHaveBeenCalled();
-      expect(deps.resolveObjectTier).not.toHaveBeenCalled();
     });
 
     it('returns 409 when the asset is not ready', async () => {
@@ -390,6 +503,7 @@ describe('playback routes', () => {
         ...readyAsset,
         manifestObjectId: null,
         status: 'processing',
+        signingGeneration: 0,
       });
 
       const res = await request(createApp()).get('/asset-1/share');
@@ -434,19 +548,21 @@ describe('playback routes', () => {
                 resolution: '1280x720',
                 accessTier: 'private' as const,
                 status: 'ready',
+                signingGeneration: 0,
               }
             : null,
         ),
         generateSignedUrl: vi.fn().mockResolvedValue({
           signedUrl: 'https://signed.url/manifest',
+          posterUrl: null,
           expiresAt: '2025-06-01T00:00:00Z',
         }),
+        revokeSignedUrls: vi.fn().mockResolvedValue({ signingGeneration: 1 }),
         createShareUrls: vi.fn().mockResolvedValue({
           masterObjectId: 'manifest-obj-1',
           shares: { 'manifest-obj-1': 'sia://ref#key' },
           expiresAt: '2025-06-01T01:00:00Z',
         }),
-        resolveObjectTier: vi.fn().mockResolvedValue('public'),
       };
       return withApiKey(createTestApp(createPlaybackRoutes(scoped)), {
         ...defaultApiKey,
@@ -461,6 +577,11 @@ describe('playback routes', () => {
 
     it('refuses a signed URL for another tenant asset', async () => {
       const res = await request(ownedApp('0xstranger')).get('/asset-1/signed');
+      expect(res.status).toBe(404);
+    });
+
+    it('refuses to revoke another tenant asset', async () => {
+      const res = await request(ownedApp('0xstranger')).post('/asset-1/signed/revoke');
       expect(res.status).toBe(404);
     });
   });

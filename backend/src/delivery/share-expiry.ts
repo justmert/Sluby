@@ -1,5 +1,19 @@
-// Expiry rules for sia:// share maps, shared by the authenticated
+// Expiry rules and errors for sia:// share maps, shared by the authenticated
 // /api/v1/playback/:id/share route and the public /v1/share/:id route.
+
+/**
+ * Minting failed. `source` says where: the database (the asset's object list)
+ * or the indexer (a share url), so the routes can say which one to wait for.
+ */
+export class ShareMintError extends Error {
+  constructor(
+    readonly source: 'database' | 'indexer',
+    cause: unknown,
+  ) {
+    super(`share map minting failed in the ${source}`, { cause });
+    this.name = 'ShareMintError';
+  }
+}
 
 // Share URLs are per-session capabilities. Default an hour, allow up to six so
 // a long watch (with mid-stream ABR rendition switches) stays resolvable, but

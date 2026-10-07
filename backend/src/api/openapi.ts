@@ -372,7 +372,7 @@ export const openapiDocument = {
       },
       SignedUrl: {
         type: 'object',
-        required: ['signed_url', 'expires_at'],
+        required: ['signed_url', 'poster_url', 'expires_at'],
         properties: {
           signed_url: {
             type: 'string',
@@ -381,7 +381,24 @@ export const openapiDocument = {
               'Absolute url of the master manifest on PUBLIC_URL with `expires` and `sig` ' +
               'appended; the gateway signs the child urls in it on the fly.',
           },
+          poster_url: nullable('string', {
+            format: 'uri',
+            description:
+              'Absolute url of the first thumbnail, signed the same way and valid as long, so a ' +
+              'player can show a poster for a private asset. Null when the asset has none.',
+          }),
           expires_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      SignedUrlsRevoked: {
+        type: 'object',
+        required: ['success', 'signing_generation'],
+        properties: {
+          success: { const: true },
+          signing_generation: {
+            type: 'integer',
+            description: 'The asset signing generation now in force; every older url is void.',
+          },
         },
       },
       SharePlaybackInfo: {
@@ -1559,21 +1576,49 @@ export const openapiDocument = {
       get: {
         tags: ['Playback'],
         summary: 'Time-limited signed playback URL.',
+        description:
+          'Signs the master manifest (and the first thumbnail as a poster) for the asset. The ' +
+          'signature covers the asset signing generation, so every url minted so far stops ' +
+          'working when the asset tier changes or POST /api/v1/playback/{id}/signed/revoke is ' +
+          'called. A url never lasts longer than six hours.',
         'x-required-scope': 'read',
         parameters: [
           idParam('id', 'Asset UUID or pb_ playback ID.'),
           {
             name: 'expires_in',
             in: 'query',
-            schema: { type: 'integer', default: 3600 },
-            description: 'Lifetime of the url in seconds.',
+            schema: { type: 'integer', default: 3600, minimum: 60, maximum: 21600 },
+            description:
+              'Lifetime of the url in seconds. A whole number outside 60 to 21600 is brought ' +
+              'to the nearest bound (the answer `expires_at` says what was minted); anything ' +
+              'else is a 400.',
           },
         ],
         responses: {
           '200': jsonResponse('SignedUrl', 'Signed URL.'),
-          '400': badId,
+          '400': errorWith('A malformed id, or an expires_in that is not a whole number.'),
           '404': ref('NotFound'),
           '409': errorWith('The asset is not ready for playback.'),
+          ...authFailures,
+        },
+      },
+    },
+    '/api/v1/playback/{id}/signed/revoke': {
+      post: {
+        tags: ['Playback'],
+        summary: 'Revoke every signed URL of an asset.',
+        description:
+          'Raises the asset signing generation, so every signed url minted for it so far (and ' +
+          'every child url signed from one) is refused from now on; new ones can be minted ' +
+          'straight away. A pb_ id revokes for its whole asset. Copies of public objects a ' +
+          'shared cache already holds are unaffected, and sia:// share maps run until their ' +
+          'own expiry.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Asset UUID or pb_ playback ID.')],
+        responses: {
+          '200': jsonResponse('SignedUrlsRevoked', 'Revoked.'),
+          '400': badId,
+          '404': ref('NotFound'),
           ...authFailures,
         },
       },
@@ -1593,6 +1638,7 @@ export const openapiDocument = {
           '404': ref('NotFound'),
           '409': errorWith('The asset is not ready for playback.'),
           '502': errorWith('The Sia indexer did not answer while minting.'),
+          '503': errorWith('The database did not answer while minting.'),
           ...authFailures,
         },
       },
@@ -1972,7 +2018,14 @@ export const openapiDocument = {
         description:
           'An object of a public asset needs nothing. An object of a private asset needs the ' +
           '`expires` and `sig` of a signed url (GET /api/v1/playback/{id}/signed); a manifest ' +
-          'served that way has the urls of its children signed with the same expiry.',
+          'served that way has the urls of its children signed with the same expiry. Access ' +
+          'follows only the asset tier: a signed playback ID gates its own /v1/stream entry, ' +
+          'not these objects. HEAD answers the same headers without a body. A public answer ' +
+          'carries `ETag` (the object id) and `Cache-Control: public, no-cache`, and a ' +
+          'conditional request (`If-None-Match`) is answered 304 only after access is checked ' +
+          'again, so a cache never keeps serving an object after its asset turns private or ' +
+          'is deleted; the shipped nginx keeps small public objects for at most 60 seconds ' +
+          'between checks. Objects over 8 MB are streamed and never cached.',
         security: [],
         parameters: [
           idParam('objectId', 'Sia object ID.'),
@@ -2007,13 +2060,19 @@ export const openapiDocument = {
         responses: {
           '200': { description: 'Full object.' },
           '206': { description: 'Partial content (range).' },
+          '304': { description: 'Still public and unchanged (a conditional request).' },
+          '400': errorWith('Not a Sia object id (64 lowercase hex characters).'),
           '403': errorWith(
-            'A private object without a valid, unexpired signature; `reason` says why.',
+            'A private object without a valid, unexpired signature of the asset current ' +
+              'signing generation; `reason` says why.',
           ),
           '404': errorWith(
-            'No such object, its asset is being deleted, or it could not be fetched.',
+            'No asset holds the object, its asset is being deleted, or the indexer no longer ' +
+              'has it.',
           ),
           '416': { description: 'Range not satisfiable.' },
+          '502': errorWith('The Sia network did not answer; try again.'),
+          '503': errorWith('The database did not answer; try again.'),
         },
       },
     },
@@ -2023,7 +2082,10 @@ export const openapiDocument = {
         summary: 'Master HLS manifest for an asset or playback ID.',
         description:
           'A private asset or a signed-policy playback ID needs the `expires` and `sig` of the ' +
-          'asset’s signed master url; the child urls in the answer are then signed too.',
+          'asset’s signed master url; the child urls in the answer are then signed too. A ' +
+          'signed playback ID gates only this entry: on a public asset its objects stay ' +
+          'public, so the bytes are not private (make the asset private for that), and other ' +
+          'embeds of the asset keep playing. A public answer is cached like a public object.',
         security: [],
         parameters: [
           idParam('videoAssetId', 'Asset UUID or pb_ playback ID.'),
@@ -2042,8 +2104,11 @@ export const openapiDocument = {
         ],
         responses: {
           '200': { description: 'HLS manifest.', content: { 'application/vnd.apple.mpegurl': {} } },
+          '304': { description: 'Still public and unchanged (a conditional request).' },
           '403': errorWith('Gated, and no valid, unexpired signature; `reason` says why.'),
           '404': errorWith('No such asset or playback ID, or the asset is not ready.'),
+          '502': errorWith('The Sia network did not answer; try again.'),
+          '503': errorWith('The database did not answer; try again.'),
         },
       },
     },
@@ -2052,13 +2117,15 @@ export const openapiDocument = {
         tags: ['Delivery'],
         summary: 'Per-object sia:// share URLs for direct-from-Sia playback, without credentials.',
         description:
-          'Gated like /v1/stream: a public asset with a public playback ID needs nothing. A ' +
-          'private asset, a signed-policy playback ID, or a public asset that has a signed ' +
-          'playback ID needs the `expires` and `sig` of its signed master URL, and the shares ' +
-          'then never outlive `expires`. Expiries are capped like the authenticated route (six ' +
-          'hours, one hour when gated) and rounded to five-minute slots that the server caches, ' +
-          'so repeated calls do not mint again. A gated map is sent `private, no-store`; a ' +
-          'public one may be cached for up to a minute.',
+          'Gated like /v1/stream: a public asset by its id or a public playback ID needs ' +
+          'nothing. A private asset or a signed-policy playback ID needs the `expires` and ' +
+          '`sig` of its signed master URL, and the shares then never outlive `expires`. ' +
+          'Expiries are capped like the authenticated route (six hours, one hour when gated) ' +
+          'and rounded to five-minute slots that the server caches, so repeated calls do not ' +
+          'mint again. A gated map is sent `private, no-store`; a public one may be kept by ' +
+          'the shipped nginx for up to a minute and is revalidated by every other cache. ' +
+          'Share URLs already handed out keep working until they expire, whatever happens to ' +
+          'the asset meanwhile.',
         security: [],
         parameters: [
           idParam('id', 'Asset UUID or pb_ playback ID.'),
@@ -2081,6 +2148,7 @@ export const openapiDocument = {
           '403': errorResponse,
           '404': errorResponse,
           '502': errorResponse,
+          '503': errorWith('The database did not answer; try again.'),
         },
       },
     },

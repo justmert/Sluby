@@ -1,24 +1,37 @@
-import { downloadObject } from './sia-client.js';
+import { openObject, readExactly, type ObjectHandle } from './sia-client.js';
 import { LRUCache } from 'lru-cache';
 import { logger } from '../config/logger.js';
 import { env } from '../config/env.js';
 
-// Bound the object cache to the validated config value, so this stays a
-// single source of truth with env.ts and .env.example (default 10240 MB)
-// instead of re-reading process.env with a second, divergent default.
+/**
+ * In-memory cache of small whole objects (manifests, playlists, thumbnails)
+ * for the delivery gateway. Objects never change under their id, so entries
+ * need no expiry; the access check runs on every request before a cached
+ * body is used, so the cache never decides who may read what.
+ *
+ * Anything over CACHEABLE_OBJECT_MAX_BYTES is never held in memory: the
+ * gateway streams it from Sia instead, so a request for a large rendition
+ * cannot grow the process by the size of the file.
+ */
+
+// a whole object up to this size is buffered and cached; the gateway streams
+// anything larger. Manifests, playlists and thumbnails are far below it.
+export const CACHEABLE_OBJECT_MAX_BYTES = 8 * 1024 * 1024;
+
 const CACHE_MAX_SIZE = env.CACHE_MAX_SIZE_MB * 1024 * 1024;
 
-/** In-memory LRU cache for hot objects */
 const objectCache = new LRUCache<string, Uint8Array>({
   maxSize: CACHE_MAX_SIZE,
-  sizeCalculation: (value) => value.length,
-  ttl: 24 * 60 * 60 * 1000, // 24 hours for segments
+  maxEntrySize: Math.min(CACHEABLE_OBJECT_MAX_BYTES, CACHE_MAX_SIZE),
+  sizeCalculation: (value) => Math.max(value.length, 1),
 });
 
-/** Short-TTL cache for manifests */
+/** Master manifests read by /v1/stream, kept apart so object reads cannot evict them. */
 const manifestCache = new LRUCache<string, Uint8Array>({
   max: 1000,
-  ttl: 60 * 1000, // 60 seconds for manifests
+  maxSize: 32 * 1024 * 1024,
+  maxEntrySize: CACHEABLE_OBJECT_MAX_BYTES,
+  sizeCalculation: (value) => Math.max(value.length, 1),
 });
 
 /** Cumulative hit/miss counters (surfaced via /v1/cache/stats). */
@@ -27,65 +40,92 @@ let misses = 0;
 
 export type CacheStatus = 'HIT' | 'MISS';
 
-export interface CachedResult {
-  data: Uint8Array;
-  status: CacheStatus;
-}
+export type SmallObjectResult =
+  | { kind: 'cached'; data: Uint8Array; status: CacheStatus }
+  /** too large to buffer: stream it from the handle */
+  | { kind: 'large'; handle: ObjectHandle };
 
-type Fetcher = (objectId: string) => Promise<Uint8Array>;
+type Opener = (objectId: string) => Promise<ObjectHandle>;
 
 interface GetOptions {
   isManifest?: boolean;
-  /** Injected fetcher (defaults to Sia download); used to make caching
-   *  logic testable without a live indexer. */
-  fetch?: Fetcher;
+  /** Injected opener (defaults to the Sia indexer); lets tests run without one. */
+  open?: Opener;
 }
 
+// concurrent misses on one object share a single indexer lookup and download
+const inflight = new Map<string, Promise<SmallObjectResult>>();
+
 /**
- * Fetch an object through the LRU cache, reporting whether the read was a
- * cache HIT or a MISS so the gateway can set an `X-Cache-Status` header.
+ * A whole object from the cache, or fetched from Sia and cached when it is
+ * small enough. A large object comes back as a handle to stream, uncached.
  */
-export async function getCachedObject(
+export async function getSmallObject(
   objectId: string,
   opts: GetOptions = {},
-): Promise<CachedResult> {
+): Promise<SmallObjectResult> {
   const isManifest = opts.isManifest ?? false;
-  const fetchFn = opts.fetch ?? ((id: string) => downloadObject(id));
   const cache = isManifest ? manifestCache : objectCache;
 
   const cached = cache.get(objectId);
   if (cached) {
     hits++;
-    logger.debug({ objectId, isManifest }, 'Cache hit');
-    return { data: cached, status: 'HIT' };
+    return { kind: 'cached', data: cached, status: 'HIT' };
   }
 
-  misses++;
-  logger.debug({ objectId, isManifest }, 'Cache miss, fetching from Sia');
-  const data = await fetchFn(objectId);
-  cache.set(objectId, data);
-  return { data, status: 'MISS' };
+  const key = `${isManifest ? 'm' : 'o'}:${objectId}`;
+  const pending = inflight.get(key);
+  if (pending) {
+    const shared = await pending;
+    // a waiter was served from memory, not from Sia
+    if (shared.kind === 'cached') {
+      hits++;
+      return { kind: 'cached', data: shared.data, status: 'HIT' };
+    }
+    return shared;
+  }
+
+  const fetching = (async (): Promise<SmallObjectResult> => {
+    misses++;
+    const handle = await (opts.open ?? openObject)(objectId);
+    if (handle.size > CACHEABLE_OBJECT_MAX_BYTES) return { kind: 'large', handle };
+    const data =
+      handle.size === 0
+        ? new Uint8Array(0)
+        : await readExactly(handle.read({ offset: 0, length: handle.size }), handle.size);
+    cache.set(objectId, data);
+    return { kind: 'cached', data, status: 'MISS' };
+  })();
+  inflight.set(key, fetching);
+  try {
+    return await fetching;
+  } finally {
+    inflight.delete(key);
+  }
+}
+
+/** A cached object's bytes without fetching, or undefined. */
+export function peekCachedObject(objectId: string): Uint8Array | undefined {
+  return objectCache.peek(objectId);
 }
 
 /**
  * Prefetch a set of objects into the cache (e.g. right after a transcode
  * finishes, so the first playback is already warm). Objects already cached
- * are skipped. Individual failures are swallowed — warming is best-effort
- * and must never break the caller. Returns how many were newly warmed.
+ * are skipped, and objects too large to cache are not downloaded. Individual
+ * failures are swallowed: warming is best-effort and must never break the
+ * caller. Returns how many were newly warmed.
  */
 export async function warmObjects(objectIds: string[], opts: GetOptions = {}): Promise<number> {
-  const isManifest = opts.isManifest ?? false;
-  const fetchFn = opts.fetch ?? ((id: string) => downloadObject(id));
-  const cache = isManifest ? manifestCache : objectCache;
+  const cache = opts.isManifest ? manifestCache : objectCache;
 
   let warmed = 0;
   await Promise.all(
     objectIds.map(async (objectId) => {
       if (cache.has(objectId)) return;
       try {
-        const data = await fetchFn(objectId);
-        cache.set(objectId, data);
-        warmed++;
+        const result = await getSmallObject(objectId, opts);
+        if (result.kind === 'cached') warmed++;
       } catch (err) {
         logger.warn({ objectId, err }, 'Cache warm failed for object');
       }
@@ -100,7 +140,7 @@ export async function warmObjects(objectIds: string[], opts: GetOptions = {}): P
 
 /**
  * Evict objects from both caches, e.g. after an asset is deleted and its
- * objects are unpinned from Sia, so the gateway stops serving stale bytes.
+ * objects are unpinned from Sia, so the memory is given back.
  * Returns how many cache entries were removed.
  */
 export function evictObjects(objectIds: string[]): number {
