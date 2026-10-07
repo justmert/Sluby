@@ -20,14 +20,14 @@ sequenceDiagram
   A-->>C: 200 success, status deleting
   Q->>D: delete job
   D->>DB: find the asset's upload sessions
-  D->>D: delete their source files from UPLOAD_DIR
-  D->>DB: collect object ids (artifacts and ids on video_assets)
+  D->>D: delete their source files from UPLOAD_DIR and the transcode output
+  D->>DB: collect object ids (artifacts, pending_objects and ids on video_assets)
   loop every object
-    D->>I: unpin (deleteObject)
+    D->>I: unpin (deleteObject; not found counts as unpinned)
+    D->>DB: remove its rows and ids
+    D->>D: evict it from the object and tier caches
   end
-  D->>DB: remove artifact rows and ids that were unpinned
-  D->>D: evict them from the object and tier caches
-  D->>I: pruneSlabs
+  D->>I: pruneSlabs (once no upload is in flight)
   alt every object unpinned
     D->>DB: delete the video_assets row (cascades)
   else some failed
@@ -43,15 +43,17 @@ From that moment every API read ignores the asset: lookups by id, listings and t
 
 ### The deletion worker
 
-The `deletion` worker (`backend/src/deletion/worker.ts` and `deleter.ts`, concurrency 2) receives only the asset id. It first deletes the asset's source uploads from `UPLOAD_DIR`, found through the `file_path` of its `upload_sessions` rows (cancelled sessions are skipped, since the cancel already removed their files): the source a failed asset kept for a retry, or the partial file of an upload still in flight (which stops that upload, since tus no longer knows it). A file that cannot be removed is logged with its path and does not stop the deletion; a failed session lookup throws, so the job retries while the sessions still point at the files. It then collects the object ids itself on every attempt: the `artifacts` rows plus `manifest_object_id`, `thumbnail_object_ids` and `sia_object_ids` on the asset, deduplicated. For each object it calls the SDK's `deleteObject`, which unpins it from the indexer. One failing object does not stop the others.
+The `deletion` worker (`backend/src/deletion/worker.ts` and `deleter.ts`, concurrency 2) receives only the asset id. It first deletes the asset's source uploads from `UPLOAD_DIR`, found through the `file_path` of its `upload_sessions` rows (cancelled sessions are skipped, since the cancel already removed their files): the source a failed asset kept for a retry, or the partial file of an upload still in flight (which stops that upload, since tus no longer knows it). A file that cannot be removed is logged with its path and does not stop the deletion; a failed session lookup throws, so the job retries while the sessions still point at the files. It also removes the asset's transcode output, `TRANSCODE_OUTPUT_DIR/{assetId}`. It then collects the object ids itself on every attempt: the `artifacts` rows, the `pending_objects` rows (objects the pipeline pinned that finalize has not recorded yet), and `manifest_object_id`, `thumbnail_object_ids` and `sia_object_ids` on the asset, deduplicated. For each object it calls the SDK's `deleteObject`, which unpins it from the indexer. An object the indexer answers 404 for counts as unpinned: it was unpinned by an earlier attempt that died before recording it, or never pinned (an id recorded just before its pin). The SDK hands its errors over as text, so `deleteObject` in `backend/src/storage/sia-client.ts` reads the status from the `Api(404, ...)` part of the message, never from the body. One failing object does not stop the others.
 
-Objects that were unpinned are recorded right away: their `artifacts` rows are deleted and they are removed from the id columns on the asset, and they are evicted from the gateway's object and tier caches. Then the worker asks the indexer to prune slabs that no object references any more (`pruneSlabs`); a failure there is only logged. If every object was unpinned, the asset row is deleted, which cascades to `renditions`, `artifacts`, `processing_jobs` and `playback_ids`, and sets `upload_sessions.video_asset_id` to null; in the same transaction the asset's upload sessions lose their tus `metadata` (title, description, owner, key id).
+Each object that was unpinned is recorded at once, before the next one: its `artifacts` and `pending_objects` rows are deleted, it is removed from the id columns on the asset in a single `UPDATE` (so two deletions of one asset cannot write back an id the other removed), and it is evicted from the gateway's object and tier caches. Then the worker asks the indexer to prune slabs that no object references any more (`pruneSlabs`): indexd only prunes when asked, and a prune requested while an upload is in flight in the backend process runs once the last upload ends, since it would otherwise strip that upload's slabs (see [the Sia storage layout](./upload-pipeline#the-sia-storage-layout)). A prune failure is only logged. If every object was unpinned, the asset row is deleted, which cascades to `renditions`, `artifacts`, `processing_jobs` and `playback_ids`, and sets `upload_sessions.video_asset_id` to null; in the same transaction the asset's upload sessions lose their tus `metadata` (title, description, owner, key id).
 
 If any object could not be unpinned, the job throws without deleting the row. BullMQ retries it (3 attempts, exponential backoff from 30 seconds), and because unpinned objects were already removed from the database, the next attempt only works on the remainder.
 
 ### Garbage collection sweep
 
-Jobs can still be lost, for example when the process dies mid-deletion or all retries fail while the indexer is down. A `gc` job on the same queue runs every `DELETION_GC_INTERVAL_MS` (15 minutes by default, disabled with `DELETION_GC_ENABLED=false`), from a BullMQ job scheduler (`deletion-gc-scheduled`) that the backend brings in line with these settings at every start (see [sweep schedules](#sweep-schedules)). It finds assets soft-deleted longer ago than `DELETION_STUCK_THRESHOLD_MS` (10 minutes by default) and enqueues a fresh `delete` job for each. The asset stays soft-deleted, invisible and unserved, until a run succeeds.
+Jobs can still be lost, for example when the process dies mid-deletion or all retries fail while the indexer is down. A `gc` job on the same queue runs every `DELETION_GC_INTERVAL_MS` (15 minutes by default, disabled with `DELETION_GC_ENABLED=false`), from a BullMQ job scheduler (`deletion-gc-scheduled`) that the backend brings in line with these settings at every start (see [sweep schedules](#sweep-schedules)). It finds assets soft-deleted longer ago than `DELETION_STUCK_THRESHOLD_MS` (10 minutes by default) and enqueues a `delete` job for each, under the job id `redrive-{assetId}`, unless a `delete` job for that asset is still waiting, delayed or running, so two deletions of one asset never run side by side. Each re-drive replaces the previous one and counts it; from the fifth on, the sweep logs an error naming the asset, since a deletion that keeps failing needs a look at the job errors. The asset stays soft-deleted, invisible and unserved, until a run succeeds.
+
+The same sweep cleans up after the pipeline. It marks for release the `pending_objects` still `uploading` whose asset is gone, being deleted or no longer processing (left by a crash, or a run that failed for good), and unpins every object marked for release that no artifact names, removing the rows of the ones that are gone; one whose unpin fails stays for the next sweep. It also removes the transcode output of assets that are ready, deleted or gone. Each part runs even when another fails, and the job then fails with the first error.
 
 ### What deletion does not touch
 
@@ -66,7 +68,7 @@ Both periodic sweeps live in Redis as BullMQ job schedulers, `deletion-gc-schedu
 
 ### Assets deleted while processing
 
-The deletion worker only knows objects that are in the database. An asset deleted while its upload to Sia is still running has none yet, so the worker finds nothing to unpin and removes the row. The finalize step then finds no asset and unpins everything the upload produced instead of recording it (see [retries and orphan cleanup](./upload-pipeline#retries-and-orphan-cleanup)).
+The pipeline records every object id in `pending_objects` before it pins the object, so the deletion worker sees and unpins what a running upload has pinned so far. Each pipeline stage checks its asset before it starts, and the upload stage before each of its three Sia uploads: a stage whose asset was deleted stops, the upload stage unpins what it pinned (an object the deletion already unpinned answers 404, which counts as done), and finalize, which locks the asset row, finds it gone and unpins everything it was handed instead of recording it. A transcode already running when the asset is deleted is not killed; its FFmpeg run fails once the deletion removed its output directory, or it finishes and the stage then stops. Rows an upload writes after the asset row is gone are released by the GC sweep (see [retries and orphan cleanup](./upload-pipeline#retries-and-orphan-cleanup)).
 
 ## Reconciliation
 
@@ -138,4 +140,4 @@ Every run, manual or scheduled, is added to the `reconcile` queue under one Bull
 
 The repeatable schedule does not run a pass itself. Each tick enqueues a run through the same deduplicated add, so a tick that lands while a manual run is pending is dropped, and a manual trigger while a scheduled run is pending is answered with `already_pending`. The worker has two slots so that a tick is handled while a run is active rather than waiting behind it and queuing a second run as soon as the first finishes; the deduplication keeps two runs from overlapping.
 
-Objects from a processing run whose finalize never succeeded are not in flight: once they are older than the grace window, they are reported as orphans until someone removes them. Because in-flight objects are in neither list, `in_sync_count` plus `orphan_count` can be less than `indexer_object_count`, and `in_sync_count` plus `missing_count` less than `db_object_count`.
+Objects a processing run pinned are recorded in `pending_objects`, which the database side does not read: an upload that runs longer than the grace window shows its objects as orphans until finalize records them. Objects of a run that failed for good are unpinned by the [deletion GC sweep](#garbage-collection-sweep), so they stop showing up after it runs. Because in-flight objects are in neither list, `in_sync_count` plus `orphan_count` can be less than `indexer_object_count`, and `in_sync_count` plus `missing_count` less than `db_object_count`.

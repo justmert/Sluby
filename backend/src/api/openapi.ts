@@ -301,7 +301,7 @@ export const openapiDocument = {
             type: 'string',
             enum: ['upload-segments', 'transcode'],
             description:
-              '`upload-segments` when the transcode output is still on disk, else `transcode`.',
+              '`upload-segments` when a finished transcode is still on disk, else `transcode`.',
           },
         },
       },
@@ -331,7 +331,11 @@ export const openapiDocument = {
             description: 'Pipeline step, from the latest stage-tagged log line.',
           },
           progress_percent: { type: 'integer' },
-          retry_count: { type: 'integer' },
+          retry_count: {
+            type: 'integer',
+            description:
+              'Retries of the pipeline stages so far: each automatic retry and each manual retry.',
+          },
           error_message: { type: ['string', 'null'] },
           started_at: { type: ['string', 'null'], format: 'date-time' },
           completed_at: { type: ['string', 'null'], format: 'date-time' },
