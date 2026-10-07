@@ -6,7 +6,8 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
 import type { AuthSession } from '@/lib/session';
 import { WithSession } from '@/test/session';
-import SettingsPage, { timeLeft } from './SettingsPage';
+import { formatTimeLeft as timeLeft } from '@/lib/formatters';
+import SettingsPage from './SettingsPage';
 
 let keys: Array<Record<string, unknown>>;
 let sessions: Array<Record<string, unknown>>;
@@ -181,7 +182,7 @@ describe('SettingsPage', () => {
   });
 });
 
-describe('timeLeft', () => {
+describe('formatTimeLeft', () => {
   const at = (ms: number) => new Date(1_000_000 + ms).toISOString();
   it('reads naturally around the hour and day boundaries', () => {
     expect(timeLeft(at(59 * 60_000 + 30_000), 1_000_000)).toBe('in 1h 0m');

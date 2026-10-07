@@ -91,6 +91,18 @@ export function formatRelativeTime(date: string | Date, now = Date.now()): strin
   return diffMs < 0 ? `in ${span}` : `${span} ago`;
 }
 
+/** How long until `iso`, compactly: "in 5m", "in 3h 20m", "in 2d 4h", or "now" once passed. */
+export function formatTimeLeft(iso: string, now = Date.now()): string {
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return NO_VALUE;
+  const minutes = Math.ceil((at - now) / 60_000);
+  if (minutes <= 0) return 'now';
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours >= 24) return `in ${Math.floor(hours / 24)}d ${hours % 24}h`;
+  return `in ${hours}h ${minutes % 60}m`;
+}
+
 /**
  * Format a date in short human-readable form.
  * e.g. "Jan 15, 2025"

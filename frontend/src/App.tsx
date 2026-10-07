@@ -5,7 +5,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
-// Studio pages
 const StudioDashboard = lazy(() => import('@/pages/studio/DashboardPage'));
 const StudioUpload = lazy(() => import('@/pages/studio/UploadPage'));
 const StudioAssets = lazy(() => import('@/pages/studio/AssetsPage'));
@@ -31,7 +30,6 @@ export function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/studio" replace />} />
 
-          {/* Studio routes */}
           <Route path="/studio" element={<StudioDashboard />} />
           <Route path="/studio/upload" element={<StudioUpload />} />
           <Route path="/studio/assets" element={<StudioAssets />} />
@@ -41,7 +39,6 @@ export function App() {
           <Route path="/studio/analytics" element={<StudioAnalytics />} />
           <Route path="/studio/settings" element={<StudioSettings />} />
 
-          {/* Catch-all */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>

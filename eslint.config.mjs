@@ -2,6 +2,7 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier';
 import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
   eslint.configs.recommended,
@@ -47,7 +48,31 @@ export default tseslint.config(
     },
   },
   {
-    files: ['frontend/src/**/*.{ts,tsx}', 'packages/player/src/**/*.{ts,tsx}'],
+    // the studio: every react hooks rule, react compiler ones included, and
+    // files that keep fast refresh working
+    files: ['frontend/src/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
+    rules: {
+      ...reactHooks.configs.flat.recommended.rules,
+      ...reactRefresh.configs.vite.rules,
+    },
+  },
+  {
+    // vendored shadcn components keep upstream's shape (a component next to
+    // its variants or hook) so `shadcn add` updates apply cleanly, and tests
+    // and their helpers are never hot reloaded
+    files: [
+      'frontend/src/components/ui/**',
+      'frontend/src/test/**',
+      'frontend/src/**/*.test.{ts,tsx}',
+      // until fix/fg10 moves their helpers into plain modules
+      'frontend/src/components/upload/ChunkStrip.tsx',
+      'frontend/src/components/upload/PipelineSteps.tsx',
+    ],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
+  {
+    files: ['packages/player/src/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: {
       'react-hooks/rules-of-hooks': 'error',

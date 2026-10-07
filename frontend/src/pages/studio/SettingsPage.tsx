@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { AlertTriangle, KeyRound, LogOut, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
-import { useTheme, type Theme } from '@/components/theme-provider';
-import { THEME_OPTIONS } from '@/components/theme-toggle';
 import { CopyButton } from '@/components/shared/CopyButton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -81,9 +79,10 @@ import {
 import { useSystemStatus } from '@/hooks/useStats';
 import { useRevokeAllSessions, useRevokeSession, useSessions } from '@/hooks/useSessions';
 import { statusOf } from '@/lib/api-client';
-import { formatDate, formatRelativeTime } from '@/lib/formatters';
+import { formatDate, formatRelativeTime, formatTimeLeft } from '@/lib/formatters';
 import { loadPage } from '@/lib/navigation';
 import { useSession } from '@/lib/session';
+import { THEME_OPTIONS, useTheme, type Theme } from '@/lib/theme';
 
 const SCOPES: { value: KeyScope; label: string; detail: string }[] = [
   { value: 'upload', label: 'upload', detail: 'Upload videos through tus' },
@@ -97,15 +96,6 @@ const GRACE_OPTIONS = [
   { value: '86400', label: 'After 24 hours' },
   { value: '604800', label: 'After 7 days' },
 ];
-
-export function timeLeft(iso: string, now = Date.now()): string {
-  const minutes = Math.ceil((new Date(iso).getTime() - now) / 60_000);
-  if (minutes <= 0) return 'now';
-  if (minutes < 60) return `in ${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours >= 24) return `in ${Math.floor(hours / 24)}d ${hours % 24}h`;
-  return `in ${hours}h ${minutes % 60}m`;
-}
 
 // ---------------------------------------------------------------------------
 // Dialogs
@@ -133,7 +123,8 @@ function SecretDialog({ issued, onClose }: { issued: IssuedKey | null; onClose: 
         {issued?.previous_key_expires_at && (
           <p className="text-sm text-muted-foreground">
             The previous key stops working{' '}
-            {new Date(issued.previous_key_expires_at).getTime() <= Date.now() + 5_000
+            {/* both times are the server's, set in the same transaction */}
+            {Date.parse(issued.previous_key_expires_at) - Date.parse(issued.created_at) < 5_000
               ? 'now'
               : `on ${new Date(issued.previous_key_expires_at).toLocaleString()}`}
             .
@@ -437,7 +428,7 @@ function ApiKeysCard() {
                   <TableCell>
                     {k.expires_at ? (
                       <Badge variant="warning" title={new Date(k.expires_at).toLocaleString()}>
-                        Expires {timeLeft(k.expires_at)}
+                        Expires {formatTimeLeft(k.expires_at)}
                       </Badge>
                     ) : (
                       <Badge variant="success">Active</Badge>
@@ -580,7 +571,7 @@ function SessionsCard() {
                       </span>
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground sm:table-cell">
-                      {timeLeft(s.expires_at)}
+                      {formatTimeLeft(s.expires_at)}
                     </TableCell>
                     <TableCell className="pr-4 text-right">
                       <Button
