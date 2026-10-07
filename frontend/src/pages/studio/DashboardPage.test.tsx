@@ -1,31 +1,47 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { jsonFetch, renderPage } from '@/test/render';
+import { ThemeProvider } from '@/components/theme-provider';
+import { Toaster } from '@/components/ui/sonner';
+import { renderPage } from '@/test/render';
+import { WithSession } from '@/test/session';
 import DashboardPage from './DashboardPage';
 
 const stats = {
-  total: 7,
-  by_status: { created: 0, uploading: 1, processing: 1, ready: 4, failed: 1 },
+  total: 9,
+  by_status: { created: 2, uploading: 1, processing: 1, ready: 4, failed: 1 },
   stored_bytes: 5_000_000,
   ready_duration_ms: 125_000,
   object_count: 42,
 };
 
-const status = {
+// GET /system/status for an ordinary account: a health summary only
+const accountStatus = {
+  scope: 'account',
   status: 'degraded',
   checked_at: '2026-10-02T00:00:00.000Z',
   version: '0.1.0',
-  uptime_seconds: 3600,
   database: { ok: true, latency_ms: 2 },
   redis: { ok: true, latency_ms: 1 },
   indexer: {
     ok: false,
     latency_ms: 30,
+    network: 'mainnet',
+    hosts: { total: 213, good_for_upload: 193, countries: 45 },
+  },
+};
+
+// the same call for an operator: the whole deployment
+const deploymentStatus = {
+  ...accountStatus,
+  scope: 'deployment',
+  uptime_seconds: 3600,
+  indexer: {
+    ...accountStatus.indexer,
     error: 'indexer account is not ready yet',
     url: 'https://sia.storage',
-    network: 'mainnet',
     account: {
-      account_key: 'ak',
+      account_key: 'ed25519:abc',
       ready: false,
       app_name: 'Sluby',
       pinned_data: 1_000_000_000,
@@ -34,7 +50,6 @@ const status = {
       remaining_storage: 49_000_000_000,
       last_used: '2026-10-01T00:00:00.000Z',
     },
-    hosts: { total: 40, good_for_upload: 31, countries: 12 },
   },
   reconciliation: null,
   cache: {
@@ -45,6 +60,34 @@ const status = {
     object_items: 0,
     manifest_items: 2,
   },
+};
+
+const finished = new Date(Date.now() - 5 * 60_000).toISOString();
+const accountRun = {
+  scope: 'account',
+  id: 'r1',
+  started_at: finished,
+  finished_at: finished,
+  created_at: finished,
+  status: 'drift',
+  missing_count: 2,
+  missing_ids: ['o1', 'o2'],
+};
+const deploymentRun = {
+  scope: 'deployment',
+  id: 'r1',
+  started_at: finished,
+  finished_at: finished,
+  created_at: finished,
+  status: 'drift',
+  db_object_count: 120,
+  indexer_object_count: 128,
+  in_sync_count: 118,
+  orphan_count: 9,
+  missing_count: 2,
+  error_message: null,
+  missing_ids: ['o1', 'o2'],
+  orphaned_ids: [],
 };
 
 const assets = {
@@ -59,7 +102,7 @@ const assets = {
       resolution: '1280x720',
       status: 'ready',
       access_tier: 'public',
-      creator_address: 'github:dev',
+      creator_address: 'user:1',
       segment_count: 1,
       total_storage_bytes: 1024,
       created_at: new Date().toISOString(),
@@ -71,46 +114,130 @@ const assets = {
   limit: 6,
 };
 
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+let routes: Record<string, () => Response>;
+let fetchMock: ReturnType<typeof vi.fn>;
+
 beforeEach(() => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(
-      jsonFetch({
-        '/api/v1/stats': stats,
-        '/api/v1/system/status': status,
-        '/api/v1/assets': assets,
-      }),
-    ),
-  );
+  routes = {
+    'GET /api/v1/stats': () => json(stats),
+    'GET /api/v1/system/status': () => json(accountStatus),
+    'GET /api/v1/reconciliation': () => json(accountRun),
+    'GET /api/v1/assets': () => json(assets),
+  };
+  fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input)
+      .replace(/^https?:\/\/[^/]+/, '')
+      .split('?')[0];
+    const key = `${init?.method ?? 'GET'} ${path}`;
+    const route = routes[key];
+    if (!route) throw new Error(`unmocked ${key}`);
+    return route();
+  });
+  vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => vi.unstubAllGlobals());
 
+function render(operator = false) {
+  return renderPage(
+    <ThemeProvider>
+      <WithSession operator={operator}>
+        <DashboardPage />
+      </WithSession>
+      <Toaster />
+    </ThemeProvider>,
+  );
+}
+
 describe('DashboardPage', () => {
-  it('shows real library totals', async () => {
-    renderPage(<DashboardPage />);
-    expect(await screen.findByText('7')).toBeInTheDocument();
-    expect(screen.getByText('4 ready, 2 in progress, 1 failed')).toBeInTheDocument();
-    // stat card and the storage card's library row
-    expect(screen.getAllByText('5 MB')).toHaveLength(2);
+  it('shows library totals whose parts add up, created uploads included', async () => {
+    render();
+    expect(await screen.findByText('9')).toBeInTheDocument();
+    expect(screen.getByText('4 ready, 4 in progress, 1 failed')).toBeInTheDocument();
+    expect(screen.getByText('5 MB')).toBeInTheDocument();
     expect(screen.getByText('42')).toBeInTheDocument();
   });
 
-  it('surfaces a degraded indexer with the reason', async () => {
-    renderPage(<DashboardPage />);
+  it('gives an account a health summary and the drift of its own objects only', async () => {
+    render();
     expect(await screen.findByText('Degraded')).toBeInTheDocument();
-    expect(screen.getByText('indexer account is not ready yet')).toBeInTheDocument();
-    expect(screen.getByText('31 of 40 listed accepting uploads, 12 countries')).toBeInTheDocument();
+    expect(screen.getByText('193 of 213 accept uploads, 45 countries')).toBeInTheDocument();
+    expect(
+      await screen.findByText('2 objects missing from Sia, checked 5 minutes ago'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('v0.1.0')).toBeInTheDocument();
+
+    // nothing the account cannot have, and nothing that never resolves
+    expect(screen.queryByText('Storage usage')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cache statistics')).not.toBeInTheDocument();
+    expect(screen.queryByText('Reconciliation')).not.toBeInTheDocument();
+    expect(screen.queryByText(/NaN|never run|Loading account usage/)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([u]) => String(u))).not.toContain('/api/v1/metrics');
   });
 
-  it('shows account usage and cache hit ratio', async () => {
-    renderPage(<DashboardPage />);
+  it('says when no reconciliation run has finished yet', async () => {
+    routes['GET /api/v1/reconciliation'] = () =>
+      json({ error: 'No reconciliation run has completed yet' }, 404);
+    render();
+    expect(await screen.findByText('not checked yet')).toBeInTheDocument();
+  });
+
+  it('shows the error inside the status card instead of a skeleton forever', async () => {
+    routes['GET /api/v1/system/status'] = () => json({ error: 'Internal Server Error' }, 500);
+    render(true);
+    expect(
+      await screen.findByText('Could not load the status: Internal Server Error'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Deployment, shown to operators')).not.toBeInTheDocument();
+  });
+
+  it('shows an operator the indexer account, the cache and the whole run', async () => {
+    routes['GET /api/v1/system/status'] = () => json(deploymentStatus);
+    routes['GET /api/v1/reconciliation'] = () => json(deploymentRun);
+    render(true);
+
     expect(await screen.findByText('1 GB')).toBeInTheDocument();
     expect(screen.getByText('of 50 GB')).toBeInTheDocument();
     expect(screen.getByText('75%')).toBeInTheDocument();
+    expect(screen.getByText('indexer account is not ready yet')).toBeInTheDocument();
+    expect(screen.getByText('v0.1.0, up 1:00:00')).toBeInTheDocument();
+
+    const run = screen.getByText('Reconciliation').closest('[data-slot="card"]') as HTMLElement;
+    expect(await within(run).findByText('Drift')).toBeInTheDocument();
+    expect(within(run).getByText('118')).toBeInTheDocument();
+    expect(within(run).getByText('9')).toBeInTheDocument();
+    // the account row would repeat the run's figures as if they were the operator's own
+    expect(screen.queryByText('Your objects')).not.toBeInTheDocument();
+  });
+
+  it('lets an operator queue a reconciliation run', async () => {
+    routes['GET /api/v1/system/status'] = () => json(deploymentStatus);
+    routes['GET /api/v1/reconciliation'] = () => json(deploymentRun);
+    routes['POST /api/v1/reconciliation/run'] = () =>
+      json({ enqueued: true, already_pending: false }, 202);
+    render(true);
+
+    await userEvent.click(await screen.findByRole('button', { name: /run now/i }));
+    expect(await screen.findByText('Reconciliation run queued')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([u, i]) => String(u) === '/api/v1/reconciliation/run' && i?.method === 'POST',
+        ),
+      ).toHaveLength(1),
+    );
+  });
+
+  it('keeps an operator on the summary when the server only grants the account view', async () => {
+    render(true);
+    expect(await screen.findByText('Degraded')).toBeInTheDocument();
+    expect(screen.queryByText('Deployment, shown to operators')).not.toBeInTheDocument();
   });
 
   it('lists the latest uploads from the sdk', async () => {
-    renderPage(<DashboardPage />);
+    render();
     const link = await screen.findByRole('link', { name: /Big Buck Bunny/ });
     expect(link).toHaveAttribute('href', '/studio/assets/a1');
   });
