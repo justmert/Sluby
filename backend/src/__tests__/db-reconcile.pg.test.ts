@@ -130,11 +130,11 @@ describe.skipIf(!hasTestDatabase)('reconciliation inventory and runs (postgres)'
         insert into video_assets (title, creator_address, status) values ('v', 'alice', 'ready')
         returning id
       `;
-      for (const objectId of ids) {
-        await tdb.sql`
-          insert into artifacts (video_asset_id, role, object_id) values (${id}, 'rendition_data', ${objectId})
-        `;
-      }
+      // one statement: a row per round trip made the 600 id case time out on a loaded machine
+      await tdb.sql`
+        insert into artifacts (video_asset_id, role, object_id)
+        select ${id}, 'rendition_data', unnest(${ids}::text[])
+      `;
     }
 
     async function run(fetchPage: ReturnType<typeof stubIndexer>, now: Date) {
