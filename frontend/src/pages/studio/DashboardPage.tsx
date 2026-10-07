@@ -193,7 +193,7 @@ function StatusCard({
     <Card>
       <CardHeader>
         <CardTitle>Service status</CardTitle>
-        <CardDescription className="break-all">
+        <CardDescription className="break-words">
           {deployment ? deployment.indexer.url : 'The server and the Sia network it stores on'}
         </CardDescription>
         {status && (
