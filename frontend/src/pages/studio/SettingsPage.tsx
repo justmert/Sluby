@@ -80,6 +80,7 @@ import {
 } from '@/hooks/useApiKeys';
 import { useSystemStatus } from '@/hooks/useStats';
 import { useRevokeAllSessions, useRevokeSession, useSessions } from '@/hooks/useSessions';
+import { statusOf } from '@/lib/api-client';
 import { formatDate, formatRelativeTime } from '@/lib/formatters';
 import { loadPage } from '@/lib/navigation';
 import { useSession } from '@/lib/session';
@@ -168,19 +169,26 @@ function CreateKeyDialog({
         scopes,
         rate_limit: Number(rateLimit),
       });
+      // the secret now lives only in the dialog that shows it once
+      create.reset();
       onOpenChange(false);
       setName('');
       onIssued(issued);
-    } catch (err) {
-      toast.error(`Could not create key: ${err instanceof Error ? err.message : String(err)}`);
+    } catch {
+      // shown in the dialog, next to what the user can change
     }
+  };
+
+  const close = (o: boolean) => {
+    if (!o) create.reset();
+    onOpenChange(o);
   };
 
   const rate = Number(rateLimit);
   const valid = name.trim() !== '' && scopes.length > 0 && Number.isInteger(rate) && rate > 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent>
         <form onSubmit={submit} className="flex flex-col gap-4">
           <DialogHeader>
@@ -234,8 +242,17 @@ function CreateKeyDialog({
               <FieldDescription>Requests per minute.</FieldDescription>
             </Field>
           </FieldGroup>
+          {create.isError && (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertTitle>
+                {statusOf(create.error) === 409 ? 'Key limit reached' : 'Could not create the key'}
+              </AlertTitle>
+              <AlertDescription>{create.error.message}</AlertDescription>
+            </Alert>
+          )}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => close(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={!valid || create.isPending}>
@@ -264,10 +281,23 @@ function RotateDialog({
     if (!target) return;
     try {
       const issued = await rotate.mutateAsync({ id: target.id, graceSeconds: Number(grace) });
+      rotate.reset();
       onClose();
       onIssued(issued);
     } catch (err) {
-      toast.error(`Could not rotate: ${err instanceof Error ? err.message : String(err)}`);
+      rotate.reset();
+      const status = statusOf(err);
+      // the list was stale: the key is gone or was rotated elsewhere, and the
+      // mutation already refreshed it, so there is nothing left to do here
+      if (status === 404) {
+        onClose();
+        toast.error(`${target.name} no longer exists; the list is refreshed`);
+      } else if (status === 409) {
+        onClose();
+        toast.error(`${target.name} was already rotated; rotate its replacement instead`);
+      } else {
+        toast.error(`Could not rotate: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   };
 
@@ -381,7 +411,14 @@ function ApiKeysCard() {
             <TableBody>
               {rows.map((k) => (
                 <TableRow key={k.id}>
-                  <TableCell className="pl-4 font-medium">{k.name}</TableCell>
+                  <TableCell className="pl-4">
+                    <div className="font-medium break-words">{k.name}</div>
+                    {/* the secret is stored only as a hash, so the id is what tells
+                        a rotated pair apart */}
+                    <div className="font-mono text-xs text-muted-foreground" title={k.id}>
+                      id {k.id.slice(0, 8)}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {k.scopes.map((s) => (
@@ -491,7 +528,11 @@ function SessionsCard() {
     <Card>
       <CardHeader>
         <CardTitle>Sessions</CardTitle>
-        <CardDescription>Browsers signed in to the Studio as {session.username}.</CardDescription>
+        <CardDescription>
+          {session.authDisabled
+            ? 'Sign-in is off on this server, so nobody signs in and there are no sessions.'
+            : `Browsers signed in to the Studio as ${session.username}.`}
+        </CardDescription>
         {!session.authDisabled && rows.length > 0 && (
           <CardAction>
             <Button variant="outline" size="sm" onClick={() => setConfirmAll(true)}>
@@ -501,65 +542,65 @@ function SessionsCard() {
           </CardAction>
         )}
       </CardHeader>
-      <CardContent className="px-0">
-        {session.authDisabled ? (
-          <p className="px-4 text-sm text-muted-foreground">
-            Sign-in is disabled on this server, so there are no sessions to manage.
-          </p>
-        ) : sessions.isLoading ? (
-          <Skeleton className="mx-4 h-16" />
-        ) : sessions.isError ? (
-          <Alert variant="destructive" className="mx-4 w-auto">
-            <AlertTriangle />
-            <AlertTitle>Could not load sessions</AlertTitle>
-            <AlertDescription>{sessions.error.message}</AlertDescription>
-          </Alert>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-4">Browser</TableHead>
-                <TableHead className="hidden md:table-cell">Signed in</TableHead>
-                <TableHead className="hidden sm:table-cell">Expires</TableHead>
-                <TableHead className="pr-4 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((s) => (
-                <TableRow key={s.id}>
-                  <TableCell className="max-w-[280px] pl-4">
-                    <div className="flex items-center gap-2">
-                      <Monitor className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate text-xs" title={s.user_agent ?? undefined}>
-                        {s.user_agent ?? 'Unknown browser'}
-                      </span>
-                      {s.current && <Badge variant="secondary">This browser</Badge>}
-                    </div>
-                  </TableCell>
-                  <TableCell className="hidden text-muted-foreground md:table-cell">
-                    <span title={formatDate(s.created_at)}>{formatRelativeTime(s.created_at)}</span>
-                  </TableCell>
-                  <TableCell className="hidden text-muted-foreground sm:table-cell">
-                    {timeLeft(s.expires_at)}
-                  </TableCell>
-                  <TableCell className="pr-4 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive"
-                      disabled={revoke.isPending}
-                      onClick={() => void end(s.id, s.current)}
-                    >
-                      <LogOut />
-                      {s.current ? 'Sign out' : 'End'}
-                    </Button>
-                  </TableCell>
+      {!session.authDisabled && (
+        <CardContent className="px-0">
+          {sessions.isLoading ? (
+            <Skeleton className="mx-4 h-16" />
+          ) : sessions.isError ? (
+            <Alert variant="destructive" className="mx-4 w-auto">
+              <AlertTriangle />
+              <AlertTitle>Could not load sessions</AlertTitle>
+              <AlertDescription>{sessions.error.message}</AlertDescription>
+            </Alert>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4">Browser</TableHead>
+                  <TableHead className="hidden md:table-cell">Signed in</TableHead>
+                  <TableHead className="hidden sm:table-cell">Expires</TableHead>
+                  <TableHead className="pr-4 text-right">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
+              </TableHeader>
+              <TableBody>
+                {rows.map((s) => (
+                  <TableRow key={s.id}>
+                    <TableCell className="max-w-[280px] pl-4">
+                      <div className="flex items-center gap-2">
+                        <Monitor className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate text-xs" title={s.user_agent ?? undefined}>
+                          {s.user_agent ?? 'Unknown browser'}
+                        </span>
+                        {s.current && <Badge variant="secondary">This browser</Badge>}
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden text-muted-foreground md:table-cell">
+                      <span title={formatDate(s.created_at)}>
+                        {formatRelativeTime(s.created_at)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="hidden text-muted-foreground sm:table-cell">
+                      {timeLeft(s.expires_at)}
+                    </TableCell>
+                    <TableCell className="pr-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive"
+                        disabled={revoke.isPending}
+                        onClick={() => void end(s.id, s.current)}
+                      >
+                        <LogOut />
+                        {s.current ? 'Sign out' : 'End'}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      )}
       <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -630,8 +671,9 @@ function AccountCard() {
         <CopyButton value={window.location.origin} label="Copy base URL" className="size-6" />
       </span>,
     ],
-    ['Backend version', status.data ? `v${status.data.version}` : '...'],
-    ['Sia network', status.data?.indexer.network ?? '...'],
+    ['Role', session.operator ? 'Operator: sees deployment status and metrics' : 'Account'],
+    ['Backend version', status.data ? `v${status.data.version}` : status.isError ? '-' : '...'],
+    ['Sia network', status.data?.indexer.network ?? (status.isError ? '-' : '...')],
   ];
   return (
     <Card>
@@ -642,7 +684,7 @@ function AccountCard() {
         {rows.map(([label, value]) => (
           <div key={label} className="flex items-center justify-between gap-4 text-sm">
             <span className="text-muted-foreground">{label}</span>
-            <span className="min-w-0 truncate text-right">{value}</span>
+            <span className="min-w-0 text-right break-words">{value}</span>
           </div>
         ))}
         <div className="mt-2 flex flex-wrap gap-2 border-t pt-3">

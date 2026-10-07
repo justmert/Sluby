@@ -14,31 +14,50 @@ export interface ApiKeyRecord {
   expires_at: string | null;
 }
 
-/** A key as the server returns it right after creation or rotation. */
-export interface IssuedKey {
-  id: string;
+/** A key as the server returns it right after creation or rotation: the listing plus its secret. */
+export interface IssuedKey extends ApiKeyRecord {
   key: string;
-  name: string;
-  scopes: KeyScope[];
-  rate_limit: number;
   rotated_from?: string;
   previous_key_expires_at?: string;
 }
 
+interface KeyPage {
+  data: ApiKeyRecord[];
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
 const KEYS = ['api-keys'];
+
+/** Every key of the account, following the cursor until the last page. */
+async function listAllKeys(): Promise<{ data: ApiKeyRecord[] }> {
+  const data: ApiKeyRecord[] = [];
+  let cursor: string | null = null;
+  do {
+    const query: string = cursor ? `?${new URLSearchParams({ cursor })}` : '';
+    const page: KeyPage = await apiClient.get<KeyPage>(`/keys${query}`);
+    data.push(...page.data);
+    cursor = page.has_more ? page.next_cursor : null;
+  } while (cursor);
+  return { data };
+}
 
 export function useApiKeys() {
   return useQuery({
     queryKey: KEYS,
-    queryFn: () => apiClient.get<{ data: ApiKeyRecord[] }>('/keys'),
+    queryFn: listAllKeys,
     // a rotated key drops off the list when its grace period ends
     refetchInterval: 60_000,
   });
 }
 
+// the issued secret is handed to the dialog once; the mutation must not keep it
+const secretMutation = { gcTime: 0 } as const;
+
 export function useCreateApiKey() {
   const qc = useQueryClient();
   return useMutation({
+    ...secretMutation,
     mutationFn: (body: { name: string; scopes: KeyScope[]; rate_limit: number }) =>
       apiClient.post<IssuedKey>('/keys', body),
     onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
@@ -48,6 +67,7 @@ export function useCreateApiKey() {
 export function useRotateApiKey() {
   const qc = useQueryClient();
   return useMutation({
+    ...secretMutation,
     mutationFn: ({ id, graceSeconds }: { id: string; graceSeconds: number }) =>
       apiClient.post<IssuedKey>(`/keys/${id}/rotate`, { grace_period_seconds: graceSeconds }),
     onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
