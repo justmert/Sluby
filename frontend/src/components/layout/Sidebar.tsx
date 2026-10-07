@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Logo } from '@/components/brand/Logo';
 import { STUDIO_NAV, ROUTES } from '@/lib/constants';
+import { useSession } from '@/lib/session';
 
 function isActive(pathname: string, path: string) {
   // the dashboard is the studio root, so only match it exactly
@@ -22,6 +23,8 @@ function isActive(pathname: string, path: string) {
 
 export function AppSidebar() {
   const { pathname } = useLocation();
+  const { operator } = useSession();
+  const items = STUDIO_NAV.filter((item) => operator || !item.operatorOnly);
 
   return (
     <Sidebar collapsible="icon">
@@ -45,7 +48,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Studio</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {STUDIO_NAV.map((item) => (
+              {items.map((item) => (
                 <SidebarMenuItem key={item.path}>
                   <SidebarMenuButton
                     asChild

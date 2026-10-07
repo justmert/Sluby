@@ -1,0 +1,15 @@
+import { screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { renderPage } from '@/test/render';
+import NotFoundPage from './NotFoundPage';
+
+describe('NotFoundPage', () => {
+  it('says the page does not exist and links back to the dashboard', () => {
+    renderPage(<NotFoundPage />, { route: '/studio/nope' });
+    expect(screen.getByText('Page not found')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to dashboard' })).toHaveAttribute(
+      'href',
+      '/studio',
+    );
+  });
+});

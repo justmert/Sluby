@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ratePerSecond, summarizeMetrics, type PromMetric } from './metrics';
+import { ratePerSecond, snapshotFromResponse, summarizeMetrics, type PromMetric } from './metrics';
 
 // shaped like prom-client's registry.getMetricsAsJSON()
 const metrics: PromMetric[] = [
@@ -72,12 +72,12 @@ describe('summarizeMetrics', () => {
           ? { ...m, values: [{ value: null as unknown as number, labels: {} }] }
           : m,
     );
-    expect(summarizeMetrics(down).processing.queueDepth).toBeNull();
+    expect(summarizeMetrics(down, 0).processing.queueDepth).toBeNull();
   });
 
   it('has no hit ratio before any cache lookup', () => {
     const none = metrics.filter((m) => !m.name.startsWith('sluby_cache_'));
-    expect(summarizeMetrics(none).delivery.cacheHitRatio).toBeNull();
+    expect(summarizeMetrics(none, 0).delivery.cacheHitRatio).toBeNull();
   });
 });
 
@@ -94,5 +94,36 @@ describe('ratePerSecond', () => {
   it('has no rate across a backend restart or without a previous sample', () => {
     expect(ratePerSecond(at(0, 6000), at(10_000, 100), (x) => x.delivery.bytes)).toBeNull();
     expect(ratePerSecond(undefined, at(10_000, 100), (x) => x.delivery.bytes)).toBeNull();
+  });
+});
+
+describe('snapshotFromResponse', () => {
+  it('times the snapshot by the server, not by when the answer arrived', () => {
+    const snap = snapshotFromResponse({ timestamp: '2026-10-07T12:00:10.000Z', metrics });
+    expect(snap.takenAt).toBe(Date.parse('2026-10-07T12:00:10.000Z'));
+  });
+
+  it('measures a rate over the server interval', () => {
+    const at = (t: string, bytes: number) =>
+      snapshotFromResponse({
+        timestamp: t,
+        metrics: [
+          {
+            name: 'sluby_bandwidth_bytes_total',
+            type: 'counter',
+            values: [{ value: bytes, labels: {} }],
+          },
+        ],
+      });
+    const rate = ratePerSecond(
+      at('2026-10-07T12:00:00.000Z', 0),
+      at('2026-10-07T12:00:10.000Z', 5_000),
+      (s) => s.delivery.bytes,
+    );
+    expect(rate).toBe(500);
+  });
+
+  it('refuses a response without a timestamp', () => {
+    expect(() => snapshotFromResponse({ timestamp: '', metrics })).toThrow(/timestamp/);
   });
 });
