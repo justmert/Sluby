@@ -10,7 +10,9 @@ COPY backend/package.json backend/
 COPY packages/sdk/package.json packages/sdk/
 COPY packages/player/package.json packages/player/
 COPY frontend/package.json frontend/
+# every workspace manifest, so npm ci sees the workspace tree the lockfile describes
 COPY examples/quickstart/package.json examples/quickstart/
+COPY examples/vanilla/package.json examples/vanilla/
 RUN npm ci --workspace=sluby-frontend --include-workspace-root=false
 # the studio compiles the sdk and player from source (vite alias)
 COPY packages/sdk/src packages/sdk/src
