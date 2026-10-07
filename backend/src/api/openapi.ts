@@ -3,14 +3,15 @@
  *
  * Served at `GET /api/v1/openapi.json` and rendered at `GET /api/v1/docs`.
  * Two tests hold it to the code: `openapi-drift.test.ts` compares the paths,
- * methods, scopes and platform-only marks with the mounted routes, and
+ * methods, scopes and operations-only marks with the mounted routes, and
  * `api-contract.pg.test.ts` sends real requests to every operation and
  * checks each status code is listed here and each JSON body matches its
  * schema.
  *
  * `x-required-scope` on an operation records the API-key scope its
  * middleware enforces (`upload` | `read` | `manage`); `x-required-identity:
- * platform` marks operations only the platform identity may use. Auth
+ * operations` marks operations only the platform identity or an operator
+ * (OPERATOR_USERS) may use. Auth
  * endpoints and the public spec/docs carry `security: []`.
  */
 
@@ -83,7 +84,9 @@ export const openapiDocument = {
       'Every resource belongs to the account (`creator_address`) of the key that made ' +
       'it, and a by-id request for another account’s resource answers 404, as for one ' +
       'that does not exist. A key with the all-zero platform address acts across ' +
-      'accounts and alone sees deployment-wide operator data.\n\n' +
+      'accounts. Deployment-wide operations data is for that key and for operators, ' +
+      'the accounts listed in OPERATOR_USERS and their keys, who see the deployment ' +
+      'but still only their own account’s resources.\n\n' +
       'Errors are JSON `{ "error": "...", "details": [...] }`; `details` lists the ' +
       'invalid fields of a 400. Every response of a key-checked operation carries ' +
       '`X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`; over the ' +
@@ -435,8 +438,8 @@ export const openapiDocument = {
       },
       ReconciliationRun: {
         description:
-          'The latest run. Its shape depends on `scope`: the platform identity ' +
-          '(`deployment`) gets the whole run; any other caller (`account`) gets only the ' +
+          'The latest run. Its shape depends on `scope`: the platform identity and ' +
+          'operators (`deployment`) get the whole run; any other caller (`account`) gets only the ' +
           'drift of its own assets, because the deployment-wide counts, orphans and failure ' +
           'text describe other accounts and the operator’s setup. Objects the indexer ' +
           'pinned or unpinned within the hour before the run are work in progress and in ' +
@@ -586,8 +589,8 @@ export const openapiDocument = {
       },
       SystemStatus: {
         description:
-          'Live status. Its shape depends on `scope`: the platform identity (`deployment`) ' +
-          'gets the full report; any other caller (`account`) gets a health summary without ' +
+          'Live status. Its shape depends on `scope`: the platform identity and operators ' +
+          '(`deployment`) get the full report; any other caller (`account`) gets a health summary without ' +
           'the indexer account, the indexer url, probe error text, process uptime, the ' +
           'delivery cache or the deployment-wide reconciliation result.',
         oneOf: [
@@ -818,6 +821,7 @@ export const openapiDocument = {
           'provider',
           'provider_label',
           'auth_disabled',
+          'operator',
           'expires_at',
         ],
         properties: {
@@ -835,6 +839,14 @@ export const openapiDocument = {
             type: 'boolean',
             description:
               'True when the server runs with AUTH_DISABLED and this is the local dev account.',
+          },
+          operator: {
+            type: 'boolean',
+            description:
+              'Whether the account is an operator (OPERATOR_USERS) and sees deployment-wide ' +
+              'operations data: the full system status, metrics and the whole reconciliation ' +
+              'report. Always true for the local dev account, the one user of an AUTH_DISABLED ' +
+              'server.',
           },
           expires_at: nullable('string', { format: 'date-time' }),
           providerLabel: {
@@ -1132,8 +1144,9 @@ export const openapiDocument = {
         summary: 'The signed-in account.',
         description:
           'The account id and display name, plus the provider, provider label and handle the ' +
-          'browser signed in with, and the session expiry (Unix seconds). With AUTH_DISABLED it ' +
-          'is the local dev account (`provider: "local"`, `authDisabled: true`).',
+          'browser signed in with, whether the account is an operator, and the session expiry. ' +
+          'With AUTH_DISABLED it is the local dev account (`provider: "local"`, ' +
+          '`auth_disabled: true`, `operator: true`).',
         security: [{ cookieAuth: [] }],
         responses: {
           '200': jsonResponse('AuthMe', 'The signed-in account, or the local dev account.'),
@@ -1948,10 +1961,11 @@ export const openapiDocument = {
         tags: ['Reconciliation'],
         summary: 'Latest reconciliation run.',
         description:
-          'The platform identity gets the whole run, orphaned ids included; any other caller ' +
-          'gets only the missing objects of its own assets (see ReconciliationRun). The ' +
-          'platform identity is a key with the all-zero address, as `npm run db:seed-key` ' +
-          'mints by default.',
+          'The platform identity and operators get the whole run, orphaned ids included; any ' +
+          'other caller gets only the missing objects of its own assets (see ' +
+          'ReconciliationRun). The platform identity is a key with the all-zero address, as ' +
+          '`npm run db:seed-key` mints by default; operators are the accounts in ' +
+          'OPERATOR_USERS, their Studio sessions and their keys.',
         'x-required-scope': 'manage',
         responses: {
           '200': jsonResponse('ReconciliationRun', 'Latest run.'),
@@ -1965,11 +1979,12 @@ export const openapiDocument = {
         tags: ['Reconciliation'],
         summary: 'Trigger a reconciliation run.',
         description:
-          'A run scans the whole deployment, so only the platform identity may start one. It ' +
+          'A run scans the whole deployment, so only the platform identity or an operator may ' +
+          'start one. It ' +
           'is queued unless one, manual or scheduled, is already waiting or running, so ' +
           'repeated calls never stack runs.',
         'x-required-scope': 'manage',
-        'x-required-identity': 'platform',
+        'x-required-identity': 'operations',
         responses: {
           '202': jsonResponse('ReconciliationTrigger', 'Queued, or a run was already pending.'),
           ...authFailures,
@@ -1982,7 +1997,9 @@ export const openapiDocument = {
       get: {
         tags: ['Ops'],
         summary: "Library totals for the caller's account.",
-        description: 'The platform identity gets the totals of every account.',
+        description:
+          'The platform identity gets the totals of every account. An operator gets its own, ' +
+          'like any other account.',
         'x-required-scope': 'read',
         responses: { '200': jsonResponse('AssetStats', 'Totals.'), ...authFailures },
       },
@@ -1992,7 +2009,7 @@ export const openapiDocument = {
         tags: ['Ops'],
         summary: 'Live platform status: database, redis, Sia indexer, reconciliation, cache.',
         description:
-          'The platform identity gets the full report; any other caller a health summary ' +
+          'The platform identity and operators get the full report; any other caller a health summary ' +
           '(see SystemStatus).',
         'x-required-scope': 'read',
         responses: { '200': jsonResponse('SystemStatus', 'Status report.'), ...authFailures },
@@ -2003,9 +2020,10 @@ export const openapiDocument = {
         tags: ['Ops'],
         summary: 'Platform metrics (prometheus registry as JSON).',
         description:
-          'The registry counts the whole process, so only the platform identity may read it.',
+          'The registry counts the whole process, so only the platform identity or an operator ' +
+          'may read it.',
         'x-required-scope': 'read',
-        'x-required-identity': 'platform',
+        'x-required-identity': 'operations',
         responses: { '200': jsonResponse('Metrics', 'Metrics.'), ...authFailures },
       },
     },

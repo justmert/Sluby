@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
   createApiKeyMiddleware,
+  requireOperations,
   requireScope,
   type ApiKeyMiddlewareDeps,
 } from '../api/middleware/api-key.js';
+import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import type { Request } from 'express';
 import { logger } from '../config/logger.js';
 import { env } from '../config/env.js';
@@ -171,6 +173,7 @@ describe('api-key middleware', () => {
         scopes: ['read', 'upload'],
         rateLimit: 100,
         creatorAddress: '0xabc123',
+        operator: false,
       });
     });
 
@@ -236,6 +239,7 @@ describe('api-key middleware', () => {
       env.SESSION_SECRET = SECRET;
       env.AUTH_DISABLED = false;
       env.GITHUB_ALLOWED_USERS = '';
+      env.OPERATOR_USERS = '';
       accounts = memoryAccounts();
     });
     afterEach(() => {
@@ -276,6 +280,7 @@ describe('api-key middleware', () => {
         scopes: ['upload', 'read', 'manage'],
         rateLimit: 1000,
         creatorAddress: `user:${userId}`,
+        operator: false,
       });
     });
 
@@ -345,10 +350,117 @@ describe('api-key middleware', () => {
       expect(req.apiKey?.creatorAddress).toBe(`user:${alice.userId}`);
     });
 
-    it('keeps operator keys working whatever the allowlist says', async () => {
+    it('keeps keys of operator-made owners working whatever the allowlist says', async () => {
       env.GITHUB_ALLOWED_USERS = 'alice';
       accounts.addKey('sluby_platform', { creatorAddress: 'platform' });
       expect((await run({ authorization: 'Bearer sluby_platform' })).next).toHaveBeenCalled();
+    });
+
+    describe('the operator role', () => {
+      it('makes a session of a listed account an operator, and drops it on the next request once unlisted', async () => {
+        const { cookie } = await sessionCookie('7', 'octocat');
+        env.OPERATOR_USERS = 'github:id:7';
+        expect((await run({ cookie })).req.apiKey?.operator).toBe(true);
+        env.OPERATOR_USERS = '';
+        const after = await run({ cookie });
+        expect(after.next).toHaveBeenCalled();
+        expect(after.req.apiKey?.operator).toBe(false);
+      });
+
+      it('gives a key its account’s operator role at use, and drops it once unlisted', async () => {
+        const octo = accounts.addAccount('github', '7', 'octocat');
+        accounts.pin('github', 'octocat', '7');
+        accounts.addKey('sluby_octo', { creatorAddress: `user:${octo.userId}` });
+        const bearer = { authorization: 'Bearer sluby_octo' };
+
+        env.OPERATOR_USERS = 'github:octocat';
+        const listed = await run(bearer);
+        expect(listed.req.apiKey).toMatchObject({
+          creatorAddress: `user:${octo.userId}`,
+          operator: true,
+        });
+        env.OPERATOR_USERS = 'github:someone-else';
+        const unlisted = await run(bearer);
+        expect(unlisted.next).toHaveBeenCalled();
+        expect(unlisted.req.apiKey?.operator).toBe(false);
+      });
+
+      it('gives a straggler key under a claimed legacy address its claimant’s role', async () => {
+        const octo = accounts.addAccount('github', '7', 'octocat');
+        accounts.claims.set('github:octocat', octo.userId);
+        accounts.addKey('sluby_old', { creatorAddress: 'github:octocat' });
+        env.OPERATOR_USERS = 'github:id:7';
+        expect((await run({ authorization: 'Bearer sluby_old' })).req.apiKey?.operator).toBe(true);
+      });
+
+      it('never makes an unclaimed legacy key an operator, since it names a login only', async () => {
+        accounts.addKey('sluby_legacy', { creatorAddress: 'github:octocat' });
+        env.OPERATOR_USERS = 'github:octocat,github:*';
+        const { req, next } = await run({ authorization: 'Bearer sluby_legacy' });
+        expect(next).toHaveBeenCalled();
+        expect(req.apiKey?.operator).toBe(false);
+      });
+
+      it('makes nobody an operator through the platform or bootstrap owners', async () => {
+        env.OPERATOR_USERS = 'github:*';
+        accounts.addKey('sluby_platform', { creatorAddress: PLATFORM_ADDRESS });
+        accounts.addKey('sluby_bootstrap', { creatorAddress: 'platform' });
+        for (const raw of ['sluby_platform', 'sluby_bootstrap']) {
+          expect((await run({ authorization: `Bearer ${raw}` })).req.apiKey?.operator).toBe(false);
+        }
+      });
+
+      it('makes the local dev account an operator while auth is disabled', async () => {
+        env.AUTH_DISABLED = true;
+        expect((await run({})).req.apiKey?.operator).toBe(true);
+      });
+
+      it('does not keep the dev account an operator once sign-in is on', async () => {
+        env.AUTH_DISABLED = true;
+        const dev = (await run({})).req.apiKey!;
+        env.AUTH_DISABLED = false;
+        env.OPERATOR_USERS = 'github:*';
+        accounts.addKey('sluby_dev', { creatorAddress: dev.creatorAddress });
+        const { req, next } = await run({ authorization: 'Bearer sluby_dev' });
+        expect(next).toHaveBeenCalled();
+        expect(req.apiKey?.operator).toBe(false);
+      });
+    });
+  });
+
+  describe('requireOperations', () => {
+    const caller = (creatorAddress: string, operator: boolean) => ({
+      id: 'key-1',
+      name: 'Test',
+      scopes: ['read'],
+      rateLimit: 100,
+      creatorAddress,
+      operator,
+    });
+
+    function guard(apiKey: ReturnType<typeof caller> | undefined) {
+      const req = createMockReq();
+      req.apiKey = apiKey;
+      const res = createMockRes();
+      const next = vi.fn();
+      requireOperations()(req, res as any, next);
+      return { res, next };
+    }
+
+    it('admits the platform identity and an operator', () => {
+      expect(guard(caller(PLATFORM_ADDRESS, false)).next).toHaveBeenCalled();
+      expect(guard(caller('user:x', true)).next).toHaveBeenCalled();
+    });
+
+    it('refuses an ordinary tenant and an unauthenticated request with 403', () => {
+      for (const apiKey of [caller('user:x', false), caller('platform', false), undefined]) {
+        const { res, next } = guard(apiKey);
+        expect(res._status).toBe(403);
+        expect(res._json).toEqual({
+          error: 'Only the platform identity or an operator may use this endpoint',
+        });
+        expect(next).not.toHaveBeenCalled();
+      }
     });
   });
 
@@ -375,6 +487,7 @@ describe('api-key middleware', () => {
         scopes: ['read', 'upload'],
         rateLimit: 100,
         creatorAddress: '0x1',
+        operator: false,
       };
       const res = createMockRes();
       const next = vi.fn();
@@ -395,6 +508,7 @@ describe('api-key middleware', () => {
         scopes: ['read', 'upload'],
         rateLimit: 100,
         creatorAddress: '0x1',
+        operator: false,
       };
       const res = createMockRes();
       const next = vi.fn();
@@ -413,6 +527,7 @@ describe('api-key middleware', () => {
         scopes: [],
         rateLimit: 100,
         creatorAddress: '0x1',
+        operator: false,
       };
       const res = createMockRes();
       const next = vi.fn();

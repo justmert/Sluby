@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../../config/logger.js';
 import { resolveCaller, type Caller, type CallerDeps } from '../auth/caller.js';
-import { isPlatformIdentity } from '../ownership.js';
+import { seesOperations } from '../ownership.js';
 
 export type ApiKeyInfo = Caller;
 
@@ -48,23 +48,25 @@ export interface ScopedMiddleware {
   /** The scope this guard requires. Read by the OpenAPI drift test so the
    *  spec's `x-required-scope` cannot silently disagree with the code. */
   requiredScope?: string;
-  /** Set when only the platform identity may pass, see requirePlatform. */
-  requiredIdentity?: 'platform';
+  /** Set when only the platform identity or an operator may pass, see requireOperations. */
+  requiredIdentity?: 'operations';
 }
 
 /**
- * Only the platform identity passes: deployment-wide operator data and
- * actions, which an ordinary tenant must not see or start.
+ * Only the platform identity or an operator passes: deployment-wide
+ * operations data and actions, which an ordinary tenant must not see or start.
  */
-export function requirePlatform(): ScopedMiddleware {
+export function requireOperations(): ScopedMiddleware {
   const middleware: ScopedMiddleware = (req: Request, res: Response, next: NextFunction) => {
-    if (!isPlatformIdentity(req.apiKey?.creatorAddress)) {
-      res.status(403).json({ error: 'Only the platform identity may use this endpoint' });
+    if (!seesOperations(req.apiKey)) {
+      res
+        .status(403)
+        .json({ error: 'Only the platform identity or an operator may use this endpoint' });
       return;
     }
     next();
   };
-  middleware.requiredIdentity = 'platform';
+  middleware.requiredIdentity = 'operations';
   return middleware;
 }
 

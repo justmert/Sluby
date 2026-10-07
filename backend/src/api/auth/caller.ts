@@ -2,6 +2,7 @@ import { env } from '../../config/env.js';
 import { hashApiKey } from './api-key.js';
 import { resolveSession, type FindActiveSession } from './session.js';
 import { resolveKeyOwner, type OwnerAccessDeps } from './access.js';
+import { isOperatorAccount } from './operators.js';
 import { userAddress } from '../ownership.js';
 
 /** Who is making a request, as every route and tus see it. */
@@ -12,6 +13,11 @@ export interface Caller {
   scopes: string[];
   rateLimit: number;
   creatorAddress: string;
+  /**
+   * The operator role (OPERATOR_USERS, see operators.ts): deployment-wide
+   * operations data, never other accounts' data. Decided on every request.
+   */
+  operator: boolean;
 }
 
 const ALL_SCOPES = ['upload', 'read', 'manage'];
@@ -36,13 +42,14 @@ export interface CallerDeps extends OwnerAccessDeps {
 export type CallerResult = { ok: true; caller: Caller } | { ok: false; error: string };
 
 // a studio session drives the whole api for its account, like a full key
-function accountCaller(userId: string, username: string): Caller {
+function accountCaller(userId: string, username: string, operator: boolean): Caller {
   return {
     id: `session:${userId}`,
     name: `Studio session (${username})`,
     scopes: ALL_SCOPES,
     rateLimit: 1000,
     creatorAddress: userAddress(userId),
+    operator,
   };
 }
 
@@ -57,8 +64,9 @@ export async function resolveCaller(
   deps: CallerDeps,
 ): Promise<CallerResult> {
   if (env.AUTH_DISABLED) {
+    // the one local user runs the deployment, so it sees its operations
     const dev = await deps.localDevAccount();
-    return { ok: true, caller: accountCaller(dev.userId, dev.username) };
+    return { ok: true, caller: accountCaller(dev.userId, dev.username, true) };
   }
 
   const signedIn = await resolveSession(headers.cookie, {
@@ -73,6 +81,7 @@ export async function resolveCaller(
       caller: accountCaller(
         signedIn.account.id,
         identity?.username ?? signedIn.account.displayName,
+        isOperatorAccount(signedIn.account),
       ),
     };
   }
@@ -100,6 +109,7 @@ export async function resolveCaller(
       scopes: key.scopes,
       rateLimit: key.rateLimit,
       creatorAddress: owner.address,
+      operator: owner.operator,
     },
   };
 }

@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
-import { isPlatformIdentity, ownerFilter } from '../ownership.js';
+import { ownerFilter, seesOperations } from '../ownership.js';
 import type { AssetStats } from '../../db/queries/stats.js';
 import type { SystemStatus } from '../../system/status.js';
 
@@ -124,20 +124,16 @@ export function createStatsRoutes(deps: StatsRouteDeps): Router {
 
   /**
    * GET /api/v1/system/status
-   * Live platform status. The platform identity gets everything: database,
-   * redis, the Sia indexer (account usage and host pool), the last
-   * reconciliation run, and the delivery cache. A tenant gets the health
-   * summary only, see formatHealthSummary.
+   * Live platform status. The platform identity and operators get
+   * everything: database, redis, the Sia indexer (account usage and host
+   * pool), the last reconciliation run, and the delivery cache. A tenant gets
+   * the health summary only, see formatHealthSummary.
    */
   router.get('/system/status', requireScope('read'), async (req: Request, res: Response) => {
     const status = await deps.getSystemStatus();
     // a polled health view must never be served stale by an intermediary
     res.setHeader('Cache-Control', 'no-store');
-    res.json(
-      isPlatformIdentity(req.apiKey!.creatorAddress)
-        ? formatSystemStatus(status)
-        : formatHealthSummary(status),
-    );
+    res.json(seesOperations(req.apiKey) ? formatSystemStatus(status) : formatHealthSummary(status));
   });
 
   return router;

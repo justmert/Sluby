@@ -57,7 +57,8 @@ describe('stats routes', () => {
     };
   });
 
-  const app = (key = readKey) => withApiKey(createTestApp(createStatsRoutes(deps)), key);
+  const app = (key: typeof readKey & { operator?: boolean } = readKey) =>
+    withApiKey(createTestApp(createStatsRoutes(deps)), key);
 
   it('GET /stats scopes totals to the caller', async () => {
     const res = await request(app()).get('/stats');
@@ -111,6 +112,17 @@ describe('stats routes', () => {
       object_items: 5,
       manifest_items: 6,
     });
+  });
+
+  it('GET /system/status reports everything to an operator, whose stats stay its own', async () => {
+    const operator = app({ ...readKey, operator: true });
+    const status = await request(operator).get('/system/status');
+    expect(status.body.scope).toBe('deployment');
+    expect(status.body.indexer.url).toBe('https://sia.storage');
+    expect(status.body.cache.hits).toBe(1);
+
+    await request(operator).get('/stats');
+    expect(deps.getAssetStats).toHaveBeenCalledWith('github:owner');
   });
 
   it('requires the read scope', async () => {

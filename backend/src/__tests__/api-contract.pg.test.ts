@@ -6,7 +6,7 @@
  * against the OpenAPI document, and the last test fails if an operation in
  * the document was never exercised.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import pino from 'pino';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -1106,6 +1106,141 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(res.status).toBe(200);
       expect(res.body.total).toBe(2);
     });
+
+    describe('an operator (OPERATOR_USERS)', () => {
+      const OPERATOR_KEY = `sluby_${'o'.repeat(40)}`;
+      let env: typeof import('../config/env.js').env;
+      let savedOperators: string;
+      let operator: { userId: string; cookie: string };
+
+      beforeEach(async () => {
+        ({ env } = await import('../config/env.js'));
+        savedOperators = env.OPERATOR_USERS;
+        const { createStudioSession } = await import('../db/queries/sessions.js');
+        const { ensureIdentityAccount } = await import('../db/queries/accounts.js');
+        const { signSession, SESSION_COOKIE_NAME } = await import('../api/auth/session.js');
+        const account = await ensureIdentityAccount({
+          provider: 'github',
+          subject: '583231',
+          username: 'octocat',
+          displayName: 'octocat',
+        });
+        const row = await createStudioSession({
+          ...account,
+          expiresAt: new Date(Date.now() + 3600_000),
+          userAgent: 'contract-test',
+        });
+        operator = {
+          userId: account.userId,
+          cookie: `${SESSION_COOKIE_NAME}=${signSession(row.id, account.userId, env.SESSION_SECRET)}`,
+        };
+        await keys.createApiKey({
+          name: 'operator',
+          scopes: ['upload', 'read', 'manage'],
+          creatorAddress: `user:${account.userId}`,
+          rawKey: OPERATOR_KEY,
+        });
+        env.OPERATOR_USERS = 'github:id:583231';
+      });
+      afterEach(() => {
+        env.OPERATOR_USERS = savedOperators;
+      });
+
+      const asSession = (method: string, url: string) =>
+        request(app)[method.toLowerCase() as 'get'](url).set('Cookie', operator.cookie);
+      const asKey = (method: string, url: string) =>
+        request(app)
+          [method.toLowerCase() as 'get'](url)
+          .set('Authorization', `Bearer ${OPERATOR_KEY}`);
+
+      it('says so on /auth/me', async () => {
+        const me = await asSession('GET', '/api/v1/auth/me');
+        check('GET', '/api/v1/auth/me', me);
+        expect(me.status).toBe(200);
+        expect(me.body.operator).toBe(true);
+      });
+
+      for (const [label, send] of [
+        ['session', asSession],
+        ['key', asKey],
+      ] as const) {
+        it(`sees the deployment's operations data through a ${label}`, async () => {
+          const status = await send('GET', '/api/v1/system/status');
+          check('GET', '/api/v1/system/status', status);
+          expect(status.status).toBe(200);
+          expect(status.body.scope).toBe('deployment');
+          expect(status.body.indexer.url).toBe('http://127.0.0.1:9');
+          expect(status.body.reconciliation.status).toBe('drift');
+
+          const metrics = await send('GET', '/api/v1/metrics');
+          check('GET', '/api/v1/metrics', metrics);
+          expect(metrics.status).toBe(200);
+
+          const run = await send('GET', '/api/v1/reconciliation');
+          check('GET', '/api/v1/reconciliation', run);
+          expect(run.body).toMatchObject({
+            scope: 'deployment',
+            missing_count: 2,
+            orphaned_ids: ['ff'.repeat(32)],
+          });
+
+          const trigger = await send('POST', '/api/v1/reconciliation/run');
+          check('POST', '/api/v1/reconciliation/run', trigger);
+          expect(trigger.status).toBe(202);
+          expect(reconcileTriggers).toBe(1);
+        });
+
+        it(`gets no other tenant's data through a ${label}`, async () => {
+          const other = await send('GET', `/api/v1/assets/${assetB.id}`);
+          check('GET', '/api/v1/assets/{id}', other);
+          expect(other.status).toBe(404);
+
+          const list = await send('GET', '/api/v1/assets');
+          check('GET', '/api/v1/assets', list);
+          expect(list.body.data).toEqual([]);
+
+          const stats = await send('GET', '/api/v1/stats');
+          check('GET', '/api/v1/stats', stats);
+          expect(stats.body.total).toBe(0);
+
+          const keyList = await send('GET', '/api/v1/keys');
+          check('GET', '/api/v1/keys', keyList);
+          expect(keyList.body.data.map((k: { name: string }) => k.name)).toEqual(['operator']);
+
+          const deleteOther = await send('DELETE', `/api/v1/assets/${assetB.id}`);
+          check('DELETE', '/api/v1/assets/{id}', deleteOther);
+          expect(deleteOther.status).toBe(404);
+          expect((await assetRow(assetB.id)).deleted_at).toBeNull();
+        });
+
+        it(`loses the role on the next request through a ${label} once unlisted`, async () => {
+          expect((await send('GET', '/api/v1/metrics')).status).toBe(200);
+          env.OPERATOR_USERS = '';
+
+          const metrics = await send('GET', '/api/v1/metrics');
+          check('GET', '/api/v1/metrics', metrics);
+          expect(metrics.status).toBe(403);
+          const status = await send('GET', '/api/v1/system/status');
+          check('GET', '/api/v1/system/status', status);
+          expect(status.body.scope).toBe('account');
+          const run = await send('GET', '/api/v1/reconciliation');
+          check('GET', '/api/v1/reconciliation', run);
+          expect(run.body.scope).toBe('account');
+          const trigger = await send('POST', '/api/v1/reconciliation/run');
+          check('POST', '/api/v1/reconciliation/run', trigger);
+          expect(trigger.status).toBe(403);
+          expect(reconcileTriggers).toBe(0);
+        });
+      }
+
+      it('is no longer reported on /auth/me once unlisted', async () => {
+        env.OPERATOR_USERS = 'github:id:1';
+        const me = await asSession('GET', '/api/v1/auth/me');
+        check('GET', '/api/v1/auth/me', me);
+        expect(me.status).toBe(200);
+        expect(me.body.operator).toBe(false);
+      });
+    });
   });
 
   // ── studio sessions ───────────────────────────────────────────────────
@@ -1145,6 +1280,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(me.body.username).toBe('alice');
       expect(me.body.provider).toBe('github');
       expect(me.body.auth_disabled).toBe(false);
+      expect(me.body.operator).toBe(false);
       expect(Number.isNaN(Date.parse(me.body.expires_at))).toBe(false);
     });
 

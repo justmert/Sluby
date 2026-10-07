@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
 import { parseCidrList } from '../webhooks/egress.js';
+import { parseOperatorUsers } from '../api/auth/operator-list.js';
 import { DEFAULT_MAX_RENDITION, RENDITION_NAMES } from '../transcode/ffmpeg-args.js';
 
 // Load .env file before parsing process.env.
@@ -168,6 +169,23 @@ export const envSchema = z.object({
    *  github id>` entries, or `*` for open sign-up. Empty also leaves sign-up
    *  open, with a warning at startup. See api/auth/allowlist.ts. */
   GITHUB_ALLOWED_USERS: z.string().default(''),
+
+  /** Accounts that see deployment-wide operations data (full system status,
+   *  metrics, the whole reconciliation report and starting a run), never other
+   *  accounts' data. Comma-separated `<provider>:<entry>`, the entry written
+   *  as in that provider's allowlist: `github:id:583231`, `github:octocat`
+   *  (pinned like an allowlist login), `github:*`. Empty: no operators. See
+   *  api/auth/operators.ts. */
+  OPERATOR_USERS: z
+    .string()
+    .default('')
+    .superRefine((v, ctx) => {
+      try {
+        parseOperatorUsers(v);
+      } catch (err) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+      }
+    }),
 
   /** Networks webhook receivers may be on although they are private or
    *  otherwise special (loopback, RFC 1918, link-local, unique local, CGNAT,

@@ -22,6 +22,9 @@ const manageKey = {
 
 const platformKey = { ...manageKey, id: 'key-platform', creatorAddress: PLATFORM_ADDRESS };
 
+// an operator stays an ordinary tenant by address, see operators.ts
+const operatorKey = { ...manageKey, id: 'key-operator', operator: true };
+
 const aggregates = {
   id: 'run-1',
   started_at: '2026-05-01T00:00:00.000Z',
@@ -64,7 +67,7 @@ describe('reconciliation routes', () => {
     };
   });
 
-  function app(key = manageKey) {
+  function app(key: typeof manageKey & { operator?: boolean } = manageKey) {
     return withApiKey(createTestApp(createReconciliationRoutes(deps)), key);
   }
 
@@ -139,6 +142,19 @@ describe('reconciliation routes', () => {
       expect(deps.filterReconciliationIdsOwnedBy).not.toHaveBeenCalled();
     });
 
+    it('gives an operator the full report too', async () => {
+      const res = await request(app(operatorKey)).get('/reconciliation');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        ...aggregates,
+        scope: 'deployment',
+        missing_ids: ['missing-1', 'missing-2'],
+        orphaned_ids: ['orphan-1'],
+      });
+      expect(deps.filterReconciliationIdsOwnedBy).not.toHaveBeenCalled();
+    });
+
     it('matches the documented schema for both scopes', async () => {
       const schemas = openapiDocument.components.schemas;
       for (const [key, schema] of [
@@ -179,6 +195,13 @@ describe('reconciliation routes', () => {
       expect(res.status).toBe(202);
       expect(deps.triggerRun).toHaveBeenCalledTimes(1);
       expect(res.body).toEqual({ enqueued: true, already_pending: false });
+    });
+
+    it('lets an operator start one', async () => {
+      const res = await request(app(operatorKey)).post('/reconciliation/run');
+
+      expect(res.status).toBe(202);
+      expect(deps.triggerRun).toHaveBeenCalledTimes(1);
     });
 
     it('answers 202 and says a run was already pending when nothing was queued', async () => {

@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
-import { requirePlatform, requireScope } from '../middleware/api-key.js';
+import { requireOperations, requireScope } from '../middleware/api-key.js';
 import { AppError } from '../middleware/error-handler.js';
-import { ownerFilter } from '../ownership.js';
+import { seesOperations } from '../ownership.js';
 
 export interface ReconciliationRunRecord {
   id: string;
@@ -27,7 +27,7 @@ export interface ReconciliationRouteDeps {
   triggerRun: () => Promise<{ enqueued: boolean }>;
 }
 
-// the deployment-wide figures, for the platform identity
+// the deployment-wide figures, for the platform identity and operators
 function formatAggregates(r: ReconciliationRunRecord) {
   return {
     id: r.id,
@@ -47,12 +47,13 @@ function formatAggregates(r: ReconciliationRunRecord) {
 /**
  * Reconciliation reporting. Surfaces the latest background run comparing
  * PostgreSQL's tracked objects against the indexer's inventory, and lets the
- * platform identity trigger a run on demand. Both require `manage`.
+ * platform identity or an operator trigger a run on demand. Both require
+ * `manage`.
  *
- * A run covers every tenant. The platform identity gets all of it; a tenant
- * gets only the drift of its own assets (the missing objects among them),
- * since the deployment-wide counts, orphans and failure text describe other
- * tenants and the operator's setup.
+ * A run covers every tenant. The platform identity and operators get all of
+ * it; a tenant gets only the drift of its own assets (the missing objects
+ * among them), since the deployment-wide counts, orphans and failure text
+ * describe other tenants and the deployment's setup.
  */
 export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Router {
   const router = Router();
@@ -63,8 +64,7 @@ export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Route
     if (!run) {
       throw new AppError(404, 'No reconciliation run has completed yet');
     }
-    const owner = ownerFilter(req.apiKey!.creatorAddress);
-    if (owner === undefined) {
+    if (seesOperations(req.apiKey)) {
       res.json({
         ...formatAggregates(run),
         scope: 'deployment',
@@ -73,7 +73,10 @@ export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Route
       });
       return;
     }
-    const missingIds = await deps.filterReconciliationIdsOwnedBy(run.missingIds, owner);
+    const missingIds = await deps.filterReconciliationIdsOwnedBy(
+      run.missingIds,
+      req.apiKey!.creatorAddress,
+    );
     res.json({
       id: run.id,
       started_at: run.startedAt.toISOString(),
@@ -91,7 +94,7 @@ export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Route
   router.post(
     '/reconciliation/run',
     requireScope('manage'),
-    requirePlatform(),
+    requireOperations(),
     async (_req: Request, res: Response) => {
       const { enqueued } = await deps.triggerRun();
       res.status(202).json({ enqueued, already_pending: !enqueued });

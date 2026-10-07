@@ -14,16 +14,26 @@
  * owner-scoped route, listings included, passes the caller through
  * ownerFilter, so that identity lists, reads and changes the resources of
  * every tenant alike.
- * Deployment-wide operator data (full system status, process metrics, the
- * whole reconciliation run and starting one) is for it alone.
+ * Deployment-wide operations data (full system status, process metrics, the
+ * whole reconciliation run and starting one) is for it and for operators
+ * (OPERATOR_USERS, see auth/operators.ts), who see the deployment but not
+ * other tenants' data: ownerFilter never widens for them.
  */
 
 /** The all-zero address that marks a platform (cross-tenant) API key. */
 export const PLATFORM_ADDRESS = `0x${'0'.repeat(64)}`;
 
-/** Whether the caller is the platform identity, which sees deployment-wide data. */
+/** Whether the caller is the platform identity, which acts across tenants. */
 export function isPlatformIdentity(creatorAddress: string | undefined): boolean {
   return creatorAddress === PLATFORM_ADDRESS;
+}
+
+/** Whether a caller sees deployment-wide operations data: the platform identity or an operator. */
+export function seesOperations(
+  caller: { creatorAddress: string; operator: boolean } | undefined,
+): boolean {
+  if (!caller) return false;
+  return caller.operator || isPlatformIdentity(caller.creatorAddress);
 }
 
 /**

@@ -91,6 +91,7 @@ services:
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GITHUB_ALLOWED_USERS: ${GITHUB_ALLOWED_USERS:-}
+      OPERATOR_USERS: ${OPERATOR_USERS:-}
       BOOTSTRAP_API_KEY: ${BOOTSTRAP_API_KEY:-}
       # private networks webhook receivers may be on; empty means public only
       WEBHOOK_ALLOWED_NETWORKS: ${WEBHOOK_ALLOWED_NETWORKS:-}
