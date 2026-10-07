@@ -1964,7 +1964,7 @@ export const openapiDocument = {
           'The platform identity and operators get the whole run, orphaned ids included; any ' +
           'other caller gets only the missing objects of its own assets (see ' +
           'ReconciliationRun). The platform identity is a key with the all-zero address, as ' +
-          '`npm run db:seed-key` mints by default; operators are the accounts in ' +
+          '`npm run db:seed-key -- --platform` mints; operators are the accounts in ' +
           'OPERATOR_USERS, their Studio sessions and their keys.',
         'x-required-scope': 'manage',
         responses: {
