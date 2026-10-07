@@ -7,9 +7,9 @@ ARG TARGETARCH
 # tls connections (the x64 one can, and a native arm64 build of the same
 # source can), so on arm64 the binary is compiled from source. the commit must
 # be the one the installed npm version was built from: sia-storage-js names
-# its tag in .sia-sdk-rs.json (0.1.1 -> sia_storage_napi/v0.10.1, which is
-# commit 5e532cb).
-ARG SIA_STORAGE_NPM_VERSION=0.1.1
+# its tag in .sia-sdk-rs.json (0.1.2 -> sia_storage_napi/v0.10.1, which is
+# commit 5e532cb). the published 0.1.2 arm64 binary still fails tls.
+ARG SIA_STORAGE_NPM_VERSION=0.1.2
 ARG SIA_SDK_RS_COMMIT=5e532cb202873646728dcdbfc7be43d1436520c9
 # a path under backend/vendor/ of a custom binary to use instead (see
 # backend/vendor/README.md). when set, nothing is compiled here.

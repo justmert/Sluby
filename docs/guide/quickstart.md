@@ -93,7 +93,7 @@ The first `docker compose` command builds two images:
 - `sluby-web` builds the Studio and puts it behind nginx.
 - `sluby-backend` installs FFmpeg and the backend's dependencies.
 
-On ARM64 (Apple Silicon, Graviton) the backend build also compiles the Sia SDK's native module from source, because the published ARM64 Linux build of `@siafoundation/sia-storage` 0.1.1 cannot make HTTPS requests. On x86-64 the published build is used and nothing is compiled.
+On ARM64 (Apple Silicon, Graviton) the backend build also compiles the Sia SDK's native module from source, because the published ARM64 Linux build of `@siafoundation/sia-storage` 0.1.2 (like 0.1.1 before it) cannot make HTTPS requests. On x86-64 the published build is used and nothing is compiled.
 
 For reference, on an Apple M3 Pro with the base images already pulled, the backend image built from scratch in 71 seconds, 54 of them compiling the SDK. A first build also downloads the base images, which on ARM64 include the Rust toolchain image (2.2 GB unpacked). Later builds reuse the cached layers.
 
