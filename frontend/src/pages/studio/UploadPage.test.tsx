@@ -5,7 +5,7 @@ import { NotFoundError, SlubyError, type ProcessingJob } from '@sluby/sdk';
 import { jsonFetch, renderPage, reply } from '@/test/render';
 import { fakeUploadClient } from '@/test/fake-uploads';
 import { createUploadStore, type UploadState } from '@/lib/upload-store';
-import { stepStates } from '@/components/upload/PipelineSteps';
+import { stepStates } from '@/components/upload/pipeline-steps';
 import UploadPage from './UploadPage';
 
 vi.mock('@/lib/studio-upload', () => ({ uploadStore: null }));
