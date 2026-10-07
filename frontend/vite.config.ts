@@ -25,6 +25,26 @@ export default defineConfig(({ mode }) => {
         '@sluby/player': here('../packages/player/src/index.ts'),
       },
     },
+    build: {
+      // hls.js alone is about 575 kB minified; it loads only with a player
+      chunkSizeWarningLimit: 600,
+      rolldownOptions: {
+        output: {
+          // hls.js and recharts are most of the asset player and analytics
+          // chunks; on their own they cache across deploys that only change
+          // studio code
+          codeSplitting: {
+            groups: [
+              { name: 'hls', test: /node_modules[\\/]hls\.js[\\/]/ },
+              {
+                name: 'charts',
+                test: /node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor|decimal\.js-light|es-toolkit|@reduxjs|immer|reselect|redux)[\\/]/,
+              },
+            ],
+          },
+        },
+      },
+    },
     server: {
       port: 5173,
       proxy: {
