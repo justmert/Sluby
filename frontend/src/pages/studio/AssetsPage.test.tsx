@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation, useNavigate } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -390,5 +390,47 @@ describe('AssetsPage', () => {
     await waitFor(() =>
       expect(screen.queryByRole('status', { name: 'Searching' })).not.toBeInTheDocument(),
     );
+  });
+
+  it('shows the shared page state with one heading when the library does not load, and retries', async () => {
+    let fail = true;
+    const server = jsonFetch({
+      '/api/v1/assets': () =>
+        fail ? reply(503, { error: 'Database unavailable' }) : page([bunny]),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    renderLibrary('/studio/assets?status=ready');
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Could not load assets' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByText('Database unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
+
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Big Buck Bunny')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Assets' })).toBeInTheDocument();
+  });
+
+  it('keeps the rows on screen when a later poll fails', async () => {
+    let fail = false;
+    const server = jsonFetch({
+      '/api/v1/assets': () =>
+        fail ? reply(503, { error: 'Database unavailable' }) : page([bunny]),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { client } = renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    fail = true;
+    await act(() => client.refetchQueries({ queryKey: ['assets', 'list'] }));
+    await waitFor(() =>
+      expect(client.getQueryCache().findAll({ queryKey: ['assets', 'list'] })[0].state.status).toBe(
+        'error',
+      ),
+    );
+    expect(screen.getByText('Big Buck Bunny')).toBeInTheDocument();
+    expect(screen.queryByText('Could not load assets')).not.toBeInTheDocument();
   });
 });

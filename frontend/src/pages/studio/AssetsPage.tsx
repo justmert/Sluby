@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
 import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   Film,
@@ -18,6 +19,7 @@ import {
 import { toast } from 'sonner';
 import type { AccessTier, AssetSortField, VideoAsset, VideoAssetStatus } from '@sluby/sdk';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
+import { PageState } from '@/components/layout/PageState';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
 import { AssetThumbnail } from '@/components/asset/AssetThumbnail';
 import { jobSummary } from '@/components/asset/processing';
@@ -515,6 +517,43 @@ export default function AssetsPage() {
     }
   };
 
+  // nothing to show at all: the shared page state replaces the whole page,
+  // header included, since it carries the page's h1. a failed poll over rows
+  // already on screen keeps them; the next poll tries again
+  if (list.isError && !list.data) {
+    return (
+      <PageContainer>
+        <PageState
+          icon={AlertTriangle}
+          tone="error"
+          title="Could not load assets"
+          description={
+            filtered
+              ? 'The library did not answer for these filters. Try again, or clear them.'
+              : 'The library did not answer. Try again in a moment.'
+          }
+          detail={list.error.message}
+          actions={
+            <>
+              {filtered && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchInput('');
+                    p.update({ q: null, status: null, tier: null });
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )}
+              <Button onClick={() => void list.refetch()}>Try again</Button>
+            </>
+          }
+        />
+      </PageContainer>
+    );
+  }
+
   const selectAll = (
     <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md px-1 text-sm text-muted-foreground">
       <Checkbox
@@ -663,19 +702,7 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      {list.isError ? (
-        <Empty>
-          <EmptyHeader>
-            <EmptyTitle>Could not load assets</EmptyTitle>
-            <EmptyDescription>{list.error.message}</EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button variant="outline" onClick={() => void list.refetch()}>
-              Try again
-            </Button>
-          </EmptyContent>
-        </Empty>
-      ) : list.isLoading ? (
+      {list.isLoading ? (
         p.view === 'grid' ? (
           <GridSkeleton />
         ) : (
