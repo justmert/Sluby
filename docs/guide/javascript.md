@@ -109,7 +109,9 @@ try {
   if (!(err instanceof ProcessingFailedError)) throw err;
   // the processing job says why it failed
   const job = await sluby.assets.processing(assetId).catch(() => null);
-  throw new Error(`Processing failed: ${job?.errorMessage ?? 'no reason was recorded'}`);
+  throw new Error(`Processing failed: ${job?.errorMessage ?? 'no reason was recorded'}`, {
+    cause: err,
+  });
 } finally {
   clearInterval(stagePoll);
 }
