@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
 import { AssetThumbnail } from '@/components/asset/AssetThumbnail';
-import { lateSkeleton } from '@/components/dashboard/live';
+import { lateSkeleton, routeSkeletonWasVisible } from '@/components/dashboard/live';
 import {
   CacheLoading,
   DashCard,
@@ -667,6 +667,8 @@ export default function DashboardPage() {
   // cards stagger in when the page has to wait for its first numbers; back
   // on a page whose data is cached they are simply there
   const [stagger] = useState(() => s === undefined);
+  // taking over from the route skeleton: keep its placeholders on screen
+  const [instant] = useState(routeSkeletonWasVisible);
   const failed = stats.isError && !s;
 
   return (
@@ -684,7 +686,7 @@ export default function DashboardPage() {
         }
       />
 
-      <div>
+      <div data-instant-skeletons={instant || undefined}>
         {stats.isError && (
           <Alert variant="destructive" className="mb-6">
             <AlertTriangle />

@@ -18,6 +18,7 @@ import {
   SERVER_CHART,
   THROUGHPUT_COPY,
 } from '@/components/dashboard/dashboard-layout';
+import { routeSkeletonWasVisible } from '@/components/dashboard/live';
 import { UpdatedAgo } from '@/components/dashboard/UpdatedAgo';
 import { FadeSwap } from '@/components/motion';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -373,6 +374,8 @@ function LibraryCard() {
 
 export default function AnalyticsPage() {
   const { operator } = useSession();
+  // taking over from the route skeleton: keep its placeholders on screen
+  const [instant] = useState(routeSkeletonWasVisible);
   return (
     <PageContainer>
       <PageHeader
@@ -383,8 +386,10 @@ export default function AnalyticsPage() {
             : 'Your library mix'
         }
       />
-      <ServerSection operator={operator} />
-      <LibraryCard />
+      <div data-instant-skeletons={instant || undefined}>
+        <ServerSection operator={operator} />
+        <LibraryCard />
+      </div>
     </PageContainer>
   );
 }

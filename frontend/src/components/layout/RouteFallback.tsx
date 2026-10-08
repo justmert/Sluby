@@ -1,5 +1,9 @@
 import { useLocation } from 'react-router';
+import { AnalyticsLoading } from '@/components/dashboard/analytics-parts';
+import { DashboardLoading } from '@/components/dashboard/dashboard-parts';
+import { useRouteSkeletonVisibility } from '@/components/dashboard/live';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useSession } from '@/lib/session';
 import { PageContainer } from './PageContainer';
 
 // shaped like each page's first screen, so the page lands where the skeleton
@@ -20,19 +24,15 @@ function Header({ action = false, back = false }: { action?: boolean; back?: boo
 
 const card = 'rounded-xl';
 
+// the dashboard and analytics draw their own loading state, the same one
+// the pages show while their data loads
 function Dashboard() {
+  const { operator } = useSession();
+  useRouteSkeletonVisibility();
   return (
     <>
       <Header action />
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }, (_, i) => (
-          <Skeleton key={i} className={`h-[98px] ${card}`} />
-        ))}
-      </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Skeleton className={`h-[340px] lg:col-span-2 ${card}`} />
-        <Skeleton className={`h-[340px] ${card}`} />
-      </div>
+      <DashboardLoading operator={operator} />
     </>
   );
 }
@@ -107,18 +107,12 @@ function Developer() {
 }
 
 function Analytics() {
+  const { operator } = useSession();
+  useRouteSkeletonVisibility();
   return (
     <>
       <Header />
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 8 }, (_, i) => (
-          <Skeleton key={i} className={`h-[98px] ${card}`} />
-        ))}
-      </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Skeleton className={`h-[380px] ${card}`} />
-        <Skeleton className={`h-[380px] ${card}`} />
-      </div>
+      <AnalyticsLoading operator={operator} />
     </>
   );
 }
