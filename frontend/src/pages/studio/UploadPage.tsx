@@ -869,7 +869,11 @@ function UploadCard({ store, s, busy }: { store: UploadStore; s: UploadState; bu
         </div>
         <div className="border-t pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6">
           <h3 className="sr-only">Pipeline</h3>
-          <PipelineSteps state={s} />
+          {/* once nothing is running the step explanations are only clutter */}
+          <PipelineSteps
+            state={s}
+            compact={s.phase === 'ready' || s.phase === 'cancelled' || s.phase === 'failed'}
+          />
         </div>
       </CardContent>
     </Card>
