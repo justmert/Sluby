@@ -329,8 +329,8 @@ export function App() {
             }
             client={client}
             assetId={playing.assetId}
-            signed={playing.signed}
-            expiresIn={3600}
+            // the player only signs without a src, and warns if these come with one
+            {...(playing.signed && !playing.src ? { signed: true, expiresIn: 3600 } : {})}
             controls
             style={{ width: '100%' }}
             onQualitiesChange={setQualities}

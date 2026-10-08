@@ -145,8 +145,8 @@ Give `<SlubyPlayer>` a playback URL, the client and the asset id:
   src={playing.src ?? (playing.signed ? undefined : client.playback.streamUrl(playing.assetId))}
   client={client}
   assetId={playing.assetId}
-  signed={playing.signed}
-  expiresIn={3600}
+  // the player only signs without a src, and warns if these come with one
+  {...(playing.signed && !playing.src ? { signed: true, expiresIn: 3600 } : {})}
   controls
   style={{ width: '100%' }}
   onQualitiesChange={setQualities}
