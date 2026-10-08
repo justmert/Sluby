@@ -795,9 +795,10 @@ function AppearanceCard() {
           value={theme}
           onValueChange={(v) => v && setTheme(v as Theme)}
           aria-label="Theme"
+          className="w-full max-w-sm"
         >
           {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
-            <ToggleGroupItem key={value} value={value} className="gap-2 px-4">
+            <ToggleGroupItem key={value} value={value} className="min-w-0 flex-1 gap-2 px-3">
               <Icon />
               {label}
             </ToggleGroupItem>
@@ -821,7 +822,7 @@ function AccountCard() {
     [
       'API base URL',
       <span key="b" className="flex min-w-0 items-center justify-end gap-1 font-mono">
-        <span className="min-w-0 break-all">{window.location.origin}</span>
+        <span className="min-w-0 text-xs [overflow-wrap:anywhere]">{window.location.origin}</span>
         <CopyButton value={window.location.origin} label="Copy base URL" className="size-6" />
       </span>,
     ],
