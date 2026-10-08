@@ -41,11 +41,7 @@ export interface UploadSegmentsJobData {
   startsRun?: boolean;
   /** The processing attempt this job belongs to, see stageJobId. */
   runId?: string;
-  /**
-   * Local file paths of thumbnails extracted by the transcode worker.
-   * Uploaded as part of the same packed Sia batch as the variant
-   * playlists, so we save host-stream count vs. uploading separately.
-   */
+  /** Thumbnails the transcode extracted; they go up packed with the data files. */
   thumbnailPaths?: string[];
 }
 
@@ -84,10 +80,7 @@ export type DeletionJobData =
     }
   | { kind: 'gc' };
 
-/**
- * Queue for transcoding raw video files into multi-rendition HLS/fMP4.
- * Jobs: { videoAssetId, uploadSessionId, filePath }
- */
+/** Transcodes an uploaded source into the HLS (fMP4) rendition ladder. */
 export const transcodeQueue = new Queue<TranscodeJobData>('transcode', {
   connection: redisConnection,
   defaultJobOptions: {
@@ -101,10 +94,7 @@ export const transcodeQueue = new Queue<TranscodeJobData>('transcode', {
   },
 });
 
-/**
- * Queue for uploading HLS segments to Sia.
- * Jobs: { videoAssetId, outputDir, accessTier }
- */
+/** Uploads a finished transcode run to Sia, see storage/segment-uploader.ts. */
 export const uploadSegmentsQueue = new Queue<UploadSegmentsJobData>('upload-segments', {
   connection: redisConnection,
   defaultJobOptions: {
@@ -118,11 +108,7 @@ export const uploadSegmentsQueue = new Queue<UploadSegmentsJobData>('upload-segm
   },
 });
 
-/**
- * Queue for finalizing processed videos.
- * Updates the VideoAsset and fires the "asset.ready" webhook.
- * Jobs: { videoAssetId, manifestObjectId, thumbnailObjectIds, ... }
- */
+/** Records a run's objects on the asset, marks it ready and sends asset.ready. */
 export const finalizeQueue = new Queue<FinalizeJobData>('finalize', {
   connection: redisConnection,
   defaultJobOptions: {
