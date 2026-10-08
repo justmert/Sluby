@@ -8,7 +8,10 @@
 @custom-variant dark (&:is(.dark *));
 
 /* shadcn/ui semantic tokens. light is the base, .dark overrides; the theme
-   provider puts the class on <html>. primary is Sia orange in both. */
+   provider puts the class on <html>. primary is Sia orange in both; the
+   light one is a deeper shade so white button text and orange text on light
+   surfaces clear 4.5:1 (4.90 on primary, 4.70 on muted/50). the ring and
+   chart keep the brighter orange, which only needs 3:1 as a non-text mark. */
 :root {
   --radius: 0.625rem;
   --background: oklch(0.99 0.002 285);
@@ -17,7 +20,7 @@
   --card-foreground: oklch(0.18 0.012 285);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.18 0.012 285);
-  --primary: oklch(0.663 0.177 47.7);
+  --primary: oklch(0.555 0.177 47.7);
   --primary-foreground: oklch(0.99 0.002 285);
   --secondary: oklch(0.96 0.004 285);
   --secondary-foreground: oklch(0.22 0.012 285);
@@ -40,7 +43,7 @@
   --chart-5: oklch(0.6 0.2 293);
   --sidebar: oklch(0.975 0.003 285);
   --sidebar-foreground: oklch(0.18 0.012 285);
-  --sidebar-primary: oklch(0.663 0.177 47.7);
+  --sidebar-primary: oklch(0.555 0.177 47.7);
   --sidebar-primary-foreground: oklch(0.99 0.002 285);
   --sidebar-accent: oklch(0.94 0.006 285);
   --sidebar-accent-foreground: oklch(0.18 0.012 285);
