@@ -57,6 +57,22 @@ describe.skipIf(!hasTestDatabase)('webhook queries (postgres)', () => {
       ).toEqual(['https://h/1', 'https://h/2', 'https://h/off']);
     });
 
+    it('lists, finds and deletes across accounts only for an undefined owner', async () => {
+      const a = await hook({ url: 'https://h/alice' });
+      const b = await hook({ url: 'https://h/bob', creatorAddress: 'bob' });
+
+      expect((await q.listWebhookEndpointsByOwner(undefined)).map((h) => h.url).sort()).toEqual([
+        'https://h/alice',
+        'https://h/bob',
+      ]);
+      // an empty address is not the platform identity
+      expect(await q.listWebhookEndpointsByOwner('')).toEqual([]);
+      expect(await q.getWebhookEndpointForOwner(b.id, '')).toBeUndefined();
+      expect((await q.getWebhookEndpointForOwner(b.id, undefined))?.id).toBe(b.id);
+      expect(await q.deleteWebhookEndpoint(a.id, '')).toBeUndefined();
+      expect((await q.deleteWebhookEndpoint(a.id, undefined))?.id).toBe(a.id);
+    });
+
     it('finds only the owner’s active endpoints subscribed to the event', async () => {
       await hook({ url: 'https://h/ready', events: ['asset.ready'] });
       await hook({ url: 'https://h/both', events: ['asset.failed', 'asset.ready'] });

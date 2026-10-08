@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
 import { AppError } from '../middleware/error-handler.js';
+import { ownerFilter } from '../ownership.js';
 import { randomBytes } from 'node:crypto';
 
 export interface WebhookRouteDeps {
@@ -12,7 +13,11 @@ export interface WebhookRouteDeps {
     events: string[];
     secret: string;
   }) => Promise<{ id: string }>;
-  listWebhooks: (creatorAddress: string) => Promise<
+  /**
+   * The owner arguments below come from ownerFilter: undefined (the platform
+   * identity) means every account.
+   */
+  listWebhooks: (owner: string | undefined) => Promise<
     Array<{
       id: string;
       url: string;
@@ -22,7 +27,7 @@ export interface WebhookRouteDeps {
     }>
   >;
   /** Deletes only if the endpoint belongs to the account; false when it does not. */
-  deleteWebhook: (id: string, creatorAddress: string) => Promise<boolean>;
+  deleteWebhook: (id: string, owner: string | undefined) => Promise<boolean>;
   /**
    * Why a receiver URL may not be registered (not http(s), or its host
    * resolves to an address webhooks may not reach), or null when it may.
@@ -31,12 +36,12 @@ export interface WebhookRouteDeps {
   /** Send a signed `webhook.test` event now; null when the endpoint is not the account's. */
   testWebhook: (
     id: string,
-    creatorAddress: string,
+    owner: string | undefined,
   ) => Promise<{ delivered: boolean; statusCode: number | null; error: string | null } | null>;
   /** The endpoint's latest delivery attempts, newest first; null when it is not the account's. */
   listWebhookDeliveries: (
     id: string,
-    creatorAddress: string,
+    owner: string | undefined,
     limit: number,
   ) => Promise<Array<{
     id: string;
@@ -111,7 +116,7 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
    * receiver URLs often carry credentials or hook tokens.
    */
   router.get('/', requireScope('manage'), async (req: Request, res: Response) => {
-    const webhooks = await deps.listWebhooks(req.apiKey!.creatorAddress);
+    const webhooks = await deps.listWebhooks(ownerFilter(req.apiKey!.creatorAddress));
 
     res.json({
       data: webhooks.map((w) => ({
@@ -129,8 +134,11 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
    * Remove a webhook endpoint.
    */
   router.delete('/:id', requireScope('manage'), async (req: Request, res: Response) => {
-    // Scoped to the caller's account so one tenant cannot delete another's webhook.
-    const deleted = await deps.deleteWebhook(String(req.params.id), req.apiKey!.creatorAddress);
+    // scoped to the caller's account so one tenant cannot delete another's webhook
+    const deleted = await deps.deleteWebhook(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
     if (!deleted) {
       throw new AppError(404, 'Webhook endpoint not found');
     }
@@ -143,7 +151,10 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
    * receiver answered. Recorded with the other deliveries.
    */
   router.post('/:id/test', requireScope('manage'), async (req: Request, res: Response) => {
-    const result = await deps.testWebhook(String(req.params.id), req.apiKey!.creatorAddress);
+    const result = await deps.testWebhook(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
     if (!result) throw new AppError(404, 'Webhook endpoint not found');
     res.json({
       delivered: result.delivered,
@@ -166,7 +177,7 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
     }
     const rows = await deps.listWebhookDeliveries(
       String(req.params.id),
-      req.apiKey!.creatorAddress,
+      ownerFilter(req.apiKey!.creatorAddress),
       limit,
     );
     if (!rows) throw new AppError(404, 'Webhook endpoint not found');

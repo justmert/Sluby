@@ -736,6 +736,36 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         const byA = await call('DELETE', `/api/v1/webhooks/${created.body.id}`, 'a');
         check('DELETE', '/api/v1/webhooks/{id}', byA);
         expect(byA.status).toBe(200);
+
+        // the platform key works on any tenant's endpoints, like on keys and assets
+        const other = await call('POST', '/api/v1/webhooks', 'a', {
+          url: `http://127.0.0.1:${port}/sluby`,
+          events: ['asset.ready'],
+        });
+        expect(other.status).toBe(201);
+        const listB = await call('GET', '/api/v1/webhooks', 'b');
+        check('GET', '/api/v1/webhooks', listB);
+        expect(listB.body.data).toEqual([]);
+        const listP = await call('GET', '/api/v1/webhooks', 'platform');
+        check('GET', '/api/v1/webhooks', listP);
+        expect(listP.body.data.map((w: { id: string }) => w.id)).toEqual([other.body.id]);
+        const testedByP = await call('POST', `/api/v1/webhooks/${other.body.id}/test`, 'platform');
+        check('POST', '/api/v1/webhooks/{id}/test', testedByP);
+        expect(testedByP.status).toBe(200);
+        const deliveriesByP = await call(
+          'GET',
+          `/api/v1/webhooks/${other.body.id}/deliveries`,
+          'platform',
+        );
+        check('GET', '/api/v1/webhooks/{id}/deliveries', deliveriesByP);
+        expect(deliveriesByP.status).toBe(200);
+        expect(deliveriesByP.body.data).toHaveLength(1);
+        const byBAgain = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'b');
+        expect(byBAgain.status).toBe(404);
+        const byP = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'platform');
+        check('DELETE', '/api/v1/webhooks/{id}', byP);
+        expect(byP.status).toBe(200);
+        expect((await call('GET', '/api/v1/webhooks', 'a')).body.data).toEqual([]);
       } finally {
         env.WEBHOOK_ALLOWED_NETWORKS = previous;
         await new Promise((r) => receiver.close(r));
@@ -1206,6 +1236,27 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
           const keyList = await send('GET', '/api/v1/keys');
           check('GET', '/api/v1/keys', keyList);
           expect(keyList.body.data.map((k: { name: string }) => k.name)).toEqual(['operator']);
+
+          // operators see the deployment, never other tenants' endpoints
+          const { createWebhookEndpoint } = await import('../db/queries/webhooks.js');
+          const hook = await createWebhookEndpoint({
+            creatorAddress: B,
+            url: 'https://hooks.example.com/b',
+            events: ['asset.ready'],
+            secret: 'b'.repeat(64),
+          });
+          const hooks = await send('GET', '/api/v1/webhooks');
+          check('GET', '/api/v1/webhooks', hooks);
+          expect(hooks.body.data).toEqual([]);
+          const hookDeliveries = await send('GET', `/api/v1/webhooks/${hook.id}/deliveries`);
+          check('GET', '/api/v1/webhooks/{id}/deliveries', hookDeliveries);
+          expect(hookDeliveries.status).toBe(404);
+          const hookTest = await send('POST', `/api/v1/webhooks/${hook.id}/test`);
+          check('POST', '/api/v1/webhooks/{id}/test', hookTest);
+          expect(hookTest.status).toBe(404);
+          const hookDelete = await send('DELETE', `/api/v1/webhooks/${hook.id}`);
+          check('DELETE', '/api/v1/webhooks/{id}', hookDelete);
+          expect(hookDelete.status).toBe(404);
 
           const deleteOther = await send('DELETE', `/api/v1/assets/${assetB.id}`);
           check('DELETE', '/api/v1/assets/{id}', deleteOther);
