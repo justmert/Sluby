@@ -29,7 +29,8 @@ function asset(id: string, title: string, status = 'ready') {
 const library = [asset('a1', 'Big Buck Bunny'), asset('a2', 'Sintel', 'processing')];
 
 function Where() {
-  return <p data-testid="where">{useLocation().pathname}</p>;
+  const { pathname, search } = useLocation();
+  return <p data-testid="where">{pathname + search}</p>;
 }
 
 function setup(operator = false) {
@@ -83,6 +84,26 @@ describe('CommandPalette', () => {
     expect(
       await screen.findByRole('dialog', { name: 'Search and commands' }),
     ).toHaveAccessibleDescription('Jump to a page, find a video or run an action');
+  });
+
+  it('opens the create key dialog on settings from its action', async () => {
+    setup();
+    await openWithKeys();
+    await userEvent.type(await screen.findByRole('combobox'), 'api key');
+    await userEvent.click(await screen.findByRole('option', { name: 'Create an API key' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/studio/settings?create=key');
+  });
+
+  it('finds only the settings page for "sett"', async () => {
+    const server = setup();
+    await openWithKeys();
+    await userEvent.type(await screen.findByRole('combobox'), 'sett');
+    await waitFor(() =>
+      expect(server.calls.some((c) => c.query.get('search') === 'sett')).toBe(true),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Settings']),
+    );
   });
 
   it('leaves out operator pages for a tenant', async () => {

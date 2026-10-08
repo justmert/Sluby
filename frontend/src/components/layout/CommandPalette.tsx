@@ -149,11 +149,12 @@ function PaletteBody({ close }: { close: () => void }) {
       run: () => open(ROUTES.STUDIO_UPLOAD),
     },
     {
-      id: 'action-keys',
-      label: 'Manage API keys',
+      id: 'action-key',
+      label: 'Create an API key',
       icon: KeyRound,
-      keywords: 'create rotate revoke token settings',
-      run: () => open(ROUTES.STUDIO_SETTINGS),
+      // not "settings": typing that should land on the settings page alone
+      keywords: 'new add token secret',
+      run: () => open(`${ROUTES.STUDIO_SETTINGS}?create=key`),
     },
     {
       id: 'action-webhooks',
