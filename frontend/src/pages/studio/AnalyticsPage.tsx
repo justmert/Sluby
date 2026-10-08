@@ -276,16 +276,20 @@ function LibraryCard() {
           </p>
         ) : (
           <ChartContainer config={statusConfig} className="h-48 w-full">
-            <BarChart data={statusData}>
-              <CartesianGrid vertical={false} />
-              <XAxis
+            {/* bars run sideways so the five status names stack down the left and
+                stay readable on a phone, where they ran together along the bottom */}
+            <BarChart data={statusData} layout="vertical">
+              <CartesianGrid horizontal={false} />
+              <YAxis
+                type="category"
                 dataKey="status"
                 tickLine={false}
                 axisLine={false}
                 interval={0}
                 fontSize={11}
+                width={72}
               />
-              <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={40} />
+              <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <Bar dataKey="count" fill="var(--color-count)" radius={4} />
             </BarChart>

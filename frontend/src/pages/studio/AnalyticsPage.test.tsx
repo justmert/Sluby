@@ -48,7 +48,10 @@ beforeEach(() => {
   });
   vi.stubGlobal('fetch', fetchMock);
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 const render = (operator: boolean) =>
   renderPage(
@@ -91,5 +94,30 @@ describe('AnalyticsPage', () => {
     expect(
       await screen.findByText('Could not load your library totals: Internal Server Error'),
     ).toBeInTheDocument();
+  });
+
+  it('lists the statuses down the side of the library chart so they never run together', async () => {
+    // jsdom has no layout; give the chart a phone-width box so recharts draws its axes
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, 0, 358, 192),
+    );
+    const { container } = render(false);
+    const labels = () => [
+      ...container.querySelectorAll(
+        '.recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value',
+      ),
+    ];
+    await vi.waitFor(() => expect(labels()).toHaveLength(5));
+    expect(labels().map((t) => t.textContent)).toEqual([
+      'created',
+      'uploading',
+      'processing',
+      'ready',
+      'failed',
+    ]);
+    // one row per status, top to bottom, not side by side along the bottom
+    const ys = labels().map((t) => Number(t.getAttribute('y')));
+    expect(new Set(ys).size).toBe(5);
+    expect(ys).toEqual([...ys].sort((a, b) => a - b));
   });
 });
