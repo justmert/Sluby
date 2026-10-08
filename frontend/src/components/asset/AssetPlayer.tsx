@@ -79,15 +79,6 @@ export function AssetPlayer({ assetId, signed }: AssetPlayerProps) {
             ))}
           </ToggleGroup>
         )}
-        {current && (
-          <span
-            className="animate-in text-sm text-muted-foreground duration-200 fade-in"
-            aria-live="polite"
-          >
-            Playing {current.name} ({current.width}x{current.height},{' '}
-            {formatBitrate(current.bitrate)}){pinned === AUTO && ', chosen adaptively'}
-          </span>
-        )}
         {delivery && (
           <Badge variant="outline" className="ml-auto animate-in duration-200 fade-in">
             {delivery === 'sia' ? <Cloud /> : <Server />}
@@ -95,6 +86,15 @@ export function AssetPlayer({ assetId, signed }: AssetPlayerProps) {
           </Badge>
         )}
       </div>
+      {/* what is playing gets its own line, held open from the start */}
+      <p className="min-h-5 text-sm text-muted-foreground" aria-live="polite">
+        {current && (
+          <span className="animate-in duration-200 fade-in">
+            Playing {current.name} ({current.width}x{current.height},{' '}
+            {formatBitrate(current.bitrate)}){pinned === AUTO && ', chosen adaptively'}
+          </span>
+        )}
+      </p>
       {error && <p className="text-sm text-destructive">Playback error: {error}</p>}
     </div>
   );
