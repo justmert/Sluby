@@ -1,7 +1,7 @@
 {
   "name": "@sluby/sdk",
   "version": "0.2.0",
-  "description": "TypeScript SDK for Sluby: typed asset management, resumable TUS uploads, and playback URL retrieval.",
+  "description": "TypeScript client for the Sluby video API: assets, resumable tus uploads, playback URLs, keys, webhooks and direct-from-Sia playback.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "dist/index.cjs",

@@ -1,8 +1,6 @@
 # @sluby/sdk
 
-TypeScript SDK for [Sluby](https://github.com/justmert/Sluby), decentralized video
-infrastructure on Sia. Typed asset management, resumable TUS uploads, and
-playback URL retrieval, for the browser and Node.
+TypeScript client for the [Sluby](https://github.com/justmert/Sluby) API, the self-hosted video platform that stores its media on Sia. It covers assets, resumable tus uploads, playback URLs, API keys, webhooks and direct-from-Sia playback, in the browser and in Node.
 
 ## Install
 
@@ -17,14 +15,14 @@ import { SlubyClient } from '@sluby/sdk';
 
 const client = new SlubyClient({
   apiKey: 'sluby_...',
-  baseUrl: 'https://api.sluby.app',
-  // Optional: where the browser fetches HLS bytes from directly (an object
-  // gateway or an nginx cache). Defaults to baseUrl.
-  deliveryBaseUrl: 'https://cache.sluby.app',
+  baseUrl: 'https://video.example.com',
+  // optional: where players fetch hls bytes from, when that is not the api's
+  // host (for example a cdn in front of the gateway). defaults to baseUrl
+  deliveryBaseUrl: 'https://media.example.com',
 });
 
-// 1. Upload a video via resumable TUS. The asset is created as the upload
-//    begins; read `assetId` to start polling.
+// 1. upload a video with resumable tus. the asset is created as the upload
+//    begins; read `assetId` to start polling
 const upload = client.uploads.upload(file, {
   title: 'My Video',
   description: 'Demo upload',
@@ -36,43 +34,34 @@ const videoAssetId = await upload.assetId;
 await upload;
 // abort() after this point does nothing: a finished upload is never deleted
 
-// 2. Wait for processing to finish.
+// 2. wait for processing to finish
 const asset = await client.assets.waitForReady(videoAssetId);
 
-// 3. Get an absolute playback URL to hand to a player.
+// 3. get an absolute playback url to hand to a player
 const { playbackUrl } = await client.playback.getUrl(asset.id);
 ```
 
 ### Cookie session (same-origin browser apps)
 
-A browser app served from the same origin as the API (the Studio does this)
-can skip the API key. Requests and TUS uploads then carry the signed-in
-session cookie:
+A browser app served from the same origin as the API (the Studio does this) can skip the API key. Requests and tus uploads then carry the signed-in session cookie:
 
 ```ts
 const client = new SlubyClient({ baseUrl: window.location.origin });
 ```
 
-If the cookie session has to cross origins, pass `credentials: 'include'` and
-allow credentialed CORS for your origin on the API.
+If the cookie session has to cross origins, pass `credentials: 'include'` and allow credentialed CORS for your origin on the API.
 
 ## API
 
-- `client.uploads`: `upload()` (resumable TUS; returns an awaitable handle with
-  `pause()` / `resume()` / `abort()` / `isPaused` plus `assetId` and `uploadId` promises),
-  `getStatus(uploadId)`, `cancel(uploadId)`.
+- `client.uploads`: `upload()` (resumable tus; returns an awaitable handle with `pause()` / `resume()` / `abort()` / `isPaused` plus `assetId` and `uploadId` promises), `getStatus(uploadId)`, `cancel(uploadId)`.
 - `client.assets`: `list()` (with `search`, `sort`, `order`, and paging by `page` or by passing each page's `nextCursor` back as `cursor`), `get()`, `update()`, `delete()`, `waitForReady()`, `processing()` (the processing job with its stage, progress and log), `retry()` for a failed asset, `renditions(id)` (the HLS renditions, tallest first, with their Sia objects) and `stats()` (the account's library totals).
-- `client.playback`: `getUrl()` and `getSignedUrl()`, both returning an absolute
-  URL (`playbackUrl` / `signedUrl`) resolved against the delivery base, plus the
-  raw server path (`playbackPath` / `signedPath`). `streamUrl(id)` returns the
-  public master URL (`/v1/stream/{id}/master.m3u8`) without a request or a key.
+- `client.playback`: `getUrl()` and `getSignedUrl()`, both returning an absolute URL (`playbackUrl` / `signedUrl`) resolved against the delivery base, plus the raw server path (`playbackPath` / `signedPath`). `streamUrl(id)` returns the public master URL (`/v1/stream/{id}/master.m3u8`) without a request or a key.
 - `client.playbackIds`: `list(assetId)`, `create(assetId, { policy, name })` and `delete(playbackId)` for the public `pb_...` handles of an asset.
 - `client.keys`: `list({ limit, cursor })` (one page of the account's keys, with `hasMore` and `nextCursor`), `create({ name, scopes, rateLimit })` (the result's `key` is the secret, shown only here), `rotate(id, { gracePeriodSeconds })` and `revoke(id)`. Needs the `manage` scope.
 - `client.webhookEndpoints`: `list()`, `create({ url, events })` (the result's `secret` is shown only here), `delete(id)`, `test(id)` (sends a signed `webhook.test` event now) and `deliveries(id, { limit })`. Needs the `manage` scope.
 - `client.webhooks`: `verifyRequest(rawBody, headers, secret)` (and `verifyRequestAsync` for edge runtimes) checks the `X-Sluby-Signature-V1` header against `X-Sluby-Timestamp` and refuses a request more than five minutes old (`toleranceSeconds`); `headers` is a Fetch `Headers` or Node's `req.headers` (types `WebhookHeaders`, `VerifyRequestOptions`). `parseEvent()` returns the event with its `id`, the same on every retry. `verifySignature()` checks the deprecated body-only `X-Sluby-Signature`.
 - `client.sia`: present when the client is created with a `sia` viewer config; `@sluby/player` uses it to stream straight from Sia hosts instead of the gateway. Given the playback URL (`prepare(id, { src })`), it fetches the share map from the public `/v1/share/:id` with that URL's signature and no credentials, so a page without an API key can play direct from Sia.
-- `client.resolveDeliveryUrl(path)`: turn a server-relative delivery path into an
-  absolute URL.
+- `client.resolveDeliveryUrl(path)`: turn a server-relative delivery path into an absolute URL.
 
 Errors are typed, and every one is a `SlubyError` (with `statusCode`, `responseBody` and, when there is one, the underlying error as `cause`): `ValidationError` (400/422), `AuthenticationError` (401), `PermissionError` (403, such as a key without the needed scope), `NotFoundError` (404/410), `ConflictError` (409, such as playback of an asset that is still processing), `RateLimitError` (429, with `retryAfter`), `TimeoutError`, `AbortError` (a cancelled call or upload; its `name` is `'AbortError'`) and `ProcessingFailedError` (from `waitForReady`, with the failed `asset`). Upload failures are mapped the same way. A request that never got a response rejects with the platform's own `fetch` error (a `TypeError`).
 
@@ -105,8 +94,7 @@ The package ships ESM and CommonJS builds with matching type declarations. They 
 
 ## Pairs with
 
-[`@sluby/player`](https://www.npmjs.com/package/@sluby/player), a React player
-that accepts a `SlubyClient` and an `assetId` directly.
+[`@sluby/player`](https://www.npmjs.com/package/@sluby/player), a React player that accepts a `SlubyClient` and an `assetId` directly.
 
 ## License
 
