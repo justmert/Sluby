@@ -298,3 +298,180 @@ describe('SettingsPage keys', () => {
     ).toBeInTheDocument();
   });
 });
+
+// jsdom runs no css, so radix unmounts a closing dialog at once and the exit
+// frame is never seen; an exit animation name makes radix wait for
+// animationend like a browser does, so the test can look at that frame
+function holdDialogExits() {
+  const style = document.createElement('style');
+  style.textContent =
+    '[role=dialog][data-state=closed],[role=alertdialog][data-state=closed]{animation-name:exit}';
+  document.head.append(style);
+  return () => style.remove();
+}
+
+describe('SettingsPage dialogs while they close', () => {
+  let release: () => void;
+  beforeEach(() => {
+    release = holdDialogExits();
+  });
+  afterEach(() => release());
+
+  it('keeps the rotate title while the dialog animates out', async () => {
+    render();
+    await screen.findByText('production');
+    await userEvent.click(screen.getByRole('button', { name: /rotate/i }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(dialog).toHaveAttribute('data-state', 'closed');
+    expect(within(dialog).getByRole('heading')).toHaveTextContent('Rotate production');
+  });
+
+  it('keeps the revoke title while the dialog animates out', async () => {
+    render();
+    await screen.findByText('production');
+    await userEvent.click(screen.getByRole('button', { name: /revoke/i }));
+    const dialog = await screen.findByRole('alertdialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(dialog).toHaveAttribute('data-state', 'closed');
+    expect(within(dialog).getByRole('heading')).toHaveTextContent('Revoke production?');
+  });
+
+  it('keeps the rotated secret and its title while the secret dialog closes', async () => {
+    render();
+    await screen.findByText('production');
+    await userEvent.click(screen.getByRole('button', { name: /rotate/i }));
+    const rotate = await screen.findByRole('dialog');
+    await userEvent.click(within(rotate).getByRole('button', { name: /rotate key/i }));
+    const secret = await screen.findByTestId('issued-key');
+    const dialog = secret.closest('[role=dialog]') as HTMLElement;
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    expect(dialog).toHaveAttribute('data-state', 'closed');
+    expect(within(dialog).getByRole('heading')).toHaveTextContent('Key rotated: production');
+    expect(secret).toHaveTextContent('sluby_rotatedsecret');
+  });
+});
+
+describe('SettingsPage keys on phones', () => {
+  it('lays the key table out as stacked rows with the actions pinned in view', async () => {
+    render();
+    const name = await screen.findByText('production');
+    const table = name.closest('table')!;
+    expect(table).toHaveAttribute('data-responsive');
+    const actions = screen.getByRole('button', { name: /revoke/i }).closest('td')!;
+    expect(actions).toHaveAttribute('data-cell', 'actions');
+    expect(within(actions).getByRole('button', { name: /rotate/i })).toBeInTheDocument();
+  });
+});
+
+describe('SettingsPage key forms and optimistic rows', () => {
+  it('starts every create from the defaults, not the last key', async () => {
+    render();
+    await screen.findByText('production');
+    await userEvent.click(screen.getByRole('button', { name: /create key/i }));
+    let dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name'), 'ci');
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /manage/ }));
+    const rate = within(dialog).getByLabelText('Rate limit');
+    await userEvent.clear(rate);
+    await userEvent.type(rate, '5');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create key' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+
+    await userEvent.click(screen.getByRole('button', { name: /create key/i }));
+    dialog = await screen.findByRole('dialog', { name: 'Create API key' });
+    expect(within(dialog).getByLabelText('Name')).toHaveValue('');
+    expect(within(dialog).getByRole('checkbox', { name: /manage/ })).not.toBeChecked();
+    expect(within(dialog).getByRole('checkbox', { name: /upload/ })).toBeChecked();
+    expect(within(dialog).getByLabelText('Rate limit')).toHaveValue(100);
+  });
+
+  it('explains what is wrong inline instead of sending an invalid key', async () => {
+    render();
+    await screen.findByText('production');
+    await userEvent.click(screen.getByRole('button', { name: /create key/i }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /upload/ }));
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /read/ }));
+    const rate = within(dialog).getByLabelText('Rate limit');
+    await userEvent.clear(rate);
+    await userEvent.type(rate, '0');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create key' }));
+
+    expect(within(dialog).getByText(/Give the key a name/)).toBeInTheDocument();
+    expect(within(dialog).getByText('Pick at least one scope.')).toBeInTheDocument();
+    expect(within(dialog).getByText(/whole number of requests/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Name')).toHaveFocus();
+    expect(calls('POST', '/api/v1/keys')).toHaveLength(0);
+  });
+
+  it('removes a revoked key at once and puts it back when the server refuses', async () => {
+    let answer!: (r: Response) => void;
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/v1/keys/k1' && init?.method === 'DELETE') {
+        return new Promise<Response>((r) => (answer = r));
+      }
+      return base(input, init);
+    });
+    render();
+    await screen.findByText('production');
+    await userEvent.click(screen.getByRole('button', { name: /revoke/i }));
+    await userEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Revoke' }),
+    );
+    await waitFor(() => expect(screen.queryByText('production')).not.toBeInTheDocument());
+
+    answer(json({ error: 'database is down' }, 500));
+    expect(await screen.findByText('production')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Could not revoke production: database is down'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a creating row while the server makes the key, without the secret in the cache', async () => {
+    let answer!: (r: Response) => void;
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/v1/keys' && init?.method === 'POST') {
+        return new Promise<Response>((r) => (answer = r));
+      }
+      return base(input, init);
+    });
+    const { client } = render();
+    await screen.findByText('production');
+    await userEvent.click(screen.getByRole('button', { name: /create key/i }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name'), 'ci');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create key' }));
+
+    expect(within(dialog).getByRole('button', { name: /creating/i })).toBeDisabled();
+    const pendingRow = screen.getByText('ci').closest('tr')!;
+    expect(pendingRow).toHaveAttribute('aria-busy', 'true');
+
+    answer(createAnswer({ name: 'ci', scopes: ['upload', 'read'], rate_limit: 100 }));
+    expect(await screen.findByTestId('issued-key')).toHaveTextContent('sluby_newsecret');
+    expect(JSON.stringify(client.getQueryData(['api-keys']))).not.toContain('sluby_newsecret');
+  });
+});
+
+describe('SettingsPage sessions, optimistic', () => {
+  it('drops an ended session at once and restores it when ending fails', async () => {
+    let answer!: (r: Response) => void;
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/v1/auth/sessions/s2' && init?.method === 'DELETE') {
+        return new Promise<Response>((r) => (answer = r));
+      }
+      return base(input, init);
+    });
+    render();
+    const ua = 'Mozilla/5.0 (iPhone) Safari/18';
+    const row = (await screen.findByText(ua)).closest('tr')!;
+    await userEvent.click(within(row).getByRole('button', { name: /end/i }));
+    await waitFor(() => expect(screen.queryByText(ua)).not.toBeInTheDocument());
+    answer(json({ error: 'nope' }, 500));
+    expect(await screen.findByText('Could not end the session: nope')).toBeInTheDocument();
+    expect(screen.getByText(ua)).toBeInTheDocument();
+  });
+});

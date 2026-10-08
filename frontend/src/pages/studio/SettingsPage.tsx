@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import * as m from 'motion/react-m';
 import { AlertTriangle, KeyRound, LogOut, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
+import { AnimatedItem, AnimatedList } from '@/components/motion';
 import { CopyButton } from '@/components/shared/CopyButton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -43,6 +45,7 @@ import {
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
   FieldLegend,
@@ -50,6 +53,7 @@ import {
 } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ResponsiveCell, ResponsiveTable } from '@/components/ui/responsive-table';
 import {
   Select,
   SelectContent,
@@ -58,14 +62,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Spinner } from '@/components/ui/spinner';
+import { TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
   useApiKeys,
@@ -76,10 +74,12 @@ import {
   type IssuedKey,
   type KeyScope,
 } from '@/hooks/useApiKeys';
+import { useFrozen } from '@/hooks/useFrozen';
 import { useSystemStatus } from '@/hooks/useStats';
 import { useRevokeAllSessions, useRevokeSession, useSessions } from '@/hooks/useSessions';
 import { statusOf } from '@/lib/api-client';
 import { formatDate, formatRelativeTime, formatTimeLeft } from '@/lib/formatters';
+import { fadeUp } from '@/lib/motion';
 import { loadPage } from '@/lib/navigation';
 import { useSession } from '@/lib/session';
 import { THEME_OPTIONS, useTheme, type Theme } from '@/lib/theme';
@@ -90,6 +90,9 @@ const SCOPES: { value: KeyScope; label: string; detail: string }[] = [
   { value: 'manage', label: 'manage', detail: 'Edit and delete assets, keys and webhooks' },
 ];
 
+const DEFAULT_SCOPES: KeyScope[] = ['upload', 'read'];
+const DEFAULT_RATE = '100';
+
 const GRACE_OPTIONS = [
   { value: '0', label: 'Immediately' },
   { value: '3600', label: 'After 1 hour' },
@@ -97,32 +100,53 @@ const GRACE_OPTIONS = [
   { value: '604800', label: 'After 7 days' },
 ];
 
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+// a spinner inside a button that already says what is happening in words
+const ButtonSpinner = () => <Spinner role={undefined} aria-hidden="true" />;
+
 /** Shows a freshly issued secret, which the server never returns again. */
 function SecretDialog({ issued, onClose }: { issued: IssuedKey | null; onClose: () => void }) {
+  const open = issued !== null;
+  // the page clears `issued` on close; keep showing it while the dialog fades
+  const shown = useFrozen(issued, open);
   return (
-    <Dialog open={issued !== null} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {issued?.rotated_from ? 'Key rotated' : 'Key created'}: {issued?.name}
+            {shown?.rotated_from ? 'Key rotated' : 'Key created'}: {shown?.name}
           </DialogTitle>
           <DialogDescription>
             Copy the secret now. It is stored only as a hash and cannot be shown again.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-3">
+        <m.div
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 sm:flex-row sm:items-center"
+        >
           <code className="min-w-0 flex-1 font-mono text-xs break-all" data-testid="issued-key">
-            {issued?.key}
+            {shown?.key}
           </code>
-          {issued && <CopyButton value={issued.key} label="Copy API key" />}
-        </div>
-        {issued?.previous_key_expires_at && (
+          {shown && (
+            <CopyButton
+              value={shown.key}
+              label="Copy API key"
+              withText
+              variant="outline"
+              className="min-w-24 self-start sm:self-auto"
+            />
+          )}
+        </m.div>
+        {shown?.previous_key_expires_at && (
           <p className="text-sm text-muted-foreground">
             The previous key stops working{' '}
             {/* both times are the server's, set in the same transaction */}
-            {Date.parse(issued.previous_key_expires_at) - Date.parse(issued.created_at) < 5_000
+            {Date.parse(shown.previous_key_expires_at) - Date.parse(shown.created_at) < 5_000
               ? 'now'
-              : `on ${new Date(issued.previous_key_expires_at).toLocaleString()}`}
+              : `on ${new Date(shown.previous_key_expires_at).toLocaleString()}`}
             .
           </p>
         )}
@@ -132,6 +156,24 @@ function SecretDialog({ issued, onClose }: { issued: IssuedKey | null; onClose: 
       </DialogContent>
     </Dialog>
   );
+}
+
+interface KeyForm {
+  name: string;
+  scopes: KeyScope[];
+  rateLimit: string;
+}
+
+function keyFormErrors(f: KeyForm) {
+  const rate = Number(f.rateLimit);
+  return {
+    name: f.name.trim() === '' ? 'Give the key a name, so you can tell it apart later.' : null,
+    scopes: f.scopes.length === 0 ? 'Pick at least one scope.' : null,
+    rateLimit:
+      f.rateLimit.trim() === '' || !Number.isInteger(rate) || rate < 1
+        ? 'Use a whole number of requests, 1 or more.'
+        : null,
+  };
 }
 
 function CreateKeyDialog({
@@ -144,22 +186,44 @@ function CreateKeyDialog({
   onIssued: (k: IssuedKey) => void;
 }) {
   const create = useCreateApiKey();
-  const [name, setName] = useState('');
-  const [scopes, setScopes] = useState<KeyScope[]>(['upload', 'read']);
-  const [rateLimit, setRateLimit] = useState('100');
+  const [form, setForm] = useState<KeyForm>({
+    name: '',
+    scopes: DEFAULT_SCOPES,
+    rateLimit: DEFAULT_RATE,
+  });
+  // errors show once a field was left or a submit was tried, not while typing the first letter
+  const [touched, setTouched] = useState<Partial<Record<keyof KeyForm, boolean>>>({});
+  const [wasOpen, setWasOpen] = useState(open);
+
+  // every open starts from the defaults, not from the last key's scopes
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setForm({ name: '', scopes: DEFAULT_SCOPES, rateLimit: DEFAULT_RATE });
+      setTouched({});
+    }
+  }
+
+  const errors = keyFormErrors(form);
+  const shownError = (field: keyof KeyForm) => (touched[field] ? errors[field] : null);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (errors.name || errors.scopes || errors.rateLimit) {
+      setTouched({ name: true, scopes: true, rateLimit: true });
+      const first = errors.name ? 'key-name' : errors.scopes ? 'scope-upload' : 'key-rate';
+      document.getElementById(first)?.focus();
+      return;
+    }
     try {
       const issued = await create.mutateAsync({
-        name: name.trim(),
-        scopes,
-        rate_limit: Number(rateLimit),
+        name: form.name.trim(),
+        scopes: form.scopes,
+        rate_limit: Number(form.rateLimit),
       });
       // the secret now lives only in the dialog that shows it once
       create.reset();
       onOpenChange(false);
-      setName('');
       onIssued(issued);
     } catch {
       // shown in the dialog, next to what the user can change
@@ -171,13 +235,10 @@ function CreateKeyDialog({
     onOpenChange(o);
   };
 
-  const rate = Number(rateLimit);
-  const valid = name.trim() !== '' && scopes.length > 0 && Number.isInteger(rate) && rate > 0;
-
   return (
     <Dialog open={open} onOpenChange={close}>
       <DialogContent>
-        <form onSubmit={submit} className="flex flex-col gap-4">
+        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <DialogHeader>
             <DialogTitle>Create API key</DialogTitle>
             <DialogDescription>
@@ -185,29 +246,38 @@ function CreateKeyDialog({
             </DialogDescription>
           </DialogHeader>
           <FieldGroup>
-            <Field>
+            <Field data-invalid={!!shownError('name') || undefined}>
               <FieldLabel htmlFor="key-name">Name</FieldLabel>
               <Input
                 id="key-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                onBlur={() => setTouched((t) => ({ ...t, name: true }))}
                 placeholder="production web app"
                 maxLength={100}
+                aria-invalid={!!shownError('name') || undefined}
+                aria-describedby={shownError('name') ? 'key-name-error' : undefined}
                 autoFocus
               />
+              <FieldError id="key-name-error">{shownError('name')}</FieldError>
             </Field>
-            <FieldSet>
+            <FieldSet data-invalid={!!shownError('scopes') || undefined}>
               <FieldLegend variant="label">Scopes</FieldLegend>
               {SCOPES.map((s) => (
                 <Field key={s.value} orientation="horizontal">
                   <Checkbox
                     id={`scope-${s.value}`}
-                    checked={scopes.includes(s.value)}
-                    onCheckedChange={(on) =>
-                      setScopes((prev) =>
-                        on === true ? [...prev, s.value] : prev.filter((x) => x !== s.value),
-                      )
-                    }
+                    checked={form.scopes.includes(s.value)}
+                    onCheckedChange={(on) => {
+                      setTouched((t) => ({ ...t, scopes: true }));
+                      setForm((f) => ({
+                        ...f,
+                        scopes:
+                          on === true
+                            ? [...f.scopes, s.value]
+                            : f.scopes.filter((x) => x !== s.value),
+                      }));
+                    }}
                   />
                   <Label htmlFor={`scope-${s.value}`} className="font-normal">
                     <span className="font-mono">{s.label}</span>
@@ -215,18 +285,25 @@ function CreateKeyDialog({
                   </Label>
                 </Field>
               ))}
+              <FieldError>{shownError('scopes')}</FieldError>
             </FieldSet>
-            <Field>
+            <Field data-invalid={!!shownError('rateLimit') || undefined}>
               <FieldLabel htmlFor="key-rate">Rate limit</FieldLabel>
               <Input
                 id="key-rate"
                 type="number"
+                inputMode="numeric"
                 min={1}
-                value={rateLimit}
-                onChange={(e) => setRateLimit(e.target.value)}
+                step={1}
+                value={form.rateLimit}
+                onChange={(e) => setForm((f) => ({ ...f, rateLimit: e.target.value }))}
+                onBlur={() => setTouched((t) => ({ ...t, rateLimit: true }))}
+                aria-invalid={!!shownError('rateLimit') || undefined}
+                aria-describedby="key-rate-help"
                 className="w-32"
               />
-              <FieldDescription>Requests per minute.</FieldDescription>
+              <FieldDescription id="key-rate-help">Requests per minute.</FieldDescription>
+              <FieldError>{shownError('rateLimit')}</FieldError>
             </Field>
           </FieldGroup>
           {create.isError && (
@@ -242,8 +319,9 @@ function CreateKeyDialog({
             <Button type="button" variant="outline" onClick={() => close(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid || create.isPending}>
-              Create key
+            <Button type="submit" disabled={create.isPending}>
+              {create.isPending && <ButtonSpinner />}
+              {create.isPending ? 'Creating...' : 'Create key'}
             </Button>
           </DialogFooter>
         </form>
@@ -262,7 +340,14 @@ function RotateDialog({
   onIssued: (k: IssuedKey) => void;
 }) {
   const rotate = useRotateApiKey();
+  const open = target !== null;
+  const shown = useFrozen(target, open);
   const [grace, setGrace] = useState('0');
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setGrace('0');
+  }
 
   const confirm = async () => {
     if (!target) return;
@@ -283,16 +368,16 @@ function RotateDialog({
         onClose();
         toast.error(`${target.name} was already rotated; rotate its replacement instead`);
       } else {
-        toast.error(`Could not rotate: ${err instanceof Error ? err.message : String(err)}`);
+        toast.error(`Could not rotate ${target.name}: ${errorText(err)}`);
       }
     }
   };
 
   return (
-    <Dialog open={target !== null} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && !rotate.isPending && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Rotate {target?.name}</DialogTitle>
+          <DialogTitle>Rotate {shown?.name}</DialogTitle>
           <DialogDescription>
             A new secret is issued with the same scopes and rate limit. Keep the old one working for
             a while if deployments still use it.
@@ -300,7 +385,7 @@ function RotateDialog({
         </DialogHeader>
         <Field>
           <FieldLabel htmlFor="rotate-grace">Old key stops working</FieldLabel>
-          <Select value={grace} onValueChange={setGrace}>
+          <Select value={grace} onValueChange={setGrace} disabled={rotate.isPending}>
             <SelectTrigger id="rotate-grace" className="w-48">
               <SelectValue />
             </SelectTrigger>
@@ -314,17 +399,36 @@ function RotateDialog({
           </Select>
         </Field>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={rotate.isPending}>
             Cancel
           </Button>
           <Button onClick={() => void confirm()} disabled={rotate.isPending}>
-            <RefreshCw />
-            Rotate key
+            {rotate.isPending ? <ButtonSpinner /> : <RefreshCw />}
+            {rotate.isPending ? 'Rotating...' : 'Rotate key'}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+function KeyStatus({ k }: { k: ApiKeyRecord }) {
+  if (k.pending) {
+    return (
+      <Badge variant="secondary">
+        <ButtonSpinner />
+        Creating
+      </Badge>
+    );
+  }
+  if (k.expires_at) {
+    return (
+      <Badge variant="warning" title={new Date(k.expires_at).toLocaleString()}>
+        Expires {formatTimeLeft(k.expires_at)}
+      </Badge>
+    );
+  }
+  return <Badge variant="success">Active</Badge>;
 }
 
 function ApiKeysCard() {
@@ -333,6 +437,7 @@ function ApiKeysCard() {
   const [creating, setCreating] = useState(false);
   const [rotating, setRotating] = useState<ApiKeyRecord | null>(null);
   const [revoking, setRevoking] = useState<ApiKeyRecord | null>(null);
+  const shownRevoke = useFrozen(revoking, revoking !== null);
   const [issued, setIssued] = useState<IssuedKey | null>(null);
   const rows = keys.data?.data ?? [];
 
@@ -340,11 +445,12 @@ function ApiKeysCard() {
     const target = revoking;
     setRevoking(null);
     if (!target) return;
+    // the row leaves at once; a failure puts it back and says why
     try {
       await revoke.mutateAsync(target.id);
-      toast.success(`Revoked ${target.name}`);
+      toast.success(`Revoked ${target.name}. Requests with it now fail.`);
     } catch (err) {
-      toast.error(`Could not revoke: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`Could not revoke ${target.name}: ${errorText(err)}`);
     }
   };
 
@@ -362,7 +468,11 @@ function ApiKeysCard() {
       </CardHeader>
       <CardContent className="px-0">
         {keys.isLoading ? (
-          <Skeleton className="mx-4 h-24" />
+          <div className="flex flex-col gap-2 px-4" aria-hidden="true">
+            <Skeleton className="h-9" />
+            <Skeleton className="h-12" />
+            <Skeleton className="h-12" />
+          </div>
         ) : keys.isError ? (
           <Alert variant="destructive" className="mx-4 w-auto">
             <AlertTriangle />
@@ -380,7 +490,7 @@ function ApiKeysCard() {
             </EmptyHeader>
           </Empty>
         ) : (
-          <Table>
+          <ResponsiveTable className="max-sm:[&_tbody>tr]:px-4">
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-4">Name</TableHead>
@@ -391,18 +501,31 @@ function ApiKeysCard() {
                 <TableHead className="pr-4 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
+            <AnimatedList as="tbody" data-slot="table-body" className="[&_tr:last-child]:border-0">
               {rows.map((k) => (
-                <TableRow key={k.id}>
-                  <TableCell className="pl-4">
-                    <div className="font-medium break-words">{k.name}</div>
-                    {/* the secret is stored only as a hash, so the id is what tells
-                        a rotated pair apart */}
-                    <div className="font-mono text-xs text-muted-foreground" title={k.id}>
-                      id {k.id.slice(0, 8)}
+                <AnimatedItem
+                  key={k.id}
+                  as="tr"
+                  data-slot="table-row"
+                  aria-busy={k.pending || undefined}
+                  className="border-b transition-colors hover:bg-muted/50"
+                >
+                  <ResponsiveCell cell="primary" className="pl-4">
+                    <div className="min-w-0">
+                      <div className="font-medium break-words">{k.name}</div>
+                      {/* the secret is stored only as a hash, so the id is what tells
+                          a rotated pair apart */}
+                      {!k.pending && (
+                        <div
+                          className="font-mono text-xs font-normal text-muted-foreground"
+                          title={k.id}
+                        >
+                          id {k.id.slice(0, 8)}
+                        </div>
+                      )}
                     </div>
-                  </TableCell>
-                  <TableCell>
+                  </ResponsiveCell>
+                  <ResponsiveCell label="Scopes">
                     <div className="flex flex-wrap gap-1">
                       {k.scopes.map((s) => (
                         <Badge key={s} variant="secondary" className="font-mono">
@@ -410,45 +533,52 @@ function ApiKeysCard() {
                         </Badge>
                       ))}
                     </div>
-                  </TableCell>
-                  <TableCell className="hidden tabular-nums sm:table-cell">
+                  </ResponsiveCell>
+                  <ResponsiveCell label="Rate limit" className="hidden tabular-nums sm:table-cell">
                     {k.rate_limit}/min
-                  </TableCell>
-                  <TableCell className="hidden text-muted-foreground md:table-cell">
+                  </ResponsiveCell>
+                  <ResponsiveCell
+                    label="Created"
+                    className="hidden text-muted-foreground md:table-cell"
+                  >
                     <span title={formatDate(k.created_at)}>{formatRelativeTime(k.created_at)}</span>
-                  </TableCell>
-                  <TableCell>
-                    {k.expires_at ? (
-                      <Badge variant="warning" title={new Date(k.expires_at).toLocaleString()}>
-                        Expires {formatTimeLeft(k.expires_at)}
-                      </Badge>
-                    ) : (
-                      <Badge variant="success">Active</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="pr-4 text-right">
+                  </ResponsiveCell>
+                  <ResponsiveCell label="Status">
+                    <KeyStatus k={k} />
+                  </ResponsiveCell>
+                  <ResponsiveCell cell="actions" className="pr-4 text-right">
                     <div className="flex justify-end gap-1">
                       {!k.expires_at && (
-                        <Button variant="ghost" size="sm" onClick={() => setRotating(k)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={k.pending}
+                          aria-label={`Rotate ${k.name}`}
+                          title="Rotate"
+                          onClick={() => setRotating(k)}
+                        >
                           <RefreshCw />
-                          Rotate
+                          <span className="max-sm:sr-only">Rotate</span>
                         </Button>
                       )}
                       <Button
                         variant="ghost"
                         size="sm"
                         className="text-destructive"
+                        disabled={k.pending}
+                        aria-label={`Revoke ${k.name}`}
+                        title="Revoke"
                         onClick={() => setRevoking(k)}
                       >
                         <Trash2 />
-                        Revoke
+                        <span className="max-sm:sr-only">Revoke</span>
                       </Button>
                     </div>
-                  </TableCell>
-                </TableRow>
+                  </ResponsiveCell>
+                </AnimatedItem>
               ))}
-            </TableBody>
-          </Table>
+            </AnimatedList>
+          </ResponsiveTable>
         )}
       </CardContent>
 
@@ -458,7 +588,7 @@ function ApiKeysCard() {
       <AlertDialog open={revoking !== null} onOpenChange={(o) => !o && setRevoking(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Revoke {revoking?.name}?</AlertDialogTitle>
+            <AlertDialogTitle>Revoke {shownRevoke?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
               Requests with this key start failing right away. This cannot be undone.
             </AlertDialogDescription>
@@ -491,19 +621,20 @@ function SessionsCard() {
         loadPage('/studio');
         return;
       }
-      toast.success('Session ended');
+      toast.success('Session ended. That browser has to sign in again.');
     } catch (err) {
-      toast.error(`Could not end the session: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`Could not end the session: ${errorText(err)}`);
     }
   };
 
   const endAll = async () => {
-    setConfirmAll(false);
     try {
       await revokeAll.mutateAsync();
+      setConfirmAll(false);
       loadPage('/studio');
     } catch (err) {
-      toast.error(`Could not sign out: ${err instanceof Error ? err.message : String(err)}`);
+      setConfirmAll(false);
+      toast.error(`Could not sign out: ${errorText(err)}`);
     }
   };
 
@@ -520,7 +651,7 @@ function SessionsCard() {
           <CardAction>
             <Button variant="outline" size="sm" onClick={() => setConfirmAll(true)}>
               <LogOut />
-              Sign out everywhere
+              <span className="max-sm:sr-only">Sign out everywhere</span>
             </Button>
           </CardAction>
         )}
@@ -528,7 +659,10 @@ function SessionsCard() {
       {!session.authDisabled && (
         <CardContent className="px-0">
           {sessions.isLoading ? (
-            <Skeleton className="mx-4 h-16" />
+            <div className="flex flex-col gap-2 px-4" aria-hidden="true">
+              <Skeleton className="h-9" />
+              <Skeleton className="h-12" />
+            </div>
           ) : sessions.isError ? (
             <Alert variant="destructive" className="mx-4 w-auto">
               <AlertTriangle />
@@ -536,7 +670,7 @@ function SessionsCard() {
               <AlertDescription>{sessions.error.message}</AlertDescription>
             </Alert>
           ) : (
-            <Table>
+            <ResponsiveTable className="max-sm:[&_tbody>tr]:px-4">
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">Browser</TableHead>
@@ -545,46 +679,75 @@ function SessionsCard() {
                   <TableHead className="pr-4 text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {rows.map((s) => (
-                  <TableRow key={s.id}>
-                    <TableCell className="max-w-[280px] pl-4">
-                      <div className="flex items-center gap-2">
-                        <Monitor className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate text-xs" title={s.user_agent ?? undefined}>
-                          {s.user_agent ?? 'Unknown browser'}
-                        </span>
-                        {s.current && <Badge variant="secondary">This browser</Badge>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden text-muted-foreground md:table-cell">
-                      <span title={formatDate(s.created_at)}>
-                        {formatRelativeTime(s.created_at)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="hidden text-muted-foreground sm:table-cell">
-                      {formatTimeLeft(s.expires_at)}
-                    </TableCell>
-                    <TableCell className="pr-4 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive"
-                        disabled={revoke.isPending}
-                        onClick={() => void end(s.id, s.current)}
+              <AnimatedList
+                as="tbody"
+                data-slot="table-body"
+                className="[&_tr:last-child]:border-0"
+              >
+                {rows.map((s) => {
+                  const ending = revoke.isPending && revoke.variables === s.id;
+                  return (
+                    <AnimatedItem
+                      key={s.id}
+                      as="tr"
+                      data-slot="table-row"
+                      className="border-b transition-colors hover:bg-muted/50"
+                    >
+                      <ResponsiveCell
+                        cell="primary"
+                        className="max-w-[280px] pl-4 max-sm:max-w-none"
                       >
-                        <LogOut />
-                        {s.current ? 'Sign out' : 'End'}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <Monitor className="size-4 shrink-0 text-muted-foreground" />
+                          <span
+                            className="min-w-0 truncate text-xs font-normal"
+                            title={s.user_agent ?? undefined}
+                          >
+                            {s.user_agent ?? 'Unknown browser'}
+                          </span>
+                          {s.current && <Badge variant="secondary">This browser</Badge>}
+                        </div>
+                      </ResponsiveCell>
+                      <ResponsiveCell
+                        label="Signed in"
+                        className="hidden text-muted-foreground md:table-cell"
+                      >
+                        <span title={formatDate(s.created_at)}>
+                          {formatRelativeTime(s.created_at)}
+                        </span>
+                      </ResponsiveCell>
+                      <ResponsiveCell
+                        label="Expires"
+                        className="hidden text-muted-foreground sm:table-cell"
+                      >
+                        {formatTimeLeft(s.expires_at)}
+                      </ResponsiveCell>
+                      <ResponsiveCell cell="actions" className="pr-4 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                          disabled={ending}
+                          onClick={() => void end(s.id, s.current)}
+                        >
+                          {ending ? <ButtonSpinner /> : <LogOut />}
+                          {s.current ? 'Sign out' : 'End'}
+                        </Button>
+                      </ResponsiveCell>
+                    </AnimatedItem>
+                  );
+                })}
+              </AnimatedList>
+            </ResponsiveTable>
           )}
         </CardContent>
       )}
-      <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>
+      <AlertDialog
+        open={confirmAll}
+        onOpenChange={(o) => {
+          if (!revokeAll.isPending) setConfirmAll(o);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Sign out everywhere?</AlertDialogTitle>
@@ -594,9 +757,18 @@ function SessionsCard() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => void endAll()}>
-              Sign out everywhere
+            <AlertDialogCancel disabled={revokeAll.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={revokeAll.isPending}
+              onClick={(e) => {
+                // stay open with a spinner until the server answered
+                e.preventDefault();
+                void endAll();
+              }}
+            >
+              {revokeAll.isPending && <ButtonSpinner />}
+              {revokeAll.isPending ? 'Signing out...' : 'Sign out everywhere'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
