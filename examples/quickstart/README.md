@@ -30,7 +30,7 @@ Open the printed URL, pick a video, and follow the flow. Every field in the form
 
 An API key in the page is for local development only. Playback needs none: leave the key empty, enter an asset id or `pb_` playback id and press Play, and a public asset plays from its stream URL (`client.playback.streamUrl`), straight from Sia when a viewer identity is set. A private asset plays from a signed URL minted by a server that holds a key: paste it into the playback URL field, or point the API base URL at a signing server such as the plain JavaScript example's `server/signing-server.mjs` and tick "signed URL". Uploading, deleting and minting signed URLs still need a key.
 
-To verify cross-browser playback and recovery (Chrome, Firefox, Safari), open the same URL in each browser after the asset is ready.
+The player's browser tests (`npm run test:browser --workspace=@sluby/player`) play real HLS in Chromium, Firefox and WebKit through Playwright. Playwright's WebKit uses Media Source Extensions, so Safari's native HLS path, the one iPhones without ManagedMediaSource take, is not covered by them; open this example in Safari on such a device to check it by hand.
 
 ## Direct-from-Sia playback (optional)
 

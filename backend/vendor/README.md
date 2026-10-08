@@ -23,8 +23,8 @@ The module has to match the `@siafoundation/sia-storage` version the backend ins
 ```sh
 git clone --depth 1 --branch sia_storage_napi/v0.10.1 https://github.com/SiaFoundation/sia-sdk-rs
 cd sia-sdk-rs
-# in UploadOptions::validate()
-sed -i 's/const RECOVERY_PROBABILITY: f64 = 0.75;/const RECOVERY_PROBABILITY: f64 = 0.90;/' sia_storage/src/lib.rs
+# in UploadOptions::validate(); perl -pi works with both gnu and bsd (macos) tools
+perl -pi -e 's/const RECOVERY_PROBABILITY: f64 = 0\.75;/const RECOVERY_PROBABILITY: f64 = 0.90;/' sia_storage/src/lib.rs
 docker run --rm --platform linux/amd64 -v "$PWD:/src" -w /src rust:1-trixie \
   cargo build --release -p sia_storage_napi
 mkdir -p /path/to/Sluby/backend/vendor/sia-storage-linux-x64-gnu
