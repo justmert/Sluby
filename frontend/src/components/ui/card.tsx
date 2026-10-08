@@ -35,9 +35,16 @@ function CardHeader({ className, ...props }: React.ComponentProps<'div'>) {
 // the size comes from the card as a variable instead of a group-data
 // variant: a variant selector outranks a page's plain text-2xl and
 // tailwind-merge cannot drop it, so stat values came out at 14px
-function CardTitle({ className, ...props }: React.ComponentProps<'div'>) {
+// a heading (h2 by default) so screen readers can jump between cards; pass
+// as="h3" under a section heading, or as="p" when the title is not a heading
+// (a stat card's figure)
+function CardTitle({
+  className,
+  as: Comp = 'h2',
+  ...props
+}: React.ComponentProps<'h2'> & { as?: 'h2' | 'h3' | 'h4' | 'p' | 'div' }) {
   return (
-    <div
+    <Comp
       data-slot="card-title"
       className={cn(
         'font-heading text-(length:--card-title-size) leading-6 font-semibold tracking-tight',

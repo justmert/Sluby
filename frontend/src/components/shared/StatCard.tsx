@@ -71,7 +71,7 @@ export function StatCard({
           <Icon className="size-4 shrink-0" aria-hidden="true" />
           <span className="truncate">{label}</span>
         </CardDescription>
-        <CardTitle>
+        <CardTitle as="p">
           <FadeSwap swapKey={loading ? 'loading' : 'ready'}>
             {loading ? (
               <StatValue value={undefined} className={lateReveal} />

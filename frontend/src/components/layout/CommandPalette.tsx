@@ -13,7 +13,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from '@/components/ui/command';
 import { Spinner } from '@/components/ui/spinner';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -207,7 +206,7 @@ function PaletteBody({ close }: { close: () => void }) {
         onValueChange={setTerm}
         placeholder="Search videos, pages and actions…"
       />
-      <CommandList className="max-h-[min(24rem,60svh)]">
+      <CommandList className="max-h-[min(24rem,calc(100svh-8rem))]">
         <CommandEmpty>Nothing matches “{term.trim()}”.</CommandEmpty>
         {shownPages.length > 0 && (
           <CommandGroup heading="Pages">
@@ -218,14 +217,12 @@ function PaletteBody({ close }: { close: () => void }) {
         )}
         <Videos term={term} found={found} open={open} />
         {shownActions.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Actions">
-              {shownActions.map((e) => (
-                <EntryItem key={e.id} entry={e} />
-              ))}
-            </CommandGroup>
-          </>
+          // a border, not a CommandSeparator: a listbox may not own a separator
+          <CommandGroup heading="Actions" className="border-t">
+            {shownActions.map((e) => (
+              <EntryItem key={e.id} entry={e} />
+            ))}
+          </CommandGroup>
         )}
       </CommandList>
       <div
@@ -270,8 +267,11 @@ export function CommandPalette() {
         className="size-8 justify-start gap-2 p-0 text-muted-foreground max-md:justify-center md:w-44 md:px-2.5 xl:w-60"
       >
         <Search />
-        <span className="hidden flex-1 text-left font-normal md:inline">Search…</span>
-        <Kbd className="hidden md:inline-flex">{mac ? '⌘K' : 'Ctrl K'}</Kbd>
+        <span className="hidden flex-1 text-left font-normal md:inline">Search</span>
+        {/* the shortcut is exposed through aria-keyshortcuts */}
+        <Kbd aria-hidden="true" className="hidden md:inline-flex">
+          {mac ? '⌘K' : 'Ctrl K'}
+        </Kbd>
       </Button>
       <CommandDialog
         open={open}

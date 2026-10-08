@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -45,6 +45,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.title = title;
   }, [title]);
+
+  // after a navigation, focus moves to the new page, so the next Tab starts
+  // there instead of back at the skip link. a sidebar link keeps its focus.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const active = document.activeElement;
+    if (
+      active &&
+      active !== document.body &&
+      active.isConnected &&
+      active.closest('[data-sidebar=sidebar]')
+    ) {
+      return;
+    }
+    document.getElementById(MAIN_ID)?.focus({ preventScroll: true });
+  }, [pathname]);
 
   return (
     <SidebarProvider open={open} onOpenChange={setOpen}>

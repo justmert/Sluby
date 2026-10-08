@@ -52,47 +52,50 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {items.map((item) => {
-                const active = isActive(pathname, item.path);
-                return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={active}
-                      tooltip={item.label}
-                      // the highlight is the sliding pill below, not the button's own background
-                      className="relative isolate data-active:bg-transparent data-active:hover:bg-sidebar-accent"
-                    >
-                      <NavLink
-                        to={item.path}
-                        onClick={closeMobile}
-                        // fetch the page's code while the pointer is on its way
-                        onPointerEnter={() => preloadPage(item.path)}
-                        onFocus={() => preloadPage(item.path)}
+        {/* the nav landmark, so screen readers can jump to it */}
+        <nav aria-label="Studio">
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {items.map((item) => {
+                  const active = isActive(pathname, item.path);
+                  return (
+                    <SidebarMenuItem key={item.path}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={active}
+                        tooltip={item.label}
+                        // the highlight is the sliding pill below, not the button's own background
+                        className="relative isolate data-active:bg-transparent data-active:hover:bg-sidebar-accent"
                       >
-                        {active && (
-                          <m.span
-                            layoutId="sidebar-active"
-                            // measure only on navigation, so collapsing the sidebar does not slide it
-                            layoutDependency={pathname}
-                            transition={spring}
-                            aria-hidden="true"
-                            className="absolute inset-0 -z-10 rounded-md bg-sidebar-accent"
-                          />
-                        )}
-                        <item.icon />
-                        <span>{item.label}</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                        <NavLink
+                          to={item.path}
+                          onClick={closeMobile}
+                          // fetch the page's code while the pointer is on its way
+                          onPointerEnter={() => preloadPage(item.path)}
+                          onFocus={() => preloadPage(item.path)}
+                        >
+                          {active && (
+                            <m.span
+                              layoutId="sidebar-active"
+                              // measure only on navigation, so collapsing the sidebar does not slide it
+                              layoutDependency={pathname}
+                              transition={spring}
+                              aria-hidden="true"
+                              className="absolute inset-0 -z-10 rounded-md bg-sidebar-accent"
+                            />
+                          )}
+                          <item.icon />
+                          <span>{item.label}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </nav>
       </SidebarContent>
       <SidebarRail />
     </Sidebar>
