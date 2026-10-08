@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthenticationError, NotFoundError, SlubyError } from '@sluby/sdk';
-import { apiClient, ApiError, statusOf } from './api-client';
+import {
+  apiClient,
+  ApiError,
+  parseRetryAfter,
+  RequestTimeoutError,
+  retryAfterOf,
+  statusOf,
+} from './api-client';
 
 function respond(status: number, body: unknown, contentType = 'application/json') {
   return new Response(
@@ -75,6 +82,66 @@ describe('apiClient', () => {
     );
     const err = await apiClient.get('/auth/me').catch((e: unknown) => e);
     expect(err).toMatchObject({ status: 502, message: 'HTTP 502' });
+  });
+});
+
+describe('apiClient limits', () => {
+  it('reads Retry-After from a 429', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
+          status: 429,
+          headers: { 'content-type': 'application/json', 'Retry-After': '7' },
+        }),
+      ),
+    );
+    const err = await apiClient.post('/keys', {}).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 429, retryAfter: 7 });
+    expect(retryAfterOf(err)).toBe(7);
+  });
+
+  it('gives up with a timeout error when no answer comes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal!.addEventListener('abort', () => reject(init.signal!.reason));
+          }),
+      ),
+    );
+    const err = await apiClient.get('/stats', { timeoutMs: 20 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RequestTimeoutError);
+    expect(statusOf(err)).toBeUndefined();
+  });
+
+  it('passes a caller abort through as an abort, not a timeout', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal!.addEventListener('abort', () => reject(init.signal!.reason));
+          }),
+      ),
+    );
+    const controller = new AbortController();
+    const pending = apiClient.get('/stats', { signal: controller.signal }).catch((e: unknown) => e);
+    controller.abort();
+    const err = await pending;
+    expect(err).not.toBeInstanceOf(RequestTimeoutError);
+    expect((err as Error).name).toBe('AbortError');
+  });
+});
+
+describe('parseRetryAfter', () => {
+  it('reads seconds and http dates', () => {
+    expect(parseRetryAfter('12')).toBe(12);
+    expect(parseRetryAfter(null)).toBeUndefined();
+    expect(parseRetryAfter('soon')).toBeUndefined();
+    const at = new Date(Date.now() + 60_000).toUTCString();
+    expect(parseRetryAfter(at)).toBeGreaterThanOrEqual(58);
   });
 });
 
