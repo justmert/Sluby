@@ -7,14 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { ResponsiveCell, ResponsiveTable } from '@/components/ui/responsive-table';
+import { TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Collapse } from '@/components/motion';
 import type { ObjectRole, SiaStorageInfo } from '@/hooks/asset-detail-queries';
 import { formatBytes, truncateMiddle } from '@/lib/formatters';
 import { EXTERNAL_LINK_PROPS, explorerFor } from '@/lib/sia-explorer';
@@ -27,6 +22,7 @@ const ROLE_LABELS: Record<ObjectRole, string> = {
 };
 
 const HOSTS_SHOWN = 12;
+const COUNTRIES_SHOWN = 8;
 // every sector on a host is 4 MiB, and a slab holds one sector per shard
 const SECTOR_BYTES = 4 * 1024 * 1024;
 
@@ -64,19 +60,37 @@ export function SiaStorageBreakdown({
   error: Error | null;
 }) {
   const [showAllHosts, setShowAllHosts] = useState(false);
+  const [showAllCountries, setShowAllCountries] = useState(false);
 
   if (isLoading) {
+    // the same cards as the answer, so nothing below moves when it lands
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Sia storage</CardTitle>
-          <CardDescription>Asking the indexer about every object...</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-48 w-full" />
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-4" data-testid="sia-storage-skeleton">
+        <Card>
+          <CardHeader>
+            <CardTitle>Sia storage</CardTitle>
+            <CardDescription>Asking the indexer about every object...</CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {Array.from({ length: 8 }, (_, i) => (
+              <Skeleton key={i} className="h-20 w-full rounded-lg" />
+            ))}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Objects</CardTitle>
+            <CardDescription>
+              Every Sia object behind this video. Objects uploaded together share slabs.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </CardContent>
+        </Card>
+      </div>
     );
   }
   if (error || !info) {
@@ -91,7 +105,6 @@ export function SiaStorageBreakdown({
 
   const t = info.totals;
   const explorer = explorerFor(info.indexer.network);
-  const hosts = showAllHosts ? info.hosts : info.hosts.slice(0, HOSTS_SHOWN);
   const maxCountrySectors = Math.max(1, ...info.countries.map((c) => c.sectors));
   // shard counts are null both when no slab was described and when slabs disagree
   const described = t.unique_slab_count > 0;
@@ -169,7 +182,7 @@ export function SiaStorageBreakdown({
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
-          <Table>
+          <ResponsiveTable className="max-sm:px-4">
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-4">Object</TableHead>
@@ -183,17 +196,21 @@ export function SiaStorageBreakdown({
             <TableBody>
               {info.objects.map((o) => (
                 <TableRow key={o.object_id}>
-                  <TableCell className="pl-4">
+                  <ResponsiveCell cell="primary" className="pl-4">
                     <span className="font-medium">{o.role ? ROLE_LABELS[o.role] : 'Object'}</span>
                     {o.rendition && (
-                      <span className="ml-1.5 text-muted-foreground">{o.rendition}</span>
+                      <span className="ml-1.5 font-normal text-muted-foreground">
+                        {o.rendition}
+                      </span>
                     )}
-                  </TableCell>
-                  <TableCell>
+                  </ResponsiveCell>
+                  <ResponsiveCell label="Object ID">
                     <ObjectIdBadge value={o.object_id} truncate={6} />
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{formatBytes(o.size)}</TableCell>
-                  <TableCell className="text-right tabular-nums">
+                  </ResponsiveCell>
+                  <ResponsiveCell label="Size" className="text-right tabular-nums">
+                    {formatBytes(o.size)}
+                  </ResponsiveCell>
+                  <ResponsiveCell label="Slabs" className="text-right tabular-nums">
                     {o.slab_count}
                     {o.shared_slab_count > 0 && (
                       <Badge
@@ -204,13 +221,17 @@ export function SiaStorageBreakdown({
                         {o.shared_slab_count} shared
                       </Badge>
                     )}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{o.sector_count}</TableCell>
-                  <TableCell className="pr-4 text-right tabular-nums">{o.host_count}</TableCell>
+                  </ResponsiveCell>
+                  <ResponsiveCell label="Sectors" className="text-right tabular-nums">
+                    {o.sector_count}
+                  </ResponsiveCell>
+                  <ResponsiveCell label="Hosts" className="pr-4 text-right tabular-nums">
+                    {o.host_count}
+                  </ResponsiveCell>
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </ResponsiveTable>
         </CardContent>
       </Card>
 
@@ -223,30 +244,17 @@ export function SiaStorageBreakdown({
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-1">
-            {hosts.map((h) => (
-              <div key={h.public_key} className="flex items-center justify-between gap-3 text-sm">
-                <a
-                  href={explorer.host(h.public_key)}
-                  {...EXTERNAL_LINK_PROPS}
-                  className="flex min-w-0 items-center gap-1.5 font-mono text-xs hover:underline"
-                  title={h.public_key}
-                >
-                  {shortKey(h.public_key)}
-                  <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
-                </a>
-                <span className="flex items-center gap-3 text-muted-foreground">
-                  <span>{h.country_code ? countryName(h.country_code) : 'unknown'}</span>
-                  <span className="w-16 text-right tabular-nums">
-                    {h.sectors} sector{h.sectors === 1 ? '' : 's'}
-                  </span>
-                </span>
-              </div>
-            ))}
+            <HostRows hosts={info.hosts.slice(0, HOSTS_SHOWN)} explorer={explorer} />
+            <Collapse open={showAllHosts} id="more-hosts" className="flex flex-col gap-1">
+              <HostRows hosts={info.hosts.slice(HOSTS_SHOWN)} explorer={explorer} />
+            </Collapse>
             {info.hosts.length > HOSTS_SHOWN && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="mt-2 self-start"
+                aria-expanded={showAllHosts}
+                aria-controls="more-hosts"
                 onClick={() => setShowAllHosts((v) => !v)}
               >
                 {showAllHosts ? 'Show fewer' : `Show all ${info.hosts.length} hosts`}
@@ -266,20 +274,36 @@ export function SiaStorageBreakdown({
                 The indexer did not report host locations.
               </p>
             ) : (
-              info.countries.map((c) => (
-                <div key={c.country_code} className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>{countryName(c.country_code)}</span>
-                    <span className="text-muted-foreground tabular-nums">
-                      {plural(c.sectors, 'sector')}, {plural(c.hosts, 'host')}
-                    </span>
-                  </div>
-                  <Progress
-                    value={(c.sectors / maxCountrySectors) * 100}
-                    aria-label={`${countryName(c.country_code)} share`}
+              <>
+                <CountryRows
+                  countries={info.countries.slice(0, COUNTRIES_SHOWN)}
+                  max={maxCountrySectors}
+                />
+                <Collapse
+                  open={showAllCountries}
+                  id="more-countries"
+                  className="flex flex-col gap-3"
+                >
+                  <CountryRows
+                    countries={info.countries.slice(COUNTRIES_SHOWN)}
+                    max={maxCountrySectors}
                   />
-                </div>
-              ))
+                </Collapse>
+                {info.countries.length > COUNTRIES_SHOWN && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="self-start"
+                    aria-expanded={showAllCountries}
+                    aria-controls="more-countries"
+                    onClick={() => setShowAllCountries((v) => !v)}
+                  >
+                    {showAllCountries
+                      ? 'Show fewer'
+                      : `Show all ${info.countries.length} countries`}
+                  </Button>
+                )}
+              </>
             )}
             {info.hosts.some((h) => !h.country_code) && (
               <p className="text-xs text-muted-foreground">
@@ -329,4 +353,45 @@ export function SiaStorageBreakdown({
       )}
     </div>
   );
+}
+
+type Explorer = ReturnType<typeof explorerFor>;
+
+function HostRows({ hosts, explorer }: { hosts: SiaStorageInfo['hosts']; explorer: Explorer }) {
+  return hosts.map((h) => (
+    <div key={h.public_key} className="flex items-center justify-between gap-3 text-sm">
+      <a
+        href={explorer.host(h.public_key)}
+        {...EXTERNAL_LINK_PROPS}
+        className="flex min-w-0 items-center gap-1.5 font-mono text-xs hover:underline"
+        title={h.public_key}
+      >
+        {shortKey(h.public_key)}
+        <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
+      </a>
+      <span className="flex items-center gap-3 text-muted-foreground">
+        <span>{h.country_code ? countryName(h.country_code) : 'unknown'}</span>
+        <span className="w-16 text-right tabular-nums">
+          {h.sectors} sector{h.sectors === 1 ? '' : 's'}
+        </span>
+      </span>
+    </div>
+  ));
+}
+
+function CountryRows({ countries, max }: { countries: SiaStorageInfo['countries']; max: number }) {
+  return countries.map((c) => (
+    <div key={c.country_code} className="flex flex-col gap-1">
+      <div className="flex items-center justify-between text-sm">
+        <span>{countryName(c.country_code)}</span>
+        <span className="text-muted-foreground tabular-nums">
+          {plural(c.sectors, 'sector')}, {plural(c.hosts, 'host')}
+        </span>
+      </div>
+      <Progress
+        value={(c.sectors / max) * 100}
+        aria-label={`${countryName(c.country_code)} share`}
+      />
+    </div>
+  ));
 }

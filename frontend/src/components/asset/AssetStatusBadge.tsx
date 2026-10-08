@@ -1,4 +1,5 @@
 import type { VideoAssetStatus } from '@sluby/sdk';
+import { StatusTransition } from '@/components/motion';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 
@@ -13,12 +14,24 @@ const CONFIG: Record<
   failed: { label: 'Failed', variant: 'destructive' },
 };
 
-export function AssetStatusBadge({ status }: { status: VideoAssetStatus }) {
+/**
+ * The asset's status as a badge that crossfades when a poll moves it on.
+ * `live` announces changes; give it to one badge per page, not every row.
+ */
+export function AssetStatusBadge({
+  status,
+  live = false,
+}: {
+  status: VideoAssetStatus;
+  live?: boolean;
+}) {
   const c = CONFIG[status] ?? { label: status, variant: 'secondary' as const };
   return (
-    <Badge variant={c.variant}>
-      {c.busy && <Spinner data-icon="inline-start" aria-hidden="true" />}
-      {c.label}
-    </Badge>
+    <StatusTransition status={status} live={live}>
+      <Badge variant={c.variant}>
+        {c.busy && <Spinner data-icon="inline-start" aria-hidden="true" />}
+        {c.label}
+      </Badge>
+    </StatusTransition>
   );
 }
