@@ -23,9 +23,9 @@ sequenceDiagram
   D->>D: delete their source files from UPLOAD_DIR and the transcode output
   D->>DB: collect object ids (artifacts, pending_objects and ids on video_assets)
   loop every object
-    D->>I: unpin (deleteObject; not found counts as unpinned)
-    D->>DB: remove its rows and ids
+    D->>I: unpin (deleteObject, not found counts as unpinned)
     D->>D: evict it from the object and tier caches
+    D->>DB: remove its rows and ids
   end
   D->>I: pruneSlabs (once no upload is in flight)
   alt every object unpinned
@@ -39,7 +39,7 @@ sequenceDiagram
 
 `DELETE /api/v1/assets/:id` (scope `manage`, SDK: `assets.delete`) sets `video_assets.deleted_at`, enqueues a `delete` job and answers `{ "success": true, "status": "deleting" }`. The update only matches a row that is owned by the caller and not already being deleted, so a second `DELETE` gets a 404. Cancelling an upload with a tus `DELETE` goes through the same function.
 
-From that moment every API read ignores the asset: lookups by id, listings and totals all filter on `deleted_at`. The delivery gateway resolves the asset's objects to `gone` and answers 404, as soon as the 60 second tier cache entry for an object expires or the worker evicts it, whichever comes first.
+From that moment every API read ignores the asset: lookups by id, listings and totals all filter on `deleted_at`. The delivery gateway resolves the asset's objects to `gone` and answers 404 at once in the backend process that handled the `DELETE`, which drops the asset's cached access state; another backend process notices within its 60 second cache. Copies the shipped nginx keeps are refused when it next revalidates them, within 60 seconds.
 
 ### The deletion worker
 
@@ -59,7 +59,7 @@ The same sweep cleans up after the pipeline. It marks for release the `pending_o
 
 - the `upload_sessions` row, right away: it stays, with `video_asset_id` null and its `metadata` cleared, so the hourly source sweep can still remove its file if the worker could not, and that sweep deletes the row once the file is gone (see [the source file's lifecycle](./upload-pipeline#the-source-file-s-lifecycle))
 - `webhook_deliveries` rows, and there is no webhook event for deletion
-- copies in nginx's `proxy_cache`: a manifest or thumbnail fetched before the delete can be served from it until the entry expires (60 seconds for manifests, up to a day for thumbnails); media ranges are never cached there
+- copies in nginx's `proxy_cache` right away: a manifest, playlist or thumbnail fetched before the delete can be served from it for at most 60 seconds, after which nginx revalidates and gets the 404; media ranges are never cached there
 - share URLs already handed to a player: Sluby does not track them, and they stay valid until they expire
 
 ### Sweep schedules
@@ -77,16 +77,16 @@ The reconciliation worker (`backend/src/reconcile`) checks that the database and
 ```mermaid
 flowchart TB
   subgraph db [PostgreSQL]
-    a[artifacts.object_id]
+    a["1. pending_objects,<br/>2. artifacts.object_id"]
     v["video_assets: manifest_object_id,<br/>thumbnail_object_ids, sia_object_ids"]
     copy[("indexer_objects<br/>reconcile_feed cursor")]
   end
   subgraph idx [Sia indexer]
     f["object event feed<br/>(one latest event per object)"]
   end
-  a -- "1. read first" --> dbset[Tracked ids]
+  a -- "read first" --> dbset[Tracked ids]
   v --> dbset
-  f -- "2. events after the saved cursor" --> copy
+  f -- "then events after the saved cursor" --> copy
   copy --> ixset[Indexer inventory]
   dbset --> diff{compare}
   ixset --> diff
@@ -102,7 +102,7 @@ flowchart TB
 How a run works:
 
 - **When.** A scheduled job every `RECONCILE_INTERVAL_MS` (one hour by default, off with `RECONCILE_ENABLED=false`; see [sweep schedules](#sweep-schedules)), and on demand with `POST /api/v1/reconciliation/run` (scope `manage`, platform identity or an operator only, since a run scans the whole deployment). Only one run is ever pending, see [one run at a time](#one-run-at-a-time).
-- **The database side** is every object id in `artifacts` plus the ids stored on `video_assets`, for every asset of every owner, including soft-deleted ones whose objects have not been unpinned yet. It is read first, before the indexer, so whatever an upload records or a deletion forgets while the run goes on shows up as a recent change on the indexer side.
+- **The database side** is every object id in `artifacts` plus the ids stored on `video_assets`, for every asset of every owner, including soft-deleted ones whose objects have not been unpinned yet, and the pipeline's `pending_objects` (see [objects of uploads in progress](#objects-of-uploads-in-progress)). It is read first, before the indexer, so whatever an upload records or a deletion forgets while the run goes on shows up as a recent change on the indexer side.
 - **The indexer side.** The SDK has no call that lists all objects. The indexer keeps one event per object, its latest pin or delete, and serves them as a feed (`objectEvents`) ordered by time and id after a cursor. The worker keeps a copy of that inventory in `indexer_objects` and the cursor it read up to in `reconcile_feed`, so a run reads only the events since the previous one, page by page (`RECONCILE_PAGE_SIZE`, at most the indexer's maximum of 500), applies each page together with the new cursor in one transaction, and stops on a page shorter than the limit. The saved cursor stays an hour behind the newest events: the indexer stamps an event with the start of its transaction, so an event can arrive after later-stamped ones were read, and re-reading the last hour on each run picks it up. The copy belongs to one indexer URL and account key; a run against another one starts it over from the start of the feed, as does the first run after an upgrade.
 - **The grace window.** Objects the indexer pinned or unpinned within the hour before the run started are work in progress, not drift: an upload pins its objects during the Sia upload stage, minutes before finalize records them, and a deletion unpins objects moments before it forgets them. They are left out of the orphan and missing lists (the worker logs how many), and the next run looks at them again. Deleted objects are kept in `indexer_objects` only for that hour.
 - **The result.** Ids in both are in sync. Ids only the indexer has are orphans: storage the account pays for that no asset references. Ids only the database has are missing: an object the database expects but the indexer does not report, which is the worrying case. The run is stored in `reconciliation_runs` with counts and the full id lists, with status `ok` when there is no drift and `drift` otherwise. Only the latest 100 runs are kept; each run deletes the ones before them.
@@ -139,6 +139,8 @@ Every run, manual or scheduled, is added to the `reconcile` queue under one Bull
 `POST /api/v1/reconciliation/run` answers 202 with `{ "enqueued": true, "already_pending": false }` when it queued a run, and with `{ "enqueued": false, "already_pending": true }` when a run was already waiting or running, in which case nothing is added.
 
 The repeatable schedule does not run a pass itself. Each tick enqueues a run through the same deduplicated add, so a tick that lands while a manual run is pending is dropped, and a manual trigger while a scheduled run is pending is answered with `already_pending`. The worker has two slots so that a tick is handled while a run is active rather than waiting behind it and queuing a second run as soon as the first finishes; the deduplication keeps two runs from overlapping.
+
+### Objects of uploads in progress
 
 Objects the pipeline owns are in `pending_objects`, and a run reads that table first, before `artifacts` (finalize moves ids from the one to the other, so the opposite order could miss an id in both). Those ids are never reported as missing, since an id is written just before its pin and may not be pinned yet. Whether a pinned one is an orphan depends on its state:
 
