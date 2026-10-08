@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- An error response whose body is HTML (a proxy's `502 Bad Gateway` page, say) or several lines of text no longer becomes the error `message`; the message falls back to the status text, and the body stays on `responseBody`.
+
 ## 0.2.0 (2026-10-08)
 
 ### Breaking

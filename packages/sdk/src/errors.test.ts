@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  extractErrorMessage,
   SlubyError,
   AuthenticationError,
   NotFoundError,
@@ -151,5 +152,31 @@ describe('Error class hierarchy', () => {
     expect(notFoundErr).toBeInstanceOf(SlubyError);
     expect(rateLimitErr).toBeInstanceOf(SlubyError);
     expect(timeoutErr).toBeInstanceOf(SlubyError);
+  });
+});
+
+describe('extractErrorMessage', () => {
+  it('reads error or message from a json body', () => {
+    expect(extractErrorMessage('{"error":"Video asset not found"}', 'Not Found')).toBe(
+      'Video asset not found',
+    );
+    expect(extractErrorMessage('{"message":"slow down"}', '')).toBe('slow down');
+  });
+
+  it('uses a short plain text body as is', () => {
+    expect(extractErrorMessage('Too many requests', 'Too Many Requests')).toBe('Too many requests');
+  });
+
+  it('falls back to the status text for a proxy html page', () => {
+    const html = '<html><body><h1>502 Bad Gateway</h1></body></html>';
+    expect(extractErrorMessage(html, 'Bad Gateway')).toBe('Bad Gateway');
+    expect(extractErrorMessage(`  ${html}\n`, '')).toBe('Unknown API error');
+  });
+
+  it('falls back for multi-line or long text', () => {
+    expect(extractErrorMessage('line one\nline two', 'Bad Gateway')).toBe('Bad Gateway');
+    expect(extractErrorMessage('x'.repeat(250), 'Internal Server Error')).toBe(
+      'Internal Server Error',
+    );
   });
 });

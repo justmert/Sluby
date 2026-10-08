@@ -225,7 +225,9 @@ function parseRetryAfter(value: string | null): number | undefined {
 /**
  * Extract a human-readable error message from a response body (expecting
  * `{ "error": "..." }` or `{ "message": "..." }`), falling back to the status
- * text.
+ * text. A body that is not JSON is used only when it reads as one short line:
+ * a proxy's HTML error page (`<html><body><h1>502 Bad Gateway</h1>...`) is
+ * markup, not a message, so it falls back to the status text instead.
  */
 export function extractErrorMessage(responseBody: string | undefined, statusText: string): string {
   if (responseBody) {
@@ -234,8 +236,10 @@ export function extractErrorMessage(responseBody: string | undefined, statusText
       if (typeof json.error === 'string') return json.error;
       if (typeof json.message === 'string') return json.message;
     } catch {
-      // not JSON: use the raw text if short enough
-      if (responseBody.length < 200) return responseBody;
+      const text = responseBody.trim();
+      if (text !== '' && text.length < 200 && !text.startsWith('<') && !/[\r\n]/.test(text)) {
+        return text;
+      }
     }
   }
   return statusText || 'Unknown API error';
