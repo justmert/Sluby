@@ -62,8 +62,10 @@ describe('PlaybackIdsCard', () => {
     const table = await screen.findByRole('table');
     expect(within(table).getByText('Site embed')).toBeInTheDocument();
     expect(within(table).getByText('Untitled')).toBeInTheDocument();
-    expect(within(table).getByText('Signed')).toBeInTheDocument();
-    expect(screen.getByText(/needs the/)).toBeInTheDocument();
+    expect(
+      within(table).getByText('Signed', { selector: '[data-slot=badge]' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/plays only with the/)).toBeInTheDocument();
 
     await act(async () => screen.getByRole('button', { name: `Copy playback ID ${PB_A}` }).click());
     expect(writeText).toHaveBeenLastCalledWith(PB_A);
@@ -189,5 +191,34 @@ describe('PlaybackIdsCard', () => {
       await screen.findByText('Could not load playback IDs: Database unavailable'),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('copies an hour long signed stream url for a signed id', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const stub = jsonFetch({
+      '/api/v1/assets/a1/playback-ids': { data: [row(PB_B, 'signed')] },
+      [`/api/v1/playback/${PB_B}/signed`]: {
+        signed_url: '/v1/objects/abc?type=manifest&expires=1791489012&sig=deadbeef',
+        poster_url: null,
+        expires_at: '2026-10-08T19:50:12.000Z',
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(stub));
+    show();
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: `Copy a signed stream URL of ${PB_B}, valid for one hour`,
+      }),
+    );
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        `${window.location.origin}/v1/stream/${PB_B}/master.m3u8?expires=1791489012&sig=deadbeef`,
+      ),
+    );
+    expect(stub.calls.find((c) => c.path.endsWith('/signed'))!.query.get('expires_in')).toBe(
+      '3600',
+    );
+    expect(await screen.findByText(/^Signed URL copied, valid until/)).toBeInTheDocument();
   });
 });

@@ -542,8 +542,8 @@ export default function AssetsPage() {
       />
 
       {/* sticks under the top bar on wider screens, where the filters fit one row */}
-      <div className="mb-4 flex flex-col gap-3 bg-background md:sticky md:top-14 md:z-10 md:-mx-2 md:px-2 md:py-2 lg:flex-row lg:items-center">
-        <InputGroup className="lg:max-w-sm">
+      <div className="mb-4 flex flex-col gap-3 bg-background md:sticky md:top-14 md:z-10 md:-mx-2 md:px-2 md:py-2 xl:flex-row xl:items-center">
+        <InputGroup className="xl:max-w-sm">
           <InputGroupAddon>
             <Search />
           </InputGroupAddon>

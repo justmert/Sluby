@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { KeyRound, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PlaybackId, PlaybackPolicy } from '@sluby/sdk';
 import { AnimatedItem, AnimatedList } from '@/components/motion';
@@ -50,6 +50,7 @@ import {
   isPendingPlaybackId,
   playbackIdRowKey,
   playbackStreamUrl,
+  signedPlaybackStreamUrl,
   useCreatePlaybackId,
   useDeletePlaybackId,
   usePlaybackIds,
@@ -153,6 +154,36 @@ function PolicyBadge({ policy }: { policy: PlaybackPolicy }) {
   );
 }
 
+/** Mints a one hour signed stream URL for a signed id and copies it. */
+function CopySignedButton({ playbackId }: { playbackId: string }) {
+  const [busy, setBusy] = useState(false);
+  const copy = async () => {
+    setBusy(true);
+    try {
+      const { url, expiresAt } = await signedPlaybackStreamUrl(playbackId);
+      await navigator.clipboard.writeText(url);
+      toast.success(`Signed URL copied, valid until ${new Date(expiresAt).toLocaleTimeString()}`);
+    } catch (err) {
+      toast.error(`Could not copy a signed URL: ${errorText(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      className="text-muted-foreground"
+      disabled={busy}
+      onClick={() => void copy()}
+      aria-label={`Copy a signed stream URL of ${playbackId}, valid for one hour`}
+    >
+      {busy ? <Spinner aria-hidden="true" /> : <KeyRound />}
+      Signed
+    </Button>
+  );
+}
+
 function Row({ row, onDelete }: { row: PlaybackId; onDelete: () => void }) {
   const pending = isPendingPlaybackId(row);
   const url = pending ? '' : playbackStreamUrl(row.playbackId);
@@ -197,6 +228,7 @@ function Row({ row, onDelete }: { row: PlaybackId; onDelete: () => void }) {
               className="size-6"
               label={`Copy stream URL of ${row.playbackId}`}
             />
+            {row.policy === 'signed' && <CopySignedButton playbackId={row.playbackId} />}
           </span>
         )}
       </ResponsiveCell>
@@ -296,8 +328,9 @@ export function PlaybackIdsCard({ assetId }: { assetId: string }) {
         )}
         {hasSigned && (
           <p className="mt-3 px-4 text-xs text-muted-foreground">
-            A signed ID&apos;s stream URL needs the <code>expires</code> and <code>sig</code> of a
-            signed playback URL from <code>GET /api/v1/playback/:id/signed</code>.
+            A signed ID&apos;s stream URL plays only with the <code>expires</code> and{' '}
+            <code>sig</code> from <code>GET /api/v1/playback/:id/signed</code>. Signed copies one
+            that works for an hour.
           </p>
         )}
       </CardContent>

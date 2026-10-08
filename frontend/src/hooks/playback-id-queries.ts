@@ -20,6 +20,21 @@ export function playbackStreamUrl(playbackId: string, origin = window.location.o
   return `${origin}/v1/stream/${encodeURIComponent(playbackId)}/master.m3u8`;
 }
 
+/**
+ * A stream URL for a signed playback id that plays for `expiresIn` seconds.
+ * The gateway checks the playback id's entry against the expiry and
+ * signature the server mints for it.
+ */
+export async function signedPlaybackStreamUrl(playbackId: string, expiresIn = 3600) {
+  const { signedUrl, expiresAt } = await sluby.playback.getSignedUrl(playbackId, { expiresIn });
+  const signed = new URL(signedUrl, window.location.origin).searchParams;
+  const expires = signed.get('expires');
+  const sig = signed.get('sig');
+  if (!expires || !sig) throw new Error('The signed URL came back without a signature');
+  const query = new URLSearchParams({ expires, sig });
+  return { url: `${playbackStreamUrl(playbackId)}?${query}`, expiresAt };
+}
+
 export function usePlaybackIds(assetId: string) {
   return useQuery({
     queryKey: key(assetId),
