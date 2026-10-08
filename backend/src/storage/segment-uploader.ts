@@ -78,8 +78,8 @@ export async function uploadSegments(
   // every id handed to the ledger, including ones whose pin then failed
   const recorded: string[] = [];
 
+  const checkpoint = async () => options.checkpoint?.();
   const upload = async (items: PackedSource[]) => {
-    await options.checkpoint?.();
     let attemptIds: string[] = [];
     try {
       return await uploadAndPinPacked(items, {
@@ -106,7 +106,9 @@ export async function uploadSegments(
       { variants: variants.length, thumbnails: thumbnailPaths.length },
       'Uploading variant data and thumbnails to Sia',
     );
-    const dataResults = await withRetries('variant data upload', () => upload(dataSources));
+    const dataResults = await withRetries('variant data upload', checkpoint, () =>
+      upload(dataSources),
+    );
     allObjectIds.push(...dataResults.map((r) => r.objectId));
     const variantData = dataResults.slice(0, variants.length);
     const thumbnailResults = dataResults.slice(variants.length);
@@ -122,6 +124,7 @@ export async function uploadSegments(
         ),
       ),
     );
+    await checkpoint();
     const playlistResults = await upload(rewrittenPlaylists);
     allObjectIds.push(...playlistResults.map((r) => r.objectId));
     stageDone();
@@ -143,6 +146,7 @@ export async function uploadSegments(
     const masterBytes = new TextEncoder().encode(
       rewriteMasterPlaylist(masterContent, variantObjectMap, ''),
     );
+    await checkpoint();
     const [masterResult] = await upload([masterBytes]);
     allObjectIds.push(masterResult.objectId);
     stageDone();
@@ -266,11 +270,17 @@ async function readTranscodeOutput(
 /**
  * The data upload is the big one and the most exposed to slow or flaky
  * hosts, so it gets a few quick retries before the whole job is failed back
- * to BullMQ.
+ * to BullMQ. The checkpoint runs before every attempt but outside the
+ * retry, so a stopped stage ends at once with its own error.
  */
-async function withRetries<T>(label: string, fn: () => Promise<T>): Promise<T> {
+async function withRetries<T>(
+  label: string,
+  checkpoint: () => Promise<void>,
+  fn: () => Promise<T>,
+): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < DATA_UPLOAD_ATTEMPTS; attempt++) {
+    await checkpoint();
     try {
       return await fn();
     } catch (err) {

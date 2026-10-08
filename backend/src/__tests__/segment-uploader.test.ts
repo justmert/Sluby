@@ -230,6 +230,56 @@ describe('uploadSegments', () => {
     expect(uploading.size).toBe(0);
   });
 
+  it('stops before the data batch without retrying and keeps the stop error', async () => {
+    const { ledger } = memoryLedger();
+    const stop = new Error('asset deleted');
+    let checks = 0;
+    const run = uploadSegments(dir, {
+      thumbnailPaths: thumbs,
+      ledger,
+      checkpoint: async () => {
+        checks += 1;
+        throw stop;
+      },
+    });
+    // the pipeline tells a stop from a failure by the error's class
+    await expect(run).rejects.toBe(stop);
+    expect(checks).toBe(1);
+    expect(fake.calls.add).toBe(0);
+  });
+
+  it('stops when the asset goes away while the data batch waits to retry', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const { ledger, uploading } = memoryLedger();
+    const stop = new Error('asset deleted');
+    let checks = 0;
+    try {
+      fake.fail('add', new Error('no more hosts available'), 1);
+      let settled = false;
+      const run = uploadSegments(dir, {
+        thumbnailPaths: thumbs,
+        ledger,
+        checkpoint: async () => {
+          if (++checks === 2) throw stop;
+        },
+      });
+      const assertion = expect(run).rejects.toBe(stop);
+      run.catch(() => {}).finally(() => (settled = true));
+      while (!settled) {
+        await new Promise((r) => setImmediate(r));
+        await vi.advanceTimersByTimeAsync(60_000);
+      }
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+    await settle();
+    expect(checks).toBe(2);
+    expect(fake.calls.add).toBe(1);
+    expect(fake.objects.size).toBe(0);
+    expect(uploading.size).toBe(0);
+  });
+
   it.each([
     [
       'a master without variants, as FFmpeg leaves it after a failure',
