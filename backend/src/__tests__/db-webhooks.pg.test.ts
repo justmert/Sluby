@@ -43,18 +43,13 @@ describe.skipIf(!hasTestDatabase)('webhook queries (postgres)', () => {
       await tdb.sql`update webhook_endpoints set created_at = now() - interval '1 hour' where id = ${first.id}`;
       await hook({ url: 'https://h/2' });
       const off = await hook({ url: 'https://h/off' });
-      await q.deactivateWebhookEndpoint(off.id);
+      await tdb.sql`update webhook_endpoints set is_active = false where id = ${off.id}`;
       await hook({ url: 'https://h/bob', creatorAddress: 'bob' });
 
       expect((await q.listWebhookEndpointsByOwner('alice')).map((h) => h.url)).toEqual([
         'https://h/2',
         'https://h/1',
       ]);
-      expect(
-        (await q.listWebhookEndpointsByOwner('alice', { includeInactive: true }))
-          .map((h) => h.url)
-          .sort(),
-      ).toEqual(['https://h/1', 'https://h/2', 'https://h/off']);
     });
 
     it('lists, finds and deletes across accounts only for an undefined owner', async () => {
@@ -79,7 +74,7 @@ describe.skipIf(!hasTestDatabase)('webhook queries (postgres)', () => {
       await hook({ url: 'https://h/failed', events: ['asset.failed'] });
       await hook({ url: 'https://h/bob', creatorAddress: 'bob', events: ['asset.ready'] });
       const off = await hook({ url: 'https://h/off', events: ['asset.ready'] });
-      await q.deactivateWebhookEndpoint(off.id);
+      await tdb.sql`update webhook_endpoints set is_active = false where id = ${off.id}`;
       await hook({ url: 'https://h/none', events: [] });
 
       const urls = (await q.findEndpointsForEvent('asset.ready', 'alice')).map((h) => h.url);
@@ -92,22 +87,6 @@ describe.skipIf(!hasTestDatabase)('webhook queries (postgres)', () => {
       expect(await q.findEndpointsForEvent('asset', 'alice')).toEqual([]);
       expect(await q.findEndpointsForEvent('asset.%', 'alice')).toEqual([]);
       expect(await q.findEndpointsForEvent("asset.ready'] or true --", 'alice')).toEqual([]);
-    });
-
-    it('updates url, events, secret and active state', async () => {
-      const h = await hook();
-      const updated = await q.updateWebhookEndpoint(h.id, {
-        url: 'https://hooks.example/b',
-        events: ['asset.failed'],
-        secret: 'whsec_2',
-        isActive: false,
-      });
-      expect(updated).toMatchObject({
-        url: 'https://hooks.example/b',
-        events: ['asset.failed'],
-        secret: 'whsec_2',
-        isActive: false,
-      });
     });
 
     it('deletes only within the owner’s account, along with its deliveries', async () => {
@@ -129,26 +108,29 @@ describe.skipIf(!hasTestDatabase)('webhook queries (postgres)', () => {
   });
 
   describe('deliveries', () => {
-    it('records an attempt, its result and retries', async () => {
+    it('records an attempt with its result', async () => {
       const h = await hook();
-      const d = await q.createWebhookDelivery({
+      const failed = await q.createWebhookDelivery({
         webhookEndpointId: h.id,
         eventType: 'asset.ready',
         payload: { video_asset_id: 'x', nested: { ok: true } },
       });
-      expect(d).toMatchObject({ statusCode: null, deliveredAt: null, retryCount: 0 });
-      expect(d.payload).toEqual({ video_asset_id: 'x', nested: { ok: true } });
+      expect(failed).toMatchObject({ statusCode: null, deliveredAt: null, retryCount: 0 });
+      expect(failed.payload).toEqual({ video_asset_id: 'x', nested: { ok: true } });
 
       const deliveredAt = new Date('2026-05-01T10:00:00.000Z');
-      const done = await q.updateWebhookDeliveryResult(d.id, { statusCode: 204, deliveredAt });
-      expect(done).toMatchObject({ statusCode: 204, error: null });
+      const done = await q.createWebhookDelivery({
+        webhookEndpointId: h.id,
+        eventType: 'asset.ready',
+        payload: {},
+        statusCode: 204,
+        deliveredAt,
+        retryCount: 2,
+      });
+      expect(done).toMatchObject({ statusCode: 204, error: null, retryCount: 2 });
       // nothing a receiver says is kept
       expect(done).not.toHaveProperty('responseBody');
-      expect(done!.deliveredAt!.toISOString()).toBe(deliveredAt.toISOString());
-
-      await q.incrementDeliveryRetryCount(d.id);
-      const twice = await q.incrementDeliveryRetryCount(d.id);
-      expect(twice?.retryCount).toBe(2);
+      expect(done.deliveredAt!.toISOString()).toBe(deliveredAt.toISOString());
     });
 
     it('lists an endpoint’s deliveries newest first with paging', async () => {
@@ -170,31 +152,28 @@ describe.skipIf(!hasTestDatabase)('webhook queries (postgres)', () => {
       expect(page.map((d) => d.eventType)).toEqual(['e2', 'e1']);
     });
 
-    it('counts deliveries by status code, with unsent ones as pending', async () => {
-      const h = await hook();
-      const codes = [200, 200, 500, null, null, null];
-      for (const code of codes) {
+    it('prunes deliveries older than the cutoff across every endpoint', async () => {
+      const a = await hook();
+      const b = await hook({ url: 'https://h/b', creatorAddress: 'bob' });
+      for (const [endpoint, days] of [
+        [a, 40],
+        [a, 1],
+        [b, 31],
+        [b, 0],
+      ] as const) {
         const d = await q.createWebhookDelivery({
-          webhookEndpointId: h.id,
-          eventType: 'asset.ready',
+          webhookEndpointId: endpoint.id,
+          eventType: `${days}d`,
           payload: {},
         });
-        if (code !== null) {
-          await q.updateWebhookDeliveryResult(d.id, { statusCode: code, deliveredAt: new Date() });
-        }
+        await tdb.sql`update webhook_deliveries set created_at = now() - make_interval(days => ${days}) where id = ${d.id}`;
       }
-      expect(await q.countDeliveriesByStatusCode(h.id)).toEqual({ '200': 2, '500': 1, pending: 3 });
-    });
 
-    it('deletes a single delivery', async () => {
-      const h = await hook();
-      const d = await q.createWebhookDelivery({
-        webhookEndpointId: h.id,
-        eventType: 'asset.ready',
-        payload: {},
-      });
-      expect((await q.deleteWebhookDelivery(d.id))?.id).toBe(d.id);
-      expect(await q.getWebhookDeliveryById(d.id)).toBeUndefined();
+      const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+      expect(await q.pruneWebhookDeliveries(cutoff)).toBe(2);
+      const left = await tdb.sql`select event_type from webhook_deliveries order by event_type`;
+      expect(left.map((r) => r.event_type)).toEqual(['0d', '1d']);
+      expect(await q.pruneWebhookDeliveries(cutoff)).toBe(0);
     });
   });
 });

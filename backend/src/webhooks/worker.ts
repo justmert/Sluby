@@ -19,7 +19,6 @@ export const webhookDispatcher = new WebhookDispatcher({
       id: ep.id,
       url: ep.url,
       events: ep.events,
-      secret: ep.secret,
       isActive: ep.isActive,
     }));
   },

@@ -251,7 +251,6 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
           videoAssetId,
           uploadSessionId,
           outputDir: output.outputDir,
-          accessTier: asset.accessTier,
           thumbnailPaths: output.thumbnailPaths,
           durationMs: output.marker.durationMs,
           resolution: output.marker.resolution,

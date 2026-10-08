@@ -38,7 +38,6 @@ export interface UploadSegmentsJobData {
   uploadSessionId?: string;
   /** the finished run directory, which no other execution writes to */
   outputDir: string;
-  accessTier: string;
   /** from the transcode's completion marker; absent on jobs queued before it existed */
   durationMs?: number;
   resolution?: string;
@@ -88,8 +87,6 @@ export type DeletionJobData =
       redrive?: number;
     }
   | { kind: 'gc' };
-
-export type VideoProcessingJobData = TranscodeJobData | UploadSegmentsJobData | FinalizeJobData;
 
 // ──────────────────────────────────────────
 // Queue definitions

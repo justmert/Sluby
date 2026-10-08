@@ -50,7 +50,6 @@ describe('buildSiaBreakdown', () => {
   it('counts a shared slab once in the totals', () => {
     expect(b.totals.uniqueSlabCount).toBe(2);
     expect(b.totals.uniqueSectorCount).toBe(12);
-    expect(b.totals.sectorBytes).toBe(12 * SECTOR_SIZE_BYTES);
   });
 
   it('flags the shared slab on each object that uses it', () => {
@@ -64,7 +63,6 @@ describe('buildSiaBreakdown', () => {
     expect(b.totals.rawBytes).toBe(5500);
     // per-object encoded sizes (900 + 600 + 15000) would count the shared slab twice
     expect(b.totals.encodedBytes).toBe(12 * SECTOR_SIZE_BYTES);
-    expect(b.totals.encodedBytes).toBe(b.totals.sectorBytes);
   });
 
   it('reads redundancy from the shard config', () => {

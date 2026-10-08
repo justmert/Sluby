@@ -5,6 +5,10 @@ import { contentTypeForHint } from './content-type.js';
 import { resolveObjectAccess, isObjectId, type ObjectAccess } from './access-control.js';
 import { verifyObjectAccess, signManifestObjectUrls, type SigningState } from './signed-url.js';
 import { ShareMintError, shareExpiryBounds } from './share-expiry.js';
+import { createAssetShareUrls } from './share-urls.js';
+import { getPlaybackIdByPublicId } from '../db/queries/playback-ids.js';
+import { getVideoAssetById } from '../db/queries/assets.js';
+import { isPlaybackId } from '../api/playback-id.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { playbackInitiationTotal, recordDelivery } from '../metrics/collector.js';
@@ -527,10 +531,6 @@ interface ResolvedEntry {
  * no such live asset. Throws when the database cannot be read.
  */
 async function resolveEntry(param: string): Promise<ResolvedEntry | null> {
-  const { getPlaybackIdByPublicId } = await import('../db/queries/playback-ids.js');
-  const { isPlaybackId } = await import('../api/playback-id.js');
-  const { getVideoAssetById } = await import('../db/queries/assets.js');
-
   let assetId = param;
   let policy = 'public';
   if (isPlaybackId(param)) {
@@ -694,7 +694,6 @@ deliveryRouter.get('/v1/share/:id', async (req: Request, res: Response) => {
     signatureExpiresSec = check.expiresAtSec;
   }
 
-  const { createAssetShareUrls } = await import('./share-urls.js');
   const nowSec = Math.floor(Date.now() / 1000);
   const { expiresIn, notAfterSec } = shareExpiryBounds(
     req.query.expires_in,

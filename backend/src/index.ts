@@ -16,6 +16,8 @@ import { sweepExpiredUploads, UPLOAD_SWEEP_INTERVAL_MS } from './upload/upload-s
 import { sweepFinishedSources } from './upload/source-files.js';
 import { sourceFileStates, deleteDetachedUploadSessions } from './db/queries/uploads.js';
 import { pruneEndedStudioSessions } from './db/queries/sessions.js';
+import { pruneWebhookDeliveries } from './db/queries/webhooks.js';
+import { WEBHOOK_DELIVERY_RETENTION_MS } from './webhooks/delivery.js';
 import { ENDED_SESSION_RETENTION_MS } from './api/routes/auth.js';
 import { signInWarnings } from './api/auth/startup.js';
 import { BOOTSTRAP_CREATOR_ADDRESS, seedBootstrapApiKey } from './db/api-key-seeding.js';
@@ -32,8 +34,6 @@ import { scheduleDeletionGc, closeDeletionWorker } from './deletion/worker.js';
 // importing the webhook module starts its worker, which sends the queued
 // deliveries
 import { webhookDispatcher, closeWebhookWorker } from './webhooks/worker.js';
-
-export { logger };
 
 for (const dir of [env.UPLOAD_DIR, env.TRANSCODE_OUTPUT_DIR]) {
   mkdirSync(dir, { recursive: true });
@@ -120,7 +120,7 @@ scheduleDeletionGc().catch((err) => {
 // Sweep incomplete tus uploads past their expiry, now and then every hour.
 // A timer in this process rather than a queue job, because the files live on
 // this process's UPLOAD_DIR. The same hour prunes ended Studio sessions, which
-// sign-in prunes only for the login signing in.
+// sign-in prunes only for the login signing in, and old webhook delivery logs.
 const sweepUploads = async () => {
   await sweepExpiredUploads(tusServer, logger);
   // the rows of those uploads: failed sessions, and no empty assets left behind
@@ -138,11 +138,17 @@ const pruneSessions = () =>
   pruneEndedStudioSessions(new Date(Date.now() - ENDED_SESSION_RETENTION_MS)).catch((err) =>
     logger.warn({ err }, 'Could not prune ended Studio sessions'),
   );
+const pruneDeliveries = () =>
+  pruneWebhookDeliveries(new Date(Date.now() - WEBHOOK_DELIVERY_RETENTION_MS)).catch((err) =>
+    logger.warn({ err }, 'Could not prune old webhook deliveries'),
+  );
 void sweepUploads();
 void pruneSessions();
+void pruneDeliveries();
 const uploadSweepTimer = setInterval(() => {
   void sweepUploads();
   void pruneSessions();
+  void pruneDeliveries();
 }, UPLOAD_SWEEP_INTERVAL_MS);
 uploadSweepTimer.unref();
 
@@ -189,5 +195,3 @@ process.on('uncaughtException', (err) => {
   logger.fatal({ err }, 'Uncaught exception, shutting down');
   shutdown('uncaughtException', true);
 });
-
-export { app };

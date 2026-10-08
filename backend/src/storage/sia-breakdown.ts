@@ -99,8 +99,6 @@ export interface SiaBreakdown {
     encodedBytes: number;
     uniqueSlabCount: number;
     uniqueSectorCount: number;
-    /** Host-side footprint: every unique sector is a full 4 MiB on a host. */
-    sectorBytes: number;
     dataShards: number | null;
     parityShards: number | null;
     /** totalShards / dataShards for the asset's slabs; null if they differ or none. */
@@ -228,7 +226,6 @@ export function buildSiaBreakdown(
       encodedBytes: uniqueSectorCount * SECTOR_SIZE_BYTES,
       uniqueSlabCount: uniqueSlabs.size,
       uniqueSectorCount,
-      sectorBytes: uniqueSectorCount * SECTOR_SIZE_BYTES,
       dataShards,
       parityShards,
       redundancyRatio,

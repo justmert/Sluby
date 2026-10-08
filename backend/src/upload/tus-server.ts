@@ -47,8 +47,6 @@ export interface TusServerDeps {
     videoAssetId: string;
     uploadSessionId: string;
     filePath: string;
-    creatorAddress: string;
-    accessTier: string;
   }) => Promise<void>;
   /** Mark an asset failed so a finish-time error does not leave it stuck. */
   markAssetFailed: (videoAssetId: string) => Promise<void>;
@@ -226,7 +224,6 @@ export function createTusServer(deps: TusServerDeps): Server {
       const creatorAddress = metadata.creatorAddress
         ? await currentOwnerAddress(metadata.creatorAddress, deps.callers)
         : undefined;
-      const accessTier = metadata.accessTier ?? metadata.access_tier ?? 'public';
 
       if (!sessionId) {
         logger.error({ uploadId: upload.id }, 'No session ID found in upload metadata');
@@ -258,8 +255,6 @@ export function createTusServer(deps: TusServerDeps): Server {
             videoAssetId,
             uploadSessionId: sessionId,
             filePath,
-            creatorAddress: creatorAddress ?? '',
-            accessTier,
           });
         }
 

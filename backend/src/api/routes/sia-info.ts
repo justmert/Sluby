@@ -175,7 +175,8 @@ function formatBreakdown(
       encoded_bytes: b.totals.encodedBytes,
       unique_slab_count: b.totals.uniqueSlabCount,
       unique_sector_count: b.totals.uniqueSectorCount,
-      sector_bytes: b.totals.sectorBytes,
+      // the same number as encoded_bytes, kept so existing clients still read it
+      sector_bytes: b.totals.encodedBytes,
       data_shards: b.totals.dataShards,
       parity_shards: b.totals.parityShards,
       redundancy_ratio: b.totals.redundancyRatio,

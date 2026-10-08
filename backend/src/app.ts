@@ -793,6 +793,7 @@ export function buildApiDeps(
         payload: JSON.parse(job.body) as Record<string, unknown>,
         statusCode: outcome.statusCode,
         error: outcome.error,
+        deliveredAt: outcome.delivered ? new Date() : null,
         retryCount: 0,
       });
       return outcome;
@@ -875,7 +876,6 @@ export function createApp(ctx: AppContext): {
   // ── Global Middleware ──
 
   app.use(express.json({ limit: '1mb' }));
-  app.use(express.urlencoded({ extended: true }));
 
   // health checks come every few seconds from docker and the web proxy, so
   // they log at debug; urls lose query values that could be capabilities

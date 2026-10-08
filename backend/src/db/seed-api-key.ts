@@ -10,9 +10,7 @@
  * deployment-wide status and metrics. One of the two is required, so a
  * cross-tenant key is never minted by accident.
  */
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
-import { env } from '../config/env.js';
+import { closeDatabase } from '../config/database.js';
 import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import { ADMIN_SCOPES, createAdminApiKey } from './api-key-seeding.js';
 
@@ -55,9 +53,8 @@ async function seedApiKey() {
     process.exit(2);
   }
 
-  const sql = postgres(env.DATABASE_URL, { max: 1, onnotice: () => {} });
   try {
-    const { id, rawKey } = await createAdminApiKey(drizzle(sql), opts);
+    const { id, rawKey } = await createAdminApiKey(opts);
     console.log('');
     console.log('API key created.');
     console.log('');
@@ -76,7 +73,7 @@ async function seedApiKey() {
     console.log('Save the key now. It is not shown again.');
     console.log('');
   } finally {
-    await sql.end();
+    await closeDatabase();
   }
 }
 

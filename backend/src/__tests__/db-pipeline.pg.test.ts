@@ -130,6 +130,20 @@ describe.skipIf(!hasTestDatabase)('pipeline record queries (postgres)', () => {
       ]);
     });
 
+    it('lists renditions tallest first, with ones of unknown size last', async () => {
+      const a = await newAsset();
+      await storage.persistStorageRecords(a.id, twoRungRecords());
+      await tdb.sql`
+        insert into renditions (video_asset_id, name, data_object_id, playlist_object_id)
+        values (${a.id}, 'legacy', 'dlegacy', 'plegacy')`;
+
+      expect((await storage.getRenditions(a.id)).map((r) => r.name)).toEqual([
+        '720p',
+        '360p',
+        'legacy',
+      ]);
+    });
+
     it('replaces rather than duplicates the mapping on a retried run', async () => {
       const a = await newAsset();
       await storage.persistStorageRecords(a.id, twoRungRecords('first-'));
@@ -417,7 +431,7 @@ describe.skipIf(!hasTestDatabase)('pipeline record queries (postgres)', () => {
       expect(j!.logs!.map((l) => l.message)).toEqual(['first']);
     });
 
-    it('finds the latest job by asset and by upload session', async () => {
+    it('finds the latest job of an asset', async () => {
       const { asset, session, job } = await newJob();
       await tdb.sql`update processing_jobs set created_at = now() - interval '1 hour' where id = ${job.id}`;
       const newer = await jobs.createProcessingJob({
@@ -426,7 +440,6 @@ describe.skipIf(!hasTestDatabase)('pipeline record queries (postgres)', () => {
       });
 
       expect((await jobs.getProcessingJobByVideoAssetId(asset.id))?.id).toBe(newer.id);
-      expect((await jobs.getProcessingJobByUploadSessionId(session.id))?.id).toBe(newer.id);
       expect(
         await jobs.getProcessingJobByVideoAssetId('00000000-0000-4000-8000-000000000000'),
       ).toBeUndefined();

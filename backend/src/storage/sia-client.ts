@@ -235,15 +235,6 @@ export interface PackedUploadHooks {
   stallTimeoutMs?: number;
 }
 
-/** Upload a single Uint8Array as one packed object. */
-export async function uploadAndPin(
-  data: Uint8Array,
-  hooks: PackedUploadHooks = {},
-): Promise<UploadResult> {
-  const [result] = await uploadAndPinPacked([data], hooks);
-  return result;
-}
-
 /** One item of a packed upload: bytes in memory, or a file the SDK reads from disk. */
 export type PackedSource = Uint8Array | { path: string };
 
@@ -423,23 +414,6 @@ export async function readExactly(
     throw err;
   }
   if (filled !== length) throw new Error(`object stream ended at ${filled} of ${length} bytes`);
-  return out;
-}
-
-/**
- * Download a whole object (or a window of it) into memory. For small objects
- * only: the gateway streams anything large instead.
- */
-export async function downloadObject(
-  objectId: string,
-  options?: { offset?: number; length?: number },
-): Promise<Uint8Array> {
-  const handle = await openObject(objectId);
-  const offset = options?.offset ?? 0;
-  const length = options?.length ?? handle.size - offset;
-  const out =
-    length === 0 ? new Uint8Array(0) : await readExactly(handle.read({ offset, length }), length);
-  logger.debug({ objectId, offset, length }, 'Object downloaded from Sia');
   return out;
 }
 

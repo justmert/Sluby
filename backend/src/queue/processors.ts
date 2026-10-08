@@ -37,10 +37,6 @@ const workers = createPipelineWorkers({
   emit: emitAssetEvent,
 });
 
-export const transcodeWorker = workers.transcode;
-export const uploadSegmentsWorker = workers.uploadSegments;
-export const finalizeWorker = workers.finalize;
-
 /**
  * Gracefully shut down all workers.
  */

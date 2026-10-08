@@ -11,7 +11,7 @@ import { createTestApp, withApiKey } from './helpers/express-helpers.js';
 interface World {
   root: string;
   outputRoot: string;
-  assets: Map<string, { id: string; status: string; accessTier: string; owner: string }>;
+  assets: Map<string, { id: string; status: string; owner: string }>;
   jobs: Map<string, { id: string; status: string; retries: number }>;
   sessions: Map<string, { id: string; filePath: string }>;
   uploadQueue: Array<{ data: unknown; jobId: string }>;
@@ -88,7 +88,7 @@ function deps(): RetryAssetDeps {
 }
 
 function failedAsset(id = A1, owner = 'acct') {
-  w.assets.set(id, { id, status: 'failed', accessTier: 'private', owner });
+  w.assets.set(id, { id, status: 'failed', owner });
   w.jobs.set(id, { id: `job-${id}`, status: 'failed', retries: 0 });
 }
 
@@ -132,7 +132,6 @@ describe('buildRetryAsset', () => {
           videoAssetId: A1,
           uploadSessionId: `up-${A1}`,
           outputDir: dir,
-          accessTier: 'private',
           thumbnailPaths: [path.join(dir, 'thumb_25.jpg'), path.join(dir, 'thumb_75.jpg')],
           durationMs: 4000,
           resolution: '640x360',

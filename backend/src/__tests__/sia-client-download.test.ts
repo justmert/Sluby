@@ -15,12 +15,7 @@ vi.mock('@siafoundation/sia-storage', () => ({
   },
 }));
 
-import {
-  openObject,
-  downloadObject,
-  readExactly,
-  isIndexerNotFound,
-} from '../storage/sia-client.js';
+import { openObject, readExactly, isIndexerNotFound } from '../storage/sia-client.js';
 
 const BYTES = new Uint8Array(Array.from({ length: 10 }, (_, i) => i));
 
@@ -62,10 +57,11 @@ describe('openObject', () => {
   });
 });
 
-describe('downloadObject', () => {
+describe('readExactly', () => {
   it('reads a window into a buffer of exactly its length', async () => {
-    expect([...(await downloadObject('obj', { offset: 4, length: 3 }))]).toEqual([4, 5, 6]);
-    expect([...(await downloadObject('obj'))]).toEqual([...BYTES]);
+    const handle = await openObject('obj');
+    expect([...(await readExactly(handle.read({ offset: 4, length: 3 }), 3))]).toEqual([4, 5, 6]);
+    expect([...(await readExactly(handle.read(), 10))]).toEqual([...BYTES]);
   });
 
   it('refuses a stream that ends short or runs long', async () => {

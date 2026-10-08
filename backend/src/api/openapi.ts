@@ -2180,5 +2180,3 @@ export const openapiDocument = {
     },
   },
 } as const;
-
-export type OpenApiDocument = typeof openapiDocument;

@@ -94,10 +94,11 @@ describe('deliverWebhook', () => {
     expect(verifySignature(job.body, legacy, 'another-secret')).toBe(false);
   });
 
-  it('records a 2xx attempt with its status and retry count, and no response body', async () => {
+  it('records a 2xx attempt with its status, delivery time and retry count, and no response body', async () => {
     const { deps, recorded } = setup(receiver.url);
     respond = () => [202, 'accepted'];
 
+    const before = Date.now();
     await deliverWebhook(deps, job, 2);
 
     expect(recorded).toEqual([
@@ -107,9 +108,12 @@ describe('deliverWebhook', () => {
         payload: JSON.parse(job.body),
         statusCode: 202,
         error: null,
+        deliveredAt: expect.any(Date),
         retryCount: 2,
       },
     ]);
+    expect(recorded[0].deliveredAt!.getTime()).toBeGreaterThanOrEqual(before);
+    expect(recorded[0].deliveredAt!.getTime()).toBeLessThanOrEqual(Date.now());
   });
 
   it('records a non-2xx answer and throws so the queue retries', async () => {
@@ -120,7 +124,11 @@ describe('deliverWebhook', () => {
     expect(err).toBeInstanceOf(WebhookDeliveryError);
     expect((err as WebhookDeliveryError).statusCode).toBe(503);
     expect(recorded).toEqual([
-      expect.objectContaining({ statusCode: 503, error: 'the receiver answered 503' }),
+      expect.objectContaining({
+        statusCode: 503,
+        error: 'the receiver answered 503',
+        deliveredAt: null,
+      }),
     ]);
     expect(JSON.stringify(recorded)).not.toContain('busy');
   });
