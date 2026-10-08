@@ -57,7 +57,7 @@ describe('TopBar', () => {
     )) {
       expect(el).toHaveClass('max-sm:hidden');
     }
-    const back = screen.getByRole('link', { name: 'Back to Assets' });
+    const back = screen.getByRole('link', { name: 'Back to Videos' });
     expect(back).toHaveAttribute('href', '/studio/assets');
     expect(back).toHaveClass('sm:hidden');
   });

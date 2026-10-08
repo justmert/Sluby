@@ -5,20 +5,20 @@ export interface Crumb {
 
 const SECTION_LABELS: Record<string, string> = {
   upload: 'Upload',
-  assets: 'Assets',
+  assets: 'Videos',
   player: 'Player',
-  developer: 'Developer',
+  developer: 'Developers',
   analytics: 'Analytics',
   settings: 'Settings',
 };
 
-const STUDIO: Crumb = { label: 'Studio', path: '/studio' };
+const STUDIO: Crumb = { label: 'Overview', path: '/studio' };
 const NOT_FOUND: Crumb = { label: 'Not found' };
 
 /**
  * The trail for a path, matching the routes in App.tsx: a path no route
- * serves reads "Not found" rather than echoing its segments. An asset page
- * shows the asset's title once it is known.
+ * serves reads "Not found" rather than echoing its segments. A video page
+ * shows the video's title once it is known, or what went wrong loading it.
  */
 export function getBreadcrumbs(pathname: string, assetTitle?: string): Crumb[] {
   const segments = pathname.split('/').filter(Boolean);
@@ -32,5 +32,5 @@ export function getBreadcrumbs(pathname: string, assetTitle?: string): Crumb[] {
   const sectionCrumb = { label, path: `/studio/${section}` };
   if (!detail) return [STUDIO, sectionCrumb];
   if (section !== 'assets' || rest.length > 0) return [STUDIO, sectionCrumb, NOT_FOUND];
-  return [STUDIO, sectionCrumb, { label: assetTitle || 'Asset' }];
+  return [STUDIO, sectionCrumb, { label: assetTitle || 'Video' }];
 }

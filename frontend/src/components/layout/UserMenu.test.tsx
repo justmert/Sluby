@@ -50,7 +50,9 @@ describe('UserMenu', () => {
     renderMenu();
     await signOut();
     expect(
-      await screen.findByText('Could not sign out: Internal Server Error'),
+      await screen.findByText(
+        'Could not sign out. The server ran into a problem (error 500). Try again in a moment. If it keeps happening, check the server logs.',
+      ),
     ).toBeInTheDocument();
     expect(loadPage).not.toHaveBeenCalled();
   });
@@ -58,8 +60,8 @@ describe('UserMenu', () => {
   it('marks an operator and has no sign out when sign-in is off', async () => {
     renderMenu({ operator: true, authDisabled: true, provider: 'local', username: 'dev' });
     await userEvent.click(screen.getByRole('button', { name: /dev, operator/ }));
-    expect(await screen.findByText('Sign-in is off (local dev account)')).toBeInTheDocument();
-    expect(screen.getByText('Operator: sees deployment status and metrics')).toBeInTheDocument();
+    expect(await screen.findByText('Sign-in is off on this server')).toBeInTheDocument();
+    expect(screen.getByText('Operator')).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: /sign out/i })).not.toBeInTheDocument();
   });
 });

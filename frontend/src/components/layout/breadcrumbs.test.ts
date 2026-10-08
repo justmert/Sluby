@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { getBreadcrumbs } from './breadcrumbs';
 
-const studio = { label: 'Studio', path: '/studio' };
-const assets = { label: 'Assets', path: '/studio/assets' };
+const studio = { label: 'Overview', path: '/studio' };
+const assets = { label: 'Videos', path: '/studio/assets' };
 
 describe('getBreadcrumbs', () => {
   it('maps studio sections', () => {
@@ -13,7 +13,7 @@ describe('getBreadcrumbs', () => {
     ]);
   });
 
-  it('names an asset page by its title, never its id', () => {
+  it('names a video page by its title, never its id', () => {
     expect(getBreadcrumbs('/studio/assets/de4c25bb-d71d-4768', 'Keynote')).toEqual([
       studio,
       assets,
@@ -22,7 +22,7 @@ describe('getBreadcrumbs', () => {
     expect(getBreadcrumbs('/studio/assets/de4c25bb-d71d-4768')).toEqual([
       studio,
       assets,
-      { label: 'Asset' },
+      { label: 'Video' },
     ]);
   });
 

@@ -90,7 +90,7 @@ describe('CommandPalette', () => {
     setup();
     await openWithKeys();
     await userEvent.type(await screen.findByRole('combobox'), 'api key');
-    await userEvent.click(await screen.findByRole('option', { name: 'Create an API key' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Create API key' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/studio/settings?create=key');
   });
 
@@ -111,7 +111,7 @@ describe('CommandPalette', () => {
     await openWithKeys();
     await screen.findByRole('dialog');
     expect(screen.queryByRole('option', { name: 'Analytics' })).not.toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Assets' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Videos' })).toBeInTheDocument();
   });
 
   it('finds a video on the server and opens it with the keyboard', async () => {

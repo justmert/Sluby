@@ -12,7 +12,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { ThemeToggle } from '@/components/theme-toggle';
 import { CommandPalette } from './CommandPalette';
 import { UploadIndicator } from './UploadIndicator';
 import { UserMenu } from './UserMenu';
@@ -81,7 +80,6 @@ export function TopBar() {
       <div className="flex shrink-0 items-center gap-1">
         <UploadIndicator />
         <CommandPalette />
-        <ThemeToggle />
         <UserMenu />
       </div>
     </header>

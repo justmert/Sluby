@@ -63,7 +63,7 @@ describe('AppShell', () => {
     toggle.focus();
     await userEvent.keyboard('{Enter}');
     const sheet = await screen.findByRole('dialog', { name: 'Navigation' });
-    expect(within(sheet).getByRole('link', { name: 'Assets' })).toBeInTheDocument();
+    expect(within(sheet).getByRole('link', { name: 'Videos' })).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(toggle).toHaveFocus();
@@ -100,20 +100,20 @@ describe('AppShell', () => {
 
   it('names the browser tab after the page', () => {
     renderShell('/studio/assets');
-    expect(document.title).toBe('Assets · Sluby Studio');
+    expect(document.title).toBe('Videos · Sluby Studio');
   });
 
-  it('names the dashboard tab and an unknown page', () => {
+  it('names the overview tab and an unknown page', () => {
     const view = renderShell('/studio');
-    expect(document.title).toBe('Dashboard · Sluby Studio');
+    expect(document.title).toBe('Overview · Sluby Studio');
     view.unmount();
     renderShell('/studio/nope');
     expect(document.title).toBe('Not found · Sluby Studio');
   });
 
-  it('names an asset tab by the title the page loaded', async () => {
+  it('names a video tab by the title the page loaded', async () => {
     const { client } = renderShell('/studio/assets/a1');
-    expect(document.title).toBe('Asset · Sluby Studio');
+    expect(document.title).toBe('Video · Sluby Studio');
     client.setQueryData(['assets', 'one', 'a1'], { id: 'a1', title: 'Keynote 2026' });
     await vi.waitFor(() => expect(document.title).toBe('Keynote 2026 · Sluby Studio'));
   });

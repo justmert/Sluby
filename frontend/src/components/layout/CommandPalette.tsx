@@ -18,6 +18,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { useDebounce } from '@/hooks/useDebounce';
 import { ROUTES, STUDIO_NAV } from '@/lib/constants';
+import { withLead } from '@/lib/errors';
 import { formatDuration } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { sluby } from '@/lib/sluby';
@@ -77,11 +78,11 @@ function Videos({
 
   let status: ReactNode = null;
   if (videos.isError) {
-    status = `Could not search videos: ${videos.error.message}`;
+    status = withLead('Could not search videos', videos.error);
   } else if (videos.isPending || (typing && !videos.data?.data.length)) {
     status = (
       <>
-        <Spinner aria-hidden="true" className="size-3.5" /> Searching videos...
+        <Spinner aria-hidden="true" className="size-3.5" /> Searching videos…
       </>
     );
   }
@@ -144,14 +145,14 @@ function PaletteBody({ close }: { close: () => void }) {
   const actions: Entry[] = [
     {
       id: 'action-upload',
-      label: 'Upload a video',
+      label: 'Upload video',
       icon: Upload,
       keywords: 'new add file',
       run: () => open(ROUTES.STUDIO_UPLOAD),
     },
     {
       id: 'action-key',
-      label: 'Create an API key',
+      label: 'Create API key',
       icon: KeyRound,
       // not "settings": typing that should land on the settings page alone
       keywords: 'new add token secret',
