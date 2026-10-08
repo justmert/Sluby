@@ -1,5 +1,6 @@
 import { Worker, type ConnectionOptions, type Job, type Queue, type WorkerOptions } from 'bullmq';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { TranscodeJobData, UploadSegmentsJobData, FinalizeJobData } from './bull-config.js';
 import { stageJobId } from './job-ids.js';
 import {
@@ -39,6 +40,12 @@ const logger = rootLogger.child({ name: 'queue-processors' });
  */
 export const PIPELINE_LOCK_DURATION_MS = 5 * 60 * 1000;
 
+/**
+ * How often a running Sia upload renews its lease (see holdUploadLease). The
+ * lease lasts three renewals, so one slow renewal does not lose it.
+ */
+export const UPLOAD_LEASE_RENEW_MS = 10_000;
+
 /** Waits between tries of the writes that mark an asset failed. */
 const FAILURE_WRITE_DELAYS_MS = [1_000, 5_000, 15_000, 30_000, 60_000];
 
@@ -62,6 +69,8 @@ export interface PipelineOptions {
   /** Tests shorten the lock and stall settings. */
   workerOptions?: Partial<WorkerOptions>;
   failureWriteDelaysMs?: number[];
+  /** Defaults to UPLOAD_LEASE_RENEW_MS; tests shorten it. */
+  uploadLeaseRenewMs?: number;
 }
 
 export interface PipelineWorkers {
@@ -75,6 +84,39 @@ export interface PipelineWorkers {
 class StageStopped extends Error {
   constructor(readonly videoAssetId: string) {
     super(`asset ${videoAssetId} is no longer being processed`);
+  }
+}
+
+/** Thrown inside the upload stage when another execution of it took over its lease. */
+class LeaseLost extends Error {
+  constructor(readonly videoAssetId: string) {
+    super(`another execution took over the Sia upload of asset ${videoAssetId}`);
+  }
+}
+
+// set the lease when it is free or already ours; 0 when another execution holds it
+const CLAIM_LEASE = `
+local v = redis.call('GET', KEYS[1])
+if v == false or v == ARGV[1] then
+  redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+  return 1
+end
+return 0`;
+const RELEASE_LEASE = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+return 0`;
+
+/**
+ * Sleep `ms`, then once more for every wake-up that came more than `ms` late.
+ * A late wake-up means the host or VM was frozen (a sleeping laptop, a
+ * stalled Docker VM); every other execution's timers were frozen with it and
+ * need a full interval after it to show they are still alive.
+ */
+async function pauseThroughFreezes(ms: number): Promise<void> {
+  for (;;) {
+    const started = Date.now();
+    await new Promise((r) => setTimeout(r, ms));
+    if (Date.now() - started < 2 * ms) return;
   }
 }
 
@@ -287,93 +329,170 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
 
   // ── upload segments ──
 
+  const leaseRenewMs = opts.uploadLeaseRenewMs ?? UPLOAD_LEASE_RENEW_MS;
+
+  /**
+   * One execution of an upload stage run uploads at a time. BullMQ hands a
+   * job whose lock expired to another execution without stopping the first,
+   * which happens when the host freezes for longer than the lock (Redis
+   * expires the lock by the wall clock, which jumps over the freeze), and
+   * two executions would then upload and pin the same video twice. The
+   * running execution holds this lease in Redis and renews it on a short
+   * heartbeat; another execution waits while the lease is held, then checks
+   * again whether there is anything left to upload.
+   */
+  async function holdUploadLease(job: Job<UploadSegmentsJobData>) {
+    const redis = await uploadWorker.client;
+    // defining a command again on the same client replaces it with the same script
+    redis.defineCommand('slubyClaimLease', { numberOfKeys: 1, lua: CLAIM_LEASE });
+    redis.defineCommand('slubyReleaseLease', { numberOfKeys: 1, lua: RELEASE_LEASE });
+    const key = `${opts.prefix ?? 'bull'}:upload-segments:${job.id}:lease`;
+    const token = randomUUID();
+    const ttl = String(3 * leaseRenewMs);
+    const claim = async () => (await redis.runCommand('slubyClaimLease', [key, token, ttl])) === 1;
+
+    // a redelivered job may be a duplicate of an execution still running on a
+    // host that just woke up: give it a renewal to show it is alive
+    if (job.attemptsStarted > 1) await pauseThroughFreezes(1.5 * leaseRenewMs);
+    if (!(await claim())) {
+      logger.warn(
+        { videoAssetId: job.data.videoAssetId, jobId: job.id },
+        'Another execution is uploading this run to Sia; waiting for it',
+      );
+      do await pauseThroughFreezes(leaseRenewMs);
+      while (!(await claim()));
+    }
+
+    let lost = false;
+    const renewal = setInterval(() => {
+      claim().then(
+        (held) => {
+          if (held || lost) return;
+          lost = true;
+          logger.warn(
+            { videoAssetId: job.data.videoAssetId, jobId: job.id },
+            'Another execution took over this Sia upload; stopping at the next checkpoint',
+          );
+        },
+        (err: unknown) => logger.warn({ jobId: job.id, err }, 'Could not renew the upload lease'),
+      );
+    }, leaseRenewMs);
+    return {
+      lost: () => lost,
+      release: async () => {
+        clearInterval(renewal);
+        try {
+          await redis.runCommand('slubyReleaseLease', [key, token]);
+        } catch (err) {
+          // it runs out by itself after three renewals
+          logger.warn({ jobId: job.id, err }, 'Could not release the upload lease');
+        }
+      },
+    };
+  }
+
   const uploadWorker = new Worker<UploadSegmentsJobData>(
     'upload-segments',
     async (job) => {
-      const { videoAssetId, uploadSessionId, outputDir, thumbnailPaths, runId } = job.data;
-      logger.info({ videoAssetId, jobId: job.id, outputDir }, 'Starting upload-segments job');
-
-      const asset = await getVideoAssetById(videoAssetId);
-      if (!asset) {
-        await removeAssetOutput(outputRoot, videoAssetId);
-        logger.info({ videoAssetId }, 'Asset was deleted; skipping the Sia upload');
-        return { skipped: 'deleted' };
-      }
-      if (asset.status !== 'processing') {
-        logger.info(
-          { videoAssetId, status: asset.status },
-          'Asset is not processing; skipping the Sia upload',
-        );
-        return { skipped: asset.status };
-      }
-      const finalizeJobId = stageJobId('finalize', videoAssetId, runId);
-      if (await queues.finalize.getJob(finalizeJobId)) {
-        logger.info(
-          { videoAssetId, finalizeJobId },
-          'Finalize already queued; skipping the Sia upload',
-        );
-        return { skipped: 'handed-off' };
-      }
-
-      const processingJob = await getProcessingJobByVideoAssetId(videoAssetId);
-      const pj = processingJob?.id;
-      if (pj) await updateProcessingJobStatus(pj, { status: 'processing' });
-      if (job.data.startsRun && job.attemptsStarted <= 1) {
-        await emit('processing.started', videoAssetId);
-      }
-      // read before the upload, so nothing that can fail runs between it and the hand-off
-      const durationMs = job.data.durationMs ?? asset.durationMs ?? 0;
-      const resolution = job.data.resolution ?? asset.resolution ?? '';
-      await note(pj, 'upload', 'Uploading segments to Sia');
-
-      let result: Awaited<ReturnType<typeof uploadSegments>>;
+      const lease = await holdUploadLease(job);
       try {
-        result = await uploadSegments(outputDir, {
-          thumbnailPaths,
-          ledger: runLedger(videoAssetId, runKey(runId)),
-          checkpoint: async () => {
-            if (!(await stillProcessing(videoAssetId))) throw new StageStopped(videoAssetId);
-          },
-          // the Sia upload is 65-90% of the pipeline
-          onProgress: (uploaded, total) =>
-            void progress(job, pj, 65 + Math.round((uploaded / total) * 25)),
-        });
-      } catch (err) {
-        if (!(err instanceof StageStopped)) throw err;
-        // the uploader already released what it pinned; a failed asset keeps its output for a retry
-        if (!(await getVideoAssetById(videoAssetId)))
-          await removeAssetOutput(outputRoot, videoAssetId);
-        logger.info({ videoAssetId }, 'Asset left processing during the Sia upload; stopped');
-        return { skipped: 'stopped' };
+        return await uploadStage(job, lease);
+      } finally {
+        await lease.release();
       }
-
-      // a failure from here on leaves the objects recorded as uploading: the
-      // next attempt uploads again and its finalize, or the gc sweep, releases them
-      await finalizeQueueAdd(job, {
-        videoAssetId,
-        ...(uploadSessionId ? { uploadSessionId } : {}),
-        ...(runId ? { runId } : {}),
-        manifestObjectId: result.masterManifestObjectId,
-        thumbnailObjectIds: result.thumbnailObjectIds,
-        durationMs,
-        resolution,
-        segmentCount: result.totalSegments,
-        totalStorageBytes: result.totalBytes,
-        storageRecords: result.storageRecords,
-        siaObjectIds: result.allObjectIds,
-      });
-      await note(
-        pj,
-        'upload',
-        `All segments uploaded: ${result.totalSegments} segments per rendition, ${result.totalBytes} bytes; master manifest ${result.masterManifestObjectId}`,
-      );
-      logger.info(
-        { videoAssetId, jobId: job.id, masterManifestObjectId: result.masterManifestObjectId },
-        'Upload-segments job complete, enqueued finalize',
-      );
     },
     { ...workerBase, concurrency: 4 },
   );
+
+  async function uploadStage(job: Job<UploadSegmentsJobData>, lease: { lost: () => boolean }) {
+    const { videoAssetId, uploadSessionId, outputDir, thumbnailPaths, runId } = job.data;
+    logger.info({ videoAssetId, jobId: job.id, outputDir }, 'Starting upload-segments job');
+
+    const asset = await getVideoAssetById(videoAssetId);
+    if (!asset) {
+      await removeAssetOutput(outputRoot, videoAssetId);
+      logger.info({ videoAssetId }, 'Asset was deleted; skipping the Sia upload');
+      return { skipped: 'deleted' };
+    }
+    if (asset.status !== 'processing') {
+      logger.info(
+        { videoAssetId, status: asset.status },
+        'Asset is not processing; skipping the Sia upload',
+      );
+      return { skipped: asset.status };
+    }
+    const finalizeJobId = stageJobId('finalize', videoAssetId, runId);
+    if (await queues.finalize.getJob(finalizeJobId)) {
+      logger.info(
+        { videoAssetId, finalizeJobId },
+        'Finalize already queued; skipping the Sia upload',
+      );
+      return { skipped: 'handed-off' };
+    }
+
+    const processingJob = await getProcessingJobByVideoAssetId(videoAssetId);
+    const pj = processingJob?.id;
+    if (pj) await updateProcessingJobStatus(pj, { status: 'processing' });
+    if (job.data.startsRun && job.attemptsStarted <= 1) {
+      await emit('processing.started', videoAssetId);
+    }
+    // read before the upload, so nothing that can fail runs between it and the hand-off
+    const durationMs = job.data.durationMs ?? asset.durationMs ?? 0;
+    const resolution = job.data.resolution ?? asset.resolution ?? '';
+    await note(pj, 'upload', 'Uploading segments to Sia');
+
+    let result: Awaited<ReturnType<typeof uploadSegments>>;
+    try {
+      result = await uploadSegments(outputDir, {
+        thumbnailPaths,
+        ledger: runLedger(videoAssetId, runKey(runId)),
+        checkpoint: async () => {
+          if (lease.lost()) throw new LeaseLost(videoAssetId);
+          if (!(await stillProcessing(videoAssetId))) throw new StageStopped(videoAssetId);
+        },
+        // the Sia upload is 65-90% of the pipeline
+        onProgress: (uploaded, total) =>
+          void progress(job, pj, 65 + Math.round((uploaded / total) * 25)),
+      });
+    } catch (err) {
+      if (err instanceof LeaseLost) {
+        // the uploader released what it pinned; the execution holding the lease carries on
+        logger.info({ videoAssetId }, 'Left the Sia upload to the execution that took it over');
+        return { skipped: 'superseded' };
+      }
+      if (!(err instanceof StageStopped)) throw err;
+      // the uploader already released what it pinned; a failed asset keeps its output for a retry
+      if (!(await getVideoAssetById(videoAssetId)))
+        await removeAssetOutput(outputRoot, videoAssetId);
+      logger.info({ videoAssetId }, 'Asset left processing during the Sia upload; stopped');
+      return { skipped: 'stopped' };
+    }
+
+    // a failure from here on leaves the objects recorded as uploading: the
+    // next attempt uploads again and its finalize, or the gc sweep, releases them
+    await finalizeQueueAdd(job, {
+      videoAssetId,
+      ...(uploadSessionId ? { uploadSessionId } : {}),
+      ...(runId ? { runId } : {}),
+      manifestObjectId: result.masterManifestObjectId,
+      thumbnailObjectIds: result.thumbnailObjectIds,
+      durationMs,
+      resolution,
+      segmentCount: result.totalSegments,
+      totalStorageBytes: result.totalBytes,
+      storageRecords: result.storageRecords,
+      siaObjectIds: result.allObjectIds,
+    });
+    await note(
+      pj,
+      'upload',
+      `All segments uploaded: ${result.totalSegments} segments per rendition, ${result.totalBytes} bytes; master manifest ${result.masterManifestObjectId}`,
+    );
+    logger.info(
+      { videoAssetId, jobId: job.id, masterManifestObjectId: result.masterManifestObjectId },
+      'Upload-segments job complete, enqueued finalize',
+    );
+  }
 
   async function finalizeQueueAdd(job: Job<UploadSegmentsJobData>, data: FinalizeJobData) {
     await queues.finalize.add('finalize', data, {
@@ -523,6 +642,15 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
   transcodeWorker.on('failed', onFailed('transcode'));
   uploadWorker.on('failed', onFailed('upload'));
   finalizeWorker.on('failed', onFailed('finalize'));
+  // a lock BullMQ could not renew ("could not renew lock for job ...") comes
+  // here; without a listener it only reaches stderr, outside the json log
+  for (const [stage, worker] of [
+    ['transcode', transcodeWorker],
+    ['upload', uploadWorker],
+    ['finalize', finalizeWorker],
+  ] as const) {
+    worker.on('error', (err) => logger.error({ stage, err }, 'Pipeline worker error'));
+  }
 
   return {
     transcode: transcodeWorker,
