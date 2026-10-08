@@ -475,3 +475,20 @@ describe('SettingsPage sessions, optimistic', () => {
     expect(screen.getByText(ua)).toBeInTheDocument();
   });
 });
+
+describe('SettingsPage deep link', () => {
+  it('opens the create key dialog from ?create=key and drops the param on close', async () => {
+    renderPage(
+      <WithSession>
+        <SettingsPage />
+      </WithSession>,
+      { route: '/studio/settings?create=key' },
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Create API key' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // closed for good: the param is gone, so a re-render does not reopen it
+    await screen.findByText('production');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});

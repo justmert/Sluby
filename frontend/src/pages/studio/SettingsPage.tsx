@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router';
 import * as m from 'motion/react-m';
 import { AlertTriangle, KeyRound, LogOut, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -434,7 +435,22 @@ function KeyStatus({ k }: { k: ApiKeyRecord }) {
 function ApiKeysCard() {
   const keys = useApiKeys();
   const revoke = useRevokeApiKey();
-  const [creating, setCreating] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  // ?create=key opens the dialog straight away, e.g. from the command palette
+  const [params, setParams] = useSearchParams();
+  const creating = createOpen || params.get('create') === 'key';
+  const setCreating = (open: boolean) => {
+    setCreateOpen(open);
+    if (!open && params.has('create')) {
+      setParams(
+        (p) => {
+          p.delete('create');
+          return p;
+        },
+        { replace: true },
+      );
+    }
+  };
   const [rotating, setRotating] = useState<ApiKeyRecord | null>(null);
   const [revoking, setRevoking] = useState<ApiKeyRecord | null>(null);
   const shownRevoke = useFrozen(revoking, revoking !== null);
