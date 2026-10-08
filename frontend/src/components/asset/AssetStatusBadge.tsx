@@ -1,22 +1,11 @@
 import type { VideoAssetStatus } from '@sluby/sdk';
-import { StatusTransition } from '@/components/motion';
-import { Badge } from '@/components/ui/badge';
-import { Spinner } from '@/components/ui/spinner';
-
-const CONFIG: Record<
-  VideoAssetStatus,
-  { label: string; variant: 'secondary' | 'warning' | 'success' | 'destructive'; busy?: boolean }
-> = {
-  created: { label: 'Created', variant: 'secondary' },
-  uploading: { label: 'Uploading', variant: 'warning', busy: true },
-  processing: { label: 'Processing', variant: 'warning', busy: true },
-  ready: { label: 'Ready', variant: 'success' },
-  failed: { label: 'Failed', variant: 'destructive' },
-};
+import { StatusBadge } from '@/components/shared/StatusBadge';
 
 /**
- * The asset's status as a badge that crossfades when a poll moves it on.
- * `live` announces changes; give it to one badge per page, not every row.
+ * A video's status. A thin wrapper over StatusBadge kind="asset", so the label
+ * and tone come from the one mapping in components/shared/status.ts. `live`
+ * announces changes and uses a spinner; give it to one badge per page. Rows
+ * in a list get the calmer pulsing dot.
  */
 export function AssetStatusBadge({
   status,
@@ -25,13 +14,5 @@ export function AssetStatusBadge({
   status: VideoAssetStatus;
   live?: boolean;
 }) {
-  const c = CONFIG[status] ?? { label: status, variant: 'secondary' as const };
-  return (
-    <StatusTransition status={status} live={live}>
-      <Badge variant={c.variant}>
-        {c.busy && <Spinner data-icon="inline-start" aria-hidden="true" />}
-        {c.label}
-      </Badge>
-    </StatusTransition>
-  );
+  return <StatusBadge kind="asset" status={status} live={live} busy={live ? 'spinner' : 'dot'} />;
 }
