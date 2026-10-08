@@ -1104,27 +1104,26 @@ export default function UploadPage({ store = defaultStore }: { store?: UploadSto
       <div className="flex flex-col gap-6">
         <Card className="max-w-2xl">
           <CardContent className="flex flex-col gap-4">
-            <AnimatePresence initial={false} mode="popLayout">
-              <m.div
-                key={drafts.length > 0 ? 'form' : 'zone'}
-                variants={fadeUp}
-                initial="hidden"
-                animate="visible"
-                exit="exit"
-              >
-                {drafts.length > 0 ? (
-                  <DetailsForm
-                    drafts={drafts}
-                    busy={busy}
-                    onChange={setDrafts}
-                    onCancel={() => setDrafts([])}
-                    onStart={start}
-                  />
-                ) : (
-                  <DropZone onFiles={choose} busy={busy} />
-                )}
-              </m.div>
-            </AnimatePresence>
+            {/* the new view fades in where the old one was; an exit here would
+                overlap the two while the card changes height */}
+            <m.div
+              key={drafts.length > 0 ? 'form' : 'zone'}
+              variants={fadeUp}
+              initial="hidden"
+              animate="visible"
+            >
+              {drafts.length > 0 ? (
+                <DetailsForm
+                  drafts={drafts}
+                  busy={busy}
+                  onChange={setDrafts}
+                  onCancel={() => setDrafts([])}
+                  onStart={start}
+                />
+              ) : (
+                <DropZone onFiles={choose} busy={busy} />
+              )}
+            </m.div>
             {rejected && (
               <p role="alert" className="text-sm text-destructive">
                 {rejected}
@@ -1147,7 +1146,9 @@ export default function UploadPage({ store = defaultStore }: { store?: UploadSto
         />
         <AnimatedList as="div" className="flex flex-col gap-6">
           {uploads.map((u) => (
-            <AnimatedItem key={u.key} as="div">
+            // slide only when a card comes or goes, not whenever something
+            // above the list changes height (the form opening, the queue)
+            <AnimatedItem key={u.key} as="div" layoutDependency={uploads.length}>
               <UploadCard store={store} s={u} busy={busy} />
             </AnimatedItem>
           ))}
