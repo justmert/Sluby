@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router';
-import { lazy, Suspense } from 'react';
+import { lazy } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
-import { RouteFallback } from '@/components/layout/RouteFallback';
+import { RouteSuspense } from '@/components/layout/RouteSuspense';
 import { PageTransition } from '@/components/motion/PageTransition';
 
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
@@ -20,7 +20,7 @@ export function App() {
     <AppShell>
       {/* inside suspense, so a lazy page fades in once it has loaded rather
           than the fallback fading in and the page popping in after it */}
-      <Suspense fallback={<RouteFallback />}>
+      <RouteSuspense>
         <PageTransition>
           <Routes>
             <Route path="/" element={<Navigate to="/studio" replace />} />
@@ -37,7 +37,7 @@ export function App() {
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </PageTransition>
-      </Suspense>
+      </RouteSuspense>
     </AppShell>
   );
 }
