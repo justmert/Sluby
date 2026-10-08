@@ -25,6 +25,17 @@ const dirs = await vi.hoisted(async () => {
 // the sia-storage sdk is the boundary: everything above it runs for real
 const fake = await vi.hoisted(async () => (await import('./helpers/fake-sia.js')).createFakeSia());
 vi.mock('@siafoundation/sia-storage', () => fake.module);
+// the prune gate's leases live in memory here; slab-prune-gate.redis.test.ts covers the redis ones
+vi.mock('../storage/prune-leases.js', async () => {
+  const { MemoryPruneLeases } = await import('./helpers/memory-prune-leases.js');
+  return {
+    RedisPruneLeases: class extends MemoryPruneLeases {
+      constructor() {
+        super();
+      }
+    },
+  };
+});
 
 // FFmpeg is the other boundary: the fake copies real FFmpeg output of a 1 s clip
 const ff = vi.hoisted(() => ({

@@ -2,9 +2,23 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { MemoryPruneLeases } from './helpers/memory-prune-leases.js';
 
 const fake = await vi.hoisted(async () => (await import('./helpers/fake-sia.js')).createFakeSia());
 vi.mock('@siafoundation/sia-storage', () => fake.module);
+const gate = vi.hoisted(() => ({ leases: undefined as MemoryPruneLeases | undefined }));
+// the prune gate's leases live in memory here; slab-prune-gate.redis.test.ts covers the redis ones
+vi.mock('../storage/prune-leases.js', async () => {
+  const { MemoryPruneLeases } = await import('./helpers/memory-prune-leases.js');
+  return {
+    RedisPruneLeases: class extends MemoryPruneLeases {
+      constructor() {
+        super();
+        gate.leases = this;
+      }
+    },
+  };
+});
 
 import {
   uploadAndPinPacked,
@@ -25,6 +39,7 @@ const settle = () => new Promise((r) => setTimeout(r, 10));
 
 beforeEach(() => {
   fake.reset();
+  if (gate.leases) gate.leases.ttlMs = 60_000;
 });
 
 afterAll(() => {
@@ -163,5 +178,19 @@ describe('pruneSlabs', () => {
     await expect(prune).resolves.toBe('pruned');
     await upload;
     expect(fake.calls.add).toBe(1);
+  });
+
+  it('pins nothing when the lease of the upload lapsed and a prune ran under it', async () => {
+    let release: () => void = () => {};
+    fake.before('finalize', () => new Promise<void>((r) => (release = r)));
+    gate.leases!.ttlMs = 20;
+    const upload = uploadAndPinPacked([new Uint8Array(1)]);
+    await settle();
+    // the upload's renewals are 15 s apart, so its 20 ms lease has lapsed
+    await new Promise((r) => setTimeout(r, 40));
+    await expect(pruneSlabs()).resolves.toBe('pruned');
+    release();
+    await expect(upload).rejects.toThrow(/slab prune may have run during this upload/);
+    expect(fake.objects.size).toBe(0);
   });
 });
