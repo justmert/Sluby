@@ -28,10 +28,12 @@ function migrate(databaseUrl: string): Promise<{ code: number; output: string }>
 // migration; without the lock the second one fails on objects the first made
 describe.skipIf(!hasTestDatabase)('db:migrate from replicas starting together (postgres)', () => {
   const name = `sluby_test_${randomBytes(6).toString('hex')}`;
-  const url = new URL(TEST_DATABASE_URL);
-  url.pathname = `/${name}`;
+  // built in the hook: a skipped describe still runs its body, and there is no url then
+  let url: URL;
 
   beforeAll(async () => {
+    url = new URL(TEST_DATABASE_URL);
+    url.pathname = `/${name}`;
     const admin = postgres(TEST_DATABASE_URL, { max: 1, onnotice: () => {} });
     await admin.unsafe(`create database ${name}`);
     await admin.end();
