@@ -48,6 +48,7 @@ import { TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useFrozen } from '@/hooks/useFrozen';
 import {
   isPendingPlaybackId,
+  playbackIdRowKey,
   playbackStreamUrl,
   useCreatePlaybackId,
   useDeletePlaybackId,
@@ -288,7 +289,7 @@ export function PlaybackIdsCard({ assetId }: { assetId: string }) {
             </TableHeader>
             <AnimatedList as="tbody" data-slot="table-body" className="[&_tr:last-child]:border-0">
               {rows.map((row) => (
-                <Row key={row.id} row={row} onDelete={() => setPendingDelete(row)} />
+                <Row key={playbackIdRowKey(row)} row={row} onDelete={() => setPendingDelete(row)} />
               ))}
             </AnimatedList>
           </ResponsiveTable>

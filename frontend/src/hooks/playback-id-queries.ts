@@ -10,6 +10,11 @@ const key = (assetId: string) => ['assets', 'playback-ids', assetId];
 const PENDING = 'pending:';
 export const isPendingPlaybackId = (row: PlaybackId) => row.id.startsWith(PENDING);
 
+// a created row keeps its placeholder's react key, so it settles in place
+// instead of leaving and entering again
+const keyAliases = new Map<string, string>();
+export const playbackIdRowKey = (row: PlaybackId) => keyAliases.get(row.id) ?? row.id;
+
 /** Where a player loads the HLS stream of a playback id on this deployment. */
 export function playbackStreamUrl(playbackId: string, origin = window.location.origin) {
   return `${origin}/v1/stream/${encodeURIComponent(playbackId)}/master.m3u8`;
@@ -42,6 +47,7 @@ export function useCreatePlaybackId(assetId: string) {
       return { placeholder };
     },
     onSuccess: (created, _input, context) => {
+      keyAliases.set(created.id, context.placeholder.id);
       queryClient.setQueryData<PlaybackId[]>(key(assetId), (rows = []) =>
         rows.map((r) => (r.id === context.placeholder.id ? created : r)),
       );
