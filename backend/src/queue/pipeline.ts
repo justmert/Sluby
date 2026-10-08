@@ -107,8 +107,15 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) 
 return 0`;
 
 /**
- * Sleep `ms`, then once more for every wake-up that came more than `ms` late.
- * A late wake-up means the host or VM was frozen (a sleeping laptop, a
+ * Wake-ups later than this, and later than the interval itself, count as a
+ * freeze rather than a busy event loop. A loaded host delays timers by a few
+ * seconds; treating that as a freeze would keep a waiting execution asleep.
+ */
+const FREEZE_SLACK_MS = 5_000;
+
+/**
+ * Sleep `ms`, then once more for every wake-up that came much later than
+ * asked. A late wake-up means the host or VM was frozen (a sleeping laptop, a
  * stalled Docker VM); every other execution's timers were frozen with it and
  * need a full interval after it to show they are still alive.
  */
@@ -116,7 +123,7 @@ async function pauseThroughFreezes(ms: number): Promise<void> {
   for (;;) {
     const started = Date.now();
     await new Promise((r) => setTimeout(r, ms));
-    if (Date.now() - started < 2 * ms) return;
+    if (Date.now() - started <= ms + Math.max(ms, FREEZE_SLACK_MS)) return;
   }
 }
 
@@ -341,7 +348,37 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
    * heartbeat; another execution waits while the lease is held, then checks
    * again whether there is anything left to upload.
    */
-  async function holdUploadLease(job: Job<UploadSegmentsJobData>) {
+  async function holdUploadLease(job: Job<UploadSegmentsJobData>, jobToken: string | undefined) {
+    // BullMQ renews locks per job id, and stops when any execution of the job
+    // in this worker ends, so a duplicate that carries on after the first
+    // execution would lose its lock and be failed as stalled. this execution
+    // keeps its own lock alive while it waits and uploads.
+    const lockMs = opts.workerOptions?.lockDuration ?? PIPELINE_LOCK_DURATION_MS;
+    const keepLock = setInterval(
+      () => {
+        if (!jobToken) return;
+        job.extendLock(jobToken, lockMs).then(
+          (extended) => {
+            if (!extended)
+              logger.warn({ jobId: job.id }, 'This execution no longer holds the job lock');
+          },
+          (err: unknown) => logger.warn({ jobId: job.id, err }, 'Could not extend the job lock'),
+        );
+      },
+      Math.min(leaseRenewMs, lockMs / 3),
+    );
+    try {
+      return await claimUploadLease(job, keepLock);
+    } catch (err) {
+      clearInterval(keepLock);
+      throw err;
+    }
+  }
+
+  async function claimUploadLease(
+    job: Job<UploadSegmentsJobData>,
+    keepLock: ReturnType<typeof setInterval>,
+  ) {
     const redis = await uploadWorker.client;
     // defining a command again on the same client replaces it with the same script
     redis.defineCommand('slubyClaimLease', { numberOfKeys: 1, lua: CLAIM_LEASE });
@@ -381,6 +418,7 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
       lost: () => lost,
       release: async () => {
         clearInterval(renewal);
+        clearInterval(keepLock);
         try {
           await redis.runCommand('slubyReleaseLease', [key, token]);
         } catch (err) {
@@ -393,8 +431,8 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
 
   const uploadWorker = new Worker<UploadSegmentsJobData>(
     'upload-segments',
-    async (job) => {
-      const lease = await holdUploadLease(job);
+    async (job, jobToken) => {
+      const lease = await holdUploadLease(job, jobToken);
       try {
         return await uploadStage(job, lease);
       } finally {
