@@ -492,4 +492,25 @@ describe('AssetDetailPage', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Sia storage' }));
     expect(screen.getByTestId('where')).toHaveTextContent('?tab=storage');
   });
+
+  it('shows the shared page state for a missing asset, and a retry when loading failed', async () => {
+    render(undefined, { '/api/v1/assets/a1': reply(404, { error: 'Video asset not found' }) });
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Asset not found' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to assets' })).toHaveAttribute(
+      'href',
+      '/studio/assets',
+    );
+  });
+
+  it('offers a retry and the server message when the asset did not load', async () => {
+    render(undefined, { '/api/v1/assets/a1': reply(500, { error: 'Database unavailable' }) });
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Could not load this asset' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Database unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
 });

@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner';
 import type { AccessTier, RetryStage, VideoAsset } from '@sluby/sdk';
 import { PageContainer } from '@/components/layout/PageContainer';
+import { PageState } from '@/components/layout/PageState';
 import { AssetPlayer } from '@/components/asset/AssetPlayer';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
 import { PlaybackIdsCard } from '@/components/asset/PlaybackIdsCard';
@@ -43,14 +44,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
@@ -485,24 +478,29 @@ export default function AssetDetailPage() {
     const notFound = (asset.error as { statusCode?: number } | null)?.statusCode === 404;
     return (
       <PageContainer>
-        <Empty className="min-h-[60vh]">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              {notFound ? <FileQuestion /> : <AlertTriangle />}
-            </EmptyMedia>
-            <EmptyTitle>{notFound ? 'Asset not found' : 'Could not load this asset'}</EmptyTitle>
-            <EmptyDescription>
-              {notFound
-                ? 'It may have been deleted, or it belongs to another account.'
-                : asset.error?.message}
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button asChild>
-              <Link to="/studio/assets">Back to assets</Link>
-            </Button>
-          </EmptyContent>
-        </Empty>
+        <PageState
+          icon={notFound ? FileQuestion : AlertTriangle}
+          tone={notFound ? 'default' : 'error'}
+          title={notFound ? 'Asset not found' : 'Could not load this asset'}
+          description={
+            notFound
+              ? 'It may have been deleted, or it belongs to another account.'
+              : 'The server did not return this asset. Try again, or go back to the library.'
+          }
+          detail={notFound ? undefined : asset.error?.message}
+          actions={
+            <>
+              {!notFound && (
+                <Button variant="outline" onClick={() => void asset.refetch()}>
+                  Try again
+                </Button>
+              )}
+              <Button asChild>
+                <Link to="/studio/assets">Back to assets</Link>
+              </Button>
+            </>
+          }
+        />
       </PageContainer>
     );
   }
