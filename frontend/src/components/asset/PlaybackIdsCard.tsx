@@ -84,17 +84,7 @@ function CreateDialog({
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        // a fresh form each time it opens
-        if (o) {
-          setName('');
-          setPolicy('public');
-        }
-        onOpenChange(o);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <form onSubmit={submit} className="flex flex-col gap-4">
           <DialogHeader>
@@ -256,6 +246,8 @@ export function PlaybackIdsCard({ assetId }: { assetId: string }) {
   const list = usePlaybackIds(assetId);
   const remove = useDeletePlaybackId(assetId);
   const [creating, setCreating] = useState(false);
+  // a new key per opening gives the form fresh fields; it stays mounted while it closes
+  const [createSeq, setCreateSeq] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<PlaybackId | null>(null);
   const deleteOpen = pendingDelete !== null;
   const shown = useFrozen(pendingDelete, deleteOpen);
@@ -281,7 +273,13 @@ export function PlaybackIdsCard({ assetId }: { assetId: string }) {
           every player that uses it.
         </CardDescription>
         <CardAction>
-          <Button size="sm" onClick={() => setCreating(true)}>
+          <Button
+            size="sm"
+            onClick={() => {
+              setCreateSeq((n) => n + 1);
+              setCreating(true);
+            }}
+          >
             <Plus />
             New playback ID
           </Button>
@@ -335,7 +333,7 @@ export function PlaybackIdsCard({ assetId }: { assetId: string }) {
         )}
       </CardContent>
 
-      <CreateDialog assetId={assetId} open={creating} onOpenChange={setCreating} />
+      <CreateDialog key={createSeq} assetId={assetId} open={creating} onOpenChange={setCreating} />
 
       <AlertDialog open={deleteOpen} onOpenChange={(o) => !o && setPendingDelete(null)}>
         <AlertDialogContent>

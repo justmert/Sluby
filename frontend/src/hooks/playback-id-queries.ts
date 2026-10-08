@@ -58,7 +58,8 @@ export function useCreatePlaybackId(assetId: string) {
         name: input.name ?? '',
         createdAt: new Date().toISOString(),
       };
-      queryClient.setQueryData<PlaybackId[]>(key(assetId), (rows = []) => [...rows, placeholder]);
+      queryClient.setQueryData<PlaybackId[]>(key(assetId), (rows = []) => [placeholder, ...rows]);
+      // the server lists the newest first
       return { placeholder };
     },
     onSuccess: (created, _input, context) => {

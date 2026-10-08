@@ -29,7 +29,7 @@ function server(initial = [row(PB_A, 'public', 'Site embed')], hold?: Promise<vo
       await hold;
       const b = body as { policy?: string; name?: string };
       const created = row(PB_NEW, b.policy ?? 'public', b.name ?? null);
-      rows = [...rows, created];
+      rows = [created, ...rows];
       return reply(201, created);
     },
     [`DELETE /api/v1/playback-ids/${PB_A}`]: () => {
@@ -220,5 +220,25 @@ describe('PlaybackIdsCard', () => {
       '3600',
     );
     expect(await screen.findByText(/^Signed URL copied, valid until/)).toBeInTheDocument();
+  });
+
+  it('opens the create form empty each time, with the new row on top like the server', async () => {
+    server();
+    show();
+    await screen.findByText('Site embed');
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    let dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name (optional)'), 'First');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Policy' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Signed' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    await screen.findByText(PB_NEW);
+    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1);
+    expect(rows[0]).toHaveTextContent('First');
+
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText('Name (optional)')).toHaveValue('');
+    expect(within(dialog).getByRole('combobox', { name: 'Policy' })).toHaveTextContent('Public');
   });
 });
