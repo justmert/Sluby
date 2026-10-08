@@ -102,9 +102,169 @@ export interface SignedPlaybackInfo {
   expiresAt: string;
 }
 
+/** One HLS rendition of a ready asset, as `assets.renditions()` lists it. */
+export interface Rendition {
+  /** Rung name such as `720p`. */
+  name: string;
+  width: number | null;
+  height: number | null;
+  videoBitrateKbps: number | null;
+  /** Media segments in this rendition. */
+  segmentCount: number;
+  /** Bytes of this rendition's media on Sia, before erasure coding. */
+  byteSize: number;
+  /** Sia object holding the rendition's media. */
+  dataObjectId: string;
+  /** Sia object holding the rendition's playlist. */
+  playlistObjectId: string;
+}
+
+/** Library totals from `assets.stats()`. */
+export interface AssetStats {
+  /** Assets that are not deleted. */
+  total: number;
+  /** Asset count per status; every status is present, 0 when none. */
+  byStatus: Record<VideoAssetStatus, number>;
+  /** Bytes stored on Sia for these assets, before erasure coding. */
+  storedBytes: number;
+  /** Total duration of the ready assets. */
+  readyDurationMs: number;
+  /** Sia objects backing these assets. */
+  objectCount: number;
+}
+
+/** Who may play through a playback id: anyone, or only signed URLs. */
+export type PlaybackPolicy = 'public' | 'signed';
+
+/** A public, revocable `pb_...` handle for an asset. */
+export interface PlaybackId {
+  /** The record's id. */
+  id: string;
+  /** The public `pb_...` handle; use it in place of the asset id in playback URLs. */
+  playbackId: string;
+  policy: PlaybackPolicy;
+  /** Label given at creation; empty when none was. */
+  name: string;
+  createdAt: string;
+}
+
+/** What an API key may do. */
+export type ApiKeyScope = 'upload' | 'read' | 'manage';
+
+/** An API key as listed. The secret is never part of it after creation. */
+export interface ApiKey {
+  id: string;
+  name: string;
+  scopes: ApiKeyScope[];
+  /** Requests per minute. */
+  rateLimit: number;
+  isActive: boolean;
+  createdAt: string;
+  /** Set while a rotated-out key is in its grace period; null otherwise. */
+  expiresAt: string | null;
+}
+
+/** A newly created key: the listing shape plus the raw secret, shown only here. */
+export interface CreatedApiKey extends ApiKey {
+  /** The raw `sluby_...` key. Store it now; it cannot be read again. */
+  key: string;
+}
+
+/** The replacement a rotation issued, with the secret, shown only here. */
+export interface RotatedApiKey extends CreatedApiKey {
+  /** Id of the key that was rotated out. */
+  rotatedFrom: string;
+  /** When the rotated-out key stops working. */
+  previousKeyExpiresAt: string;
+}
+
+/** A registered webhook endpoint as listed. */
+export interface WebhookEndpoint {
+  id: string;
+  url: string;
+  events: WebhookEventName[];
+  isActive: boolean;
+  createdAt: string;
+}
+
+/** A newly registered endpoint with its signing secret, shown only here. */
+export interface CreatedWebhookEndpoint {
+  id: string;
+  url: string;
+  events: WebhookEventName[];
+  /** Secret for `webhooks.verifyRequest`. Store it now; it cannot be read again. */
+  secret: string;
+}
+
+/** How the receiver answered a `webhook.test` event. */
+export interface WebhookTestResult {
+  /** True when the receiver answered 2xx. */
+  delivered: boolean;
+  /** Null when no response came. */
+  statusCode: number | null;
+  /** Why the delivery failed, or null. */
+  error: string | null;
+}
+
+/** One delivery attempt to an endpoint. Response bodies are never stored. */
+export interface WebhookDelivery {
+  id: string;
+  /** The event's id, the same on every retry; null for older records. */
+  eventId: string | null;
+  /** Event name, including `webhook.test` for test sends. */
+  event: string;
+  statusCode: number | null;
+  delivered: boolean;
+  error: string | null;
+  /** 1 for the first try. */
+  attempt: number;
+  createdAt: string;
+}
+
+/** A page of a list that pages by cursor only. */
+export interface CursorPage<T> {
+  data: T[];
+  /** Whether there is a page after this one. */
+  hasMore: boolean;
+  /** Pass as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Request / option types
 // ---------------------------------------------------------------------------
+
+/** Options for listing API keys. */
+export interface ListApiKeysOptions extends RequestOptions {
+  /** Keys per page, 1 to 1000. The server's default is 1000. */
+  limit?: number;
+  /** The `nextCursor` of the previous page. */
+  cursor?: string;
+}
+
+/** Fields of a new API key. */
+export interface CreateApiKeyInput {
+  name: string;
+  /** Default `['upload', 'read']`. */
+  scopes?: ApiKeyScope[];
+  /** Requests per minute. Default 100; the deployment sets the maximum. */
+  rateLimit?: number;
+}
+
+/** Fields of a new webhook endpoint. */
+export interface CreateWebhookEndpointInput {
+  /** Absolute http(s) URL whose host resolves to public addresses. */
+  url: string;
+  /** At least one event. */
+  events: WebhookEventName[];
+}
+
+/** Fields of a new playback id. */
+export interface CreatePlaybackIdInput {
+  /** Default `public`. */
+  policy?: PlaybackPolicy;
+  name?: string;
+}
 
 /** Per-call options every request method takes. */
 export interface RequestOptions {

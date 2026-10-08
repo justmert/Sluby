@@ -5,12 +5,15 @@
 import { AbortError, ProcessingFailedError, TimeoutError, readJson } from './errors.js';
 import type {
   AccessTier,
+  AssetStats,
   ListAssetsOptions,
   PaginatedResponse,
   ProcessingJob,
+  Rendition,
   RequestOptions,
   RetryStage,
   VideoAsset,
+  VideoAssetStatus,
 } from './types.js';
 import type { FetchFn } from './uploads.js';
 
@@ -151,6 +154,65 @@ export class AssetManager {
       completedAt: raw.completed_at ?? null,
       createdAt: raw.created_at,
       logs: raw.logs ?? [],
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // GET /api/v1/assets/:id/renditions
+  // -----------------------------------------------------------------------
+
+  /**
+   * The HLS renditions processing produced, tallest first, with the Sia
+   * objects holding each one's playlist and media. Empty until the asset is
+   * ready.
+   */
+  async renditions(videoAssetId: string, options?: RequestOptions): Promise<Rendition[]> {
+    const res = await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}/renditions`, {
+      signal: options?.signal,
+    });
+    const body = await readJson(res);
+    return (body.data as Array<Record<string, unknown>>).map((raw) => ({
+      name: raw.name as string,
+      width: (raw.width as number | null | undefined) ?? null,
+      height: (raw.height as number | null | undefined) ?? null,
+      videoBitrateKbps: (raw.video_bitrate_kbps as number | null | undefined) ?? null,
+      segmentCount: raw.segment_count as number,
+      byteSize: raw.byte_size as number,
+      dataObjectId: raw.data_object_id as string,
+      playlistObjectId: raw.playlist_object_id as string,
+    }));
+  }
+
+  // -----------------------------------------------------------------------
+  // GET /api/v1/stats
+  // -----------------------------------------------------------------------
+
+  /**
+   * Library totals for the caller's account: asset counts by status, bytes
+   * stored on Sia, ready playtime and the number of Sia objects. Deleted
+   * assets are not counted.
+   */
+  async stats(options?: RequestOptions): Promise<AssetStats> {
+    const res = await this._fetch('/api/v1/stats', { signal: options?.signal });
+    const raw = await readJson<{
+      total: number;
+      by_status: Partial<Record<VideoAssetStatus, number>>;
+      stored_bytes: number;
+      ready_duration_ms: number;
+      object_count: number;
+    }>(res);
+    return {
+      total: raw.total,
+      byStatus: {
+        created: raw.by_status.created ?? 0,
+        uploading: raw.by_status.uploading ?? 0,
+        processing: raw.by_status.processing ?? 0,
+        ready: raw.by_status.ready ?? 0,
+        failed: raw.by_status.failed ?? 0,
+      },
+      storedBytes: raw.stored_bytes,
+      readyDurationMs: raw.ready_duration_ms,
+      objectCount: raw.object_count,
     };
   }
 

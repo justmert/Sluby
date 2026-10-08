@@ -4,10 +4,13 @@
 
 import { AssetManager } from './assets.js';
 import { AbortError, TimeoutError, errorFromResponse } from './errors.js';
+import { KeyManager } from './keys.js';
+import { PlaybackIdManager } from './playback-ids.js';
 import { PlaybackManager } from './playback.js';
 import { SiaSession } from './sia-session.js';
 import type { SlubyConfig } from './types.js';
 import { UploadManager } from './uploads.js';
+import { WebhookEndpointManager } from './webhook-endpoints.js';
 import { WebhookManager } from './webhooks.js';
 
 /**
@@ -43,14 +46,23 @@ export class SlubyClient {
   /** Video upload management (resumable TUS upload, status, cancel). */
   readonly uploads: UploadManager;
 
-  /** Video asset CRUD and lifecycle polling. */
+  /** Video asset CRUD, lifecycle polling, renditions and library totals. */
   readonly assets: AssetManager;
 
   /** Playback URL retrieval (public and signed). */
   readonly playback: PlaybackManager;
 
+  /** Public `pb_...` playback ids: list, create and delete. */
+  readonly playbackIds: PlaybackIdManager;
+
   /** Webhook signature verification and event parsing utilities. */
   readonly webhooks: WebhookManager;
+
+  /** Registered webhook endpoints: list, create, delete, test and deliveries. */
+  readonly webhookEndpoints: WebhookEndpointManager;
+
+  /** The account's API keys: list, create, rotate and revoke. */
+  readonly keys: KeyManager;
 
   /**
    * Direct-from-Sia viewer session (browser only). Present only when
@@ -99,7 +111,10 @@ export class SlubyClient {
     });
     this.assets = new AssetManager(boundFetch);
     this.playback = new PlaybackManager(boundFetch, this.resolveDeliveryUrl.bind(this));
+    this.playbackIds = new PlaybackIdManager(boundFetch);
     this.webhooks = new WebhookManager();
+    this.webhookEndpoints = new WebhookEndpointManager(boundFetch);
+    this.keys = new KeyManager(boundFetch);
     this.sia = this._config.sia
       ? new SiaSession(boundFetch, this._config.sia, {
           fetchPublic: this._fetchPublic.bind(this),
