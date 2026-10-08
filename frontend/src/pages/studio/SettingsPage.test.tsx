@@ -407,7 +407,7 @@ describe('SettingsPage key forms and optimistic rows', () => {
 
   it('removes a revoked key at once and puts it back when the server refuses', async () => {
     let answer!: (r: Response) => void;
-    const base = fetchMock.getMockImplementation()!;
+    const base = fetchMock.getMockImplementation() as typeof fetch;
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === '/api/v1/keys/k1' && init?.method === 'DELETE') {
         return new Promise<Response>((r) => (answer = r));
@@ -431,7 +431,7 @@ describe('SettingsPage key forms and optimistic rows', () => {
 
   it('shows a creating row while the server makes the key, without the secret in the cache', async () => {
     let answer!: (r: Response) => void;
-    const base = fetchMock.getMockImplementation()!;
+    const base = fetchMock.getMockImplementation() as typeof fetch;
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === '/api/v1/keys' && init?.method === 'POST') {
         return new Promise<Response>((r) => (answer = r));
@@ -458,7 +458,7 @@ describe('SettingsPage key forms and optimistic rows', () => {
 describe('SettingsPage sessions, optimistic', () => {
   it('drops an ended session at once and restores it when ending fails', async () => {
     let answer!: (r: Response) => void;
-    const base = fetchMock.getMockImplementation()!;
+    const base = fetchMock.getMockImplementation() as typeof fetch;
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === '/api/v1/auth/sessions/s2' && init?.method === 'DELETE') {
         return new Promise<Response>((r) => (answer = r));
