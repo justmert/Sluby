@@ -191,13 +191,14 @@ erDiagram
     int status_code
     text error "our words, never the receiver's body"
     int retry_count
+    timestamptz delivered_at "set on a 2xx"
   }
 ```
 
 - **`api_keys`** stores only the SHA-256 of each key. `expires_at` is how rotation retires the old key after its grace period, and `replaced_by_id` points from the old key to the key that replaced it, so a key can be rotated only once.
 - **`bootstrap_keys`** records the hash of every `BOOTSTRAP_API_KEY` the backend has seeded, so a bootstrap key that was deleted or rotated is never seeded again (migration `0015` backfilled the bootstrap keys earlier versions seeded).
 - **`webhook_endpoints`** belong to an owner through `creator_address`. `api_key_id` records which key registered the endpoint (null when it was the Studio) and is kept for audit only: revoking the key leaves the endpoint working. The `secret` is stored in plain text because the backend needs it to sign every delivery; it is returned once, when the endpoint is created.
-- **`webhook_deliveries`** logs every delivery attempt, one row per try, with the status code and, for a failure, why in our own words. Receivers' response bodies are never read or stored (migration `0012` dropped the `response_body` column), so the log cannot be used to read an internal service.
+- **`webhook_deliveries`** logs every delivery attempt, one row per try, with the status code and, for a failure, why in our own words. Receivers' response bodies are never read or stored (migration `0012` dropped the `response_body` column), so the log cannot be used to read an internal service. `delivered_at` is set when the receiver answered 2xx. The backend's hourly sweep deletes attempts older than 30 days, so the log does not grow forever.
 
 ## Reconciliation
 
