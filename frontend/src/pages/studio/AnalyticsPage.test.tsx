@@ -188,6 +188,6 @@ describe('AnalyticsPage', () => {
   it('draws stat values at stat size through StatValue', async () => {
     render(true);
     const value = await screen.findByText('1:00:00', readable);
-    expect(value.parentElement).toHaveClass('text-2xl', 'leading-8', 'tabular-nums');
+    expect(value.parentElement).toHaveClass('text-figure', 'tabular-nums');
   });
 });

@@ -21,11 +21,7 @@
  * stacking changes, and position: fixed children still place against the
  * viewport (checked in chrome).
  *
- * PageHeader: the page title row. Props:
- * - title
- * - description, optional, under the title
- * - actions, optional, at the end of the row on wide pages and under the
- *   title on narrow ones
+ * PageHeader and SectionHeader: see components/shared/PageHeader.tsx.
  */
 import { cn } from '@/lib/utils';
 
@@ -48,20 +44,6 @@ export function PageContainer({ children, className }: PageContainerProps) {
   );
 }
 
-interface PageHeaderProps {
-  title: string;
-  description?: React.ReactNode;
-  actions?: React.ReactNode;
-}
-
-export function PageHeader({ title, description, actions }: PageHeaderProps) {
-  return (
-    <div className="mb-6 flex flex-col gap-4 @xl/page:flex-row @xl/page:items-end @xl/page:justify-between">
-      <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
-      </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
-    </div>
-  );
-}
+// the page title block lives with the other shared components; it is
+// re-exported here so existing imports keep working
+export { PageHeader, SectionHeader } from '@/components/shared/PageHeader';

@@ -30,8 +30,8 @@ function ResponsiveTable(props: React.ComponentProps<typeof Table>) {
 interface ResponsiveCellProps extends React.ComponentProps<typeof TableCell> {
   /** the column name shown in front of the value on phones; leave it off for primary and actions */
   label?: string;
-  /** "primary" is the row's title on phones; "actions" pins to the top right */
-  cell?: 'primary' | 'actions';
+  /** "primary" is the row's title on phones; "actions" pins to the top right and "select" (a row checkbox) under it */
+  cell?: 'primary' | 'actions' | 'select';
 }
 
 function ResponsiveCell({ label, cell, ...props }: ResponsiveCellProps) {

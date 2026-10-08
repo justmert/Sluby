@@ -258,7 +258,7 @@ describe('DashboardPage', () => {
 
     await act(async () => answer(json(stats)));
     const value = await screen.findByText('9', readable);
-    expect(value.parentElement).toHaveClass('text-2xl', 'leading-8', 'tabular-nums');
+    expect(value.parentElement).toHaveClass('text-figure', 'tabular-nums');
     expect(document.querySelector('[data-slot="stat-value"]')).toBeNull();
   });
 
