@@ -1,17 +1,14 @@
 /**
- * Rewrites HLS M3U8 manifests to replace local file references with Sia
- * gateway URLs. With FFmpeg's `single_file` flag, each variant has ONE
- * data.m4s containing init+all segments concatenated, and the playlist
- * references segments via EXT-X-BYTERANGE pointing into that file.
+ * Rewrites the HLS playlists ffmpeg wrote so they name Sia objects instead of
+ * local files. With `single_file`, each variant has one data file holding the
+ * init section and every segment, and its playlist addresses the segments
+ * with EXT-X-BYTERANGE into that file.
  *
- * Rewriting strategy:
- *   - The single data file's filename (e.g. `data.m4s`) is replaced with
- *     `{baseUrl}/v1/objects/{dataObjectId}` everywhere it appears.
- *   - The EXT-X-MAP:URI="data.m4s",BYTERANGE="..." line is rewritten to
- *     point to the same gateway URL — the BYTERANGE attribute is preserved.
- *   - All EXT-X-BYTERANGE:length@offset lines are kept verbatim — the
- *     gateway translates HTTP `Range:` headers into Sia byte-range
- *     downloads on the way out.
+ * Every mention of the data file becomes `{baseUrl}/v1/objects/{objectId}`
+ * and the byte ranges stay as they are. The pipeline passes an empty base
+ * url, so stored playlists hold root-relative paths: they resolve against
+ * whichever origin serves the gateway, and the direct-from-Sia player reads
+ * the object id out of the path.
  */
 
 export interface SegmentBlobMapping {
@@ -22,13 +19,8 @@ export interface SegmentBlobMapping {
 }
 
 /**
- * Rewrite a variant playlist to reference the Sia gateway URL for its
- * single data file.
- *
- * Replaces `data.m4s` (bare filename, on its own line per HLS spec) with
- * `{baseUrl}/v1/objects/{dataObjectId}`. Rewrites the
- * `#EXT-X-MAP:URI="data.m4s",BYTERANGE="..."` line to the same URL while
- * preserving the BYTERANGE attribute.
+ * Point a variant playlist at its data object: the bare filename on each
+ * segment line and the EXT-X-MAP URI, keeping the map's BYTERANGE.
  */
 export function rewriteVariantPlaylist(
   playlistContent: string,
@@ -40,23 +32,17 @@ export function rewriteVariantPlaylist(
 
   let rewritten = playlistContent;
 
-  // Rewrite EXT-X-MAP URI; preserve any other attributes (e.g. BYTERANGE).
   rewritten = rewritten.replace(
     new RegExp(`#EXT-X-MAP:URI="${escFile}"`, 'g'),
     `#EXT-X-MAP:URI="${dataUrl}"`,
   );
 
-  // Rewrite bare-filename segment lines (the URI line that follows each
-  // EXT-X-BYTERANGE entry).
   rewritten = rewritten.replace(new RegExp(`^${escFile}$`, 'gm'), dataUrl);
 
   return rewritten;
 }
 
-/**
- * Rewrite the master playlist to reference Sia object IDs for variant
- * playlists.
- */
+/** Point each variant line of the master playlist at that playlist's object. */
 export function rewriteMasterPlaylist(
   masterContent: string,
   variantBlobMap: Map<string, string>,

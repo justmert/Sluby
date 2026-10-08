@@ -65,8 +65,6 @@ async function writeStorageRecords(
   }
 }
 
-// ── Pending objects ──
-//
 // Every object the pipeline pins is written to pending_objects just before
 // its pin, as `uploading`. Finalize promotes the run's objects to artifacts
 // and marks everything else of the asset `release`; a failed or cancelled

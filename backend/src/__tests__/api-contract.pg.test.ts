@@ -199,7 +199,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     return row;
   }
 
-  // ── service and docs ──────────────────────────────────────────────────
+  // service and docs
 
   describe('service routes', () => {
     it('serves the document, the docs page and health without a key', async () => {
@@ -255,7 +255,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
   });
 
-  // ── assets ────────────────────────────────────────────────────────────
+  // assets
 
   describe('assets', () => {
     it('lists only the caller’s live assets', async () => {
@@ -487,7 +487,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
   });
 
-  // ── playback ──────────────────────────────────────────────────────────
+  // playback
 
   describe('playback', () => {
     it('answers playback info, signed urls and 409 for an asset that is not ready', async () => {
@@ -554,7 +554,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
   });
 
-  // ── keys ──────────────────────────────────────────────────────────────
+  // keys
 
   describe('keys', () => {
     it('creates a key and answers with the same shape GET lists, plus the secret', async () => {
@@ -678,7 +678,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
   });
 
-  // ── webhooks (responses only; their rules belong to the webhook code) ──
+  // webhooks: responses only, their rules belong to the webhook code
 
   describe('webhooks', () => {
     it('creates, lists, tests and deletes an endpoint with documented responses', async () => {
@@ -773,7 +773,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
   });
 
-  // ── uploads (tus and the REST status and cancel) ──────────────────────
+  // uploads (tus and the REST status and cancel)
 
   describe('uploads', () => {
     function tusCreate(who: Who, metadata: Record<string, string>, length: number | string = 10) {
@@ -1030,7 +1030,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
   });
 
-  // ── operator data (D11): tenants get a health summary only ─────────────
+  // operator data: tenants get a health summary only
 
   describe('operator data', () => {
     beforeEach(async () => {
@@ -1294,7 +1294,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
   });
 
-  // ── studio sessions ───────────────────────────────────────────────────
+  // studio sessions
 
   describe('auth', () => {
     async function sessionCookie(login: string) {
@@ -1388,7 +1388,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
   });
 
-  // ── delivery gateway ──────────────────────────────────────────────────
+  // delivery gateway
 
   describe('delivery', () => {
     it('answers 404 for unknown objects and assets, 403 for unsigned private ones', async () => {

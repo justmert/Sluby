@@ -18,10 +18,6 @@ import {
 } from '../webhooks/egress.js';
 import { attemptDelivery } from '../webhooks/delivery.js';
 
-// ---------------------------------------------------------------------------
-// The address matrix
-// ---------------------------------------------------------------------------
-
 describe('blockedReason', () => {
   it.each([
     // ipv4
@@ -116,10 +112,6 @@ describe('parseCidr', () => {
     expect(parseCidrList(' 10.0.0.0/8 , ,fd00::/8 ')).toHaveLength(2);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Real requests against local servers
-// ---------------------------------------------------------------------------
 
 interface Local {
   server: Server;

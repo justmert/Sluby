@@ -9,10 +9,6 @@ import {
   type NewWebhookDelivery,
 } from '../schema.js';
 
-// ──────────────────────────────────────────
-// Webhook Endpoints
-// ──────────────────────────────────────────
-
 /**
  * Register a new webhook endpoint.
  */
@@ -104,10 +100,6 @@ export async function deleteWebhookEndpoint(
     .returning();
   return deleted;
 }
-
-// ──────────────────────────────────────────
-// Webhook Deliveries
-// ──────────────────────────────────────────
 
 /**
  * Log a new webhook delivery attempt.

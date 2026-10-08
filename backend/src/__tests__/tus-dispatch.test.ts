@@ -14,7 +14,7 @@ describe('isTusRequest', () => {
   });
 
   it('falls through to REST for plain JSON verbs without the TUS header', () => {
-    // POST /uploads (JSON session creation)
+    // a POST without the tus header, which no REST route accepts
     expect(isTusRequest({ method: 'POST', headers: {} })).toBe(false);
     // GET /uploads/:id (status)
     expect(isTusRequest({ method: 'GET', headers: {} })).toBe(false);

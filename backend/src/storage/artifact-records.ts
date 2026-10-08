@@ -1,12 +1,7 @@
 /**
- * Pure normalization of a video's Sia upload results into the
- * `renditions` + `artifacts` shape persisted in Postgres.
- *
- * This is the mapping M1 verification requires: every Sia Object ID is
- * tied to its parent asset and (where applicable) its rendition and role.
- * The uploader already knows all of this per variant; this module just
- * reshapes it into normalized rows. Kept pure (no I/O) so it is trivially
- * testable and has no Sia/DB coupling.
+ * Turns a video's Sia upload results into the `renditions` and `artifacts`
+ * rows stored in Postgres, which tie every object id to its asset, its role
+ * and, for rendition files, its rendition. No I/O, so it is tested on its own.
  */
 
 export type ArtifactRole = 'master_manifest' | 'variant_playlist' | 'rendition_data' | 'thumbnail';
@@ -73,9 +68,9 @@ export interface ArtifactRow {
  * Resolve each artifact's `renditionName` to the DB id of the rendition
  * that was just inserted, producing rows ready for a bulk `artifacts`
  * insert. Asset-level artifacts (master manifest, thumbnails) get a null
- * renditionId. Throws if an artifact references a rendition name that was
- * not inserted — that would be a mapping bug, and silently dropping the
- * link would corrupt the storage graph.
+ * renditionId. Throws if an artifact names a rendition that was not
+ * inserted: that is a mapping bug, and dropping the link quietly would leave
+ * an object tied to no rendition.
  */
 export function resolveArtifactRows(
   videoAssetId: string,

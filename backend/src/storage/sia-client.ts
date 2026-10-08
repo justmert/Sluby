@@ -1,30 +1,15 @@
 /**
- * Sia storage client — talks to an `indexd` instance via the official
- * `sia-storage` SDK (NAPI bindings around `sia-sdk-rs`).
+ * Sia storage client: talks to an indexer (a self-hosted indexd, or the
+ * hosted sia.storage) through the official `@siafoundation/sia-storage` SDK,
+ * which signs requests with the app key and uploads shards straight to hosts.
  *
- * Why this shape:
- *   - `indexd` is the Sia Foundation's indexer daemon. It manages
- *     contracts, accounts, and erasure-coded slabs across hosts.
- *   - `sia-storage` is the official SDK (npm `sia-storage`). It signs
- *     all requests with an AppKey, talks to indexd's app API, and
- *     uploads shards directly to hosts via siamux/QUIC.
+ * The app key comes from `npm run connect-indexer`, which registers the
+ * backend through the indexer's approval flow and prints SIA_APP_ID and
+ * SIA_APP_KEY; at startup the backend reattaches with Builder.connected.
  *
- *   - Onboarding flow (run once per indexd instance):
- *       1. mint a connect key:   POST /api/apps/connect/keys (admin)
- *       2. open Builder.requestConnection() in the SDK
- *       3. approve via POST <responseUrl> with the connect key
- *       4. Builder.register(phrase) returns the SDK; export AppKey
- *       5. set SIA_APP_ID + SIA_APP_KEY in .env so the backend can
- *          re-attach via Builder.connected(appKey) at startup.
- *
- *   - Object IDs are returned by the SDK (32-byte hex strings).
- *     `video_assets.manifest_object_id` and friends store whatever
- *     the SDK gives us — no DB migration needed since the shape is
- *     unchanged from the previous renterd path.
- *
- *   - Per-sector contract IDs are not exposed by the SDK (it returns
- *     {root, hostKey} per sector). We pull the {host → contractIDs}
- *     map from indexd's admin API once and cache it in-process.
+ * The SDK reports only the root and host key of each sector, so the contracts
+ * behind a host come from indexd's admin API when one is configured, cached
+ * for a minute.
  */
 
 import { env } from '../config/env.js';
@@ -44,18 +29,10 @@ import { SlabPruneGate } from './slab-prune-gate.js';
 // the sdk's node entry ships its own declarations (the backend resolves them
 // through the "node" export condition, see customConditions in tsconfig)
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
 export interface UploadResult {
   objectId: string;
   size: number;
 }
-
-// ---------------------------------------------------------------------------
-// SDK init (singleton)
-// ---------------------------------------------------------------------------
 
 const APP_META = {
   // 32-byte unique app identifier. Same value across restarts so indexd
@@ -88,9 +65,8 @@ export function getClient(): Promise<Sdk> {
       const sdk = await builder.connected(appKey);
       if (!sdk) {
         throw new Error(
-          'sia-storage Builder.connected() returned null — the AppKey is not registered with the configured indexd. ' +
-            'Mint a connect key (POST /api/apps/connect/keys), call Builder.requestConnection(), approve via ' +
-            'POST <responseUrl> with the connect key, then Builder.register(phrase) and persist the resulting AppKey.',
+          'SIA_APP_KEY is not registered with the indexer at SIA_INDEXER_URL. ' +
+            'Run npm run connect-indexer against that indexer and set the SIA_APP_ID and SIA_APP_KEY it prints.',
         );
       }
 
@@ -111,10 +87,6 @@ export function getClient(): Promise<Sdk> {
   }
   return sdkPromise;
 }
-
-// ---------------------------------------------------------------------------
-// Host → contract index (cached, refreshed lazily)
-// ---------------------------------------------------------------------------
 
 interface HostContractMap {
   /** map of host pubkey → list of file-contract IDs covering shards on that host. */
@@ -192,10 +164,6 @@ export async function getHostContracts(): Promise<Map<string, string[]> | null> 
   return (await refreshHostContracts()).contracts;
 }
 
-// ---------------------------------------------------------------------------
-// Upload
-// ---------------------------------------------------------------------------
-
 function bytesToStream(data: Uint8Array): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -207,7 +175,7 @@ function bytesToStream(data: Uint8Array): ReadableStream<Uint8Array> {
 
 /**
  * Erasure-coding options for uploads. Only pass a shard ratio when the
- * operator configured BOTH; otherwise omit it so the SDK uses its default of
+ * operator configured both; otherwise omit it so the SDK uses its default of
  * 10 data + 20 parity shards. A ratio meant for a small testnet pool (e.g. the
  * Zen 2/4) fails on sia.storage, so it must never leak into a mainnet setup.
  */
@@ -346,10 +314,6 @@ async function packedUpload(
   return results;
 }
 
-// ---------------------------------------------------------------------------
-// Download (with byte-range passthrough)
-// ---------------------------------------------------------------------------
-
 /** One object as the indexer describes it, ready to stream. */
 export interface ObjectHandle {
   id: string;
@@ -428,10 +392,6 @@ export function isIndexerNotFound(err: unknown): boolean {
   return /\bApi\(404\b/.test(message);
 }
 
-// ---------------------------------------------------------------------------
-// Object change feed (used by the reconciliation worker)
-// ---------------------------------------------------------------------------
-
 /** A single object-change event, flattened out of the SDK's getters. */
 export interface ObjectEventPage {
   id: string;
@@ -457,10 +417,6 @@ export async function listObjectEventsPage(
   }));
 }
 
-// ---------------------------------------------------------------------------
-// Metadata (used by sia-info)
-// ---------------------------------------------------------------------------
-
 /**
  * Everything the indexer reports about one object, as plain data: sizes
  * (including the erasure-coded size), and each slab's shard config, byte range
@@ -483,13 +439,9 @@ export async function inspectObject(objectId: string): Promise<ObjectSnapshot> {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Share URLs (direct-from-Sia playback)
-// ---------------------------------------------------------------------------
-
 /**
  * Mint a public, time-limited `sia://<ref>#<key>` share URL for a single
- * object. The decryption key rides in the URL fragment, so ANY registered Sia
+ * object. The decryption key rides in the URL fragment, so any registered Sia
  * app key (e.g. the browser player's low-privilege viewer key) can resolve and
  * download the object until `validUntil` without holding the owner's key. This
  * is what lets the player pull bytes directly from Sia with the backend out of
@@ -500,10 +452,6 @@ export async function shareObjectUrl(objectId: string, validUntil: Date): Promis
   const obj = await sdk.object(objectId);
   return sdk.objectShareUrl(obj, validUntil);
 }
-
-// ---------------------------------------------------------------------------
-// Account / hosts (studio dashboard)
-// ---------------------------------------------------------------------------
 
 /** The indexer account this backend stores under, with usage in bytes. */
 export interface IndexerAccount {
@@ -563,10 +511,6 @@ export async function listHosts(): Promise<IndexerHost[]> {
     goodForUpload: h.goodForUpload,
   }));
 }
-
-// ---------------------------------------------------------------------------
-// Delete / maintenance
-// ---------------------------------------------------------------------------
 
 /** What unpinning found: the object was pinned, or the indexer did not have it. */
 export type UnpinOutcome = 'unpinned' | 'not-found';
@@ -630,8 +574,8 @@ function requestSlabPrune(reason: string): void {
 }
 
 /**
- * Fetch the indexd wallet address. Cached — the seed doesn't change
- * after boot, so one lookup per process lifetime is fine.
+ * The indexd wallet address, looked up once per process: the wallet seed does
+ * not change while indexd runs.
  */
 let walletAddressCache: string | null = null;
 export async function getWalletAddress(): Promise<string | null> {
@@ -651,9 +595,3 @@ export async function getWalletAddress(): Promise<string | null> {
     return null;
   }
 }
-
-// NOTE: signed playback URLs are built in delivery/signed-url.ts, which
-// HMACs the object id together with its expiry and the asset's signing
-// generation so the gateway can verify them. An earlier helper here produced an `?expires=` URL with no
-// signature and nothing enforcing the expiry, which only looked like access
-// control; it was removed rather than left as a false guarantee.

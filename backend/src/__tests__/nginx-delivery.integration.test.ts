@@ -23,13 +23,12 @@ vi.mock('../storage/sia-client.js', async (importOriginal) => ({
 }));
 
 /**
- * End-to-end tests through the REAL nginx config the project ships
+ * End-to-end tests through the real nginx config the project ships
  * (`nginx/nginx.conf`, `nginx/conf.d/sia-aggregator.conf`, the
  * `nginx/templates` it renders at start and `nginx/limits.envsh`), run in the
  * same image the web container uses, in front of a second "origin"
- * container. They cover what the milestone-2 review asked for (many byte
- * ranges of ONE object URI come back with their own bytes, whole objects are
- * still cached) and the edge itself: redirects behind a published port,
+ * container. They cover byte ranges (many ranges of one object URI come back
+ * with their own bytes, whole objects are still cached) and the edge itself: redirects behind a published port,
  * security headers, compression, 404s, the per-client limits and following a
  * backend that comes back on a new address.
  *

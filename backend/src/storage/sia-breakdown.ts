@@ -2,8 +2,8 @@
  * Per-asset Sia storage breakdown, computed from what the indexer reports for
  * each object. Pure, so the accounting is testable without a network.
  *
- * Objects uploaded together (variant playlists and thumbnails go up in one
- * packed upload) share slabs: each references its byte range inside the same
+ * Objects uploaded together share slabs (the pipeline packs the rendition
+ * data with the thumbnails, then the playlists): each references its byte range inside the same
  * erasure-coded slab. Summing slabs per object would count a shared slab once
  * per object, so totals dedupe slabs by identity and count each one once.
  */

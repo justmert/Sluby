@@ -1,7 +1,6 @@
 /**
- * Pure helper: merge every source of Sia object ids for a single asset into a
- * deduped list, dropping empty/nullish ids. Kept free of DB access so it is
- * trivially unit-testable; the query layer feeds it the raw rows.
+ * Every Sia object id an asset references, from each place one is recorded,
+ * deduplicated and without empty values. The query layer passes the rows in.
  */
 export interface AssetObjectIdSources {
   /** Object ids from the authoritative `artifacts` rows for the asset. */

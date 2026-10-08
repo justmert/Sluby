@@ -157,10 +157,8 @@ export function createTusServer(deps: TusServerDeps): Server {
         creatorAddress: string;
       };
 
-      // Parse TUS metadata
       const metadata = upload.metadata ?? {};
 
-      // Validate file type
       const fileType = metadata.filetype ?? metadata.type ?? '';
       if (fileType && !fileType.startsWith('video/')) {
         throw { status_code: 415, body: 'Only video files are accepted' };
@@ -172,13 +170,11 @@ export function createTusServer(deps: TusServerDeps): Server {
       }
       const fields = parseUploadMetadata(metadata);
 
-      // Ownership always comes from the authenticated API key, never from
-      // client-supplied TUS metadata. Honouring a client-provided
-      // creatorAddress would let any caller stamp another tenant's address on
-      // an asset, which defeats the ownership checks on every /assets route.
+      // the owner comes from the authenticated caller, never from the tus
+      // metadata: a client-supplied creatorAddress would let any caller stamp
+      // another tenant's address on an asset
       const creatorAddress = apiKey.creatorAddress;
 
-      // Create upload session in database
       const session = await deps.createUploadSession({
         id: upload.id,
         apiKeyId: apiKey.id,
@@ -203,7 +199,7 @@ export function createTusServer(deps: TusServerDeps): Server {
         'Upload session created',
       );
 
-      // Store session ID in upload metadata for later retrieval
+      // the finish hook reads these back from the upload's metadata
       const updatedMetadata = {
         ...metadata,
         sessionId: session.id,
@@ -231,15 +227,13 @@ export function createTusServer(deps: TusServerDeps): Server {
       }
 
       try {
-        // Compute SHA-256 of the completed file by streaming it. Reading the
-        // whole upload into a Buffer would use memory proportional to the file
-        // and throws outright past Node's max Buffer length, which uploads up
-        // to MAX_UPLOAD_SIZE (10 GB by default) can easily exceed.
+        // streamed: a Buffer of the whole upload would grow with the file and
+        // throws past node's max Buffer length, which uploads up to
+        // MAX_UPLOAD_SIZE (10 GB by default) can exceed
         const filePath = uploadFilePath(upload.id);
         const sha256 = await computeFileHash(filePath);
         if (upload.size != null) await deps.updateUploadProgress(sessionId, upload.size);
 
-        // Mark upload as complete
         await deps.completeUpload(sessionId, filePath, sha256);
         uploadSuccessTotal.inc();
         if (upload.size != null) uploadBytesTotal.inc(upload.size);
@@ -249,7 +243,6 @@ export function createTusServer(deps: TusServerDeps): Server {
           'Upload completed, enqueueing transcoding',
         );
 
-        // Enqueue transcoding job
         if (videoAssetId) {
           await deps.enqueueTranscoding({
             videoAssetId,
@@ -272,9 +265,9 @@ export function createTusServer(deps: TusServerDeps): Server {
 
         return {};
       } catch (err) {
-        // A failure here (hashing, completion, enqueue) would otherwise leave
-        // the asset stuck in 'created' with no job. Mark it failed so it is
-        // visible and retryable, then rethrow so TUS surfaces the error.
+        // a failure here (hashing, completion, enqueue) would leave the asset
+        // stuck with no job; failed is visible and retryable, and the rethrow
+        // lets tus answer with the error
         logger.error(
           { uploadId: upload.id, sessionId, videoAssetId, err },
           'onUploadFinish failed',

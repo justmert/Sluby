@@ -17,8 +17,6 @@
 
 const bearerAuth = [{ bearerAuth: [] as string[] }];
 
-// Reusable response bodies -------------------------------------------------
-
 const errorResponse = {
   description: 'Error',
   content: {
@@ -1027,7 +1025,6 @@ export const openapiDocument = {
     },
   },
   paths: {
-    // ── Service ──
     '/health': {
       get: {
         tags: ['Ops'],
@@ -1077,7 +1074,6 @@ export const openapiDocument = {
       },
     },
 
-    // ── Auth (unauthenticated) ──
     '/api/v1/auth/{provider}/login': {
       get: {
         tags: ['Auth'],
@@ -1202,7 +1198,6 @@ export const openapiDocument = {
       },
     },
 
-    // ── Uploads ──
     // Uploads are created and fed through the tus protocol, which the tus
     // server answers before the express routers (`x-handled-by: tus`). GET
     // and DELETE on an upload are REST, DELETE with Tus-Resumable is tus.
@@ -1321,7 +1316,6 @@ export const openapiDocument = {
       },
     },
 
-    // ── Assets ──
     '/api/v1/assets': {
       get: {
         tags: ['Assets'],
@@ -1569,7 +1563,6 @@ export const openapiDocument = {
       },
     },
 
-    // ── Playback ──
     '/api/v1/playback/{id}': {
       get: {
         tags: ['Playback'],
@@ -1657,7 +1650,6 @@ export const openapiDocument = {
       },
     },
 
-    // ── Keys ──
     '/api/v1/keys': {
       post: {
         tags: ['Keys'],
@@ -1783,7 +1775,6 @@ export const openapiDocument = {
       },
     },
 
-    // ── Webhooks ──
     '/api/v1/webhooks': {
       post: {
         tags: ['Webhooks'],
@@ -1955,7 +1946,6 @@ export const openapiDocument = {
       },
     },
 
-    // ── Reconciliation ──
     '/api/v1/reconciliation': {
       get: {
         tags: ['Reconciliation'],
@@ -1992,7 +1982,6 @@ export const openapiDocument = {
       },
     },
 
-    // ── Ops ──
     '/api/v1/stats': {
       get: {
         tags: ['Ops'],
@@ -2028,7 +2017,6 @@ export const openapiDocument = {
       },
     },
 
-    // ── Delivery gateway ──
     '/v1/objects/{objectId}': {
       get: {
         tags: ['Delivery'],

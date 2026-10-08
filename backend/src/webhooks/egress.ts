@@ -21,10 +21,6 @@ import { lookup as dnsLookup } from 'node:dns/promises';
  * WEBHOOK_ALLOWED_NETWORKS.
  */
 
-// ---------------------------------------------------------------------------
-// Address classification
-// ---------------------------------------------------------------------------
-
 interface Cidr {
   family: 4 | 6;
   base: bigint;
@@ -185,10 +181,6 @@ export function blockedReason(ip: string): string | null {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Policy and errors
-// ---------------------------------------------------------------------------
-
 export interface ResolvedAddress {
   address: string;
   family: 4 | 6;
@@ -287,10 +279,6 @@ export async function vetUrl(
   }
   return { url, addresses };
 }
-
-// ---------------------------------------------------------------------------
-// The request
-// ---------------------------------------------------------------------------
 
 /**
  * The socket's lookup, answered from the checked addresses only. Node passes

@@ -20,10 +20,6 @@ function parseRedisUrl(url: string): ConnectionOptions {
 
 export const redisConnection: ConnectionOptions = parseRedisUrl(env.REDIS_URL);
 
-// ──────────────────────────────────────────
-// Job data types
-// ──────────────────────────────────────────
-
 export interface TranscodeJobData {
   videoAssetId: string;
   uploadSessionId: string;
@@ -70,7 +66,7 @@ export interface FinalizeJobData {
 }
 
 export interface ReconcileJobData {
-  /** How the run was initiated — a scheduled sweep or a manual trigger. */
+  /** Whether the schedule or a manual trigger started the run. */
   trigger: 'scheduled' | 'manual';
 }
 
@@ -87,10 +83,6 @@ export type DeletionJobData =
       redrive?: number;
     }
   | { kind: 'gc' };
-
-// ──────────────────────────────────────────
-// Queue definitions
-// ──────────────────────────────────────────
 
 /**
  * Queue for transcoding raw video files into multi-rendition HLS/fMP4.

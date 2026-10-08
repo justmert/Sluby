@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-// ---------------------------------------------------------------------------
 // Provision a low-privilege "viewer" identity for direct-from-Sia playback.
 //
 // The web SDK has no anonymous mode, so the browser player needs its own
 // registered Sia app key to construct an Sdk and download shared objects. This
-// registers a SEPARATE identity from the uploader's: it can resolve shared
+// registers a separate identity from the uploader's: it can resolve shared
 // objects but never touches the uploader's content or key, so it is safe to
 // ship to browsers as a publishable key (like a Mux public key).
 //
@@ -15,7 +14,6 @@
 //
 // It prints a connect URL you approve in your indexer account, then prints the
 // publishable browser config to put in the frontend env (VITE_SLUBY_SIA_*).
-// ---------------------------------------------------------------------------
 
 import { connectApp, indexerUrlFromArgs } from './sia-connect.mjs';
 

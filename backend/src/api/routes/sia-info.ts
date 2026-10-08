@@ -11,10 +11,6 @@ import {
   type SiaBreakdown,
 } from '../../storage/sia-breakdown.js';
 
-// ---------------------------------------------------------------------------
-// Dependencies
-// ---------------------------------------------------------------------------
-
 export interface SiaInfoAssetRecord {
   id: string;
   manifestObjectId: string | null;
@@ -46,10 +42,6 @@ export interface SiaInfoRouteDeps {
   siaIndexer: { url: string; network: string };
 }
 
-// ---------------------------------------------------------------------------
-// Caches
-// ---------------------------------------------------------------------------
-//
 // A breakdown touches every object of the asset on the indexer, so it is
 // cached briefly per asset; the host list is the same for every asset and
 // changes slowly, so it is cached longer.
@@ -98,10 +90,6 @@ async function cachedHosts(deps: SiaInfoRouteDeps): Promise<HostInfo[]> {
     return hostsCache?.hosts ?? [];
   }
 }
-
-// ---------------------------------------------------------------------------
-// Assembly
-// ---------------------------------------------------------------------------
 
 // objects without a recorded role go last
 const ROLE_ORDER = ['master_manifest', 'variant_playlist', 'rendition_data', 'thumbnail', null];
@@ -204,10 +192,6 @@ function formatBreakdown(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Route
-// ---------------------------------------------------------------------------
 
 export function createSiaInfoRoutes(deps: SiaInfoRouteDeps): Router {
   const router = Router();
