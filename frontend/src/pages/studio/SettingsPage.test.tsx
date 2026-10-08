@@ -155,7 +155,7 @@ describe('SettingsPage', () => {
   it('shows a key in its grace period as expiring, without another rotate', async () => {
     keys[0].expires_at = new Date(Date.now() + 2 * 3_600_000).toISOString();
     render();
-    expect(await screen.findByText(/Expires in (1h 59m|2h 0m)/)).toBeInTheDocument();
+    expect(await screen.findByText(/Expires in (1 hour 59 minutes|2 hours)/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /rotate/i })).not.toBeInTheDocument();
   });
 
@@ -180,9 +180,9 @@ describe('SettingsPage', () => {
 describe('formatTimeLeft', () => {
   const at = (ms: number) => new Date(1_000_000 + ms).toISOString();
   it('reads naturally around the hour and day boundaries', () => {
-    expect(timeLeft(at(59 * 60_000 + 30_000), 1_000_000)).toBe('in 1h 0m');
-    expect(timeLeft(at(5 * 60_000), 1_000_000)).toBe('in 5m');
-    expect(timeLeft(at(26 * 3_600_000), 1_000_000)).toBe('in 1d 2h');
+    expect(timeLeft(at(59 * 60_000 + 30_000), 1_000_000)).toBe('in 1 hour');
+    expect(timeLeft(at(5 * 60_000), 1_000_000)).toBe('in 5 minutes');
+    expect(timeLeft(at(26 * 3_600_000), 1_000_000)).toBe('in 1 day 2 hours');
     expect(timeLeft(at(-1), 1_000_000)).toBe('now');
   });
 });
