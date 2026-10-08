@@ -497,7 +497,7 @@ function Webhooks() {
     <Card>
       <CardHeader>
         <CardTitle>Webhooks</CardTitle>
-        <CardDescription>
+        <CardDescription className="max-sm:col-span-2">
           Signed with HMAC-SHA256 over the timestamp and body in{' '}
           <code className="font-mono">X-Sluby-Signature-V1</code>. The Receive webhooks snippet
           shows how to verify them. Send test posts a signed{' '}

@@ -495,8 +495,7 @@ function ApiKeysCard() {
               <TableRow>
                 <TableHead className="pl-4">Name</TableHead>
                 <TableHead>Scopes</TableHead>
-                <TableHead className="hidden sm:table-cell">Rate limit</TableHead>
-                <TableHead className="hidden md:table-cell">Created</TableHead>
+                <TableHead className="hidden 2xl:table-cell">Created</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="pr-4 text-right">Actions</TableHead>
               </TableRow>
@@ -510,19 +509,22 @@ function ApiKeysCard() {
                   aria-busy={k.pending || undefined}
                   className="border-b transition-colors hover:bg-muted/50"
                 >
-                  <ResponsiveCell cell="primary" className="pl-4">
+                  <ResponsiveCell cell="primary" className="pl-4 whitespace-normal">
                     <div className="min-w-0">
                       <div className="font-medium break-words">{k.name}</div>
                       {/* the secret is stored only as a hash, so the id is what tells
                           a rotated pair apart */}
-                      {!k.pending && (
-                        <div
-                          className="font-mono text-xs font-normal text-muted-foreground"
-                          title={k.id}
-                        >
-                          id {k.id.slice(0, 8)}
-                        </div>
-                      )}
+                      <div className="text-xs font-normal text-muted-foreground">
+                        {!k.pending && (
+                          <>
+                            <span className="font-mono" title={k.id}>
+                              id {k.id.slice(0, 8)}
+                            </span>
+                            {', '}
+                          </>
+                        )}
+                        <span className="tabular-nums">{k.rate_limit}/min</span>
+                      </div>
                     </div>
                   </ResponsiveCell>
                   <ResponsiveCell label="Scopes">
@@ -534,12 +536,9 @@ function ApiKeysCard() {
                       ))}
                     </div>
                   </ResponsiveCell>
-                  <ResponsiveCell label="Rate limit" className="hidden tabular-nums sm:table-cell">
-                    {k.rate_limit}/min
-                  </ResponsiveCell>
                   <ResponsiveCell
                     label="Created"
-                    className="hidden text-muted-foreground md:table-cell"
+                    className="hidden text-muted-foreground 2xl:table-cell"
                   >
                     <span title={formatDate(k.created_at)}>{formatRelativeTime(k.created_at)}</span>
                   </ResponsiveCell>
@@ -558,7 +557,7 @@ function ApiKeysCard() {
                           onClick={() => setRotating(k)}
                         >
                           <RefreshCw />
-                          <span className="max-sm:sr-only">Rotate</span>
+                          <span className="max-lg:sr-only">Rotate</span>
                         </Button>
                       )}
                       <Button
@@ -571,7 +570,7 @@ function ApiKeysCard() {
                         onClick={() => setRevoking(k)}
                       >
                         <Trash2 />
-                        <span className="max-sm:sr-only">Revoke</span>
+                        <span className="max-lg:sr-only">Revoke</span>
                       </Button>
                     </div>
                   </ResponsiveCell>
@@ -821,8 +820,8 @@ function AccountCard() {
     ],
     [
       'API base URL',
-      <span key="b" className="flex items-center justify-end gap-1 font-mono">
-        {window.location.origin}
+      <span key="b" className="flex min-w-0 items-center justify-end gap-1 font-mono">
+        <span className="min-w-0 break-all">{window.location.origin}</span>
         <CopyButton value={window.location.origin} label="Copy base URL" className="size-6" />
       </span>,
     ],
@@ -837,8 +836,8 @@ function AccountCard() {
       </CardHeader>
       <CardContent className="flex flex-col gap-2.5">
         {rows.map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between gap-4 text-sm">
-            <span className="text-muted-foreground">{label}</span>
+          <div key={label} className="flex items-start justify-between gap-4 text-sm">
+            <span className="shrink-0 text-muted-foreground">{label}</span>
             <span className="min-w-0 text-right break-words">{value}</span>
           </div>
         ))}
@@ -863,12 +862,13 @@ export default function SettingsPage() {
   return (
     <PageContainer>
       <PageHeader title="Settings" description="API keys, sessions, appearance and account" />
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+      {/* three columns only once the key table has room for its columns */}
+      <div className="grid gap-4 xl:grid-cols-3">
+        <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
           <ApiKeysCard />
           <SessionsCard />
         </div>
-        <div className="flex min-w-0 flex-col gap-4">
+        <div className="grid min-w-0 items-start gap-4 md:grid-cols-2 xl:flex xl:flex-col">
           <AppearanceCard />
           <AccountCard />
         </div>
