@@ -104,11 +104,19 @@ export interface DeploymentReconciliation extends RunTimes {
 
 export type Reconciliation = AccountReconciliation | DeploymentReconciliation;
 
+/** Assets the pipeline is still working on; `created` is left out, since an abandoned upload can sit there for a day. */
+export function movingCount(s: AssetStats): number {
+  return s.by_status.uploading + s.by_status.processing;
+}
+
 export function useAssetStats() {
   return useQuery({
     queryKey: ['stats'],
     queryFn: () => apiClient.get<AssetStats>('/stats'),
-    refetchInterval: 15_000,
+    // faster while something is moving, so the totals keep up with the lists;
+    // react query skips the interval while the tab is hidden
+    refetchInterval: (query) =>
+      query.state.data && movingCount(query.state.data) > 0 ? 5_000 : 15_000,
   });
 }
 
