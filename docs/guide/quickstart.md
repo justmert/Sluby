@@ -27,7 +27,7 @@ Sluby stores data through an app identity registered with your indexer account. 
 docker compose run --rm --no-deps backend node scripts/connect-indexer.mjs
 ```
 
-The first run builds the images, which takes a few minutes (see [build times](#build-times) below). The script then prints a URL:
+The first run builds the backend image, which takes a few minutes (see [build times](#build-times) below); `docker compose up` in step 3 builds the `web` image. The script then prints a URL:
 
 ```
 1. Open this URL while signed in to your indexer account and approve it:
@@ -53,7 +53,7 @@ Put `SIA_APP_ID` and `SIA_APP_KEY` into `.env`. The app key can read and delete 
 docker compose up -d
 ```
 
-This starts PostgreSQL, Redis, the backend and the web front door (the Studio plus a caching proxy for the API and video delivery). `docker compose ps` shows every service as `healthy` once it is up.
+This starts PostgreSQL, Redis, the backend and the web front door (nginx serving the Studio and proxying the API and video delivery). `docker compose ps` shows every service as `healthy` once it is up.
 
 ## 4. Upload and play
 
@@ -68,7 +68,24 @@ Transcoding a short clip takes seconds. Storing it on Sia takes longer, and the 
 
 Sia erasure-codes data into slabs, and each slab goes to 30 hosts as 30 sectors of 4 MiB. That is about 120 MiB on the wire however little data the slab holds. Sluby packs everything it can into as few uploads as possible, but the manifests point at the object ids of what they reference, so one asset always needs three dependent uploads: the media and thumbnails, then the variant playlists, then the master playlist.
 
-On a 37 Mbps uplink, a 10 second clip took between 2.5 and 4 minutes from pressing **Start upload** to **Ready**, depending on how quickly the slowest hosts accepted their sectors. A faster uplink shortens it. For reference, a full run from `git clone` through the image build, the upload and the first playback took a little over 4 minutes on an Apple M3 Pro with the base images already pulled.
+On a 37 Mbps uplink, a 10 second clip took between 2.5 and 4 minutes from pressing **Start upload** to **Ready**, depending on how quickly the slowest hosts accepted their sectors. A faster uplink shortens it.
+
+### How long the whole quickstart takes
+
+There is no guaranteed time. Our last measured run from a clean clone, on Apple Silicon with the backend's FFmpeg layer cached from an earlier build and an app identity already registered, spent about five and a half minutes on the steps below:
+
+| Step                                                                 | Time                    |
+| -------------------------------------------------------------------- | ----------------------- |
+| Building both images (128 seconds of it compiling the ARM64 Sia SDK) | a little over 2 minutes |
+| `docker compose up -d --wait`                                        | 25 seconds              |
+| Uploading a 10 second 720p clip until it was **Ready**               | 173 seconds             |
+| First playback (the manifest and the first segment loaded)           | 2 seconds               |
+
+That machine was heavily loaded by other work during the run (a one-minute load average between 150 and 1000), so an idle machine should be faster, but we have not timed one in this release. An earlier run on an Apple M3 Pro with the base images already pulled took a little over 4 minutes end to end. Creating the sia.storage account, approving the app and editing `.env` come on top. What changes the time most:
+
+- your upload bandwidth and how fast the slowest Sia hosts accept sectors, which dominate the upload step
+- whether the base images are already pulled: on ARM64 the first build also downloads the Rust toolchain image (2.2 GB unpacked)
+- CPU, for the ARM64 SDK compile and for transcoding longer or larger sources
 
 ## 5. Use the API
 
@@ -88,7 +105,7 @@ Your server renders an interactive API reference at [http://localhost:8080/api/v
 
 ## Build times
 
-The first `docker compose` command builds two images:
+The quickstart builds two images, the backend on the first `docker compose run` and the Studio on `docker compose up`:
 
 - `sluby-web` builds the Studio and puts it behind nginx.
 - `sluby-backend` installs FFmpeg and the backend's dependencies.
