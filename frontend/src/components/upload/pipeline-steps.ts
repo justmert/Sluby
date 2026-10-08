@@ -8,7 +8,8 @@ export const PIPELINE_STEPS = [
   { key: 'finalize', label: 'Finalize', detail: 'Manifests rewritten, asset goes live' },
 ] as const;
 
-type StepState = 'done' | 'active' | 'paused' | 'pending' | 'failed';
+export type StepState =
+  'done' | 'active' | 'paused' | 'pending' | 'failed' | 'cancelled' | 'skipped';
 
 const STAGE_INDEX: Record<string, number> = { transcode: 1, upload: 2, finalize: 3 };
 
@@ -22,7 +23,9 @@ function jobStepIndex(job: ProcessingJob | null): number {
   return last && last in STAGE_INDEX ? STAGE_INDEX[last] : 1;
 }
 
-export function stepStates(state: UploadState): StepState[] {
+export function stepStates(
+  state: Pick<UploadState, 'phase' | 'job' | 'failedDuring'>,
+): StepState[] {
   const states = (current: number, failed = false): StepState[] =>
     PIPELINE_STEPS.map((_, i) =>
       i < current ? 'done' : i === current ? (failed ? 'failed' : 'active') : 'pending',
@@ -42,7 +45,8 @@ export function stepStates(state: UploadState): StepState[] {
       return state.failedDuring === 'upload'
         ? states(0, true)
         : states(jobStepIndex(state.job), true);
-    default:
-      return states(-1);
+    case 'cancelled':
+      // nothing after a cancelled transfer is going to run
+      return PIPELINE_STEPS.map((_, i) => (i === 0 ? 'cancelled' : 'skipped'));
   }
 }

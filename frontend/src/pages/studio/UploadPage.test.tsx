@@ -343,6 +343,15 @@ describe('stepStates', () => {
     ]);
   });
 
+  it('shows a cancelled upload as cancelled, with nothing after it waiting', () => {
+    expect(stepStates({ ...base, phase: 'cancelled', job: null })).toEqual([
+      'cancelled',
+      'skipped',
+      'skipped',
+      'skipped',
+    ]);
+  });
+
   it('marks the step a failed job died in', () => {
     expect(
       stepStates({
