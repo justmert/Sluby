@@ -1,8 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ThemeProvider } from '@/components/theme-provider';
-import { Toaster } from '@/components/ui/sonner';
 import { renderPage } from '@/test/render';
 import DeveloperPage from './DeveloperPage';
 
@@ -137,14 +135,6 @@ const hook = {
   created_at: new Date().toISOString(),
 };
 
-const renderWithToasts = () =>
-  renderPage(
-    <ThemeProvider>
-      <DeveloperPage />
-      <Toaster />
-    </ThemeProvider>,
-  );
-
 describe('DeveloperPage webhooks', () => {
   it('drops the signing secret from the mutation cache once it is shown', async () => {
     const { client } = renderPage(<DeveloperPage />);
@@ -165,7 +155,7 @@ describe('DeveloperPage webhooks', () => {
 
   it('shows the whole receiver url and sends a test event', async () => {
     hooks = [hook];
-    renderWithToasts();
+    renderPage(<DeveloperPage />);
     expect(await screen.findByText(hook.url)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Send test' }));
     expect(
@@ -176,7 +166,7 @@ describe('DeveloperPage webhooks', () => {
   it('reports a test the receiver refused', async () => {
     hooks = [hook];
     testResult = { delivered: false, status_code: 500, error: 'the receiver answered 500' };
-    renderWithToasts();
+    renderPage(<DeveloperPage />);
     await userEvent.click(await screen.findByRole('button', { name: 'Send test' }));
     expect(
       await screen.findByText('Test not delivered: the receiver answered 500'),
@@ -185,7 +175,7 @@ describe('DeveloperPage webhooks', () => {
 
   it('lists recent deliveries with their status', async () => {
     hooks = [{ ...hook, is_active: false }];
-    renderWithToasts();
+    renderPage(<DeveloperPage />);
     expect(await screen.findByText('Inactive')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Deliveries' }));
     const list = await screen.findByRole('list', { name: 'Recent deliveries' });

@@ -1,8 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ThemeProvider } from '@/components/theme-provider';
-import { Toaster } from '@/components/ui/sonner';
 import { renderPage } from '@/test/render';
 import { WithSession } from '@/test/session';
 import DashboardPage from './DashboardPage';
@@ -142,12 +140,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 function render(operator = false) {
   return renderPage(
-    <ThemeProvider>
-      <WithSession operator={operator}>
-        <DashboardPage />
-      </WithSession>
-      <Toaster />
-    </ThemeProvider>,
+    <WithSession operator={operator}>
+      <DashboardPage />
+    </WithSession>,
   );
 }
 

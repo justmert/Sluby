@@ -2,8 +2,6 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '@/test/render';
-import { ThemeProvider } from '@/components/theme-provider';
-import { Toaster } from '@/components/ui/sonner';
 import type { AuthSession } from '@/lib/session';
 import { WithSession } from '@/test/session';
 import { formatTimeLeft as timeLeft } from '@/lib/formatters';
@@ -105,12 +103,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 const render = (session: Partial<AuthSession> = {}) =>
   renderPage(
-    <ThemeProvider>
-      <WithSession {...session}>
-        <SettingsPage />
-      </WithSession>
-      <Toaster />
-    </ThemeProvider>,
+    <WithSession {...session}>
+      <SettingsPage />
+    </WithSession>,
   );
 
 const calls = (method: string, url: string) =>
