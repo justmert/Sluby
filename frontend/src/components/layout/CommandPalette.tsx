@@ -47,7 +47,7 @@ function EntryItem({ entry }: { entry: Entry }) {
   );
 }
 
-function Videos({ term, open }: { term: string; open: (path: string) => void }) {
+function usePaletteVideos(term: string) {
   const search = useDebounce(term.trim(), 200);
   const videos = useQuery({
     queryKey: ['assets', 'palette', search],
@@ -55,6 +55,22 @@ function Videos({ term, open }: { term: string; open: (path: string) => void }) 
     placeholderData: keepPreviousData,
     staleTime: 10_000,
   });
+  return { search, videos };
+}
+
+type PaletteVideos = ReturnType<typeof usePaletteVideos>;
+
+const videoValue = (id: string) => `asset-${id}`;
+
+function Videos({
+  term,
+  found: { search, videos },
+  open,
+}: {
+  term: string;
+  found: PaletteVideos;
+  open: (path: string) => void;
+}) {
   const heading = search ? 'Videos' : 'Recent videos';
   const typing = term.trim() !== search || (videos.isFetching && videos.isPlaceholderData);
 
@@ -85,7 +101,7 @@ function Videos({ term, open }: { term: string; open: (path: string) => void }) 
       {list.map((asset) => (
         <CommandItem
           key={asset.id}
-          value={`asset-${asset.id}`}
+          value={videoValue(asset.id)}
           onSelect={() => open(`${ROUTES.STUDIO_ASSETS}/${asset.id}`)}
           className={typing ? 'opacity-60' : undefined}
         >
@@ -105,6 +121,7 @@ function Videos({ term, open }: { term: string; open: (path: string) => void }) 
 
 function PaletteBody({ close }: { close: () => void }) {
   const [term, setTerm] = useState('');
+  const found = usePaletteVideos(term);
   const navigate = useNavigate();
   const { operator } = useSession();
   const { theme, setTheme } = useTheme();
@@ -161,10 +178,27 @@ function PaletteBody({ close }: { close: () => void }) {
   const shownPages = pages.filter((e) => matches(term, e));
   const shownActions = actions.filter((e) => matches(term, e));
 
+  // cmdk loses its selection when the selected video drops out of a new
+  // result (enter then does nothing), so the selection is held here and falls
+  // back to the first entry whenever it is no longer listed
+  const [selected, setSelected] = useState('');
+  const shown = [
+    ...shownPages.map((e) => e.id),
+    ...(found.videos.data?.data ?? []).map((a) => videoValue(a.id)),
+    ...shownActions.map((e) => e.id),
+  ];
+  const value = shown.includes(selected) ? selected : (shown[0] ?? '');
+
   return (
     // filtering is done here: video results come from the server, which also
     // matches descriptions and ids that cmdk's own filter would drop
-    <Command shouldFilter={false} loop label="Search videos, pages and actions">
+    <Command
+      shouldFilter={false}
+      loop
+      label="Search videos, pages and actions"
+      value={value}
+      onValueChange={setSelected}
+    >
       <CommandInput
         value={term}
         onValueChange={setTerm}
@@ -179,7 +213,7 @@ function PaletteBody({ close }: { close: () => void }) {
             ))}
           </CommandGroup>
         )}
-        <Videos term={term} open={open} />
+        <Videos term={term} found={found} open={open} />
         {shownActions.length > 0 && (
           <>
             <CommandSeparator />

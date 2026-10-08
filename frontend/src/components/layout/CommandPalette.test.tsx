@@ -98,6 +98,28 @@ describe('CommandPalette', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/studio/assets/a2');
   });
 
+  it('selects a video that the search keeps once the others drop out', async () => {
+    library.unshift(asset('a0', 'Corrupt upload', 'failed'));
+    library.push(asset('a3', 'Mandelbrot clip'), asset('a4', 'Bars clip'));
+    try {
+      setup();
+      await openWithKeys();
+      await screen.findByRole('option', { name: /Corrupt upload/ });
+      await userEvent.type(screen.getByRole('combobox'), 'mandel');
+      await waitFor(() =>
+        expect(screen.queryByRole('option', { name: /Corrupt upload/ })).not.toBeInTheDocument(),
+      );
+      expect(screen.getByRole('option', { name: /Mandelbrot/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      await userEvent.keyboard('{Enter}');
+      expect(screen.getByTestId('where')).toHaveTextContent('/studio/assets/a3');
+    } finally {
+      library.splice(0, library.length, ...library.filter((a) => ['a1', 'a2'].includes(a.id)));
+    }
+  });
+
   it('switches the theme', async () => {
     setup();
     await openWithKeys();
