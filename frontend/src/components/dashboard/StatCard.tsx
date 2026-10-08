@@ -57,7 +57,13 @@ export function StatCard({
           <FadeSwap swapKey={hint === null ? 'loading' : 'ready'}>
             {hint === null ? (
               failed ? null : (
-                <Skeleton className={cn('h-4 w-36 max-w-full', lateSkeleton)} />
+                // a hint wraps to two lines on a narrow card, so its placeholder does too
+                <div className="@container">
+                  <Skeleton className={cn('my-0.5 h-3 w-36 max-w-full', lateSkeleton)} />
+                  <Skeleton
+                    className={cn('my-0.5 hidden h-3 w-20 @max-[11rem]:block', lateSkeleton)}
+                  />
+                </div>
               )
             ) : (
               hint

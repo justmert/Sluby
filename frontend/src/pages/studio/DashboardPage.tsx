@@ -214,13 +214,21 @@ function StatusCard({
   retrying: boolean;
 }) {
   const deployment = status?.scope === 'deployment' ? status : undefined;
+  // an operator is shown the indexer url here, a tenant a fixed line
+  const expectDeployment = !showOwnObjects;
   const state = status ? 'ready' : error ? 'error' : 'loading';
   return (
     <Card className="h-full">
       <CardHeader>
         <CardTitle>Service status</CardTitle>
         <CardDescription className="break-words">
-          {deployment ? deployment.indexer.url : 'The server and the Sia network it stores on'}
+          {deployment ? (
+            deployment.indexer.url
+          ) : !status && expectDeployment ? (
+            <Skeleton className={cn('my-0.5 h-4 w-40', lateSkeleton)} />
+          ) : (
+            'The server and the Sia network it stores on'
+          )}
         </CardDescription>
         <CardAction>
           {status ? (
@@ -643,9 +651,13 @@ function UploadRow({ asset }: { asset: VideoAsset }) {
   );
 }
 
-function LatestUploads() {
-  const latest = useLatestAssets(6);
+const LATEST = 6;
+
+function LatestUploads({ expected }: { expected?: number }) {
+  const latest = useLatestAssets(LATEST);
   const assets = latest.data?.data ?? [];
+  // as many placeholder rows as there will be rows, once the totals know
+  const placeholders = expected === undefined ? 3 : Math.max(1, Math.min(LATEST, expected));
   const state = latest.isPending
     ? 'loading'
     : latest.isError && !latest.data
@@ -668,7 +680,7 @@ function LatestUploads() {
         <FadeSwap swapKey={state}>
           {state === 'loading' ? (
             <div className="flex flex-col divide-y" aria-hidden="true">
-              {Array.from({ length: 4 }, (_, i) => (
+              {Array.from({ length: placeholders }, (_, i) => (
                 <div key={i} className="flex items-center gap-3 py-2.5">
                   <Skeleton className={cn('aspect-video w-16 @md/latest:w-20', lateSkeleton)} />
                   <div className="flex flex-1 flex-col gap-1.5">
@@ -827,7 +839,7 @@ export default function DashboardPage() {
           className="mt-4 grid gap-4 @3xl/dash:grid-cols-3"
         >
           <AnimatedItem as="div" key="latest" layout={false} className="@3xl/dash:col-span-2">
-            <LatestUploads />
+            <LatestUploads expected={s?.total} />
           </AnimatedItem>
           <AnimatedItem as="div" key="status" layout={false}>
             <StatusCard

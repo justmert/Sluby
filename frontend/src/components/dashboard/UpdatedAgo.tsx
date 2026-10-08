@@ -42,7 +42,8 @@ export function UpdatedAgo({
   const now = useNow(1000);
   // the first reading is the page load, not news
   const [firstAt] = useState(updatedAt);
-  if (!updatedAt) return null;
+  // the line is there before the first answer, so it does not push anything when it fills
+  if (!updatedAt) return <p aria-hidden="true" className={cn('h-4', className)} />;
   return (
     <p
       className={cn('flex items-center gap-2 text-xs text-muted-foreground', className)}
