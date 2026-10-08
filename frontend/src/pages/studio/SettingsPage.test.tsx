@@ -474,6 +474,31 @@ describe('SettingsPage sessions, optimistic', () => {
     expect(await screen.findByText('Could not end the session: nope')).toBeInTheDocument();
     expect(screen.getByText(ua)).toBeInTheDocument();
   });
+
+  it('shapes the loading keys like the rows they stand for, stacked on phones', async () => {
+    let answer!: (r: Response) => void;
+    const held = new Promise<Response>((r) => (answer = r));
+    const answerKeys = fetchMock.getMockImplementation() as (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) =>
+      String(input) === '/api/v1/keys' ? held : answerKeys(input, init),
+    );
+    const { container } = render();
+    const card = screen.getByText('API keys').closest('[data-slot=card]')!;
+    const blocks = [...card.querySelectorAll('[data-slot=skeleton]')];
+    // a table header and two 53px rows from sm up; below sm the header is
+    // hidden and each row is a 132px stacked card, so the cards under it
+    // do not jump when two keys land
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]).toHaveClass('h-9', 'max-sm:hidden');
+    expect(blocks[1]).toHaveClass('h-12', 'max-sm:h-32');
+    expect(blocks[2]).toHaveClass('h-12', 'max-sm:h-32');
+    answer(json({ data: keys, has_more: false, next_cursor: null }));
+    await screen.findByText('production');
+    expect(container.querySelector('[data-slot=card] [data-slot=skeleton]')).toBeNull();
+  });
 });
 
 describe('SettingsPage deep link', () => {

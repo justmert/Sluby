@@ -484,10 +484,11 @@ function ApiKeysCard() {
       </CardHeader>
       <CardContent className="px-0">
         {keys.isLoading ? (
+          // the header and two rows; on phones the rows are stacked cards
           <div className="flex flex-col gap-2 px-4" aria-hidden="true">
-            <Skeleton className="h-9" />
-            <Skeleton className="h-12" />
-            <Skeleton className="h-12" />
+            <Skeleton className="h-9 max-sm:hidden" />
+            <Skeleton className="h-12 max-sm:h-32" />
+            <Skeleton className="h-12 max-sm:h-32" />
           </div>
         ) : keys.isError ? (
           <Alert variant="destructive" className="mx-4 w-auto">
