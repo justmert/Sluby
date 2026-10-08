@@ -27,7 +27,7 @@ In the Studio, open **Settings** and find the **API keys** card. Click **Create 
 
 The same card rotates and revokes keys. Rotating issues a new secret with the same name, scopes and limit. The old secret stops working immediately or after a grace period of up to 7 days, which gives running clients time to switch. A key can be rotated once; to rotate again, rotate its replacement.
 
-Keys can also be managed through the API (`GET /api/v1/keys`, `POST /api/v1/keys`, `POST /api/v1/keys/{id}/rotate`, `DELETE /api/v1/keys/{id}`) with a key that has the `manage` scope, or with `client.keys` in `@sluby/sdk`. To get a first key without signing in to the Studio, set `BOOTSTRAP_API_KEY` to a `sluby_...` value of your choice before starting the backend. It is stored with all three scopes and a limit of 1000 requests per minute (see [Configuration](/guide/configuration)).
+Keys can also be managed through the API (`GET /api/v1/keys`, `POST /api/v1/keys`, `POST /api/v1/keys/{id}/rotate`, `DELETE /api/v1/keys/{id}`) with a key that has the `manage` scope, or with `client.keys` in `@sluby/sdk`. To get a first key without signing in to the Studio, set `BOOTSTRAP_API_KEY` to a `sluby_...` value of your choice before starting the backend. It is stored with all three scopes and a limit of 1000 requests per minute, once: deleted or rotated, it is never seeded again. In production it must look like a generated key (`sluby_` and at least 32 more letters, digits, `-` or `_`). See [Configuration](/guide/configuration).
 
 ### Scopes
 
@@ -37,17 +37,17 @@ Each key carries one or more scopes, and every endpoint requires exactly one:
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `upload` | Uploading videos over tus at `/api/v1/uploads` and cancelling an upload.                                                                 |
 | `read`   | Listing and reading assets, renditions, processing state and Sia storage details, playback URLs, upload status, stats and system status. |
-| `manage` | Editing, deleting and retrying assets, playback IDs, API keys, webhooks (listing them too) and reconciliation (see below).               |
+| `manage` | Editing, deleting and retrying assets, playback ids, API keys, webhooks (listing them too) and reconciliation (see below).               |
 
-Scopes are checked independently: `manage` does not include `read`, so a key that should do both needs both. A key without the required scope gets `403` with `Requires '<scope>' scope`. Each operation in the reference shows its scope as `x-required-scope`.
+Scopes are checked independently: `manage` does not include `read`, so a key that should do both needs both. Keep every key on a server, a `read` key included: `read` mints signed URLs and share maps, so it plays every private asset of its account. A key without the required scope gets `403` with `Requires '<scope>' scope`. Each operation in the reference shows its scope as `x-required-scope`.
 
 ### Accounts
 
-Every resource belongs to the account that created it, and a request only reaches its own account's assets, keys, webhooks and playback IDs. An ID from another account answers `404`, the same as one that does not exist. The exception is a key with the platform address (`0x` followed by 64 zeros), which acts across all accounts (see [tenancy](/architecture/auth-and-tenancy#tenancy)).
+Every resource belongs to the account that created it, and a request only reaches its own account's assets, keys, webhooks and playback ids. An id from another account answers `404`, the same as one that does not exist. The exception is a key with the platform address (`0x` followed by 64 zeros), which acts across all accounts (see [tenancy](/architecture/auth-and-tenancy#tenancy)).
 
 The platform key also lists, reads and changes the resources of every account, keys included, through the same endpoints.
 
-Deployment-wide operations data is for the platform key and for operators: the accounts listed in `OPERATOR_USERS` (see [operators](/architecture/auth-and-tenancy#operators)), through their Studio sessions and their API keys. An operator sees the deployment, but like any other account only its own assets, keys, webhooks and playback IDs:
+Deployment-wide operations data is for the platform key and for operators: the accounts listed in `OPERATOR_USERS` (see [operators](/architecture/auth-and-tenancy#operators)), through their Studio sessions and their API keys. An operator sees the deployment, but like any other account only its own assets, keys, webhooks and playback ids:
 
 - `GET /api/v1/system/status` answers every caller, but an ordinary account gets `"scope": "account"`: a health summary (whether the database, Redis and the indexer answer, and the size of the host pool), without the indexer account, the indexer URL, probe error text, uptime, the delivery cache or the last reconciliation. The platform key and operators get `"scope": "deployment"` and all of it.
 - `GET /api/v1/metrics` counts the whole process, every account together, so it answers `403` to anyone but the platform key and operators.
@@ -76,16 +76,16 @@ Cursor paging only works with the default order (`sort=created_at`, `order=desc`
 
 Every query parameter may be given once. A repeated parameter, a `limit` outside 1 to 100, a `page` that is not a whole number and similar mistakes answer `400` instead of being replaced by a default.
 
-`GET /api/v1/keys` pages the same way, newest first: `limit` (1 to 1000, default 1000) and `cursor`, with `has_more` and `next_cursor` in the answer. With the default limit one page holds every key of any ordinary account. `GET /api/v1/webhooks` and the playback IDs of an asset return `{ "data": [...] }` without paging.
+`GET /api/v1/keys` pages the same way, newest first: `limit` (1 to 1000, default 1000) and `cursor`, with `has_more` and `next_cursor` in the answer. With the default limit one page holds every key of any ordinary account. `GET /api/v1/webhooks` and the playback ids of an asset return `{ "data": [...] }` without paging.
 
 ## Uploads
 
-Uploads use the [tus](https://tus.io) protocol at `POST /api/v1/uploads`, as `@sluby/sdk` does. The creation answers `201` with the upload's URL in `Location`, built from `PUBLIC_URL`: `<PUBLIC_URL>/api/v1/uploads/<upload id>`. The upload ID, the last segment of that URL, is also the ID of the two REST operations on an upload:
+Uploads use the [tus](https://tus.io) protocol at `POST /api/v1/uploads`, as `@sluby/sdk` does. The creation answers `201` with the upload's URL in `Location`, built from `PUBLIC_URL`: `<PUBLIC_URL>/api/v1/uploads/<upload id>`. The upload id, the last segment of that URL, is also the id of the two REST operations on an upload (and the `uploadId` of an upload handle in `@sluby/sdk`):
 
 - `GET /api/v1/uploads/{id}` (scope `read`) returns its `status` (`uploading`, `completed`, `cancelled` or `failed`), `progress_percent`, `file_size`, `uploaded_bytes` and `video_asset_id`.
 - `DELETE /api/v1/uploads/{id}` (scope `upload`) cancels an upload that is still in progress: the partial file and the asset it created are removed, as with a tus `DELETE`. An upload that has finished is the source its asset is processed and retried from, so it cannot be cancelled (`409`, or `400` for a tus `DELETE`); delete the asset instead, which needs `manage`.
 
-The creation metadata is checked like an asset edit: `accessTier` (or `access_tier`) must be `public` or `private`, `title` at most 200 characters and `description` at most 5000, neither with control characters, and an empty file (`Upload-Length: 0`) is refused. Each mistake answers `400` and creates nothing. An upload left unfinished for 24 hours expires: its file is removed, its session marked `failed`, and the asset it created is deleted.
+A file type other than `video/*` answers `415`. The creation metadata is checked like an asset edit: `accessTier` (or `access_tier`) must be `public` or `private`, `title` at most 200 characters and `description` at most 5000, neither with control characters, and an empty file (`Upload-Length: 0`) is refused. Each mistake answers `400` and creates nothing. An upload left unfinished for 24 hours expires: its file is removed, its session marked `failed`, and the asset it created is deleted.
 
 ## Signed playback URLs
 
@@ -93,7 +93,7 @@ The creation metadata is checked like an asset edit: `accessTier` (or `access_ti
 
 A signature is bound to the asset's signing generation, which goes up when the asset's tier changes and on `POST /api/v1/playback/{id}/signed/revoke` (scope `manage`). Either makes every URL signed for the asset so far, and every playlist and segment URL signed from one, answer `403` from then on; new URLs can be minted straight away. Revoking does not touch sia:// share maps already handed out for direct-from-Sia playback, which run until their own expiry (at most an hour for a private asset).
 
-The gateway serves a public asset to anyone. After `PATCH` makes it private, or `DELETE` removes it, the backend refuses at once, and copies the shipped nginx keeps are refused within 60 seconds, when they are next revalidated (see [Playback](../architecture/playback#how-long-an-access-change-takes)). A `signed` playback ID only gates its own `/v1/stream` entry: on a public asset, the objects stay public under their own IDs, so it does not make the video private.
+The gateway serves a public asset to anyone. After `PATCH` makes it private, or `DELETE` removes it, the backend refuses at once, and copies the shipped nginx keeps are refused within 60 seconds, when they are next revalidated (see [Playback](../architecture/playback#how-long-an-access-change-takes)). A `signed` playback id only gates its own `/v1/stream` and `/v1/share` entries: on a public asset, the objects stay public under their own ids, so it does not make the video private.
 
 ## Errors
 
@@ -106,15 +106,17 @@ Errors are JSON with an `error` message. A `400` from a body or query that faile
 }
 ```
 
-| Status | Meaning                                                                                                                                                               |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `400`  | Invalid input, such as an unknown filter value, a repeated query parameter, a bad request body or an ID that is not a valid identifier (`Invalid identifier format`). |
-| `401`  | The `Authorization` header is missing, or the key is unknown, deactivated, expired or owned by an account no longer allowed in.                                       |
-| `403`  | The key lacks the scope the endpoint requires, or the endpoint is for the platform identity and operators only.                                                       |
-| `404`  | The resource does not exist or belongs to another account. Unknown routes also return `404`, with or without a key.                                                   |
-| `409`  | The request conflicts with the resource's state, such as playing an asset that is not ready or cancelling a finished upload.                                          |
-| `429`  | Rate limit exceeded (see below).                                                                                                                                      |
-| `500`  | Server error. The details go to the backend log.                                                                                                                      |
+| Status | Meaning                                                                                                                                                                             |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | Invalid input, such as an unknown filter value, a repeated query parameter, a bad request body or an id that is not a valid identifier (`Invalid identifier format`).               |
+| `401`  | The `Authorization` header is missing, or the key is unknown, deactivated, expired or owned by an account no longer allowed in.                                                     |
+| `403`  | The key lacks the scope the endpoint requires, the endpoint is for the platform identity and operators only, or a write came from another origin without an `Authorization` header. |
+| `404`  | The resource does not exist or belongs to another account. Unknown routes also return `404`, with or without a key.                                                                 |
+| `409`  | The request conflicts with the resource's state, such as playing an asset that is not ready or cancelling a finished upload.                                                        |
+| `429`  | Rate limit exceeded (see below).                                                                                                                                                    |
+| `500`  | Server error. The details go to the backend log.                                                                                                                                    |
+| `502`  | The Sia indexer did not answer, for example while minting share URLs.                                                                                                               |
+| `503`  | The database did not answer while minting share URLs.                                                                                                                               |
 
 When the backend runs with `EXPOSE_ERROR_STACKS=true`, errors raised inside a route handler also include `message` and `stack` to help while debugging. It is off by default in every setup, so a server never returns a stack trace unless you turn it on. Each operation in the reference lists the status codes it can answer, and the backend's tests check every answer against that list.
 
@@ -139,16 +141,18 @@ The body is `{ "id": "evt_...", "event": "asset.ready", "timestamp": "...", "dat
 To verify a request, compute the HMAC of `<X-Sluby-Timestamp>.<raw body>` with the secret, compare it with `X-Sluby-Signature-V1` in constant time, and refuse a timestamp more than five minutes from your clock. `@sluby/sdk` does this in `verifyRequest`:
 
 ```ts
-import { WebhookManager } from '@sluby/sdk';
+import type { IncomingHttpHeaders } from 'node:http';
+import { WebhookManager, type WebhookEvent } from '@sluby/sdk';
 
 const webhooks = new WebhookManager();
 
-// req.body must be the raw request body as a string, not parsed JSON
-if (!webhooks.verifyRequest(req.body, req.headers, process.env.SLUBY_WEBHOOK_SECRET!)) {
-  res.status(401).end();
-  return;
+// rawBody must be the request body exactly as received, not parsed JSON
+export function readEvent(rawBody: string, headers: IncomingHttpHeaders): WebhookEvent | null {
+  if (!webhooks.verifyRequest(rawBody, headers, process.env.SLUBY_WEBHOOK_SECRET!)) {
+    return null; // answer 401
+  }
+  return webhooks.parseEvent(rawBody);
 }
-const event = webhooks.parseEvent(req.body);
 ```
 
 `verifyRequestAsync` does the same on Web Crypto, for edge runtimes and browsers, and takes a Fetch `Headers` object as well as Node's `req.headers`.
