@@ -92,6 +92,11 @@
   --sidebar-accent-foreground: oklch(0.18 0.012 285);
   --sidebar-border: oklch(0.91 0.005 285);
   --sidebar-ring: oklch(0.6 0.18 47);
+  /* syntax colors for CodeBlock, on muted/40 */
+  --code-keyword: oklch(0.5 0.19 293);
+  --code-string: oklch(0.47 0.11 162.5);
+  --code-number: oklch(0.52 0.15 47);
+  --code-fn: oklch(0.5 0.15 260);
   /* polled progress bars ease over this long; shorter than the fastest poll
      (2 s), so a bar never trails its number by a whole poll */
   --duration-progress: 1200ms;
@@ -138,6 +143,10 @@
   --sidebar-accent-foreground: oklch(0.955 0 0);
   --sidebar-border: oklch(1 0 0 / 9%);
   --sidebar-ring: oklch(0.722 0.187 48.5);
+  --code-keyword: oklch(0.78 0.12 293);
+  --code-string: oklch(0.8 0.12 162.5);
+  --code-number: oklch(0.8 0.12 60);
+  --code-fn: oklch(0.8 0.1 250);
 }
 
 @theme inline {
@@ -186,6 +195,10 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-code-keyword: var(--code-keyword);
+  --color-code-string: var(--code-string);
+  --color-code-number: var(--code-number);
+  --color-code-fn: var(--code-fn);
   /* three radii: md for controls, lg for inner surfaces, xl for cards and
      overlays (plus full for badges and dots). sm is the checkbox and kbd. */
   --radius-sm: calc(var(--radius) * 0.4);
@@ -357,6 +370,13 @@
     grid-column: 2;
     grid-row: 1;
     align-self: start;
+  }
+  table[data-responsive] > tbody > tr > td[data-cell='select'] {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+    justify-self: end;
+    padding-inline: calc(var(--spacing) * 2);
   }
 }
 
