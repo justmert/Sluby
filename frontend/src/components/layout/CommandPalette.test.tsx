@@ -75,6 +75,16 @@ describe('CommandPalette', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('keeps its title out of the page while closed', async () => {
+    setup();
+    expect(screen.queryByRole('heading', { name: 'Search and commands' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Jump to a page, find a video or run an action')).toBeNull();
+    await openWithKeys();
+    expect(
+      await screen.findByRole('dialog', { name: 'Search and commands' }),
+    ).toHaveAccessibleDescription('Jump to a page, find a video or run an action');
+  });
+
   it('leaves out operator pages for a tenant', async () => {
     setup(false);
     await openWithKeys();
