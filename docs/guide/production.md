@@ -173,6 +173,8 @@ git pull
 docker compose up -d --build
 ```
 
+**BullMQ stays on version 5.** BullMQ 6 refuses the legacy repeat entries that 0.1.0 used for the reconciliation and deletion sweeps. This release moves them to job schedulers and removes the old entries on its first start, which needs BullMQ 5 to read them. A later release can move to BullMQ 6 once deployments have started this one at least once, so upgrade through this release rather than skipping it.
+
 **Backups.** The database is the one thing to back up: it maps every asset to its Sia objects. Video data lives on Sia and the app key in `.env` is what grants access to it, so keep a copy of `.env` somewhere safe too.
 
 ```sh
