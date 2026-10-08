@@ -85,6 +85,7 @@ export function useProcessingJob(
   id: string | undefined,
   assetStatus: VideoAssetStatus | undefined,
   enabled: boolean,
+  interval = 3_000,
 ) {
   return useQuery({
     queryKey: ['assets', 'processing', id, assetStatus],
@@ -94,7 +95,7 @@ export function useProcessingJob(
       // a 404 (no job yet, or the asset is gone) or a 401 does not change by asking again
       if (failedForGood(query)) return false;
       const s = query.state.data?.status;
-      return s === 'completed' || s === 'failed' ? false : 3_000;
+      return s === 'completed' || s === 'failed' ? false : interval;
     },
     retry: false,
   });
