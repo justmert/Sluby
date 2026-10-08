@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import type { RetryStage, VideoAsset } from '@sluby/sdk';
 import {
@@ -653,11 +653,37 @@ function UploadRow({ asset }: { asset: VideoAsset }) {
 
 const LATEST = 6;
 
+// how many rows the list showed last time, so a reload holds that much room
+// while it loads; per browser, and only a layout hint
+const ROWS_KEY = 'sluby-dashboard-latest-rows';
+
+function rememberedRows(): number | undefined {
+  try {
+    const n = Number(localStorage.getItem(ROWS_KEY));
+    return Number.isInteger(n) && n > 0 && n <= LATEST ? n : undefined;
+  } catch {
+    // storage blocked (private window, site data off): no hint, nothing breaks
+    return undefined;
+  }
+}
+
 function LatestUploads({ expected }: { expected?: number }) {
   const latest = useLatestAssets(LATEST);
   const assets = latest.data?.data ?? [];
-  // as many placeholder rows as there will be rows, once the totals know
-  const placeholders = expected === undefined ? 3 : Math.max(1, Math.min(LATEST, expected));
+  // as many placeholder rows as there will be rows: the totals know, or the
+  // last visit does
+  const [remembered] = useState(rememberedRows);
+  const placeholders =
+    expected !== undefined ? Math.max(1, Math.min(LATEST, expected)) : (remembered ?? 3);
+  const shown = latest.data ? Math.min(LATEST, latest.data.data.length) : undefined;
+  useEffect(() => {
+    if (!shown) return;
+    try {
+      localStorage.setItem(ROWS_KEY, String(shown));
+    } catch {
+      // see rememberedRows
+    }
+  }, [shown]);
   const state = latest.isPending
     ? 'loading'
     : latest.isError && !latest.data
@@ -801,6 +827,7 @@ export default function DashboardPage() {
               value={s?.total}
               failed={failed}
               hint={s ? assetBreakdown(s) : null}
+              longHint
             />
           </AnimatedItem>
           <AnimatedItem as="div" role="listitem" key="stored" layout={false}>

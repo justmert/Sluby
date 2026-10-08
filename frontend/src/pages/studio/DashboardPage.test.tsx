@@ -389,4 +389,16 @@ describe('DashboardPage', () => {
       (await screen.findAllByText(/Nothing is missing\. The indexer holds 16 objects/))[0],
     ).toBeInTheDocument();
   });
+
+  it('holds as many placeholder rows as the list showed last time', async () => {
+    localStorage.setItem('sluby-dashboard-latest-rows', '2');
+    routes['GET /api/v1/stats'] = () => new Promise<Response>(() => {}) as never;
+    routes['GET /api/v1/assets'] = () => new Promise<Response>(() => {}) as never;
+    render();
+    const card = (await screen.findByText('Latest uploads')).closest(
+      '[data-slot="card"]',
+    ) as HTMLElement;
+    expect(card.querySelectorAll('[data-slot="card-content"] .py-2\\.5')).toHaveLength(2);
+    localStorage.removeItem('sluby-dashboard-latest-rows');
+  });
 });

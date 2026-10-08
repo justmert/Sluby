@@ -18,6 +18,8 @@ interface StatCardProps {
   failed?: boolean;
   /** null while the hint waits on the same data as the value; leave out for none */
   hint?: React.ReactNode;
+  /** the hint is long enough to take two lines on a narrow card */
+  longHint?: boolean;
 }
 
 /**
@@ -31,6 +33,7 @@ export function StatCard({
   format,
   failed = false,
   hint,
+  longHint = false,
 }: StatCardProps) {
   const loading = value === undefined && !failed;
   return (
@@ -57,12 +60,14 @@ export function StatCard({
           <FadeSwap swapKey={hint === null ? 'loading' : 'ready'}>
             {hint === null ? (
               failed ? null : (
-                // a hint wraps to two lines on a narrow card, so its placeholder does too
+                // a long hint wraps to two lines on a narrow card, so its placeholder does too
                 <div className="@container">
                   <Skeleton className={cn('my-0.5 h-3 w-36 max-w-full', lateSkeleton)} />
-                  <Skeleton
-                    className={cn('my-0.5 hidden h-3 w-20 @max-[11rem]:block', lateSkeleton)}
-                  />
+                  {longHint && (
+                    <Skeleton
+                      className={cn('my-0.5 hidden h-3 w-20 @max-[11rem]:block', lateSkeleton)}
+                    />
+                  )}
                 </div>
               )
             ) : (

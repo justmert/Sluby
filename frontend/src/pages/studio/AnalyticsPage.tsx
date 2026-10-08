@@ -128,6 +128,7 @@ function ServerStats({ m, stagger }: { m?: MetricsSnapshot; stagger: boolean }) 
   const stats: (React.ComponentProps<typeof StatCard> & { key: string })[] = [
     {
       key: 'uploads',
+      longHint: true,
       icon: Upload,
       label: 'Uploads',
       value: m?.uploads.succeeded,
@@ -135,6 +136,7 @@ function ServerStats({ m, stagger }: { m?: MetricsSnapshot; stagger: boolean }) 
     },
     {
       key: 'processing',
+      longHint: true,
       icon: Cpu,
       label: 'Processing',
       value: m && m.processing.avgSeconds,
@@ -149,6 +151,7 @@ function ServerStats({ m, stagger }: { m?: MetricsSnapshot; stagger: boolean }) 
     },
     {
       key: 'sia',
+      longHint: true,
       icon: Clock,
       label: 'Sia upload',
       value: m && m.sia.avgSeconds,
@@ -157,6 +160,7 @@ function ServerStats({ m, stagger }: { m?: MetricsSnapshot; stagger: boolean }) 
     },
     {
       key: 'playback',
+      longHint: true,
       icon: Play,
       label: 'Playback URLs',
       value: m && m.playback.public + m.playback.signed + m.playback.sia,
