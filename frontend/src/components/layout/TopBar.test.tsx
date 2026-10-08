@@ -35,4 +35,13 @@ describe('TopBar', () => {
     expect(screen.getByText('Not found')).toBeInTheDocument();
     expect(screen.queryByText('nope')).not.toBeInTheDocument();
   });
+
+  it('centers the short divider by the sidebar toggle instead of stretching it', () => {
+    const { container } = renderAt('/studio');
+    const divider = container.querySelector('header [data-slot="separator"]');
+    expect(divider).toHaveAttribute('data-orientation', 'vertical');
+    // a stretched item with a fixed height sits at the top of the bar, not in the middle
+    expect(divider?.className).not.toMatch(/self-stretch/);
+    expect(divider?.className).toMatch(/data-vertical:self-auto/);
+  });
 });
