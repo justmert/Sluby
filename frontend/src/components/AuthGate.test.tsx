@@ -2,11 +2,16 @@ import { screen, waitFor } from '@testing-library/react';
 import { render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { domMax } from 'motion/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MotionProvider } from '@/components/motion/MotionProvider';
 import { apiClient } from '@/lib/api-client';
+import { loadPage } from '@/lib/navigation';
 import { createQueryClient } from '@/lib/query-client';
 import { useSession } from '@/lib/session';
 import { AuthGate } from './AuthGate';
+
+vi.mock('@/lib/navigation', () => ({ loadPage: vi.fn(), reloadPage: vi.fn() }));
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -35,9 +40,11 @@ function Who() {
 function renderGate(children = <Who />) {
   const client = createQueryClient();
   render(
-    <QueryClientProvider client={client}>
-      <AuthGate>{children}</AuthGate>
-    </QueryClientProvider>,
+    <MotionProvider features={domMax}>
+      <QueryClientProvider client={client}>
+        <AuthGate>{children}</AuthGate>
+      </QueryClientProvider>
+    </MotionProvider>,
   );
   return client;
 }
@@ -81,7 +88,9 @@ describe('AuthGate', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderGate();
 
-    expect(await screen.findByText('Could not reach the server')).toBeInTheDocument();
+    // it answered, so "could not reach" would send people checking their network
+    expect(await screen.findByText('The server returned an error')).toBeInTheDocument();
+    expect(screen.queryByText('Could not reach the server')).not.toBeInTheDocument();
     expect(screen.getByText('The server answered HTTP 502.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
 
@@ -94,6 +103,35 @@ describe('AuthGate', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     renderGate();
     expect(await screen.findByText('The request did not reach the server.')).toBeInTheDocument();
+    expect(screen.getByText('Could not reach the server')).toBeInTheDocument();
+  });
+
+  it('keeps the error on screen while trying again, with the button pending', async () => {
+    let answer: (r: Response) => void = () => {};
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)));
+    vi.stubGlobal('fetch', fetchMock);
+    renderGate();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    // no swap to a bare spinner screen: the message stays and the button says what it does
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not reach the server');
+    expect(screen.getByRole('button', { name: /trying again/i })).toBeDisabled();
+
+    answer(json(me));
+    expect(await screen.findByText(/alice via GitHub/)).toBeInTheDocument();
+  });
+
+  it('shows the sign-in as pending while the browser goes to github', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
+    renderGate();
+    await userEvent.click(await screen.findByRole('button', { name: /sign in with github/i }));
+    expect(loadPage).toHaveBeenCalledWith(
+      `/api/v1/auth/github/login?${new URLSearchParams({ next: '/' })}`,
+    );
+    expect(screen.getByRole('button', { name: /redirecting to github/i })).toBeDisabled();
   });
 
   it('returns to sign-in and drops cached data when a later call answers 401', async () => {
