@@ -75,10 +75,6 @@ function isVideo(file: File): boolean {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-// ---------------------------------------------------------------------------
-// Selecting a file
-// ---------------------------------------------------------------------------
-
 function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
   const input = useRef<HTMLInputElement>(null);
   // dragenter and dragleave fire for every child the pointer crosses, so
@@ -226,10 +222,6 @@ function DetailsForm({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Uploads a previous page load left unfinished
-// ---------------------------------------------------------------------------
-
 function UnfinishedRow({ upload, store }: { upload: UnfinishedUpload; store: UploadStore }) {
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
@@ -355,10 +347,6 @@ function UnfinishedUploads({ store, known }: { store: UploadStore; known: Set<st
     </section>
   );
 }
-
-// ---------------------------------------------------------------------------
-// One upload
-// ---------------------------------------------------------------------------
 
 function TransferPanel({ store, s }: { store: UploadStore; s: UploadState }) {
   const percent = s.bytesTotal > 0 ? (s.bytesUploaded / s.bytesTotal) * 100 : 0;
@@ -603,10 +591,6 @@ function UploadCard({ store, s }: { store: UploadStore; s: UploadState }) {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 
 export default function UploadPage({ store = defaultStore }: { store?: UploadStore }) {
   const { uploads } = useUploads(store);

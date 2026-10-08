@@ -153,10 +153,6 @@ function assetBreakdown(s: AssetStats): string {
 const plural = (n: number, one: string, many = `${one}s`) =>
   `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
-// ---------------------------------------------------------------------------
-// Sections
-// ---------------------------------------------------------------------------
-
 /** How the caller's own objects fared in the latest reconciliation run. */
 function OwnObjectsRow() {
   const run = useReconciliation();
@@ -492,10 +488,6 @@ function LatestUploads() {
     </Card>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 
 export default function DashboardPage() {
   const { operator } = useSession();

@@ -125,10 +125,6 @@ function useLibraryParams() {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Rows and cards
-// ---------------------------------------------------------------------------
-
 function AssetMeta({ asset }: { asset: VideoAsset }) {
   const parts = [
     asset.durationMs ? formatDuration(asset.durationMs) : null,
@@ -221,10 +217,6 @@ function AssetCard({
     </Card>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 
