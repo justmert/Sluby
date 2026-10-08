@@ -60,6 +60,7 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/test/setup.ts', './src/test/timeouts.ts'],
       // a loaded ci runner can take seconds per page render
       testTimeout: 30_000,
+      hookTimeout: 30_000,
     },
   };
 });
