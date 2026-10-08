@@ -72,7 +72,7 @@ function Ring({ percent, paused }: { percent: number; paused: boolean }) {
  * so leaving the upload page does not hide them. Links back to the page.
  */
 export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }) {
-  const { uploads } = useUploads(store);
+  const { uploads, queued } = useUploads(store);
   const active = uploads.filter(isActive);
   // the running transfer leads; otherwise the newest upload still processing
   const lead = active.find(isTransferring) ?? active[0];
@@ -81,7 +81,7 @@ export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }
     <AnimatePresence initial={false}>
       {lead && (
         <m.div key="uploads" variants={scaleIn} initial="hidden" animate="visible" exit="exit">
-          <IndicatorLink lead={lead} count={active.length} />
+          <IndicatorLink lead={lead} count={active.length + queued.length} />
         </m.div>
       )}
     </AnimatePresence>
@@ -93,7 +93,9 @@ function IndicatorLink({ lead, count }: { lead: UploadState; count: number }) {
   const paused = lead.phase === 'paused';
   const detail = describe(lead, percent);
   const label =
-    count > 1 ? `${count} uploads in progress. ${detail}. Open uploads` : `${detail}. Open uploads`;
+    count > 1
+      ? `${count} uploads in progress or queued. ${detail}. Open uploads`
+      : `${detail}. Open uploads`;
 
   return (
     <Tooltip>

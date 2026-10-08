@@ -44,6 +44,19 @@ describe('UploadIndicator', () => {
     ).toHaveTextContent('Paused');
   });
 
+  it('counts files waiting in the queue', () => {
+    const { f, store } = setup();
+    const other = new File([new Uint8Array(50)], 'b.mp4', { type: 'video/mp4', lastModified: 2 });
+    act(() => {
+      store.enqueue(file, { title: 'Keynote' });
+      store.enqueue(other, { title: 'Second' });
+      f.current().progress(10, 100);
+    });
+    expect(
+      screen.getByRole('link', { name: /^2 uploads in progress or queued\. Uploading Keynote/ }),
+    ).toHaveTextContent('2');
+  });
+
   it('goes away when the upload fails', async () => {
     const { f, store } = setup();
     act(() => {
