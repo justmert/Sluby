@@ -1,6 +1,6 @@
 # Plain JavaScript
 
-This guide uses Sluby without a framework: `@sluby/sdk` for the API and hls.js for playback in the browser, plus Node.js on the server for uploads and for handing out playback. Every snippet comes from the runnable example in [`examples/vanilla`](https://github.com/justmert/Sluby/tree/main/examples/vanilla), plain JavaScript modules that CI typechecks (with `checkJs`) and builds against the current packages.
+This guide uses Sluby without a framework: `@sluby/sdk` for the API and hls.js for playback in the browser, plus Node.js on the server for uploads and for handing out playback. The snippets come from the runnable example in [`examples/vanilla`](https://github.com/justmert/Sluby/tree/main/examples/vanilla), plain JavaScript modules that CI typechecks (with `checkJs`) and builds against the current packages. Two are not in the example: the browser client for a signing server and the calls that manage keys, webhooks and playback ids.
 
 You need a running Sluby stack (see the [quickstart](./quickstart)) and an API key from **Settings → API keys** in the Studio. If you use React, the [React guide](./react) covers the same flow with `<SlubyPlayer>`.
 
@@ -10,10 +10,10 @@ You need a running Sluby stack (see the [quickstart](./quickstart)) and an API k
 npm install @sluby/sdk @sluby/player hls.js
 ```
 
-`@sluby/player` is only needed for direct-from-Sia playback. Its `@sluby/player/hls` entry point exports the hls.js loader on its own and does not import React, but npm still installs React, because it is a peer dependency of the package's main entry.
+`@sluby/player` is only needed for direct-from-Sia playback. Its `@sluby/player/hls` entry point exports the hls.js loader on its own and does not import React, and React is an optional peer dependency, so npm does not install it for you.
 
 ::: warning Package versions
-This guide needs a release of `@sluby/sdk` and `@sluby/player` newer than 0.1.0. Version 0.1.0 on npm predates direct-from-Sia playback, `assets.processing` and the `@sluby/player/hls` entry point. Until a newer version is published, the example apps use the packages built from this repository (`npm install`, `npm run build:sdk` and `npm run build:player` at the repository root).
+This guide needs `@sluby/sdk` and `@sluby/player` 0.2.0. Version 0.1.0 predates direct-from-Sia playback, `assets.processing`, the typed errors and the `@sluby/player/hls` entry point. If `npm view @sluby/sdk version` still prints 0.1.0, 0.2.0 is not on npm yet: build the packages from this repository instead (`npm install`, `npm run build:sdk` and `npm run build:player` at the repository root), as the example apps do.
 :::
 
 ## Keep keys on your server
@@ -106,16 +106,16 @@ try {
   await sluby.assets.waitForReady(assetId, { pollInterval: 3000, timeout: 30 * 60_000 });
   uploadStatus.textContent = 'Ready.';
 } catch (err) {
-  // waitForReady throws a plain Error when processing failed; the
-  // processing job carries the reason
+  if (!(err instanceof ProcessingFailedError)) throw err;
+  // the processing job says why it failed
   const job = await sluby.assets.processing(assetId).catch(() => null);
-  throw job?.errorMessage ? new Error(`Processing failed: ${job.errorMessage}`) : err;
+  throw new Error(`Processing failed: ${job?.errorMessage ?? 'no reason was recorded'}`);
 } finally {
   clearInterval(stagePoll);
 }
 ```
 
-`waitForReady` polls every 5 seconds for up to 10 minutes unless told otherwise, throws a `TimeoutError` when time runs out, and throws a plain `Error` when processing fails. `assets.processing` reports the stage (`queued`, `transcode`, `upload`, `finalize`, `completed`, `failed`), the overall percentage and the error message. Storing on Sia takes a few minutes even for a short clip (see [how long it takes](./quickstart#how-long-it-takes)).
+`waitForReady` polls every 5 seconds for up to 10 minutes unless told otherwise, throws a `TimeoutError` when time runs out, and throws a `ProcessingFailedError`, carrying the failed `asset`, when processing fails. It also takes a `signal` to stop waiting. `assets.processing` reports the stage (`queued`, `transcode`, `upload`, `finalize`, `completed`, `failed`), the overall percentage and the error message. Storing on Sia takes a few minutes even for a short clip (see [how long it takes](./quickstart#how-long-it-takes)).
 
 ## Play with hls.js
 
@@ -242,38 +242,45 @@ Upload with `accessTier: 'private'` and the gateway answers `403 This object req
 
 ## Handle errors
 
-REST calls throw typed errors that extend `SlubyError` (with `statusCode` and `responseBody`): `AuthenticationError` for 401 and 403, `NotFoundError` for 404, `RateLimitError` for 429 (with `retryAfter` in seconds), `TimeoutError` from `waitForReady`, and `SlubyError` itself for anything else, such as 409 when an asset is not ready to play.
+REST calls throw typed errors that extend `SlubyError` (with `statusCode` and `responseBody`): `AuthenticationError` for 401, `PermissionError` for 403 (a key without the scope the call needs), `NotFoundError` for 404 and 410, `ValidationError` for 400 and 422, `ConflictError` for 409 (for example an asset that is not ready to play), `RateLimitError` for 429 (with `retryAfter` in seconds), and `SlubyError` itself for anything else. `TimeoutError` (a request past `timeoutMs`, or `waitForReady` running out of time), `AbortError` (an `AbortSignal` fired) and `ProcessingFailedError` have `statusCode` 0.
 
 ```js
 export function describeError(err) {
   if (err instanceof AuthenticationError) {
-    // 401 is a missing or bad key, 403 a key without the scope this call needs
-    return err.statusCode === 403
-      ? `This API key lacks the scope for that call: ${err.message}`
-      : `The API key was rejected: ${err.message}`;
+    return `The API key was rejected: ${err.message}`;
+  }
+  if (err instanceof PermissionError) {
+    return `This API key lacks the scope for that call: ${err.message}`;
   }
   if (err instanceof NotFoundError) {
     return `Not found: ${err.message}`;
+  }
+  if (err instanceof ValidationError) {
+    return `The request was refused: ${err.message}`;
+  }
+  if (err instanceof ConflictError) {
+    // for example playing an asset that is not ready yet
+    return `Not possible right now: ${err.message}`;
   }
   if (err instanceof RateLimitError) {
     return `Rate limited, retry in ${err.retryAfter ?? '?'} seconds.`;
   }
   if (err instanceof SlubyError) {
-    // TimeoutError lands here too, with statusCode 0
+    // timeouts, aborts and failed processing carry statusCode 0
     return err.statusCode ? `API error ${err.statusCode}: ${err.message}` : err.message;
   }
   return err instanceof Error ? err.message : String(err);
 }
 ```
 
-Upload failures are tus-js-client errors (plain `Error`s) that reject the upload handle, and its `assetId` too when the asset was never created.
+Upload failures reject the upload handle, and its `assetId` too when the asset was never created, with the `SlubyError` class for the HTTP status the server answered, and tus-js-client's own error as `cause`. `abort()` rejects the handle with an `AbortError`.
 
 ## Upload from a server
 
 A server is the right place for a key with the `upload` scope. The same SDK runs in Node.js 20.16 or newer on the 20 line, or 22.3 or newer (its `engines` range):
 
 ```js
-import { readFile } from 'node:fs/promises';
+import { openAsBlob } from 'node:fs';
 import { basename } from 'node:path';
 import { SlubyClient } from '@sluby/sdk';
 
@@ -289,8 +296,9 @@ const client = new SlubyClient({
   baseUrl: process.env.SLUBY_BASE_URL ?? 'http://localhost:8080',
 });
 
-// in node the sdk uploads a Buffer, so the whole file is read into memory
-const file = await readFile(path);
+// a blob backed by the file: the sdk reads it one chunk at a time, so a large
+// file is never held in memory whole
+const file = await openAsBlob(path);
 const upload = client.uploads.upload(file, {
   title: title ?? basename(path),
   accessTier: 'public',
@@ -317,13 +325,13 @@ Run it from `examples/vanilla`:
 SLUBY_BASE_URL=http://localhost:8080 SLUBY_API_KEY=sluby_... node server/upload.mjs ./video.mp4 "My video"
 ```
 
-In Node, `uploads.upload` takes a `Buffer`. tus-js-client's Node build accepts only a `Buffer` or a readable stream, and the SDK's signature is `File | Blob | Buffer`, so a file is read into memory in full before it is sent. Keep that in mind for very large files. A `Buffer` has no file name, so the upload's `filename` metadata is `video`; the asset's `title` is what you pass.
+In Node, `uploads.upload` takes a `Blob` or a `Uint8Array` (a `Buffer` is one). `fs.openAsBlob` gives a `Blob` backed by the file, which the SDK reads one chunk at a time, so even a very large file is never held in memory whole; a `Uint8Array` is already in memory. Neither has a file name, so the upload's `filename` metadata is `video`; the asset's `title` is what you pass.
 
 Waiting for the asset and reading its playback URL need the `read` scope as well, so this script uses a key with `upload` and `read` (the default for a new key).
 
 ## Mint signed URLs on your server
 
-Playback needs no key in the browser, so the only thing a page cannot do alone is get a signed URL for a private asset. The example's `server/playback-server.mjs` holds a `read` key, answers `GET /api/v1/playback/:id/signed` for the assets it allows, and passes Sluby's answer through:
+Playback needs no key in the browser, so the only thing a page cannot do alone is get a signed URL for a private asset. The example's `server/signing-server.mjs` holds a `read` key, answers `GET /api/v1/playback/:id/signed` for the assets it allows, and passes Sluby's answer through:
 
 ```js
 // GET /api/v1/playback/:id/signed, what client.playback.getSignedUrl calls
@@ -381,7 +389,7 @@ createServer(async (req, res) => {
 ```sh
 SLUBY_BASE_URL=http://localhost:8080 SLUBY_API_KEY=sluby_... \
 PLAYABLE_ASSET_IDS=<asset id> APP_ORIGINS=http://localhost:5181 \
-  node server/playback-server.mjs
+  node server/signing-server.mjs
 ```
 
 The browser then builds its client with no key, the base URL pointing at that server and the delivery URL at Sluby, because the signed URL that comes back is a URL on the gateway:
@@ -398,7 +406,7 @@ new SlubyClient({
 
 The server can also call `getSignedUrl(id)` while rendering the page and put the URL in it, for `playAsset`'s `src`.
 
-## Manage keys, webhooks and playback IDs
+## Manage keys, webhooks and playback ids
 
 The client also wraps the account's management endpoints. Run these on your server with a key that has the scope each needs (`manage`, except where noted):
 
@@ -421,7 +429,7 @@ const outcome = await client.webhookEndpoints.test(endpoint.id);
 const attempts = await client.webhookEndpoints.deliveries(endpoint.id, { limit: 20 });
 await client.webhookEndpoints.delete(endpoint.id);
 
-// playback IDs (listing needs read)
+// playback ids (listing needs read)
 const pb = await client.playbackIds.create(assetId, { policy: 'signed', name: 'embed' });
 const ids = await client.playbackIds.list(assetId);
 await client.playbackIds.delete(pb.playbackId);
@@ -430,7 +438,7 @@ await client.playbackIds.delete(pb.playbackId);
 const stats = await client.assets.stats();
 ```
 
-`keys.rotate` on a key that was already rotated rejects with a `ConflictError`; rotate its replacement. An ID from another account rejects with a `NotFoundError`, the same as one that does not exist.
+`keys.rotate` on a key that was already rotated rejects with a `ConflictError`; rotate its replacement. An id from another account rejects with a `NotFoundError`, the same as one that does not exist.
 
 ## Run the example
 
@@ -443,4 +451,4 @@ cp .env.example .env   # optional: defaults for the form fields
 npm run dev
 ```
 
-Open [http://localhost:5181](http://localhost:5181), enter the API base URL and a key, upload a video, and press **Play** when it is ready. Playing needs no key: with the key field empty, **Play** works for a public asset, and for a private one with a signed URL in the playback URL field. `npm run upload -- ./video.mp4` and `npm run playback-server` run the two server scripts, with the environment variables shown above.
+Open [http://localhost:5181](http://localhost:5181), enter the API base URL and a key, upload a video, and press **Play** when it is ready. Playing needs no key: with the key field empty, **Play** works for a public asset, and for a private one with a signed URL in the playback URL field. `npm run upload -- ./video.mp4` and `npm run signing-server` run the two server scripts, with the environment variables shown above.

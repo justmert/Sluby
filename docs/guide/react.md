@@ -1,6 +1,6 @@
 # React
 
-This guide builds a React app that uploads a video to Sluby, waits for it to be processed and stored on Sia, and plays it with `<SlubyPlayer>`. Every snippet comes from the runnable example in [`examples/quickstart`](https://github.com/justmert/Sluby/tree/main/examples/quickstart), which CI builds and typechecks against the current packages.
+This guide builds a React app that uploads a video to Sluby, waits for it to be processed and stored on Sia, and plays it with `<SlubyPlayer>`. The snippets come from the runnable example in [`examples/quickstart`](https://github.com/justmert/Sluby/tree/main/examples/quickstart), which CI builds and typechecks against the current packages, except the keyless client and the two private-video players near the end, which show calls the example makes through form fields instead.
 
 You need a running Sluby stack (see the [quickstart](./quickstart)) and an API key from **Settings → API keys** in the Studio.
 
@@ -13,7 +13,7 @@ npm install @sluby/sdk @sluby/player
 `@sluby/player` needs React 18 or 19 and brings hls.js with it.
 
 ::: warning Package versions
-This guide needs a release of `@sluby/sdk` and `@sluby/player` newer than 0.1.0. Version 0.1.0 on npm predates direct-from-Sia playback, `assets.processing`, and the player's quality and delivery callbacks. Until a newer version is published, the example apps use the packages built from this repository (`npm install`, `npm run build:sdk` and `npm run build:player` at the repository root).
+This guide needs `@sluby/sdk` and `@sluby/player` 0.2.0. Version 0.1.0 predates direct-from-Sia playback, `assets.processing`, the typed errors, and the player's quality and delivery callbacks. If `npm view @sluby/sdk version` still prints 0.1.0, 0.2.0 is not on npm yet: build the packages from this repository instead (`npm install`, `npm run build:sdk` and `npm run build:player` at the repository root), as the example apps do.
 :::
 
 ## Where API keys may live
@@ -80,7 +80,7 @@ await upload;
 
 `onProgress` also receives the byte counts as its second and third arguments. Files go up in 10 MiB chunks by default (`chunkSize`), and failed chunks are retried after 0, 1, 3 and 5 seconds (`retryDelays`).
 
-The handle can pause and resume the upload. `abort()` stops it for good and discards the partial upload.
+The handle can pause and resume the upload. `abort()` stops it for good, discards the partial upload and rejects the handle with an `AbortError`. Once the upload has finished, `pause()` and `abort()` do nothing, so the asset is kept. `uploadId` resolves to the id `uploads.getStatus()` and `uploads.cancel()` take.
 
 ```tsx
 function togglePause() {
@@ -116,16 +116,16 @@ try {
     timeout: 30 * 60_000,
   });
 } catch (err) {
-  // waitForReady throws a plain Error when processing failed; the
-  // processing job carries the reason
+  if (!(err instanceof ProcessingFailedError)) throw err;
+  // the processing job says why it failed
   const job = await client.assets.processing(videoAssetId).catch(() => null);
-  throw job?.errorMessage ? new Error(`Processing failed: ${job.errorMessage}`) : err;
+  throw new Error(`Processing failed: ${job?.errorMessage ?? 'no reason was recorded'}`);
 } finally {
   clearInterval(stagePoll);
 }
 ```
 
-- `waitForReady` polls every 5 seconds and gives up after 10 minutes unless you pass `pollInterval` and `timeout`. On timeout it throws a `TimeoutError`. When the asset fails, it throws a plain `Error`, and `assets.processing(id).errorMessage` has the reason.
+- `waitForReady` polls every 5 seconds and gives up after 10 minutes unless you pass `pollInterval` and `timeout`. On timeout it throws a `TimeoutError`. When the asset fails, it throws a `ProcessingFailedError` carrying the failed `asset`, and `assets.processing(id).errorMessage` has the reason. Pass `signal` to stop waiting, for example when the component unmounts.
 - `assets.processing(id)` returns the pipeline `stage` (`queued`, `transcode`, `upload`, `finalize`, `completed` or `failed`), an overall `progressPercent` and the worker's log lines.
 - Storing on Sia takes minutes even for a short clip, because each upload sends whole erasure-coded slabs (see [how long it takes](./quickstart#how-long-it-takes)). The example allows 30 minutes.
 
@@ -196,7 +196,7 @@ On the native HLS path the browser picks the rendition itself, so the list stays
 
 ## Direct-from-Sia playback
 
-By default the bytes come through the gateway: the backend fetches them from Sia, and nginx in front of it caches whole objects such as manifests. With a viewer identity, the browser downloads them from Sia hosts itself and the backend leaves the byte path.
+By default the bytes come through the gateway: the backend fetches them from Sia for each request, and nginx in front of it keeps small whole objects such as manifests and thumbnails for at most a minute; media segments are byte ranges and are never cached. With a viewer identity, the browser downloads them from Sia hosts itself and the backend leaves the byte path.
 
 The viewer identity is a separate Sia app key with no access to your uploads. Provision one once per deployment:
 
@@ -250,7 +250,12 @@ Your server decides who may watch what, so a private asset's signed URL only rea
 Upload with `accessTier: 'private'` and the gateway refuses to serve the asset's objects without a valid signature (`403 This object requires a valid signed URL`). Play it from a signed URL, either one your server handed the page or one the client mints with `signed` (which needs a key):
 
 ```tsx
+// a signed url your server minted and handed to the page
 <SlubyPlayer src={signedUrl} client={client} assetId={id} />
+```
+
+```tsx
+// or let the client mint one, which needs a key with the read scope
 <SlubyPlayer client={client} assetId={id} signed expiresIn={3600} />
 ```
 
@@ -262,37 +267,49 @@ Upload with `accessTier: 'private'` and the gateway refuses to serve the asset's
 
 Every REST call throws a typed error. All of them extend `SlubyError`, which has the HTTP `statusCode` and the raw `responseBody`:
 
-| Error                 | When                                                                                   |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| `AuthenticationError` | 401 (missing, invalid, deactivated or expired key) or 403 (the key lacks the scope).   |
-| `NotFoundError`       | 404, including an asset that belongs to another account.                               |
-| `RateLimitError`      | 429. `retryAfter` has the seconds from the `Retry-After` header when the API sent one. |
-| `TimeoutError`        | `waitForReady` ran out of time. `statusCode` is 0.                                     |
-| `SlubyError`          | Anything else, such as 409 when you ask for playback of an asset that is not ready.    |
+| Error                   | When                                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| `AuthenticationError`   | 401: a missing, invalid, deactivated or expired key, or an ended session.                |
+| `PermissionError`       | 403: the key lacks the scope the call needs.                                             |
+| `NotFoundError`         | 404 or 410, including an asset that belongs to another account.                          |
+| `ValidationError`       | 400 or 422: the request was refused as invalid. The message names the problem.           |
+| `ConflictError`         | 409, such as asking for playback of an asset that is not ready, or rotating a key twice. |
+| `RateLimitError`        | 429. `retryAfter` has the seconds from the `Retry-After` header when the API sent one.   |
+| `TimeoutError`          | A request ran past `timeoutMs`, or `waitForReady` ran out of time. `statusCode` is 0.    |
+| `AbortError`            | An `AbortSignal` you passed fired, or `abort()` stopped an upload. `statusCode` is 0.    |
+| `ProcessingFailedError` | `waitForReady` saw the asset fail. `asset` is the failed asset, `statusCode` is 0.       |
+| `SlubyError`            | Anything else, such as a 5xx.                                                            |
 
 ```ts
 export function describeError(err: unknown): string {
   if (err instanceof AuthenticationError) {
-    // 401 is a missing or bad key, 403 a key without the scope this call needs
-    return err.statusCode === 403
-      ? `This API key lacks the scope for that call: ${err.message}`
-      : `The API key was rejected: ${err.message}`;
+    return `The API key was rejected: ${err.message}`;
+  }
+  if (err instanceof PermissionError) {
+    return `This API key lacks the scope for that call: ${err.message}`;
   }
   if (err instanceof NotFoundError) {
     return `Not found: ${err.message}`;
+  }
+  if (err instanceof ValidationError) {
+    return `The request was refused: ${err.message}`;
+  }
+  if (err instanceof ConflictError) {
+    // for example playing an asset that is not ready yet
+    return `Not possible right now: ${err.message}`;
   }
   if (err instanceof RateLimitError) {
     return `Rate limited, retry in ${err.retryAfter ?? '?'} seconds.`;
   }
   if (err instanceof SlubyError) {
-    // TimeoutError lands here too, with statusCode 0
+    // timeouts, aborts and failed processing carry statusCode 0
     return err.statusCode ? `API error ${err.statusCode}: ${err.message}` : err.message;
   }
   return err instanceof Error ? err.message : String(err);
 }
 ```
 
-Upload errors come from tus-js-client and are plain `Error`s: the handle's promise rejects with them, and so does `assetId` when the upload fails before the asset exists. The player reports playback failures through `onError` once its retries are used up.
+An upload that fails rejects the handle, and `assetId` too when it fails before the asset exists, with the `SlubyError` class for the HTTP status the server answered and tus-js-client's error as `cause`. The player reports playback failures through `onError` once its retries are used up.
 
 ## Run the example
 
