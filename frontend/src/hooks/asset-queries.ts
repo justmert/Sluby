@@ -69,6 +69,19 @@ export function anySettled(before: VideoAsset[] | undefined, after: VideoAsset[]
   return after.some((a) => was.has(a.id) && !isInFlight(a));
 }
 
+// ids with a delete on its way, counted so two overlapping deletes of one id
+// keep it hidden until both settle. a poll that lands mid-delete can still
+// carry these rows (the server has not dropped them yet); lists filter them
+// out until the delete settles, so a removed card never comes back and leaves
+// again
+const pendingDeletes = new Map<string, number>();
+
+/** A page of assets without the rows whose delete is still on its way. */
+export function withoutPendingDeletes(page: PaginatedResponse<VideoAsset>) {
+  if (pendingDeletes.size === 0) return page;
+  return mapPage(page, (rows) => rows.filter((a) => !pendingDeletes.has(a.id)));
+}
+
 /** One page of the library, polling while anything on it is still processing. */
 export function useAssetList(options: ListAssetsOptions) {
   useUploadChanges();
@@ -83,7 +96,7 @@ export function useAssetList(options: ListAssetsOptions) {
       if (anySettled(before?.data, page.data)) {
         void queryClient.invalidateQueries({ queryKey: ['stats'] });
       }
-      return page;
+      return withoutPendingDeletes(page);
     },
     placeholderData: keepPreviousData,
     refetchInterval: (query) =>
@@ -232,6 +245,29 @@ export function useDeleteAssets() {
       );
     },
     onMutate: async (ids) => {
+      // before the first await, so no poll can slip in between
+      for (const id of ids) pendingDeletes.set(id, (pendingDeletes.get(id) ?? 0) + 1);
+      // lists whose query function is not ours (the dashboard's latest
+      // uploads) get the same filter as their answers land in the cache
+      const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+        if (event.type !== 'updated' || event.action.type !== 'success') return;
+        const { queryKey, state } = event.query;
+        if (queryKey[0] !== 'assets' || !LIST_KINDS.has(queryKey[1] as string)) return;
+        const keep = (rows: VideoAsset[]) => rows.filter((a) => !pendingDeletes.has(a.id));
+        const data = state.data;
+        // only write when something goes, so the write does not trigger itself
+        if (isPage(data) && data.data.some((a) => pendingDeletes.has(a.id))) {
+          queryClient.setQueryData(queryKey, mapPage(data, keep));
+        } else if (
+          isPages(data) &&
+          data.pages.some((p) => isPage(p) && p.data.some((a) => pendingDeletes.has(a.id)))
+        ) {
+          queryClient.setQueryData(queryKey, {
+            ...data,
+            pages: data.pages.map((p) => (isPage(p) ? mapPage(p, keep) : p)),
+          });
+        }
+      });
       // a list fetch already on its way would answer with the rows still there
       await queryClient.cancelQueries({
         queryKey: ['assets'],
@@ -240,9 +276,15 @@ export function useDeleteAssets() {
       const lists = snapshotLists(queryClient);
       const removing = new Set(ids);
       mapCachedLists(queryClient, (rows) => rows.filter((a) => !removing.has(a.id)));
-      return { lists };
+      return { lists, unsubscribe };
     },
     onSettled: (failures, err, ids, context) => {
+      for (const id of ids) {
+        const n = (pendingDeletes.get(id) ?? 1) - 1;
+        if (n > 0) pendingDeletes.set(id, n);
+        else pendingDeletes.delete(id);
+      }
+      context?.unsubscribe();
       // a thrown mutation failed every id; otherwise only the listed ones
       const failed = new Set(err ? ids : (failures ?? []).map((f) => f.id));
       const gone = new Set(ids.filter((id) => !failed.has(id)));

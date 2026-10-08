@@ -20,7 +20,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
-import { useAssetById, useUploadChanges } from '@/hooks/asset-queries';
+import { useAssetById, useUploadChanges, withoutPendingDeletes } from '@/hooks/asset-queries';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatDuration } from '@/lib/formatters';
 import { usePrefersReducedMotion } from '@/lib/motion';
@@ -34,13 +34,15 @@ function usePlayableAssets(search: string) {
   useUploadChanges();
   return useInfiniteQuery({
     queryKey: ['assets', 'playable', search],
-    queryFn: ({ pageParam }) =>
-      sluby.assets.list({
-        status: 'ready',
-        limit: PAGE_SIZE,
-        search: search || undefined,
-        cursor: pageParam,
-      }),
+    queryFn: async ({ pageParam }) =>
+      withoutPendingDeletes(
+        await sluby.assets.list({
+          status: 'ready',
+          limit: PAGE_SIZE,
+          search: search || undefined,
+          cursor: pageParam,
+        }),
+      ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
