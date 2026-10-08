@@ -11,7 +11,7 @@ const API_PREFIX = '/api/v1';
  * the sdk client alike. Every studio call is a small json request; uploads go
  * through tus, which has its own retries and no such limit.
  */
-export const REQUEST_TIMEOUT_MS = 20_000;
+export const REQUEST_TIMEOUT_MS = 15_000;
 
 export class ApiError extends Error {
   constructor(

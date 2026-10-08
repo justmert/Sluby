@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { CircleAlert, RotateCcw, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PageState } from '@/components/layout/PageState';
 import { reloadPage } from '@/lib/navigation';
@@ -56,8 +56,22 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
-    if (isChunkLoadError(error)) reloadForNewBuild();
+    if (!isChunkLoadError(error)) return;
+    // offline, the chunk is missing because the network is, not because of a
+    // new build; reloading now would swap the studio for the browser's
+    // offline page. wait for the connection and try the page again then.
+    if (!navigator.onLine) {
+      window.addEventListener('online', this.retryOnline, { once: true });
+      return;
+    }
+    reloadForNewBuild();
   }
+
+  componentWillUnmount(): void {
+    window.removeEventListener('online', this.retryOnline);
+  }
+
+  private retryOnline = () => reloadPage();
 
   componentDidUpdate(prev: ErrorBoundaryProps): void {
     if (this.state.error && prev.resetKey !== this.props.resetKey) {
@@ -69,9 +83,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     const { error } = this.state;
     if (!error) return this.props.children;
     const chunk = isChunkLoadError(error);
+    if (chunk && !navigator.onLine) {
+      return (
+        <PageState
+          icon={WifiOff}
+          title="You are offline"
+          description="This page loads when the connection is back."
+          detail={error.message}
+        />
+      );
+    }
     return (
       <PageState
-        icon={AlertTriangle}
+        icon={CircleAlert}
         tone="error"
         title={chunk ? 'This page could not be loaded' : 'Something went wrong'}
         description={

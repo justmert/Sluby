@@ -61,6 +61,16 @@ describe('ErrorBoundary', () => {
     expect(reloadPage).not.toHaveBeenCalled();
   });
 
+  it('waits for the connection instead of reloading when a chunk fails offline', async () => {
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    renderAt('/analytics');
+    expect(await screen.findByText('You are offline')).toBeInTheDocument();
+    expect(reloadPage).not.toHaveBeenCalled();
+    online.mockReturnValue(true);
+    window.dispatchEvent(new Event('online'));
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+  });
+
   it('reloads once for a chunk that a redeploy removed, then shows the error', async () => {
     renderAt('/analytics');
     expect(await screen.findByText('This page could not be loaded')).toBeInTheDocument();

@@ -47,6 +47,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
         bottom: 'calc(16px + env(safe-area-inset-bottom))',
         left: 'calc(16px + env(safe-area-inset-left))',
       }}
+      // long enough to read a sentence; every toast also has a close button
+      duration={8000}
       toastOptions={{
         classNames: {
           toast: 'cn-toast',

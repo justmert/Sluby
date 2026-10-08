@@ -111,7 +111,7 @@ const KNOWN: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
 ];
 
 const OFFLINE = 'Could not reach the server. Check your connection and try again.';
-const TIMEOUT = 'The server took too long to answer. Try again in a moment.';
+const TIMEOUT = 'The server did not answer in time. Try again in a moment.';
 const SIGNED_OUT = 'Your session ended. Sign in again to continue.';
 const FORBIDDEN = 'You do not have access to this. Ask an operator if you need it.';
 const GONE = 'It no longer exists. It may have been deleted.';

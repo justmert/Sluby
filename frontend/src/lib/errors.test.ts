@@ -34,8 +34,8 @@ describe('errorText', () => {
   });
 
   it('says the server was too slow on a timeout, from either client', () => {
-    expect(errorText(new RequestTimeoutError(20_000))).toMatch(/took too long/);
-    expect(errorText(new TimeoutError('Request timed out'))).toMatch(/took too long/);
+    expect(errorText(new RequestTimeoutError(15_000))).toMatch(/did not answer in time/);
+    expect(errorText(new TimeoutError('Request timed out'))).toMatch(/did not answer in time/);
   });
 
   it('asks to wait as long as a 429 said', () => {
