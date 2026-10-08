@@ -821,7 +821,11 @@ export default function AssetsPage() {
             <Button variant="ghost" size="sm" onClick={() => select(new Set())}>
               Clear
             </Button>
-            <Button variant="destructive" size="sm" onClick={() => setPendingDelete([...selected])}>
+            <Button
+              variant="destructive-outline"
+              size="sm"
+              onClick={() => setPendingDelete([...selected])}
+            >
               <Trash2 />
               Delete selected
             </Button>

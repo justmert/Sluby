@@ -20,7 +20,7 @@ export function renderPage(ui: ReactElement, { route = '/' }: { route?: string }
       <ThemeProvider>
         <MotionProvider features={domMax}>
           <QueryClientProvider client={client}>
-            <TooltipProvider>
+            <TooltipProvider delayDuration={0}>
               <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
               <Toaster />
             </TooltipProvider>

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Film, KeyRound, Search, Upload, Webhook, type LucideIcon } from 'lucide-react';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
+import { Kbd } from '@/components/ui/kbd';
 import { Button } from '@/components/ui/button';
 import {
   Command,
@@ -203,7 +204,7 @@ function PaletteBody({ close }: { close: () => void }) {
       <CommandInput
         value={term}
         onValueChange={setTerm}
-        placeholder="Search videos, pages and actions..."
+        placeholder="Search videos, pages and actions…"
       />
       <CommandList className="max-h-[min(24rem,60svh)]">
         <CommandEmpty>Nothing matches “{term.trim()}”.</CommandEmpty>
@@ -268,10 +269,8 @@ export function CommandPalette() {
         className="size-8 justify-start gap-2 p-0 text-muted-foreground max-md:justify-center md:w-44 md:px-2.5 xl:w-60"
       >
         <Search />
-        <span className="hidden flex-1 text-left font-normal md:inline">Search...</span>
-        <kbd className="pointer-events-none hidden h-5 items-center rounded border bg-muted px-1.5 font-mono text-[0.7rem] md:inline-flex">
-          {mac ? '⌘K' : 'Ctrl K'}
-        </kbd>
+        <span className="hidden flex-1 text-left font-normal md:inline">Search…</span>
+        <Kbd className="hidden md:inline-flex">{mac ? '⌘K' : 'Ctrl K'}</Kbd>
       </Button>
       <CommandDialog
         open={open}

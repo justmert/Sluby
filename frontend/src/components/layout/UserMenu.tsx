@@ -68,7 +68,7 @@ export function UserMenu() {
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={signingOut} onSelect={() => void signOut()}>
               <LogOut />
-              {signingOut ? 'Signing out...' : 'Sign out'}
+              {signingOut ? 'Signing out…' : 'Sign out'}
             </DropdownMenuItem>
           </>
         )}

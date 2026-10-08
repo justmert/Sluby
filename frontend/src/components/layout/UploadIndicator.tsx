@@ -111,7 +111,7 @@ function IndicatorLink({ lead, count }: { lead: UploadState; count: number }) {
           </span>
           {count > 1 && (
             <span
-              className="rounded-full bg-muted px-1.5 text-[0.7rem] text-foreground tabular-nums"
+              className="rounded-full bg-muted px-1.5 text-xs text-foreground tabular-nums"
               aria-hidden="true"
             >
               {count}

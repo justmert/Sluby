@@ -59,10 +59,10 @@ describe('AppShell', () => {
   it('gives focus back to the menu button when the phone sidebar closes', async () => {
     viewport(390);
     renderShell();
-    const toggle = screen.getByRole('button', { name: 'Toggle Sidebar' });
+    const toggle = screen.getByRole('button', { name: 'Show or hide sidebar' });
     toggle.focus();
     await userEvent.keyboard('{Enter}');
-    const sheet = await screen.findByRole('dialog', { name: 'Sidebar' });
+    const sheet = await screen.findByRole('dialog', { name: 'Navigation' });
     expect(within(sheet).getByRole('link', { name: 'Assets' })).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -90,7 +90,7 @@ describe('AppShell', () => {
     viewport(1024);
     const { container } = renderShell();
     await userEvent.click(
-      within(screen.getByRole('banner')).getByRole('button', { name: 'Toggle Sidebar' }),
+      within(screen.getByRole('banner')).getByRole('button', { name: 'Show or hide sidebar' }),
     );
     expect(container.querySelector('[data-slot="sidebar"]')).toHaveAttribute(
       'data-state',
