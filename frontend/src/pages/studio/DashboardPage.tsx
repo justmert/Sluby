@@ -121,7 +121,23 @@ function ProbeRow({ label, probe }: { label: string; probe: Probe }) {
         </span>
       }
     >
-      <span className="text-muted-foreground tabular-nums">{detail}</span>
+      {probe.ok || !probe.error ? (
+        <span className="text-muted-foreground tabular-nums">{detail}</span>
+      ) : (
+        // probe errors can be a long raw tls or socket message with no spaces;
+        // two lines here, the whole text on hover or focus
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              className="line-clamp-2 rounded-sm text-left text-destructive outline-none [overflow-wrap:anywhere] focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              {detail}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-80 [overflow-wrap:anywhere]">{detail}</TooltipContent>
+        </Tooltip>
+      )}
     </Row>
   );
 }

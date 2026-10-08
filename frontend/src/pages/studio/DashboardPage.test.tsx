@@ -401,4 +401,20 @@ describe('DashboardPage', () => {
     expect(card.querySelectorAll('[data-slot="card-content"] .py-2\\.5')).toHaveLength(2);
     localStorage.removeItem('sluby-dashboard-latest-rows');
   });
+
+  it('keeps a long probe error to two lines with the full text on focus', async () => {
+    const tls =
+      'request to https://sia.storage/api/v2/account failed, reason: unable_to_verify_leaf_signature:certificate_chain_could_not_be_built_for_sia.storage';
+    routes['GET /api/v1/system/status'] = () =>
+      json({
+        ...deploymentStatus,
+        indexer: { ...deploymentStatus.indexer, ok: false, error: tls },
+      });
+    routes['GET /api/v1/reconciliation'] = () => json(deploymentRun);
+    render(true);
+    const shown = await screen.findByText(tls, { selector: 'span[tabindex="0"]' });
+    expect(shown).toHaveClass('line-clamp-2', '[overflow-wrap:anywhere]');
+    act(() => shown.focus());
+    await waitFor(() => expect(screen.getAllByText(tls).length).toBeGreaterThan(1));
+  });
 });
