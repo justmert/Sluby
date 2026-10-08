@@ -40,7 +40,8 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <NavLink to={ROUTES.STUDIO_DASHBOARD} onClick={closeMobile}>
-                <Logo />
+                {/* the menu button sizes every svg inside it to 16px; the mark keeps its 32 */}
+                <Logo className="size-8!" />
                 <div className="grid flex-1 text-left leading-tight">
                   <span className="truncate font-heading font-semibold">Sluby</span>
                   <span className="truncate text-xs text-muted-foreground">Studio</span>
