@@ -85,6 +85,34 @@ npm run docs:build
 
 Run Prettier and ESLint from the repository root so they pick up the shared config.
 
+## Running the tests
+
+`npm test --workspaces --if-present` runs every unit suite. Some backend tests need services, and skip with a message naming what is missing when they are not there:
+
+- **PostgreSQL** for the query, migration and contract tests: point `SLUBY_TEST_DATABASE_URL` at a server where the user may create databases. Each test file creates, migrates and drops its own database.
+- **Redis** for the queue, schedule and prune-gate tests: point `SLUBY_TEST_REDIS_URL` at a server. Each test uses its own key prefix and cleans up after itself.
+- **FFmpeg and ffprobe** on `PATH` for `ffmpeg.integration.test.ts`. Its HDR cases also need the `zscale` filter (FFmpeg built with zimg); Debian and Ubuntu packages have it, Homebrew's does not, so on a Mac run that file in a container, for example `node:24-trixie-slim` with `apt-get install ffmpeg`.
+- **Docker** for `nginx-delivery.integration.test.ts`, which runs the shipped nginx config in a container in front of the real backend.
+
+```sh
+docker run -d --name sluby-test-pg -e POSTGRES_PASSWORD=sluby-test -p 55432:5432 postgres:18-alpine
+docker run -d --name sluby-test-redis -p 56379:6379 redis:8-alpine
+
+SLUBY_TEST_DATABASE_URL=postgres://postgres:sluby-test@localhost:55432/postgres \
+SLUBY_TEST_REDIS_URL=redis://localhost:56379 \
+  npm test --workspace=backend
+```
+
+With `CI=true` nothing is skipped: a missing service fails the run instead, as in CI.
+
+The SDK and player also have browser suites, which run in real Chromium, Firefox and WebKit through Playwright. Install the browsers once, then run them:
+
+```sh
+npx playwright install chromium firefox webkit
+npm run test:browser --workspace=@sluby/sdk
+npm run test:browser --workspace=@sluby/player
+```
+
 ## Writing code
 
 - TypeScript in strict mode everywhere. Type public function signatures explicitly and avoid `any`.
@@ -105,15 +133,20 @@ Run Prettier and ESLint from the repository root so they pick up the shared conf
 
 `@sluby/sdk` and `@sluby/player` are published to npm by `.github/workflows/release.yml` when a tag is pushed. npm authenticates the workflow through [trusted publishing](https://docs.npmjs.com/trusted-publishers), so there is no npm token in the repository, and every release gets a provenance attestation.
 
-One-time setup, per package, on npmjs.com under the package's settings: add a trusted publisher for GitHub Actions with the repository owner `justmert`, repository `Sluby` and workflow filename `release.yml`.
+One-time setup:
+
+- in the repository settings, create an environment named `npm` with required reviewers, so a maintainer approves every publish
+- per package, on npmjs.com under the package's settings: add a trusted publisher for GitHub Actions with the repository owner `justmert`, repository `Sluby`, workflow filename `release.yml` and environment `npm`
+- a tag ruleset that limits who may push `sdk-v*` and `player-v*` tags
 
 To release a package:
 
 1. Bump `version` in its `package.json` and move the `Unreleased` notes in its `CHANGELOG.md` under that version.
-2. Run `npm run check:packages`. It packs both packages the way `npm publish` does and checks the tarballs with attw and publint.
-3. Merge, then tag the merge commit and push the tag: `sdk-v<version>` for the SDK, `player-v<version>` for the player.
+2. Run `npm run check:packages`. It packs both packages the way `npm publish` does, checks the tarballs with attw and publint, renders the player on the server and type-checks a strict consumer project.
+3. Merge to `main`, then tag the merge commit and push the tag: `sdk-v<version>` for the SDK, `player-v<version>` for the player.
+4. Approve the run in the `npm` environment, then check the release with `npm view @sluby/sdk@<version> dist.attestations`.
 
-The workflow refuses to publish when the tag does not match the version in `package.json`.
+`scripts/release-check.sh` refuses to publish a tag that is not of that form, whose commit is not on `main`, or that does not match the version in `package.json`. A prerelease version (such as `0.3.0-rc.1`) is published under the `next` dist-tag.
 
 ## License
 
