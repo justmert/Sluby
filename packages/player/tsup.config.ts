@@ -4,7 +4,9 @@ export default defineConfig({
   // `hls` is the react-free entry for plain hls.js apps
   entry: { index: 'src/index.ts', hls: 'src/hls.ts' },
   format: ['esm', 'cjs'],
-  dts: true,
+  // tsup always passes baseUrl to its declaration build, which typescript 6
+  // deprecates; tsup is no longer maintained, so it will not change that
+  dts: { compilerOptions: { ignoreDeprecations: '6.0' } },
   sourcemap: true,
   clean: true,
   treeshake: true,
