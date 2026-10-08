@@ -1,10 +1,42 @@
 /// <reference types="vitest/config" />
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+
+// preloads the latin body and heading fonts, which every page renders above
+// the fold, so they arrive with the css instead of after it. the file names
+// are hashed, so they come from the bundle; the mono font stays lazy.
+function preloadFonts(names: RegExp[]): Plugin {
+  let base = '/';
+  return {
+    name: 'sluby-preload-fonts',
+    apply: 'build',
+    configResolved(config) {
+      base = config.base;
+    },
+    transformIndexHtml: {
+      order: 'post',
+      handler(_html, ctx) {
+        return Object.keys(ctx.bundle ?? {})
+          .filter((file) => names.some((name) => name.test(file)))
+          .map((file) => ({
+            tag: 'link',
+            attrs: {
+              rel: 'preload',
+              as: 'font',
+              type: 'font/woff2',
+              href: base + file,
+              crossorigin: '',
+            },
+            injectTo: 'head' as const,
+          }));
+      },
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
   // the studio talks to the api on its own origin; in dev, vite proxies to it
@@ -15,7 +47,14 @@ export default defineConfig(({ mode }) => {
   const proxy = { target, changeOrigin: false, xfwd: true };
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      preloadFonts([
+        /dm-sans-latin-wght-normal-[^/]*\.woff2$/,
+        /sora-latin-wght-normal-[^/]*\.woff2$/,
+      ]),
+    ],
     resolve: {
       alias: {
         '@': here('./src'),
