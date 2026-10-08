@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { AuthGate } from '@/components/AuthGate';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { MotionProvider } from '@/components/motion/MotionProvider';
 import { App } from '@/App';
 import { queryClient } from '@/lib/query-client';
 import './index.css';
@@ -16,16 +17,18 @@ if (!root) throw new Error('Root element not found');
 createRoot(root).render(
   <StrictMode>
     <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <AuthGate>
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
-          </AuthGate>
-          <Toaster richColors />
-        </TooltipProvider>
-      </QueryClientProvider>
+      <MotionProvider>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <AuthGate>
+              <BrowserRouter>
+                <App />
+              </BrowserRouter>
+            </AuthGate>
+            <Toaster richColors />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </MotionProvider>
     </ThemeProvider>
   </StrictMode>,
 );
