@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '@/test/render';
@@ -138,6 +138,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+// a counting number is drawn twice, once aria-hidden for the eye and once
+// for assistive tech; queries read the second
+const readable = { ignore: '[aria-hidden="true"], script, style' };
+
 function render(operator = false) {
   return renderPage(
     <WithSession operator={operator}>
@@ -149,10 +153,10 @@ function render(operator = false) {
 describe('DashboardPage', () => {
   it('shows library totals whose parts add up, created uploads included', async () => {
     render();
-    expect(await screen.findByText('9')).toBeInTheDocument();
+    expect(await screen.findByText('9', readable)).toBeInTheDocument();
     expect(screen.getByText('4 ready, 4 in progress, 1 failed')).toBeInTheDocument();
-    expect(screen.getByText('5 MB')).toBeInTheDocument();
-    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText('5 MB', readable)).toBeInTheDocument();
+    expect(screen.getByText('42', readable)).toBeInTheDocument();
   });
 
   it('gives an account a health summary and the drift of its own objects only', async () => {
@@ -193,9 +197,9 @@ describe('DashboardPage', () => {
     routes['GET /api/v1/reconciliation'] = () => json(deploymentRun);
     render(true);
 
-    expect(await screen.findByText('1 GB')).toBeInTheDocument();
+    expect(await screen.findByText('1 GB', readable)).toBeInTheDocument();
     expect(screen.getByText('of 50 GB')).toBeInTheDocument();
-    expect(screen.getByText('75%')).toBeInTheDocument();
+    expect(screen.getByText('75%', readable)).toBeInTheDocument();
     expect(screen.getByText('indexer account is not ready yet')).toBeInTheDocument();
     expect(screen.getByText('v0.1.0, up 1:00:00')).toBeInTheDocument();
 
@@ -235,5 +239,154 @@ describe('DashboardPage', () => {
     render();
     const link = await screen.findByRole('link', { name: /Big Buck Bunny/ });
     expect(link).toHaveAttribute('href', '/studio/assets/a1');
+  });
+
+  it('draws stat values with StatValue: a 32px skeleton line that the number replaces', async () => {
+    let answer: (r: Response) => void = () => {};
+    routes['GET /api/v1/stats'] = () => new Promise<Response>((r) => (answer = r)) as never;
+    render();
+    const cards = () => [...document.querySelectorAll('[data-slot="card"][data-size="sm"]')];
+    await waitFor(() => expect(cards()).toHaveLength(4));
+    for (const card of cards()) {
+      expect(card.querySelector('[data-slot="stat-value"]')).toHaveClass('h-8');
+    }
+    // a hint that waits on the totals keeps its line while loading
+    const assetsCard = cards()[0] as HTMLElement;
+    expect(
+      assetsCard.querySelector('[data-slot="card-content"] [data-slot="skeleton"]'),
+    ).not.toBeNull();
+
+    await act(async () => answer(json(stats)));
+    const value = await screen.findByText('9', readable);
+    expect(value.parentElement).toHaveClass('text-2xl', 'leading-8', 'tabular-nums');
+    expect(document.querySelector('[data-slot="stat-value"]')).toBeNull();
+  });
+
+  it('lays the operator cards out by the width of the content, not the viewport', async () => {
+    routes['GET /api/v1/system/status'] = () => json(deploymentStatus);
+    routes['GET /api/v1/reconciliation'] = () => json(deploymentRun);
+    render(true);
+    const section = await screen.findByRole('region', { name: 'Deployment' });
+    expect(section.closest('.\\@container\\/dash')).not.toBeNull();
+    const grid = section.querySelector('.grid') as HTMLElement;
+    // one column until the container has room for two 336px cards
+    expect(grid.className).toMatch(/@2xl\/dash:grid-cols-2/);
+    expect(grid.className).not.toMatch(/(^|\s)(md|lg|xl):grid-cols/);
+    // a long value moves under its label as a whole instead of wrapping per letter
+    const label = await screen.findByText('Objects compared');
+    expect(label.parentElement).toHaveClass('flex-wrap');
+    expect(label).not.toHaveClass('shrink-0');
+  });
+
+  it('keeps the status card at its final size while the status loads', async () => {
+    routes['GET /api/v1/system/status'] = () => new Promise<Response>(() => {}) as never;
+    render();
+    const card = (await screen.findByText('Service status')).closest(
+      '[data-slot="card"]',
+    ) as HTMLElement;
+    // three probes, then network, hosts, your objects and backend: one placeholder per row
+    expect(card.querySelectorAll('.h-5.justify-between')).toHaveLength(7);
+    expect(card.querySelector('.h-40')).toBeNull();
+  });
+
+  it('asks for fresh totals as soon as a latest upload settles', async () => {
+    const processing = { ...assets.data[0], status: 'processing', total_storage_bytes: 0 };
+    routes['GET /api/v1/assets'] = () => json({ ...assets, data: [processing] });
+    routes['GET /api/v1/assets/a1/processing'] = () =>
+      json({
+        id: 'j1',
+        status: 'processing',
+        stage: 'upload',
+        progress_percent: 65,
+        created_at: new Date().toISOString(),
+      });
+    const { client } = render();
+    await screen.findByRole('link', { name: /Big Buck Bunny/ });
+    const statsCalls = () =>
+      fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/api/v1/stats')).length;
+    await waitFor(() => expect(statsCalls()).toBe(1));
+
+    routes['GET /api/v1/assets'] = () => json(assets);
+    await act(() => client.refetchQueries({ queryKey: ['assets', 'latest'] }));
+    await waitFor(() => expect(statsCalls()).toBe(2));
+  });
+
+  it('shows where a processing upload is and how far along', async () => {
+    const processing = { ...assets.data[0], status: 'processing', total_storage_bytes: 0 };
+    routes['GET /api/v1/assets'] = () => json({ ...assets, data: [processing] });
+    routes['GET /api/v1/assets/a1/processing'] = () =>
+      json({
+        id: 'j1',
+        status: 'processing',
+        stage: 'upload',
+        progress_percent: 65,
+        created_at: new Date().toISOString(),
+      });
+    render();
+    expect(await screen.findByText(/Storing on Sia, 65%/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('progressbar', { name: 'Big Buck Bunny: processing progress' }),
+    ).toHaveAttribute('aria-valuenow', '65');
+  });
+
+  it('polls the totals faster while uploads are still moving', async () => {
+    const { client } = render();
+    await screen.findByText('9', readable);
+    const query = client.getQueryCache().find({ queryKey: ['stats'] })!;
+    // the interval is an observer option, set by the page's useQuery
+    const interval = query.observers[0].options.refetchInterval as (q: typeof query) => number;
+    expect(interval(query)).toBe(5_000);
+    query.setData({ ...stats, by_status: { ...stats.by_status, uploading: 0, processing: 0 } });
+    expect(interval(query)).toBe(15_000);
+  });
+
+  it('gives the latest upload rows the same focus ring as buttons', async () => {
+    render();
+    const link = await screen.findByRole('link', { name: /Big Buck Bunny/ });
+    expect(link).toHaveClass('focus-visible:ring-3', 'focus-visible:ring-ring/50', 'outline-none');
+  });
+
+  it('offers a retry on a failed upload row', async () => {
+    const failedAsset = { ...assets.data[0], status: 'failed' };
+    routes['GET /api/v1/assets'] = () => json({ ...assets, data: [failedAsset] });
+    routes['POST /api/v1/assets/a1/retry'] = () => json({ stage: 'transcode' }, 202);
+    render();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Retry processing Big Buck Bunny' }),
+    );
+    expect(
+      await screen.findByText('Big Buck Bunny: processing restarted from the transcode'),
+    ).toBeInTheDocument();
+  });
+
+  it('lets the totals be retried after they fail', async () => {
+    routes['GET /api/v1/stats'] = () => json({ error: 'Internal Server Error' }, 500);
+    render();
+    expect(await screen.findByText('Could not load library totals')).toBeInTheDocument();
+    routes['GET /api/v1/stats'] = () => json(stats);
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('9', readable)).toBeInTheDocument();
+    expect(screen.queryByText('Could not load library totals')).not.toBeInTheDocument();
+  });
+
+  it('says when the totals last updated', async () => {
+    render();
+    await screen.findByText('9', readable);
+    expect(screen.getByText(/Totals updated just now/)).toBeInTheDocument();
+  });
+
+  it('explains drift that is only untracked objects', async () => {
+    routes['GET /api/v1/system/status'] = () => json(deploymentStatus);
+    routes['GET /api/v1/reconciliation'] = () =>
+      json({ ...deploymentRun, missing_count: 0, missing_ids: [], orphan_count: 16 });
+    render(true);
+    const run = (await screen.findByText('Reconciliation')).closest(
+      '[data-slot="card"]',
+    ) as HTMLElement;
+    const badge = await within(run).findByText('Drift');
+    badge.focus();
+    expect(
+      (await screen.findAllByText(/Nothing is missing\. The indexer holds 16 objects/))[0],
+    ).toBeInTheDocument();
   });
 });
