@@ -1,0 +1,252 @@
+import { useEffect, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Film, KeyRound, Search, Upload, Webhook, type LucideIcon } from 'lucide-react';
+import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
+import { Button } from '@/components/ui/button';
+import {
+  Command,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from '@/components/ui/command';
+import { Spinner } from '@/components/ui/spinner';
+import { useDebounce } from '@/hooks/useDebounce';
+import { ROUTES, STUDIO_NAV } from '@/lib/constants';
+import { formatDuration } from '@/lib/formatters';
+import { useSession } from '@/lib/session';
+import { sluby } from '@/lib/sluby';
+import { THEME_OPTIONS, useTheme } from '@/lib/theme';
+
+const isMac = () => /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
+
+interface Entry {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  /** Other words people may type for it. */
+  keywords?: string;
+  run: () => void;
+  checked?: boolean;
+}
+
+const matches = (term: string, e: Entry) =>
+  `${e.label} ${e.keywords ?? ''}`.toLowerCase().includes(term.toLowerCase());
+
+function EntryItem({ entry }: { entry: Entry }) {
+  const Icon = entry.icon;
+  return (
+    <CommandItem value={entry.id} onSelect={entry.run} data-checked={entry.checked}>
+      <Icon className="text-muted-foreground" />
+      {entry.label}
+    </CommandItem>
+  );
+}
+
+function Videos({ term, open }: { term: string; open: (path: string) => void }) {
+  const search = useDebounce(term.trim(), 200);
+  const videos = useQuery({
+    queryKey: ['assets', 'palette', search],
+    queryFn: ({ signal }) => sluby.assets.list({ search: search || undefined, limit: 5, signal }),
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+  });
+  const heading = search ? 'Videos' : 'Recent videos';
+  const typing = term.trim() !== search || (videos.isFetching && videos.isPlaceholderData);
+
+  let status: ReactNode = null;
+  if (videos.isError) {
+    status = `Could not search videos: ${videos.error.message}`;
+  } else if (videos.isPending || (typing && !videos.data?.data.length)) {
+    status = (
+      <>
+        <Spinner aria-hidden="true" className="size-3.5" /> Searching videos...
+      </>
+    );
+  }
+
+  const list = videos.data?.data ?? [];
+  if (!status && list.length === 0) return null;
+
+  return (
+    <CommandGroup heading={heading}>
+      {status && (
+        <div
+          role="status"
+          className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground"
+        >
+          {status}
+        </div>
+      )}
+      {list.map((asset) => (
+        <CommandItem
+          key={asset.id}
+          value={`asset-${asset.id}`}
+          onSelect={() => open(`${ROUTES.STUDIO_ASSETS}/${asset.id}`)}
+          className={typing ? 'opacity-60' : undefined}
+        >
+          <Film className="text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">{asset.title || 'Untitled'}</span>
+          {asset.durationMs ? (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {formatDuration(asset.durationMs)}
+            </span>
+          ) : null}
+          <AssetStatusBadge status={asset.status} />
+        </CommandItem>
+      ))}
+    </CommandGroup>
+  );
+}
+
+function PaletteBody({ close }: { close: () => void }) {
+  const [term, setTerm] = useState('');
+  const navigate = useNavigate();
+  const { operator } = useSession();
+  const { theme, setTheme } = useTheme();
+
+  const open = (path: string) => {
+    close();
+    void navigate(path);
+  };
+
+  const pages: Entry[] = STUDIO_NAV.filter((item) => operator || !item.operatorOnly).map(
+    (item) => ({
+      id: `page-${item.path}`,
+      label: item.label,
+      icon: item.icon,
+      keywords: 'go to page open',
+      run: () => open(item.path),
+    }),
+  );
+  const actions: Entry[] = [
+    {
+      id: 'action-upload',
+      label: 'Upload a video',
+      icon: Upload,
+      keywords: 'new add file',
+      run: () => open(ROUTES.STUDIO_UPLOAD),
+    },
+    {
+      id: 'action-keys',
+      label: 'Manage API keys',
+      icon: KeyRound,
+      keywords: 'create rotate revoke token settings',
+      run: () => open(ROUTES.STUDIO_SETTINGS),
+    },
+    {
+      id: 'action-webhooks',
+      label: 'Manage webhooks',
+      icon: Webhook,
+      keywords: 'add events developer',
+      run: () => open(ROUTES.STUDIO_DEVELOPER),
+    },
+    ...THEME_OPTIONS.map(({ value, label, icon }) => ({
+      id: `theme-${value}`,
+      label: `Use ${label.toLowerCase()} theme`,
+      icon,
+      keywords: 'appearance mode color',
+      checked: theme === value,
+      run: () => {
+        setTheme(value);
+        close();
+      },
+    })),
+  ];
+
+  const shownPages = pages.filter((e) => matches(term, e));
+  const shownActions = actions.filter((e) => matches(term, e));
+
+  return (
+    // filtering is done here: video results come from the server, which also
+    // matches descriptions and ids that cmdk's own filter would drop
+    <Command shouldFilter={false} loop label="Search videos, pages and actions">
+      <CommandInput
+        value={term}
+        onValueChange={setTerm}
+        placeholder="Search videos, pages and actions..."
+      />
+      <CommandList className="max-h-[min(24rem,60svh)]">
+        <CommandEmpty>Nothing matches “{term.trim()}”.</CommandEmpty>
+        {shownPages.length > 0 && (
+          <CommandGroup heading="Pages">
+            {shownPages.map((e) => (
+              <EntryItem key={e.id} entry={e} />
+            ))}
+          </CommandGroup>
+        )}
+        <Videos term={term} open={open} />
+        {shownActions.length > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Actions">
+              {shownActions.map((e) => (
+                <EntryItem key={e.id} entry={e} />
+              ))}
+            </CommandGroup>
+          </>
+        )}
+      </CommandList>
+      <div
+        aria-hidden="true"
+        className="hidden items-center gap-3 border-t px-3 py-2 text-xs text-muted-foreground sm:flex"
+      >
+        <span>↑↓ to move</span>
+        <span>Enter to open</span>
+        <span>Esc to close</span>
+      </div>
+    </Command>
+  );
+}
+
+/**
+ * Cmd+K (Ctrl+K elsewhere) or the top bar button: jump to a page, find a
+ * video by title, description or id, or run a common action.
+ */
+export function CommandPalette() {
+  const [open, setOpen] = useState(false);
+  const [mac] = useState(isMac);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        setOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        aria-label="Search and commands"
+        aria-keyshortcuts={mac ? 'Meta+K' : 'Control+K'}
+        className="size-8 justify-start gap-2 p-0 text-muted-foreground max-md:justify-center md:w-44 md:px-2.5 xl:w-60"
+      >
+        <Search />
+        <span className="hidden flex-1 text-left font-normal md:inline">Search...</span>
+        <kbd className="pointer-events-none hidden h-5 items-center rounded border bg-muted px-1.5 font-mono text-[0.7rem] md:inline-flex">
+          {mac ? '⌘K' : 'Ctrl K'}
+        </kbd>
+      </Button>
+      <CommandDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Search and commands"
+        description="Jump to a page, find a video or run an action"
+        className="sm:max-w-xl"
+      >
+        <PaletteBody close={() => setOpen(false)} />
+      </CommandDialog>
+    </>
+  );
+}
