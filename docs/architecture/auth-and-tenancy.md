@@ -76,7 +76,7 @@ From then on a login entry admits only the pinned account: through its renames (
 
 Sign-in decides with GitHub's answer; every later request decides on the account's stable id and its pins only, so editing the list takes effect on the next request. The one case that waits for a sign-in is a login entry nobody has pinned yet: it admits its account from that account's next sign-in.
 
-An empty list leaves sign-up open, as older versions did, and the backend logs a warning at startup; `*` says the same thing on purpose, without the warning. An open Studio gives anyone with a GitHub account storage and transcoding on your Sia account, with no quota, so open sign-up needs limits of its own (a reverse proxy rate limit, a watched Sia allowance).
+An empty list leaves sign-up open in the backend, as older versions did, and the backend logs a warning at startup; `*` says the same thing on purpose, without the warning. The production override (`docker-compose.prod.yml`) refuses to start without `GITHUB_ALLOWED_USERS`, so a production Studio is open only when the operator writes `*`. An open Studio gives anyone with a GitHub account storage and transcoding on your Sia account, with no quota, so open sign-up needs limits of its own (a reverse proxy rate limit, a watched Sia allowance).
 
 Keys of a login-keyed owner from before the upgrade (`github:<login>`, not claimed yet) are judged by that login: they work while the list is open, or lists the login and nobody is pinned to it yet.
 
