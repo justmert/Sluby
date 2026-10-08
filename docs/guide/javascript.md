@@ -120,6 +120,17 @@ try {
 ## Play with hls.js
 
 ```js
+/**
+ * Pick an asset's playback url and start it on a <video> element.
+ *
+ * @param {HTMLVideoElement} video
+ * @param {import('@sluby/sdk').SlubyClient} client
+ * @param {string} assetId asset id or pb_ playback id
+ * @param {{ src?: string, signed?: boolean, onFatalError?: (message: string) => void }} [options]
+ *   `src` plays a url you already have, such as a signed url your server
+ *   minted; `signed` has the client mint one, which needs an api key
+ * @returns {Promise<Playback>}
+ */
 export async function playAsset(video, client, assetId, options = {}) {
   // a public asset plays from its stream url, built without a request or a
   // key. a private one only plays from a signed url; the gateway signs every
@@ -413,7 +424,9 @@ The client also wraps the account's management endpoints. Run these on your serv
 ```js
 // API keys: one page at a time, newest first
 const page = await client.keys.list({ limit: 50 });
-const next = page.hasMore ? await client.keys.list({ limit: 50, cursor: page.nextCursor }) : null;
+const next = page.nextCursor
+  ? await client.keys.list({ limit: 50, cursor: page.nextCursor })
+  : null;
 const created = await client.keys.create({ name: 'ci', scopes: ['upload', 'read'] });
 // created.key is the secret, returned only here
 const rotated = await client.keys.rotate(created.id, { gracePeriodSeconds: 3600 });
