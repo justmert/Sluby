@@ -10,6 +10,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import { Logo } from '@/components/brand/Logo';
 import { STUDIO_NAV, ROUTES } from '@/lib/constants';
@@ -25,6 +26,10 @@ export function AppSidebar() {
   const { pathname } = useLocation();
   const { operator } = useSession();
   const items = STUDIO_NAV.filter((item) => operator || !item.operatorOnly);
+  // on mobile the sidebar is a sheet over the page; picking a page should
+  // close it rather than leave it covering what was just opened
+  const { setOpenMobile } = useSidebar();
+  const closeMobile = () => setOpenMobile(false);
 
   return (
     <Sidebar collapsible="icon">
@@ -32,7 +37,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <NavLink to={ROUTES.STUDIO_DASHBOARD}>
+              <NavLink to={ROUTES.STUDIO_DASHBOARD} onClick={closeMobile}>
                 <Logo />
                 <div className="grid flex-1 text-left leading-tight">
                   <span className="truncate font-heading font-semibold">Sluby</span>
@@ -55,7 +60,7 @@ export function AppSidebar() {
                     isActive={isActive(pathname, item.path)}
                     tooltip={item.label}
                   >
-                    <NavLink to={item.path}>
+                    <NavLink to={item.path} onClick={closeMobile}>
                       <item.icon />
                       <span>{item.label}</span>
                     </NavLink>
