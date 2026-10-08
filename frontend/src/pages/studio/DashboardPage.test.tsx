@@ -267,10 +267,10 @@ describe('DashboardPage', () => {
     routes['GET /api/v1/reconciliation'] = () => json(deploymentRun);
     render(true);
     const section = await screen.findByRole('region', { name: 'Deployment' });
-    expect(section.closest('.\\@container\\/dash')).not.toBeNull();
+    expect(section.closest('.\\@container\\/page')).not.toBeNull();
     const grid = section.querySelector('.grid') as HTMLElement;
     // one column until the container has room for two 336px cards
-    expect(grid.className).toMatch(/@2xl\/dash:grid-cols-2/);
+    expect(grid.className).toMatch(/@2xl\/page:grid-cols-2/);
     expect(grid.className).not.toMatch(/(^|\s)(md|lg|xl):grid-cols/);
     // a long value moves under its label as a whole instead of wrapping per letter
     const label = await screen.findByText('Objects compared');
@@ -416,5 +416,28 @@ describe('DashboardPage', () => {
     expect(shown).toHaveClass('line-clamp-2', '[overflow-wrap:anywhere]');
     act(() => shown.focus());
     await waitFor(() => expect(screen.getAllByText(tls).length).toBeGreaterThan(1));
+  });
+
+  it('never asks the gateway for a private upload thumbnail', async () => {
+    const privateAsset = {
+      ...assets.data[0],
+      access_tier: 'private',
+      thumbnail_object_ids: ['t1'],
+    };
+    const publicAsset = {
+      ...assets.data[0],
+      id: 'a2',
+      title: 'Open clip',
+      thumbnail_object_ids: ['t2'],
+    };
+    routes['GET /api/v1/assets'] = () => json({ ...assets, data: [privateAsset, publicAsset] });
+    const { container } = render();
+    const row = await screen.findByRole('link', { name: /Big Buck Bunny/ });
+    expect(within(row).getByRole('img', { name: 'Private video, no preview' })).toBeInTheDocument();
+    expect(row.querySelector('img')).toBeNull();
+    // the public row still loads its thumbnail
+    const srcs = [...container.querySelectorAll('img')].map((i) => i.getAttribute('src'));
+    expect(srcs.some((src) => src?.includes('t2'))).toBe(true);
+    expect(srcs.some((src) => src?.includes('t1'))).toBe(false);
   });
 });

@@ -2,28 +2,26 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from 'recharts';
 import type { VideoAssetStatus } from '@sluby/sdk';
-import {
-  AlertTriangle,
-  type LucideIcon,
-  Activity,
-  BarChart3,
-  Clock,
-  Cpu,
-  Film,
-  Gauge,
-  Lock,
-  Play,
-  RotateCcw,
-  Upload,
-} from 'lucide-react';
+import { AlertTriangle, type LucideIcon, BarChart3, Film, RotateCcw, Upload } from 'lucide-react';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
-import { lateSkeleton } from '@/components/dashboard/live';
-import { StatCard } from '@/components/dashboard/StatCard';
+import {
+  ChartCard,
+  ChartLoading,
+  OperatorsOnlyAlert,
+  ServerStats,
+} from '@/components/dashboard/analytics-parts';
+import {
+  ANALYTICS,
+  LIBRARY_CHART,
+  LIBRARY_COPY,
+  RESPONSES_COPY,
+  SERVER_CHART,
+  THROUGHPUT_COPY,
+} from '@/components/dashboard/dashboard-layout';
 import { UpdatedAgo } from '@/components/dashboard/UpdatedAgo';
-import { AnimatedItem, AnimatedList, FadeSwap } from '@/components/motion';
+import { FadeSwap } from '@/components/motion';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   ChartContainer,
   ChartTooltip,
@@ -38,20 +36,15 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { usePlatformMetrics, type RatePoint } from '@/hooks/usePlatformMetrics';
 import { useAssetStats, type AssetStats } from '@/hooks/useStats';
 import { statusOf } from '@/lib/api-client';
-import { formatBytes, formatDuration } from '@/lib/formatters';
+import { formatBytes } from '@/lib/formatters';
 import { usePrefersReducedMotion } from '@/lib/motion';
 import type { MetricsSnapshot } from '@/lib/metrics';
 import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
-
-const seconds = (s: number) => `${s < 10 ? s.toFixed(1) : Math.round(s)} s`;
-const percent = (n: number) => `${Math.round(n)}%`;
-const plural = (n: number, one: string) => `${n.toLocaleString()} ${one}${n === 1 ? '' : 's'}`;
 
 // 24-hour clock with seconds: samples are 10 s apart, and it stays short on a phone
 const clock = (t: number) =>
@@ -100,10 +93,6 @@ const STATUS_BARS: { status: VideoAssetStatus; label: string; color: string }[] 
   { status: 'failed', label: 'Failed', color: 'var(--destructive)' },
 ];
 
-// chart boxes keep these heights in every state, so nothing below moves
-const SERVER_CHART = 'h-56';
-const LIBRARY_CHART = 'h-48';
-
 function ChartBox({ className, children }: { className: string; children?: React.ReactNode }) {
   return <div className={cn('grid w-full place-items-center', className)}>{children}</div>;
 }
@@ -127,101 +116,6 @@ function ChartEmpty({
         {children}
       </EmptyHeader>
     </Empty>
-  );
-}
-
-function ServerStats({ m, stagger }: { m?: MetricsSnapshot; stagger: boolean }) {
-  const responses = m ? Object.values(m.delivery.requests).reduce((a, b) => a + b, 0) : 0;
-  const stats: (React.ComponentProps<typeof StatCard> & { key: string })[] = [
-    {
-      key: 'uploads',
-      longHint: true,
-      icon: Upload,
-      label: 'Uploads',
-      value: m?.uploads.succeeded,
-      hint: m ? `${m.uploads.failed} failed, ${formatBytes(m.uploads.bytes)} received` : null,
-    },
-    {
-      key: 'processing',
-      longHint: true,
-      icon: Cpu,
-      label: 'Processing',
-      value: m && m.processing.avgSeconds,
-      format: seconds,
-      hint: m
-        ? `average over ${plural(m.processing.completed, 'job')}, ${
-            m.processing.queueDepth === null
-              ? 'queue depth unknown while Redis is down'
-              : `${m.processing.queueDepth} in queue`
-          }`
-        : null,
-    },
-    {
-      key: 'sia',
-      longHint: true,
-      icon: Clock,
-      label: 'Sia upload',
-      value: m && m.sia.avgSeconds,
-      format: seconds,
-      hint: m ? `average over ${plural(m.sia.uploads, 'packed upload')}` : null,
-    },
-    {
-      key: 'playback',
-      longHint: true,
-      icon: Play,
-      label: 'Playback URLs',
-      value: m && m.playback.public + m.playback.signed + m.playback.sia,
-      hint: m ? `${m.playback.sia} direct from Sia, ${m.playback.signed} signed` : null,
-    },
-    {
-      key: 'served',
-      icon: Activity,
-      label: 'Served by gateway',
-      value: m?.delivery.bytes,
-      format: formatBytes,
-      hint: m ? plural(responses, 'response') : null,
-    },
-    {
-      key: 'cache',
-      icon: Gauge,
-      label: 'Cache hit ratio',
-      value: m && (m.delivery.cacheHitRatio === null ? null : m.delivery.cacheHitRatio * 100),
-      format: percent,
-      hint: m && m.delivery.cacheHitRatio === null ? 'no cache lookups yet' : undefined,
-    },
-    {
-      key: 'uptime',
-      icon: Clock,
-      label: 'Uptime',
-      // both times come from the server, so the browser clock cannot skew it
-      value: m && (m.process.startedAt ? m.takenAt - m.process.startedAt : null),
-      format: formatDuration,
-    },
-    {
-      key: 'memory',
-      icon: Cpu,
-      label: 'Memory',
-      value: m && (m.process.residentBytes || null),
-      format: formatBytes,
-      hint: m
-        ? m.process.heapUsedBytes
-          ? `${formatBytes(m.process.heapUsedBytes)} heap`
-          : undefined
-        : null,
-    },
-  ];
-  return (
-    <AnimatedList
-      as="div"
-      initial={stagger ? 'hidden' : false}
-      className="grid grid-cols-2 gap-4 @3xl/analytics:grid-cols-4"
-    >
-      {stats.map(({ key, ...stat }) => (
-        <AnimatedItem as="div" key={key} layout={false}>
-          <StatCard {...stat} />
-        </AnimatedItem>
-      ))}
-    </AnimatedList>
   );
 }
 
@@ -328,38 +222,17 @@ function ResponsesChart({ m }: { m: MetricsSnapshot }) {
 
 function ServerCharts({ m, rates }: { m?: MetricsSnapshot; rates: RatePoint[] }) {
   return (
-    <div className="mt-4 grid gap-4 @3xl/analytics:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle>Gateway throughput</CardTitle>
-          <CardDescription>Sampled every 10 seconds while this page is open</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FadeSwap swapKey={m ? 'ready' : 'loading'}>
-            {m ? (
-              <ThroughputChart rates={rates} />
-            ) : (
-              <Skeleton className={cn(SERVER_CHART, 'w-full', lateSkeleton)} />
-            )}
-          </FadeSwap>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Gateway responses</CardTitle>
-          <CardDescription>By object kind, since the backend started</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FadeSwap swapKey={m ? 'ready' : 'loading'}>
-            {m ? (
-              <ResponsesChart m={m} />
-            ) : (
-              <Skeleton className={cn(SERVER_CHART, 'w-full', lateSkeleton)} />
-            )}
-          </FadeSwap>
-        </CardContent>
-      </Card>
+    <div className={ANALYTICS.charts}>
+      <ChartCard {...THROUGHPUT_COPY}>
+        <FadeSwap swapKey={m ? 'ready' : 'loading'}>
+          {m ? <ThroughputChart rates={rates} /> : <ChartLoading height={SERVER_CHART} />}
+        </FadeSwap>
+      </ChartCard>
+      <ChartCard {...RESPONSES_COPY}>
+        <FadeSwap swapKey={m ? 'ready' : 'loading'}>
+          {m ? <ResponsesChart m={m} /> : <ChartLoading height={SERVER_CHART} />}
+        </FadeSwap>
+      </ChartCard>
     </div>
   );
 }
@@ -382,16 +255,7 @@ function ServerSection({ operator }: { operator: boolean }) {
   const retry = () => void metrics.refetch();
 
   if (!operator || statusOf(metrics.error) === 403) {
-    return (
-      <Alert className="mb-4">
-        <Lock />
-        <AlertTitle>Server metrics are for operators</AlertTitle>
-        <AlertDescription>
-          They count every account on this server together, so only operators see them. Your own
-          library is below.
-        </AlertDescription>
-      </Alert>
-    );
+    return <OperatorsOnlyAlert />;
   }
   if (!m && metrics.isError) {
     return (
@@ -420,7 +284,7 @@ function ServerSection({ operator }: { operator: boolean }) {
       <ServerStats m={m} stagger={stagger} />
       <ServerCharts m={m} rates={metrics.rates} />
       <UpdatedAgo
-        className="mt-3"
+        className={ANALYTICS.updated}
         updatedAt={metrics.dataUpdatedAt}
         stale={metrics.isError}
         label="Metrics updated"
@@ -486,30 +350,24 @@ function LibraryCard() {
   const stats = useAssetStats();
   const state = stats.data ? 'ready' : stats.isError ? 'error' : 'loading';
   return (
-    <Card className="mt-4">
-      <CardHeader>
-        <CardTitle>Your library</CardTitle>
-        <CardDescription>Assets by status</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <FadeSwap swapKey={state}>
-          {stats.data ? (
-            <LibraryChart stats={stats.data} />
-          ) : stats.isError ? (
-            <ChartBox className={LIBRARY_CHART}>
-              <div role="alert" className="flex flex-col items-center gap-3 text-center text-sm">
-                <p className="text-destructive">
-                  Could not load your library totals: {stats.error.message}
-                </p>
-                <RetryButton onRetry={() => void stats.refetch()} retrying={stats.isFetching} />
-              </div>
-            </ChartBox>
-          ) : (
-            <Skeleton className={cn(LIBRARY_CHART, 'w-full', lateSkeleton)} />
-          )}
-        </FadeSwap>
-      </CardContent>
-    </Card>
+    <ChartCard {...LIBRARY_COPY} className={ANALYTICS.library}>
+      <FadeSwap swapKey={state}>
+        {stats.data ? (
+          <LibraryChart stats={stats.data} />
+        ) : stats.isError ? (
+          <ChartBox className={LIBRARY_CHART}>
+            <div role="alert" className="flex flex-col items-center gap-3 text-center text-sm">
+              <p className="text-destructive">
+                Could not load your library totals: {stats.error.message}
+              </p>
+              <RetryButton onRetry={() => void stats.refetch()} retrying={stats.isFetching} />
+            </div>
+          </ChartBox>
+        ) : (
+          <ChartLoading height={LIBRARY_CHART} />
+        )}
+      </FadeSwap>
+    </ChartCard>
   );
 }
 
@@ -525,10 +383,8 @@ export default function AnalyticsPage() {
             : 'Your library mix'
         }
       />
-      <div className="@container/analytics">
-        <ServerSection operator={operator} />
-        <LibraryCard />
-      </div>
+      <ServerSection operator={operator} />
+      <LibraryCard />
     </PageContainer>
   );
 }

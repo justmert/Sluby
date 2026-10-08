@@ -1,23 +1,37 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import type { RetryStage, VideoAsset } from '@sluby/sdk';
-import {
-  AlertTriangle,
-  Clock,
-  Film,
-  HardDrive,
-  Info,
-  Layers,
-  RefreshCw,
-  RotateCcw,
-  Upload,
-} from 'lucide-react';
+import { AlertTriangle, Film, Info, RefreshCw, RotateCcw, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
 import { AssetThumbnail } from '@/components/asset/AssetThumbnail';
 import { lateSkeleton } from '@/components/dashboard/live';
-import { StatCard } from '@/components/dashboard/StatCard';
+import {
+  CacheLoading,
+  DashCard,
+  LatestCard,
+  LatestLoading,
+  LibraryStats,
+  ReconciliationLoading,
+  RunNowButton,
+  StatusBadgeLoading,
+  StatusLoading,
+  StatusUrlLoading,
+  StorageLoading,
+  BigFigure,
+} from '@/components/dashboard/dashboard-parts';
+import {
+  CACHE_COPY,
+  DASH,
+  DEPLOYMENT_HEADING,
+  LATEST,
+  RECONCILIATION_COPY,
+  STATUS_TENANT_LINE,
+  STORAGE_COPY,
+  rememberRows,
+  rememberedRows,
+} from '@/components/dashboard/dashboard-layout';
 import { UpdatedAgo } from '@/components/dashboard/UpdatedAgo';
 import {
   AnimatedItem,
@@ -29,14 +43,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import {
   Empty,
   EmptyContent,
@@ -57,7 +63,6 @@ import {
   useRunReconciliation,
   useSystemStatus,
   type AccountReconciliation,
-  type AssetStats,
   type DeploymentReconciliation,
   type DeploymentStatus,
   type HostPool,
@@ -68,10 +73,6 @@ import { useLatestAssets } from '@/hooks/useLatestAssets';
 import { formatBytes, formatDuration, formatRelativeTime } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
-
-// the content column is narrower than the viewport by the sidebar, so the
-// grids below follow the width of this container, not media queries
-const CONTAINER = '@container/dash';
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -142,20 +143,6 @@ function ProbeRow({ label, probe }: { label: string; probe: Probe }) {
   );
 }
 
-/** Placeholder rows with the height of real ones, so the card keeps its size. */
-function RowSkeletons({ count, className }: { count: number; className?: string }) {
-  return (
-    <div className={cn('flex flex-col gap-3', className)} aria-hidden="true">
-      {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="flex h-5 items-center justify-between gap-4">
-          <Skeleton className={cn('h-3.5 w-24', lateSkeleton)} />
-          <Skeleton className={cn('h-3.5 w-16', lateSkeleton)} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function CardError({
   what,
   error,
@@ -183,12 +170,6 @@ function CardError({
 function hostsLine(hosts: HostPool | null): string {
   if (!hosts) return 'unknown';
   return `${hosts.good_for_upload} of ${hosts.total} accept uploads, ${hosts.countries} countries`;
-}
-
-/** Library totals by status; `created` uploads count as in progress, so the parts add up. */
-function assetBreakdown(s: AssetStats): string {
-  const inProgress = s.by_status.created + s.by_status.uploading + s.by_status.processing;
-  return `${s.by_status.ready} ready, ${inProgress} in progress, ${s.by_status.failed} failed`;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) =>
@@ -234,128 +215,100 @@ function StatusCard({
   const expectDeployment = !showOwnObjects;
   const state = status ? 'ready' : error ? 'error' : 'loading';
   return (
-    <Card className="h-full">
-      <CardHeader>
-        <CardTitle>Service status</CardTitle>
-        <CardDescription className="break-words">
-          {deployment ? (
-            deployment.indexer.url
-          ) : !status && expectDeployment ? (
-            <Skeleton className={cn('my-0.5 h-4 w-40', lateSkeleton)} />
-          ) : (
-            'The server and the Sia network it stores on'
-          )}
-        </CardDescription>
-        <CardAction>
-          {status ? (
-            <StatusTransition status={status.status}>
-              <Badge variant="outline" className="gap-1.5">
-                <span
-                  className={cn('size-2 rounded-full', STATUS_COPY[status.status].tone)}
-                  aria-hidden="true"
-                />
-                {STATUS_COPY[status.status].label}
-              </Badge>
-            </StatusTransition>
-          ) : (
-            !error && <Skeleton className={cn('h-5 w-24 rounded-full', lateSkeleton)} />
-          )}
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <FadeSwap swapKey={state}>
-          {state === 'error' && error ? (
-            <CardError what="the status" error={error} onRetry={onRetry} retrying={retrying} />
-          ) : !status ? (
-            <div className="flex flex-col gap-3">
-              <RowSkeletons count={3} />
-              <div className="my-1 border-t" />
-              <RowSkeletons count={showOwnObjects ? 4 : 3} />
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <ProbeRow label="Sia indexer" probe={status.indexer} />
-              <ProbeRow label="Database" probe={status.database} />
-              <ProbeRow label="Redis queue" probe={status.redis} />
-              <div className="my-1 border-t" />
-              <Row label="Network">{status.indexer.network}</Row>
-              <Row label="Hosts">{hostsLine(status.indexer.hosts)}</Row>
-              {showOwnObjects && <OwnObjectsRow />}
-              <Row label="Backend">
-                v{status.version}
-                {deployment && `, up ${formatDuration(deployment.uptime_seconds * 1000)}`}
-              </Row>
-            </div>
-          )}
-        </FadeSwap>
-      </CardContent>
-    </Card>
-  );
-}
-
-/** The large figure at the top of an operator card, with its line box kept while loading. */
-function BigFigure({ children }: { children?: React.ReactNode }) {
-  return (
-    <span className="block h-9 text-3xl leading-9 font-semibold tabular-nums">
-      {children ?? <Skeleton className={cn('h-9 w-24', lateSkeleton)} />}
-    </span>
+    <DashCard
+      title="Service status"
+      description={
+        deployment ? (
+          deployment.indexer.url
+        ) : !status && expectDeployment ? (
+          <StatusUrlLoading />
+        ) : (
+          STATUS_TENANT_LINE
+        )
+      }
+      action={
+        status ? (
+          <StatusTransition status={status.status}>
+            <Badge variant="outline" className="gap-1.5">
+              <span
+                className={cn('size-2 rounded-full', STATUS_COPY[status.status].tone)}
+                aria-hidden="true"
+              />
+              {STATUS_COPY[status.status].label}
+            </Badge>
+          </StatusTransition>
+        ) : error ? null : (
+          <StatusBadgeLoading />
+        )
+      }
+    >
+      <FadeSwap swapKey={state}>
+        {state === 'error' && error ? (
+          <CardError what="the status" error={error} onRetry={onRetry} retrying={retrying} />
+        ) : !status ? (
+          <StatusLoading ownObjects={showOwnObjects} />
+        ) : (
+          <div className="flex flex-col gap-3">
+            <ProbeRow label="Sia indexer" probe={status.indexer} />
+            <ProbeRow label="Database" probe={status.database} />
+            <ProbeRow label="Redis queue" probe={status.redis} />
+            <div className="my-1 border-t" />
+            <Row label="Network">{status.indexer.network}</Row>
+            <Row label="Hosts">{hostsLine(status.indexer.hosts)}</Row>
+            {showOwnObjects && <OwnObjectsRow />}
+            <Row label="Backend">
+              v{status.version}
+              {deployment && `, up ${formatDuration(deployment.uptime_seconds * 1000)}`}
+            </Row>
+          </div>
+        )}
+      </FadeSwap>
+    </DashCard>
   );
 }
 
 function StorageCard({ status, storedBytes }: { status?: DeploymentStatus; storedBytes?: number }) {
   const account = status?.indexer.account;
   return (
-    <Card className="h-full">
-      <CardHeader>
-        <CardTitle>Storage usage</CardTitle>
-        <CardDescription>Data pinned to Sia through the indexer account</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <FadeSwap swapKey={status ? 'ready' : 'loading'}>
-          {!status ? (
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <BigFigure />
-                <Skeleton className={cn('h-1 w-full', lateSkeleton)} />
+    <DashCard {...STORAGE_COPY} contentClassName="flex flex-col gap-4">
+      <FadeSwap swapKey={status ? 'ready' : 'loading'}>
+        {!status ? (
+          <StorageLoading />
+        ) : account ? (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                <BigFigure>
+                  <NumberTicker value={account.pinned_data} format={formatBytes} />
+                </BigFigure>
+                <span className="text-sm text-muted-foreground tabular-nums">
+                  of {formatBytes(account.max_pinned_data)}
+                </span>
               </div>
-              <RowSkeletons count={4} className="gap-4" />
+              <Progress
+                value={ratio(account.pinned_data, account.max_pinned_data)}
+                aria-label="Pinned data against the account limit"
+              />
             </div>
-          ) : account ? (
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-                  <BigFigure>
-                    <NumberTicker value={account.pinned_data} format={formatBytes} />
-                  </BigFigure>
-                  <span className="text-sm text-muted-foreground tabular-nums">
-                    of {formatBytes(account.max_pinned_data)}
-                  </span>
-                </div>
-                <Progress
-                  value={ratio(account.pinned_data, account.max_pinned_data)}
-                  aria-label="Pinned data against the account limit"
-                />
-              </div>
-              <Row label="On hosts, after erasure coding">{formatBytes(account.pinned_size)}</Row>
-              <Row label="Remaining">{formatBytes(account.remaining_storage)}</Row>
-              <Row label="Account">{account.ready ? 'ready' : 'not ready yet'}</Row>
-              <Row label="Your library">
-                {storedBytes === undefined ? '...' : formatBytes(storedBytes)}
-              </Row>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <p className="text-sm text-muted-foreground">
-                Account usage unavailable: {status.indexer.error ?? 'the indexer did not answer'}
-              </p>
-              <Row label="Your library">
-                {storedBytes === undefined ? '...' : formatBytes(storedBytes)}
-              </Row>
-            </div>
-          )}
-        </FadeSwap>
-      </CardContent>
-    </Card>
+            <Row label="On hosts, after erasure coding">{formatBytes(account.pinned_size)}</Row>
+            <Row label="Remaining">{formatBytes(account.remaining_storage)}</Row>
+            <Row label="Account">{account.ready ? 'ready' : 'not ready yet'}</Row>
+            <Row label="Your library">
+              {storedBytes === undefined ? '...' : formatBytes(storedBytes)}
+            </Row>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-muted-foreground">
+              Account usage unavailable: {status.indexer.error ?? 'the indexer did not answer'}
+            </p>
+            <Row label="Your library">
+              {storedBytes === undefined ? '...' : formatBytes(storedBytes)}
+            </Row>
+          </div>
+        )}
+      </FadeSwap>
+    </DashCard>
   );
 }
 
@@ -365,52 +318,43 @@ function CacheCard({ status }: { status?: DeploymentStatus }) {
   const cache = status?.cache;
   const lookups = cache ? cache.hits + cache.misses : 0;
   return (
-    <Card className="h-full">
-      <CardHeader>
-        <CardTitle>Cache statistics</CardTitle>
-        <CardDescription>Delivery gateway cache in this backend process</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <FadeSwap swapKey={cache ? 'ready' : 'loading'}>
-          {!cache ? (
-            <div className="flex flex-col gap-4">
-              <BigFigure />
-              <RowSkeletons count={3} className="gap-4" />
+    <DashCard {...CACHE_COPY}>
+      <FadeSwap swapKey={cache ? 'ready' : 'loading'}>
+        {!cache ? (
+          <CacheLoading />
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-baseline gap-2">
+              <BigFigure>
+                {lookups > 0 ? (
+                  <NumberTicker value={(cache.hits / lookups) * 100} format={percent} />
+                ) : (
+                  'n/a'
+                )}
+              </BigFigure>
+              <span className="text-sm text-muted-foreground">hit ratio</span>
             </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <div className="flex items-baseline gap-2">
-                <BigFigure>
-                  {lookups > 0 ? (
-                    <NumberTicker value={(cache.hits / lookups) * 100} format={percent} />
-                  ) : (
-                    'n/a'
-                  )}
-                </BigFigure>
-                <span className="text-sm text-muted-foreground">hit ratio</span>
-              </div>
-              <Row label="Hits / misses">
-                <span className="tabular-nums">
-                  {cache.hits.toLocaleString()} / {cache.misses.toLocaleString()}
-                </span>
+            <Row label="Hits / misses">
+              <span className="tabular-nums">
+                {cache.hits.toLocaleString()} / {cache.misses.toLocaleString()}
+              </span>
+            </Row>
+            <div className="flex flex-col gap-2">
+              <Row label="Object cache">
+                {formatBytes(cache.object_bytes)} of {formatBytes(cache.object_max_bytes)}
               </Row>
-              <div className="flex flex-col gap-2">
-                <Row label="Object cache">
-                  {formatBytes(cache.object_bytes)} of {formatBytes(cache.object_max_bytes)}
-                </Row>
-                <Progress
-                  value={ratio(cache.object_bytes, cache.object_max_bytes)}
-                  aria-label="Object cache fill"
-                />
-              </div>
-              <Row label="Cached entries">
-                {plural(cache.object_items, 'object')}, {plural(cache.manifest_items, 'manifest')}
-              </Row>
+              <Progress
+                value={ratio(cache.object_bytes, cache.object_max_bytes)}
+                aria-label="Object cache fill"
+              />
             </div>
-          )}
-        </FadeSwap>
-      </CardContent>
-    </Card>
+            <Row label="Cached entries">
+              {plural(cache.object_items, 'object')}, {plural(cache.manifest_items, 'manifest')}
+            </Row>
+          </div>
+        )}
+      </FadeSwap>
+    </DashCard>
   );
 }
 
@@ -467,69 +411,55 @@ function ReconciliationCard() {
 
   const state = run.isPending ? 'loading' : run.isError ? 'error' : r ? 'ready' : 'none';
   return (
-    <Card className="h-full">
-      <CardHeader>
-        <CardTitle>Reconciliation</CardTitle>
-        <CardDescription>The database against the indexer, for every account</CardDescription>
-        <CardAction>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void runNow()}
-            disabled={start.isPending}
-          >
-            {start.isPending ? <Spinner aria-hidden="true" /> : <RefreshCw />}
-            Run now
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <FadeSwap swapKey={state}>
-          {run.isPending ? (
-            <div className="flex flex-col gap-3">
-              <div className="flex h-5 items-center justify-between gap-4">
-                <Skeleton className={cn('h-5 w-16 rounded-full', lateSkeleton)} />
-                <Skeleton className={cn('h-3.5 w-28', lateSkeleton)} />
-              </div>
-              <RowSkeletons count={4} />
+    <DashCard
+      {...RECONCILIATION_COPY}
+      action={
+        <RunNowButton
+          onClick={() => void runNow()}
+          pending={start.isPending}
+          icon={start.isPending ? <Spinner aria-hidden="true" /> : <RefreshCw />}
+        />
+      }
+    >
+      <FadeSwap swapKey={state}>
+        {run.isPending ? (
+          <ReconciliationLoading />
+        ) : run.isError ? (
+          <CardError
+            what="the latest run"
+            error={run.error}
+            onRetry={() => void run.refetch()}
+            retrying={run.isFetching}
+          />
+        ) : !r ? (
+          <p className="text-sm text-muted-foreground">No run has finished yet.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
+              <RunBadge run={r} />
+              <span className="text-muted-foreground">
+                finished {formatRelativeTime(r.finished_at)}
+              </span>
             </div>
-          ) : run.isError ? (
-            <CardError
-              what="the latest run"
-              error={run.error}
-              onRetry={() => void run.refetch()}
-              retrying={run.isFetching}
-            />
-          ) : !r ? (
-            <p className="text-sm text-muted-foreground">No run has finished yet.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
-                <RunBadge run={r} />
-                <span className="text-muted-foreground">
-                  finished {formatRelativeTime(r.finished_at)}
-                </span>
-              </div>
-              {r.status === 'failed' ? (
-                <p className="text-sm break-words text-destructive">
-                  {r.error_message ?? 'The run stopped without a message.'}
-                </p>
-              ) : (
-                <>
-                  <Row label="In sync">{r.in_sync_count.toLocaleString()}</Row>
-                  <Row label="Missing from the indexer">{r.missing_count.toLocaleString()}</Row>
-                  <Row label="On the indexer, not tracked">{r.orphan_count.toLocaleString()}</Row>
-                  <Row label="Objects compared">
-                    {r.db_object_count.toLocaleString()} tracked,{' '}
-                    {r.indexer_object_count.toLocaleString()} on the indexer
-                  </Row>
-                </>
-              )}
-            </div>
-          )}
-        </FadeSwap>
-      </CardContent>
-    </Card>
+            {r.status === 'failed' ? (
+              <p className="text-sm break-words text-destructive">
+                {r.error_message ?? 'The run stopped without a message.'}
+              </p>
+            ) : (
+              <>
+                <Row label="In sync">{r.in_sync_count.toLocaleString()}</Row>
+                <Row label="Missing from the indexer">{r.missing_count.toLocaleString()}</Row>
+                <Row label="On the indexer, not tracked">{r.orphan_count.toLocaleString()}</Row>
+                <Row label="Objects compared">
+                  {r.db_object_count.toLocaleString()} tracked,{' '}
+                  {r.indexer_object_count.toLocaleString()} on the indexer
+                </Row>
+              </>
+            )}
+          </div>
+        )}
+      </FadeSwap>
+    </DashCard>
   );
 }
 
@@ -549,25 +479,15 @@ function OperatorCards({
   const deployment = status?.scope === 'deployment' ? status : undefined;
   return (
     <section aria-label="Deployment" className="mt-4 flex flex-col gap-4">
-      <h2 className="text-sm font-medium text-muted-foreground">Deployment, shown to operators</h2>
-      {/* one column until a card has room for its rows, about 336 px each */}
-      <AnimatedList
-        as="div"
-        initial={stagger ? 'hidden' : false}
-        className="grid gap-4 @2xl/dash:grid-cols-2 @5xl/dash:grid-cols-3"
-      >
+      <h2 className="text-sm font-medium text-muted-foreground">{DEPLOYMENT_HEADING}</h2>
+      <AnimatedList as="div" initial={stagger ? 'hidden' : false} className={DASH.operator}>
         <AnimatedItem as="div" key="storage" layout={false}>
           <StorageCard status={deployment} storedBytes={storedBytes} />
         </AnimatedItem>
         <AnimatedItem as="div" key="cache" layout={false}>
           <CacheCard status={deployment} />
         </AnimatedItem>
-        <AnimatedItem
-          as="div"
-          key="reconciliation"
-          layout={false}
-          className="@2xl/dash:col-span-2 @5xl/dash:col-span-1"
-        >
+        <AnimatedItem as="div" key="reconciliation" layout={false} className={DASH.reconciliation}>
           <ReconciliationCard />
         </AnimatedItem>
       </AnimatedList>
@@ -643,6 +563,7 @@ function UploadRow({ asset }: { asset: VideoAsset }) {
       >
         <AssetThumbnail
           thumbnailObjectIds={asset.thumbnailObjectIds}
+          isPrivate={asset.accessTier === 'private'}
           className="w-16 shrink-0 @md/latest:w-20"
         />
         <div className="min-w-0 flex-1">
@@ -667,22 +588,6 @@ function UploadRow({ asset }: { asset: VideoAsset }) {
   );
 }
 
-const LATEST = 6;
-
-// how many rows the list showed last time, so a reload holds that much room
-// while it loads; per browser, and only a layout hint
-const ROWS_KEY = 'sluby-dashboard-latest-rows';
-
-function rememberedRows(): number | undefined {
-  try {
-    const n = Number(localStorage.getItem(ROWS_KEY));
-    return Number.isInteger(n) && n > 0 && n <= LATEST ? n : undefined;
-  } catch {
-    // storage blocked (private window, site data off): no hint, nothing breaks
-    return undefined;
-  }
-}
-
 function LatestUploads({ expected }: { expected?: number }) {
   const latest = useLatestAssets(LATEST);
   const assets = latest.data?.data ?? [];
@@ -693,12 +598,7 @@ function LatestUploads({ expected }: { expected?: number }) {
     expected !== undefined ? Math.max(1, Math.min(LATEST, expected)) : (remembered ?? 3);
   const shown = latest.data ? Math.min(LATEST, latest.data.data.length) : undefined;
   useEffect(() => {
-    if (!shown) return;
-    try {
-      localStorage.setItem(ROWS_KEY, String(shown));
-    } catch {
-      // see rememberedRows
-    }
+    if (shown) rememberRows(shown);
   }, [shown]);
   const state = latest.isPending
     ? 'loading'
@@ -709,70 +609,50 @@ function LatestUploads({ expected }: { expected?: number }) {
         : 'list';
 
   return (
-    <Card className="@container/latest h-full">
-      <CardHeader>
-        <CardTitle>Latest uploads</CardTitle>
-        <CardAction>
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/studio/assets">View all</Link>
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <FadeSwap swapKey={state}>
-          {state === 'loading' ? (
-            <div className="flex flex-col divide-y" aria-hidden="true">
-              {Array.from({ length: placeholders }, (_, i) => (
-                <div key={i} className="flex items-center gap-3 py-2.5">
-                  <Skeleton className={cn('aspect-video w-16 @md/latest:w-20', lateSkeleton)} />
-                  <div className="flex flex-1 flex-col gap-1.5">
-                    <Skeleton className={cn('h-3.5 w-2/5', lateSkeleton)} />
-                    <Skeleton className={cn('h-3 w-1/4', lateSkeleton)} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : state === 'error' && latest.error ? (
-            <CardError
-              what="assets"
-              error={latest.error}
-              onRetry={() => void latest.refetch()}
-              retrying={latest.isFetching}
-            />
-          ) : state === 'empty' ? (
-            <Empty className="border-0 p-6">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <Film />
-                </EmptyMedia>
-                <EmptyTitle>No videos yet</EmptyTitle>
-                <EmptyDescription>
-                  Upload a video to see it transcoded and pinned to Sia.
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button asChild>
-                  <Link to="/studio/upload">
-                    <Upload />
-                    Upload video
-                  </Link>
-                </Button>
-              </EmptyContent>
-            </Empty>
-          ) : (
-            // rows on screen when the list mounts were crossfaded in already;
-            // later uploads fade in and deleted ones fade out
-            <AnimatedList initial={false} className="flex flex-col divide-y">
-              {assets.map((asset) => (
-                <AnimatedItem key={asset.id}>
-                  <UploadRow asset={asset} />
-                </AnimatedItem>
-              ))}
-            </AnimatedList>
-          )}
-        </FadeSwap>
-      </CardContent>
-    </Card>
+    <LatestCard>
+      <FadeSwap swapKey={state}>
+        {state === 'loading' ? (
+          <LatestLoading count={placeholders} />
+        ) : state === 'error' && latest.error ? (
+          <CardError
+            what="assets"
+            error={latest.error}
+            onRetry={() => void latest.refetch()}
+            retrying={latest.isFetching}
+          />
+        ) : state === 'empty' ? (
+          <Empty className="border-0 p-6">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Film />
+              </EmptyMedia>
+              <EmptyTitle>No videos yet</EmptyTitle>
+              <EmptyDescription>
+                Upload a video to see it transcoded and pinned to Sia.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button asChild>
+                <Link to="/studio/upload">
+                  <Upload />
+                  Upload video
+                </Link>
+              </Button>
+            </EmptyContent>
+          </Empty>
+        ) : (
+          // rows on screen when the list mounts were crossfaded in already;
+          // later uploads fade in and deleted ones fade out
+          <AnimatedList initial={false} className="flex flex-col divide-y">
+            {assets.map((asset) => (
+              <AnimatedItem key={asset.id}>
+                <UploadRow asset={asset} />
+              </AnimatedItem>
+            ))}
+          </AnimatedList>
+        )}
+      </FadeSwap>
+    </LatestCard>
   );
 }
 
@@ -804,7 +684,7 @@ export default function DashboardPage() {
         }
       />
 
-      <div className={CONTAINER}>
+      <div>
         {stats.isError && (
           <Alert variant="destructive" className="mb-6">
             <AlertTriangle />
@@ -829,59 +709,10 @@ export default function DashboardPage() {
           </Alert>
         )}
 
-        <AnimatedList
-          as="div"
-          initial={stagger ? 'hidden' : false}
-          aria-label="Library totals"
-          role="list"
-          className="grid grid-cols-2 gap-4 @3xl/dash:grid-cols-4"
-        >
-          <AnimatedItem as="div" role="listitem" key="assets" layout={false}>
-            <StatCard
-              icon={Film}
-              label="Assets"
-              value={s?.total}
-              failed={failed}
-              hint={s ? assetBreakdown(s) : null}
-              longHint
-            />
-          </AnimatedItem>
-          <AnimatedItem as="div" role="listitem" key="stored" layout={false}>
-            <StatCard
-              icon={HardDrive}
-              label="Stored on Sia"
-              value={s?.stored_bytes}
-              format={formatBytes}
-              failed={failed}
-              hint="Before erasure coding"
-            />
-          </AnimatedItem>
-          <AnimatedItem as="div" role="listitem" key="objects" layout={false}>
-            <StatCard
-              icon={Layers}
-              label="Sia objects"
-              value={s?.object_count}
-              failed={failed}
-              hint="Manifests, playlists, media, thumbnails"
-            />
-          </AnimatedItem>
-          <AnimatedItem as="div" role="listitem" key="playtime" layout={false}>
-            <StatCard
-              icon={Clock}
-              label="Ready playtime"
-              value={s?.ready_duration_ms}
-              format={formatDuration}
-              failed={failed}
-            />
-          </AnimatedItem>
-        </AnimatedList>
+        <LibraryStats s={s} failed={failed} stagger={stagger} />
 
-        <AnimatedList
-          as="div"
-          initial={stagger ? 'hidden' : false}
-          className="mt-4 grid gap-4 @3xl/dash:grid-cols-3"
-        >
-          <AnimatedItem as="div" key="latest" layout={false} className="@3xl/dash:col-span-2">
+        <AnimatedList as="div" initial={stagger ? 'hidden' : false} className={DASH.main}>
+          <AnimatedItem as="div" key="latest" layout={false} className={DASH.latest}>
             <LatestUploads expected={s?.total} />
           </AnimatedItem>
           <AnimatedItem as="div" key="status" layout={false}>
@@ -905,7 +736,7 @@ export default function DashboardPage() {
         )}
 
         <UpdatedAgo
-          className="mt-6"
+          className={DASH.updated}
           updatedAt={stats.dataUpdatedAt}
           stale={stats.isError}
           label="Totals updated"
