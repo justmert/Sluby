@@ -433,4 +433,43 @@ describe('AssetsPage', () => {
     expect(screen.getByText('Big Buck Bunny')).toBeInTheDocument();
     expect(screen.queryByText('Could not load assets')).not.toBeInTheDocument();
   });
+
+  it('keeps bulk deleted cards hidden when a list poll lands mid-delete with them still in it', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const server = jsonFetch({
+      // the server has not processed the deletes yet, so every poll still lists them
+      '/api/v1/assets': () => page([bunny, sintel, failedOne]),
+      'DELETE /api/v1/assets/a1': async () => {
+        await held;
+        return { success: true };
+      },
+      'DELETE /api/v1/assets/f1': async () => {
+        await held;
+        return { success: true };
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { client } = renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Big Buck Bunny' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Broken upload' }));
+    await userEvent.click(screen.getByRole('button', { name: /delete selected/i }));
+    await userEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }),
+    );
+    await waitFor(() => expect(screen.queryByText('Big Buck Bunny')).not.toBeInTheDocument());
+    expect(screen.queryByText('Broken upload')).not.toBeInTheDocument();
+
+    // a stale poll answers while both deletes are still on their way
+    await act(() => client.refetchQueries({ queryKey: ['assets', 'list'] }));
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(screen.queryByText('Big Buck Bunny')).not.toBeInTheDocument();
+    expect(screen.queryByText('Broken upload')).not.toBeInTheDocument();
+    expect(screen.getByText('Sintel')).toBeInTheDocument();
+    expect(screen.getByText('1 video')).toBeInTheDocument();
+
+    release();
+    expect(await screen.findByText('Deleting 2 videos from Sia')).toBeInTheDocument();
+  });
 });
