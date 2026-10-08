@@ -161,9 +161,20 @@ export default function PlayerPage() {
                   </button>
                 </li>
               ))}
-              {list.data && assets.length === 0 && (
-                <li className="text-sm text-muted-foreground">No ready videos match.</li>
-              )}
+              {list.data &&
+                assets.length === 0 &&
+                // the list answers the debounced search, so that decides the wording
+                (debounced ? (
+                  <li className="text-sm text-muted-foreground">No ready videos match.</li>
+                ) : (
+                  <li className="text-sm text-muted-foreground">
+                    No ready videos yet.{' '}
+                    <Link to="/studio/upload" className="underline underline-offset-4">
+                      Upload a video
+                    </Link>{' '}
+                    to play it here once it is transcoded.
+                  </li>
+                ))}
             </ul>
             {list.isError && (
               <p className="text-sm text-destructive">

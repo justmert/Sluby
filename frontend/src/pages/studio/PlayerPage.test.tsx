@@ -92,12 +92,33 @@ describe('PlayerPage', () => {
     expect(mounted).not.toHaveBeenCalled();
   });
 
-  it('keeps the empty message inside the list', async () => {
+  it('says the library has no ready videos yet when nothing was searched', async () => {
     server({
       '/api/v1/assets': { data: [], total: 0, page: 1, limit: 30, next_cursor: null },
     });
     renderPage(<PlayerPage />);
+    const empty = await screen.findByText(/No ready videos yet\./);
+    expect(empty.tagName).toBe('LI');
+    expect(within(empty).getByRole('link', { name: 'Upload a video' })).toHaveAttribute(
+      'href',
+      '/studio/upload',
+    );
+    expect(screen.queryByText(/match/)).not.toBeInTheDocument();
+  });
+
+  it('says nothing matches only once a search ran', async () => {
+    const stub = server({
+      '/api/v1/assets': ({ query }: RecordedCall) =>
+        query.get('search')
+          ? { data: [], total: 0, page: 1, limit: 30, next_cursor: null }
+          : { data: [asset('r1', 'Ready 1')], total: 1, page: 1, limit: 30, next_cursor: null },
+    });
+    renderPage(<PlayerPage />);
+    expect(await screen.findByText('Ready 1')).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search ready videos' }), 'nope');
     const empty = await screen.findByText('No ready videos match.');
     expect(empty.tagName).toBe('LI');
+    expect(screen.queryByText(/No ready videos yet/)).not.toBeInTheDocument();
+    expect(stub.calls.some((c) => c.query.get('search') === 'nope')).toBe(true);
   });
 });
