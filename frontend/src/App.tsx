@@ -18,10 +18,11 @@ const StudioSettings = lazy(() => import('@/pages/studio/SettingsPage'));
 export function App() {
   return (
     <AppShell>
-      {/* inside suspense, so a lazy page fades in once it has loaded rather
-          than the fallback fading in and the page popping in after it */}
-      <RouteSuspense>
-        <PageTransition>
+      {/* outside suspense: one fade per navigation covers the skeleton or the
+          page, whichever shows first. inside, the boundary unmounted the fade
+          and the page blinked from skeleton to empty to page */}
+      <PageTransition>
+        <RouteSuspense>
           <Routes>
             <Route path="/" element={<Navigate to="/studio" replace />} />
 
@@ -36,8 +37,8 @@ export function App() {
 
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
-        </PageTransition>
-      </RouteSuspense>
+        </RouteSuspense>
+      </PageTransition>
     </AppShell>
   );
 }

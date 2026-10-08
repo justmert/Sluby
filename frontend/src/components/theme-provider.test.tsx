@@ -82,3 +82,48 @@ describe('ThemeProvider', () => {
     vi.restoreAllMocks();
   });
 });
+
+describe('ThemeProvider switching', () => {
+  it('switches inside a view transition when the browser has one', () => {
+    const calls: string[] = [];
+    const start = vi.fn((update: () => void) => {
+      calls.push(`before:${document.documentElement.className}`);
+      update();
+      calls.push(`after:${document.documentElement.className}`);
+    });
+    Object.assign(document, { startViewTransition: start });
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    act(() => screen.getByText('light').click());
+    expect(start).toHaveBeenCalledTimes(1);
+    // the class lands inside the callback, so the new snapshot shows the new theme
+    expect(calls).toEqual(['before:dark', 'after:light']);
+    delete (document as { startViewTransition?: unknown }).startViewTransition;
+  });
+
+  it('snaps without a view transition under reduced motion', () => {
+    const start = vi.fn();
+    Object.assign(document, { startViewTransition: start });
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (q: string) =>
+        ({
+          matches: q.includes('reduce'),
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList,
+    );
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    act(() => screen.getByText('light').click());
+    expect(start).not.toHaveBeenCalled();
+    expect(document.documentElement).toHaveClass('light');
+    vi.restoreAllMocks();
+    delete (document as { startViewTransition?: unknown }).startViewTransition;
+  });
+});

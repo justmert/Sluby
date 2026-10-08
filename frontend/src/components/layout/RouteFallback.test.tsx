@@ -51,6 +51,6 @@ describe('RouteFallback', () => {
   });
 
   it('waits before fading in, so a fast load never flashes it', () => {
-    expect(shapeAt('/studio/settings')).toHaveClass('animation-delay-150', 'fill-mode-backwards');
+    expect(shapeAt('/studio/settings')).toHaveClass('delay-150', 'fill-mode-backwards');
   });
 });

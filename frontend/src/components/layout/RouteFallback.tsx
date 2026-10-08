@@ -4,6 +4,7 @@ import { DashboardLoading } from '@/components/dashboard/dashboard-parts';
 import { useRouteSkeletonVisibility } from '@/components/dashboard/live';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/session';
+import { lateReveal } from '@/lib/motion';
 import { PageContainer } from './PageContainer';
 
 // shaped like each page's first screen, so the page lands where the skeleton
@@ -145,17 +146,14 @@ const SKELETONS: Array<[RegExp, () => React.ReactNode]> = [
 
 /**
  * What shows while a page's code loads. It waits 150 ms before fading in, so
- * a chunk that loads quickly never flashes a skeleton.
+ * a chunk that loads quickly never flashes a skeleton. It sits inside
+ * PageTransition, so when the page replaces it there is no second fade.
  */
 export function RouteFallback() {
   const { pathname } = useLocation();
   const Shape = SKELETONS.find(([pattern]) => pattern.test(pathname))?.[1];
   return (
-    <div
-      data-slot="route-fallback"
-      aria-busy="true"
-      className="animate-in duration-200 ease-out-soft fade-in-0 animation-delay-150 fill-mode-backwards"
-    >
+    <div data-slot="route-fallback" aria-busy="true" className={lateReveal}>
       <span className="sr-only" role="status">
         Loading page
       </span>
