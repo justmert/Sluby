@@ -42,7 +42,7 @@ function Screen({ children, contentKey }: { children: ReactNode; contentKey: str
     >
       <div className="flex w-full max-w-sm flex-col items-center gap-8 px-6 text-center">
         <div className="flex flex-col items-center gap-3">
-          <Logo className="size-11 text-lg" />
+          <Logo className="size-11" />
           <h1 className="text-3xl font-semibold">Sluby Studio</h1>
           <p className="text-sm text-muted-foreground">Decentralized video streaming on Sia</p>
         </div>
