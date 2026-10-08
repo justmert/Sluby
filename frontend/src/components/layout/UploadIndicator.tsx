@@ -12,11 +12,18 @@ import { cn } from '@/lib/utils';
 const RADIUS = 7;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
+const SHORT: Partial<Record<UploadState['phase'], string>> = {
+  paused: 'Paused',
+  finishing: 'Finishing',
+  processing: 'Processing',
+};
+
 const isActive = (u: UploadState) => isTransferring(u) || u.phase === 'processing';
 
 function percentOf(u: UploadState): number {
   if (u.phase === 'processing') return u.job?.progressPercent ?? 0;
-  if (u.phase === 'finishing' || u.bytesTotal === 0) return 100;
+  if (u.phase === 'finishing') return 0;
+  if (u.bytesTotal === 0) return 100;
   return (u.bytesUploaded / u.bytesTotal) * 100;
 }
 
@@ -28,9 +35,17 @@ function describe(u: UploadState, percent: number): string {
 }
 
 function Ring({ percent, paused }: { percent: number; paused: boolean }) {
+  // nothing measured yet (a job that has not reported, the server finishing
+  // up): an empty ring reads as stuck, so spin a short arc instead
+  const waiting = !paused && percent < 1;
+  const shown = waiting ? 25 : percent;
   return (
     <span className="relative grid size-5 place-items-center">
-      <svg viewBox="0 0 18 18" className="absolute inset-0 size-5 -rotate-90" aria-hidden="true">
+      <svg
+        viewBox="0 0 18 18"
+        className={cn('absolute inset-0 size-5 -rotate-90', waiting && 'motion-safe:animate-spin')}
+        aria-hidden="true"
+      >
         <circle cx="9" cy="9" r={RADIUS} fill="none" strokeWidth="2" className="stroke-muted" />
         <circle
           cx="9"
@@ -40,7 +55,7 @@ function Ring({ percent, paused }: { percent: number; paused: boolean }) {
           strokeWidth="2"
           strokeLinecap="round"
           strokeDasharray={CIRCUMFERENCE}
-          strokeDashoffset={CIRCUMFERENCE * (1 - percent / 100)}
+          strokeDashoffset={CIRCUMFERENCE * (1 - shown / 100)}
           className={cn(
             'transition-[stroke-dashoffset] duration-300 ease-out-soft',
             paused ? 'stroke-muted-foreground' : 'stroke-primary',
@@ -90,7 +105,7 @@ function IndicatorLink({ lead, count }: { lead: UploadState; count: number }) {
         >
           <Ring percent={percent} paused={paused} />
           <span className="hidden tabular-nums sm:inline" aria-hidden="true">
-            {lead.phase === 'processing' ? 'Processing' : paused ? 'Paused' : `${percent}%`}
+            {SHORT[lead.phase] ?? `${percent}%`}
           </span>
           {count > 1 && (
             <span
