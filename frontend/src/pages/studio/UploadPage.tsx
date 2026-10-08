@@ -155,7 +155,7 @@ function DropZone({ onFiles, busy }: { onFiles: (files: File[]) => void; busy: b
       transition={spring}
       data-dragging={dragging || undefined}
       className={cn(
-        'flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 text-center transition-colors duration-150 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:px-6',
+        'flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 text-center transition-colors duration-150 outline-none focus-visible:ring-3 focus-visible:ring-ring sm:px-6',
         busy ? 'py-8' : 'py-12 sm:py-16',
         dragging
           ? 'border-primary bg-primary/5'

@@ -103,7 +103,7 @@ function IndicatorLink({ lead, count }: { lead: UploadState; count: number }) {
         <Link
           to={ROUTES.STUDIO_UPLOAD}
           aria-label={label}
-          className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+          className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
         >
           <Ring percent={percent} paused={paused} />
           <span className="hidden tabular-nums sm:inline" aria-hidden="true">

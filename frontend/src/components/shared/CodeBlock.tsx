@@ -46,7 +46,7 @@ function Pre({
     <pre
       tabIndex={0}
       className={cn(
-        'overflow-x-auto rounded-lg p-4 pr-12 font-mono text-xs leading-relaxed outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+        'overflow-x-auto rounded-lg p-4 pr-12 font-mono text-xs leading-relaxed outline-none focus-visible:ring-3 focus-visible:ring-ring',
         className,
       )}
     >

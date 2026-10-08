@@ -222,7 +222,7 @@ function ProcessingCard({ asset }: { asset: VideoAsset }) {
             <AlertDescription>
               <button
                 type="button"
-                className="inline-flex items-center gap-1 rounded-sm text-current underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="inline-flex items-center gap-1 rounded-sm text-current underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring"
                 aria-expanded={showDetails}
                 aria-controls="failure-details"
                 onClick={() => setShowDetails((v) => !v)}

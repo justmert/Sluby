@@ -249,7 +249,7 @@ function AssetCard({
       <div className="flex items-start gap-2 p-3">
         <Link
           to={`/studio/assets/${asset.id}`}
-          className="min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring"
         >
           <p className="truncate text-sm font-medium" title={asset.title}>
             {asset.title}
@@ -304,7 +304,7 @@ function AssetRow({
           />
           <Link
             to={`/studio/assets/${asset.id}`}
-            className="flex min-w-0 items-center gap-3 rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="flex min-w-0 items-center gap-3 rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring"
           >
             <AssetThumbnail
               thumbnailObjectIds={asset.thumbnailObjectIds}

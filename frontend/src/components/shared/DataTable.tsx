@@ -103,7 +103,7 @@ function SortHeader<T>({
       type="button"
       onClick={() => onSortChange?.(next)}
       className={cn(
-        '-mx-1.5 inline-flex h-7 items-center gap-1 rounded-md px-1.5 transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none',
+        '-mx-1.5 inline-flex h-7 items-center gap-1 rounded-md px-1.5 transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none',
         active && 'text-foreground',
         column.align === 'right' && 'flex-row-reverse',
       )}

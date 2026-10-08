@@ -343,7 +343,7 @@ describe('DashboardPage', () => {
   it('gives the latest upload rows the same focus ring as buttons', async () => {
     render();
     const link = await screen.findByRole('link', { name: /Big Buck Bunny/ });
-    expect(link).toHaveClass('focus-visible:ring-3', 'focus-visible:ring-ring/50', 'outline-none');
+    expect(link).toHaveClass('focus-visible:ring-3', 'focus-visible:ring-ring', 'outline-none');
   });
 
   it('offers a retry on a failed upload row', async () => {

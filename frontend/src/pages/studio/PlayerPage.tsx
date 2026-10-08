@@ -88,7 +88,7 @@ function PlayableList({
             aria-current={a.id === selectedId ? 'true' : undefined}
             onClick={() => onPick(a.id)}
             className={cn(
-              'flex w-full items-center gap-3 rounded-md p-2 text-left transition-colors duration-150 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50',
+              'flex w-full items-center gap-3 rounded-md p-2 text-left transition-colors duration-150 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring',
               a.id === selectedId && 'bg-muted',
             )}
           >

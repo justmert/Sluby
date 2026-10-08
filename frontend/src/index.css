@@ -77,7 +77,8 @@
   --brand-foreground: oklch(1 0 0);
   --border: oklch(0.91 0.005 285);
   --border-strong: oklch(0.86 0.006 285);
-  --input: oklch(0.88 0.006 285);
+  /* field borders are the only edge of an empty input, so they clear 3:1 */
+  --input: oklch(0.64 0.01 285);
   --ring: oklch(0.6 0.18 47);
   --chart-1: oklch(0.62 0.19 47);
   --chart-2: oklch(0.58 0.13 162.5);
@@ -128,7 +129,7 @@
   --info: oklch(0.7 0.15 260);
   --border: oklch(1 0 0 / 9%);
   --border-strong: oklch(1 0 0 / 14%);
-  --input: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 36%);
   --ring: oklch(0.722 0.187 48.5);
   --chart-1: oklch(0.722 0.187 48.5);
   --chart-2: oklch(0.696 0.149 162.5);
@@ -147,6 +148,20 @@
   --code-string: oklch(0.8 0.12 162.5);
   --code-number: oklch(0.8 0.12 60);
   --code-fn: oklch(0.8 0.1 250);
+}
+
+/* more contrast on request: stronger secondary text and edges */
+@media (prefers-contrast: more) {
+  :root {
+    --muted-foreground: oklch(0.4 0.012 285);
+    --input: oklch(0.5 0.01 285);
+    --border: oklch(0.75 0.005 285);
+  }
+  .dark {
+    --muted-foreground: oklch(0.82 0.006 285);
+    --input: oklch(1 0 0 / 55%);
+    --border: oklch(1 0 0 / 30%);
+  }
 }
 
 @theme inline {
@@ -281,7 +296,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
   }
   html {
     @apply font-sans;
@@ -289,6 +304,8 @@
     /* the scrollbar keeps its space whether or not a page scrolls, so
        moving between a short and a long page does not shift the layout */
     scrollbar-gutter: stable;
+    /* a control focused from the keyboard never hides under the sticky top bar */
+    scroll-padding-top: 4.5rem;
   }
   /* radix pads the body by the scrollbar width when it locks scrolling for a
      dialog or menu; with a stable gutter that space is already kept, so the
@@ -328,6 +345,14 @@
   table[data-responsive] {
     display: block;
   }
+  /* the header stays for screen readers (every cell keeps its column), but
+     nothing in it can take focus where nobody can see it */
+  table[data-responsive] > thead th {
+    display: table-cell;
+  }
+  table[data-responsive] > thead :is(button, a, input, [tabindex], [role='checkbox']) {
+    visibility: hidden;
+  }
   table[data-responsive] > thead {
     position: absolute;
     width: 1px;
@@ -355,9 +380,13 @@
     padding: 0;
     white-space: normal;
     overflow-wrap: anywhere;
+    justify-content: flex-start;
+    text-align: start;
   }
+  /* the label is visual only; the real column header names the cell */
   table[data-responsive] > tbody > tr > td[data-label]::before {
-    content: attr(data-label);
+    content: attr(data-label) / '';
+    text-align: start;
     flex: none;
     min-width: 5.5rem;
     color: var(--muted-foreground);
@@ -377,6 +406,20 @@
     align-self: start;
     justify-self: end;
     padding-inline: calc(var(--spacing) * 2);
+  }
+}
+
+/* forced colors (windows high contrast) drops box-shadow rings, and the
+   primitives set outline: none, so focus would vanish. give every focused
+   element a system-colored outline, and mark the current page in the nav. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid CanvasText !important;
+    outline-offset: 2px !important;
+  }
+  [data-sidebar='menu-button'][data-active='true'],
+  [aria-current='page'] {
+    outline: 1px solid Highlight;
   }
 }
 

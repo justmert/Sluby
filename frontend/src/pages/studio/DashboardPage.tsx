@@ -131,7 +131,7 @@ function ProbeRow({ label, probe }: { label: string; probe: Probe }) {
           <TooltipTrigger asChild>
             <span
               tabIndex={0}
-              className="line-clamp-2 rounded-sm text-left text-destructive outline-none [overflow-wrap:anywhere] focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="line-clamp-2 rounded-sm text-left text-destructive outline-none [overflow-wrap:anywhere] focus-visible:ring-3 focus-visible:ring-ring"
             >
               {detail}
             </span>
@@ -559,7 +559,7 @@ function UploadRow({ asset }: { asset: VideoAsset }) {
     <div className="flex items-center gap-1">
       <Link
         to={`/studio/assets/${asset.id}`}
-        className="relative -mx-2 flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2.5 outline-none transition-colors duration-150 hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="relative -mx-2 flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2.5 outline-none transition-colors duration-150 hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring"
       >
         <AssetThumbnail
           thumbnailObjectIds={asset.thumbnailObjectIds}

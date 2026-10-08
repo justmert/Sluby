@@ -164,7 +164,7 @@ export function InlineEditField({
       aria-label={`Edit ${label}`}
       aria-busy={saving !== null || undefined}
       className={cn(
-        'group/inline-edit -mx-1.5 flex max-w-full min-w-0 items-center gap-2 rounded-md px-1.5 text-left transition-colors duration-150 hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:pointer-events-none',
+        'group/inline-edit -mx-1.5 flex max-w-full min-w-0 items-center gap-2 rounded-md px-1.5 text-left transition-colors duration-150 hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none',
         className,
       )}
     >
