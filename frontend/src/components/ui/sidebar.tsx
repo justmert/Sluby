@@ -152,6 +152,9 @@ function Sidebar({
   collapsible?: 'offcanvas' | 'icon' | 'none';
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  // radix hands focus back to a DialogTrigger on close, and the sidebar
+  // trigger is not one, so focus fell to the body; remember what opened it
+  const opener = React.useRef<HTMLElement | null>(null);
 
   if (collapsible === 'none') {
     return (
@@ -183,6 +186,17 @@ function Sidebar({
             } as React.CSSProperties
           }
           side={side}
+          onOpenAutoFocus={() => {
+            opener.current = document.activeElement as HTMLElement | null;
+          }}
+          onCloseAutoFocus={(e) => {
+            const el = opener.current;
+            opener.current = null;
+            if (el?.isConnected) {
+              e.preventDefault();
+              el.focus();
+            }
+          }}
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>

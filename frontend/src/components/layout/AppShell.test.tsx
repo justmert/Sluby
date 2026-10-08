@@ -56,6 +56,19 @@ describe('AppShell', () => {
     expect(screen.getByRole('main')).toHaveFocus();
   });
 
+  it('gives focus back to the menu button when the phone sidebar closes', async () => {
+    viewport(390);
+    renderShell();
+    const toggle = screen.getByRole('button', { name: 'Toggle Sidebar' });
+    toggle.focus();
+    await userEvent.keyboard('{Enter}');
+    const sheet = await screen.findByRole('dialog', { name: 'Sidebar' });
+    expect(within(sheet).getByRole('link', { name: 'Assets' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(toggle).toHaveFocus();
+  });
+
   it('opens the sidebar on wide screens and starts it as an icon rail on tablets', () => {
     viewport(1440);
     const wide = renderShell();
