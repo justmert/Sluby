@@ -62,13 +62,20 @@ const clock = (t: number) =>
     hourCycle: 'h23',
   });
 
-/** Short eased chart animations, none under reduced motion. */
-function useChartMotion() {
+/**
+ * Short eased chart animation that runs when the values change, never for a
+ * resize: recharts redraws on every container size change, and bars sliding
+ * about while the window moves is noise. Off under reduced motion.
+ */
+function useChartMotion(values: string) {
   const reduce = usePrefersReducedMotion();
+  // the values the last finished animation drew
+  const [settled, setSettled] = useState<string | null>(null);
   return {
-    isAnimationActive: !reduce,
+    isAnimationActive: !reduce && settled !== values,
     animationDuration: 300,
     animationEasing: 'ease-out',
+    onAnimationEnd: () => setSettled(values),
   } as const;
 }
 
@@ -219,9 +226,9 @@ function ServerStats({ m, stagger }: { m?: MetricsSnapshot; stagger: boolean }) 
 }
 
 function ThroughputChart({ rates }: { rates: RatePoint[] }) {
-  const motion = useChartMotion();
-  // the line draws in once; after that each new sample just lands
-  const [drawn, setDrawn] = useState(false);
+  // the line draws in once; after that each new sample just lands, since a
+  // sliding window morphing point by point reads as the data wobbling
+  const motion = useChartMotion('drawn');
   // a line needs two rates; one alone is a dot on a made-up scale
   if (rates.length < 2) {
     return (
@@ -269,8 +276,6 @@ function ThroughputChart({ rates }: { rates: RatePoint[] }) {
           stroke="var(--color-bytesPerSecond)"
           fillOpacity={0.2}
           {...motion}
-          isAnimationActive={motion.isAnimationActive && !drawn}
-          onAnimationEnd={() => setDrawn(true)}
         />
       </AreaChart>
     </ChartContainer>
@@ -278,12 +283,12 @@ function ThroughputChart({ rates }: { rates: RatePoint[] }) {
 }
 
 function ResponsesChart({ m }: { m: MetricsSnapshot }) {
-  const motion = useChartMotion();
   const data = [
     { kind: 'Media ranges', count: m.delivery.requests.media },
     { kind: 'Manifests', count: m.delivery.requests.manifest },
     { kind: 'Other objects', count: m.delivery.requests.object },
   ];
+  const motion = useChartMotion(data.map((d) => d.count).join());
   if (data.every((d) => d.count === 0)) {
     return (
       <ChartBox className={SERVER_CHART}>
@@ -425,7 +430,7 @@ function ServerSection({ operator }: { operator: boolean }) {
 }
 
 function LibraryChart({ stats }: { stats: AssetStats }) {
-  const motion = useChartMotion();
+  const motion = useChartMotion(STATUS_BARS.map((b) => stats.by_status[b.status]).join());
   if (stats.total === 0) {
     return (
       <ChartBox className={LIBRARY_CHART}>
