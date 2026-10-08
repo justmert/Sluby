@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 
 import { Button } from '@/components/ui/button';
+import { useReturnFocus } from '@/hooks/useReturnFocus';
 import { XIcon } from 'lucide-react';
 
 function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
@@ -43,10 +44,13 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
 }) {
+  const focus = useReturnFocus(onOpenAutoFocus, onCloseAutoFocus);
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -59,6 +63,7 @@ function DialogContent({
           'fixed top-[max(1.5rem,12vh)] left-1/2 z-50 grid max-h-[calc(100dvh-max(1.5rem,12vh)-1.5rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 gap-4 overflow-y-auto rounded-xl border bg-popover p-4 text-sm text-popover-foreground shadow-lg transition-none duration-200 ease-out-soft outline-none sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-closed:duration-150',
           className,
         )}
+        {...focus}
         {...props}
       >
         {children}
@@ -97,7 +102,8 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        '-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end',
+        // sticks to the bottom of a dialog that scrolls, so Save stays reachable
+        'sticky -bottom-4 -mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-[color-mix(in_oklab,var(--muted)_50%,var(--popover))] p-4 sm:flex-row sm:justify-end',
         className,
       )}
       {...props}
