@@ -1,5 +1,5 @@
 import Hls from 'hls.js';
-import { SlubyClient } from '@sluby/sdk';
+import { ProcessingFailedError, SlubyClient } from '@sluby/sdk';
 import { describeError } from './errors.js';
 import { playAsset } from './player.js';
 
@@ -127,10 +127,10 @@ uploadButton.addEventListener('click', async () => {
       await sluby.assets.waitForReady(assetId, { pollInterval: 3000, timeout: 30 * 60_000 });
       uploadStatus.textContent = 'Ready.';
     } catch (err) {
-      // waitForReady throws a plain Error when processing failed; the
-      // processing job carries the reason
+      if (!(err instanceof ProcessingFailedError)) throw err;
+      // the processing job says why it failed
       const job = await sluby.assets.processing(assetId).catch(() => null);
-      throw job?.errorMessage ? new Error(`Processing failed: ${job.errorMessage}`) : err;
+      throw new Error(`Processing failed: ${job?.errorMessage ?? 'no reason was recorded'}`);
     } finally {
       clearInterval(stagePoll);
     }

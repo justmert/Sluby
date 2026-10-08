@@ -8,7 +8,7 @@
 //
 //   SLUBY_BASE_URL=http://localhost:8080 SLUBY_API_KEY=sluby_... \
 //   PLAYABLE_ASSET_IDS=<id>,<id> APP_ORIGINS=http://localhost:5181 \
-//     node server/playback-server.mjs
+//     node server/signing-server.mjs
 
 import { createServer } from 'node:http';
 

@@ -1,5 +1,11 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { SlubyClient, type AccessTier, type AssetUploadHandle, type VideoAsset } from '@sluby/sdk';
+import {
+  ProcessingFailedError,
+  SlubyClient,
+  type AccessTier,
+  type AssetUploadHandle,
+  type VideoAsset,
+} from '@sluby/sdk';
 import { SlubyPlayer, type QualityLevel, type SlubyPlayerHandle } from '@sluby/player';
 import { describeError } from './errors.js';
 
@@ -114,10 +120,10 @@ export function App() {
           timeout: 30 * 60_000,
         });
       } catch (err) {
-        // waitForReady throws a plain Error when processing failed; the
-        // processing job carries the reason
+        if (!(err instanceof ProcessingFailedError)) throw err;
+        // the processing job says why it failed
         const job = await client.assets.processing(videoAssetId).catch(() => null);
-        throw job?.errorMessage ? new Error(`Processing failed: ${job.errorMessage}`) : err;
+        throw new Error(`Processing failed: ${job?.errorMessage ?? 'no reason was recorded'}`);
       } finally {
         clearInterval(stagePoll);
       }

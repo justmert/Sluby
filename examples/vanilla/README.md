@@ -5,7 +5,7 @@ Sluby without a framework: `@sluby/sdk` for the API, hls.js for playback, and `@
 - `src/main.js`: upload with progress and pause, wait for processing, play, pick a rendition, delete
 - `src/player.js`: playback with hls.js, native HLS on Safari without Media Source Extensions, signed URLs, direct from Sia with no API key
 - `server/upload.mjs`: upload from Node.js with an API key
-- `server/playback-server.mjs`: mints signed URLs for private assets with a key the browser never sees
+- `server/signing-server.mjs`: mints signed URLs for private assets with a key the browser never sees
 
 ## Run
 
@@ -38,5 +38,5 @@ Mint signed URLs for private assets without a key in the browser (then set the p
 ```bash
 SLUBY_BASE_URL=http://localhost:8080 SLUBY_API_KEY=sluby_... \
 PLAYABLE_ASSET_IDS=<asset id> APP_ORIGINS=http://localhost:5181 \
-  npm run playback-server
+  npm run signing-server
 ```
