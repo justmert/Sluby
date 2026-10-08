@@ -25,7 +25,8 @@ createRoot(root).render(
                 <App />
               </BrowserRouter>
             </AuthGate>
-            <Toaster richColors />
+            {/* a close button so an error can be dismissed before it times out */}
+            <Toaster richColors closeButton visibleToasts={4} />
           </TooltipProvider>
         </QueryClientProvider>
       </MotionProvider>
