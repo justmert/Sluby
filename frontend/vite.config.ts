@@ -74,6 +74,15 @@ export default defineConfig(({ mode }) => {
           // studio code
           codeSplitting: {
             groups: [
+              // react and the small helpers every chunk shares. without this
+              // group the charts group pulled them in as its dependencies, so
+              // every page preloaded the whole charts chunk (111 kB gzip) just
+              // to get react
+              {
+                name: 'react',
+                priority: 10,
+                test: /node_modules[\\/](react|react-dom|scheduler|use-sync-external-store|react-is|clsx)[\\/]/,
+              },
               { name: 'hls', test: /node_modules[\\/]hls\.js[\\/]/ },
               {
                 name: 'charts',
