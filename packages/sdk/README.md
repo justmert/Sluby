@@ -61,11 +61,14 @@ allow credentialed CORS for your origin on the API.
 - `client.uploads`: `upload()` (resumable TUS; returns an awaitable handle with
   `pause()` / `resume()` / `abort()` / `isPaused` plus `assetId` and `uploadId` promises),
   `getStatus(uploadId)`, `cancel(uploadId)`.
-- `client.assets`: `list()` (with `search`, `sort`, `order`, and paging by `page` or by passing each page's `nextCursor` back as `cursor`), `get()`, `update()`, `delete()`, `waitForReady()`, `processing()` (the processing job with its stage, progress and log), `retry()` for a failed asset.
+- `client.assets`: `list()` (with `search`, `sort`, `order`, and paging by `page` or by passing each page's `nextCursor` back as `cursor`), `get()`, `update()`, `delete()`, `waitForReady()`, `processing()` (the processing job with its stage, progress and log), `retry()` for a failed asset, `renditions(id)` (the HLS renditions, tallest first, with their Sia objects) and `stats()` (the account's library totals).
 - `client.playback`: `getUrl()` and `getSignedUrl()`, both returning an absolute
   URL (`playbackUrl` / `signedUrl`) resolved against the delivery base, plus the
   raw server path (`playbackPath` / `signedPath`). `streamUrl(id)` returns the
   public master URL (`/v1/stream/{id}/master.m3u8`) without a request or a key.
+- `client.playbackIds`: `list(assetId)`, `create(assetId, { policy, name })` and `delete(playbackId)` for the public `pb_...` handles of an asset.
+- `client.keys`: `list({ limit, cursor })` (one page of the account's keys, with `hasMore` and `nextCursor`), `create({ name, scopes, rateLimit })` (the result's `key` is the secret, shown only here), `rotate(id, { gracePeriodSeconds })` and `revoke(id)`. Needs the `manage` scope.
+- `client.webhookEndpoints`: `list()`, `create({ url, events })` (the result's `secret` is shown only here), `delete(id)`, `test(id)` (sends a signed `webhook.test` event now) and `deliveries(id, { limit })`. Needs the `manage` scope.
 - `client.webhooks`: `verifyRequest(rawBody, headers, secret)` (and `verifyRequestAsync` for edge runtimes) checks the `X-Sluby-Signature-V1` header against `X-Sluby-Timestamp` and refuses a request more than five minutes old (`toleranceSeconds`); `headers` is a Fetch `Headers` or Node's `req.headers` (types `WebhookHeaders`, `VerifyRequestOptions`). `parseEvent()` returns the event with its `id`, the same on every retry. `verifySignature()` checks the deprecated body-only `X-Sluby-Signature`.
 - `client.sia`: present when the client is created with a `sia` viewer config; `@sluby/player` uses it to stream straight from Sia hosts instead of the gateway. Given the playback URL (`prepare(id, { src })`), it fetches the share map from the public `/v1/share/:id` with that URL's signature and no credentials, so a page without an API key can play direct from Sia.
 - `client.resolveDeliveryUrl(path)`: turn a server-relative delivery path into an

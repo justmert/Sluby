@@ -215,6 +215,8 @@ qualitySelect.onchange = () => {
 
 Setting `currentLevel` switches immediately and flushes the buffer. `hls.nextLevel` switches at the next fragment instead. On the native path the browser chooses the rendition and there is no list.
 
+Outside the player, `client.assets.renditions(assetId)` (scope `read`) lists the renditions processing produced, tallest first, with each one's size, bitrate, segment count and the Sia objects holding its playlist and media.
+
 ## Direct-from-Sia playback
 
 With a viewer identity in the client's `sia` config, `playAsset` above streams every playlist and segment from Sia hosts through `createSiaLoader` from `@sluby/player/hls`, and the gateway is out of the byte path. No API key is involved. Provision the identity once per deployment:
@@ -395,6 +397,40 @@ new SlubyClient({
 `playAsset` with `signed` set works unchanged on that client, direct from Sia included: the share map comes from Sluby's public `/v1/share/:id` with the signed URL's signature, not from your server. The SDK sends its requests with only an `Accept` header, so the browser makes simple CORS requests without a preflight. In your app this endpoint would usually live on the same origin as the page.
 
 The server can also call `getSignedUrl(id)` while rendering the page and put the URL in it, for `playAsset`'s `src`.
+
+## Manage keys, webhooks and playback IDs
+
+The client also wraps the account's management endpoints. Run these on your server with a key that has the scope each needs (`manage`, except where noted):
+
+```js
+// API keys: one page at a time, newest first
+const page = await client.keys.list({ limit: 50 });
+const next = page.hasMore ? await client.keys.list({ limit: 50, cursor: page.nextCursor }) : null;
+const created = await client.keys.create({ name: 'ci', scopes: ['upload', 'read'] });
+// created.key is the secret, returned only here
+const rotated = await client.keys.rotate(created.id, { gracePeriodSeconds: 3600 });
+await client.keys.revoke(rotated.id);
+
+// webhook endpoints
+const endpoint = await client.webhookEndpoints.create({
+  url: 'https://app.example.com/hooks/sluby',
+  events: ['asset.ready', 'asset.errored'],
+});
+// endpoint.secret is returned only here; verify deliveries with client.webhooks.verifyRequest
+const outcome = await client.webhookEndpoints.test(endpoint.id);
+const attempts = await client.webhookEndpoints.deliveries(endpoint.id, { limit: 20 });
+await client.webhookEndpoints.delete(endpoint.id);
+
+// playback IDs (listing needs read)
+const pb = await client.playbackIds.create(assetId, { policy: 'signed', name: 'embed' });
+const ids = await client.playbackIds.list(assetId);
+await client.playbackIds.delete(pb.playbackId);
+
+// library totals for the account (read)
+const stats = await client.assets.stats();
+```
+
+`keys.rotate` on a key that was already rotated rejects with a `ConflictError`; rotate its replacement. An ID from another account rejects with a `NotFoundError`, the same as one that does not exist.
 
 ## Run the example
 
