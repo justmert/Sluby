@@ -30,6 +30,14 @@ const Toaster = ({ ...props }: ToasterProps) => {
           '--border-radius': 'var(--radius)',
         } as React.CSSProperties
       }
+      // sonner's mobile default is 16px from each edge; keep that clear of
+      // notches and the home indicator too
+      mobileOffset={{
+        top: 'calc(16px + env(safe-area-inset-top))',
+        right: 'calc(16px + env(safe-area-inset-right))',
+        bottom: 'calc(16px + env(safe-area-inset-bottom))',
+        left: 'calc(16px + env(safe-area-inset-left))',
+      }}
       toastOptions={{
         classNames: {
           toast: 'cn-toast',

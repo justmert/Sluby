@@ -132,6 +132,45 @@
   --radius-2xl: calc(var(--radius) * 1.8);
 }
 
+/* motion tokens; the same values live in src/lib/motion.ts for motion.
+   durations use the stock duration-150 / 200 / 300 utilities. */
+@theme {
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-status-pulse: status-pulse 1.6s ease-in-out infinite;
+
+  @keyframes shimmer {
+    to {
+      translate: 100% 0;
+    }
+  }
+
+  @keyframes status-pulse {
+    50% {
+      opacity: 0.6;
+    }
+  }
+}
+
+/* padding that keeps content clear of notches and the home indicator; the
+   viewport meta opts into drawing under them with viewport-fit=cover */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+@utility px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -139,12 +178,28 @@
   html {
     @apply font-sans;
     color-scheme: light;
+    /* the scrollbar keeps its space whether or not a page scrolls, so
+       moving between a short and a long page does not shift the layout */
+    scrollbar-gutter: stable;
+  }
+  /* radix pads the body by the scrollbar width when it locks scrolling for a
+     dialog or menu; with a stable gutter that space is already kept, so the
+     padding would shift the page instead. layered !important beats the
+     unlayered rule radix injects. */
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
   }
   html.dark {
     color-scheme: dark;
   }
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background text-foreground antialiased px-safe;
+  }
+  /* a visible ring for anything focusable that does not draw its own; the
+     shadcn parts set outline-none plus a ring utility, which wins over this */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
   h1,
   h2,
@@ -156,6 +211,28 @@
   }
 }
 
+/* the theme provider sets this class for one transition when the user picks a
+   theme, so colors ease over instead of snapping. it is never on at first
+   paint, so loading the page does not animate the theme in. */
+@media (prefers-reduced-motion: no-preference) {
+  html.theme-switching,
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after {
+    transition-property:
+      color, background-color, border-color, outline-color, fill, stroke, box-shadow !important;
+    transition-duration: 300ms !important;
+    transition-timing-function: var(--ease-out-soft) !important;
+  }
+}
+
+/* sonner drives its own toast timing in js, so only the curve is aligned */
+[data-sonner-toaster] [data-sonner-toast] {
+  transition-timing-function: var(--ease-out-soft);
+}
+
+/* the last word on motion: css animations and transitions collapse to a
+   single frame. motion components are handled by MotionConfig in js. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
