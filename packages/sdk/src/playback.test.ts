@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PlaybackManager } from './playback.js';
 import type { FetchFn } from './uploads.js';
 
-// ---------------------------------------------------------------------------
-// Mock fetch function + a delivery-URL resolver matching SlubyClient's.
-// ---------------------------------------------------------------------------
-
 let mockFetch: ReturnType<typeof vi.fn<FetchFn>>;
 
 const resolve = (pathOrUrl: string): string =>
@@ -23,10 +19,6 @@ function makeJsonResponse(body: unknown): Response {
 beforeEach(() => {
   mockFetch = vi.fn<FetchFn>();
 });
-
-// ---------------------------------------------------------------------------
-// Tests: getUrl()
-// ---------------------------------------------------------------------------
 
 describe('PlaybackManager.getUrl()', () => {
   it('resolves the relative manifest path against the delivery base', async () => {
@@ -91,10 +83,6 @@ describe('PlaybackManager.getUrl()', () => {
     });
   });
 });
-
-// ---------------------------------------------------------------------------
-// Tests: getSignedUrl()
-// ---------------------------------------------------------------------------
 
 describe('PlaybackManager.getSignedUrl()', () => {
   it('resolves the signed path and keeps the raw path', async () => {
@@ -190,10 +178,6 @@ describe('PlaybackManager.getSignedUrl()', () => {
     expect(calledPath).toBe('/api/v1/playback/id%2Fspecial/signed');
   });
 });
-
-// ---------------------------------------------------------------------------
-// Tests: streamUrl()
-// ---------------------------------------------------------------------------
 
 describe('PlaybackManager.streamUrl()', () => {
   it('builds the public master url on the delivery base without a request', () => {

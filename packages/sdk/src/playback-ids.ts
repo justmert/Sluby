@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// @sluby/sdk - PlaybackIdManager
-// ---------------------------------------------------------------------------
-
 import { readJson } from './errors.js';
 import type { CreatePlaybackIdInput, PlaybackId, PlaybackPolicy, RequestOptions } from './types.js';
 import type { FetchFn } from './uploads.js';
@@ -18,10 +14,6 @@ export class PlaybackIdManager {
     this._fetch = fetchFn;
   }
 
-  // -----------------------------------------------------------------------
-  // GET /api/v1/assets/:id/playback-ids
-  // -----------------------------------------------------------------------
-
   /** The asset's playback ids. */
   async list(videoAssetId: string, options?: RequestOptions): Promise<PlaybackId[]> {
     const res = await this._fetch(
@@ -31,10 +23,6 @@ export class PlaybackIdManager {
     const body = await readJson(res);
     return (body.data as Array<Record<string, unknown>>).map(mapPlaybackId);
   }
-
-  // -----------------------------------------------------------------------
-  // POST /api/v1/assets/:id/playback-ids
-  // -----------------------------------------------------------------------
 
   /**
    * Create a playback id for the asset. A `signed` one plays only through a
@@ -60,10 +48,6 @@ export class PlaybackIdManager {
     );
     return mapPlaybackId(await readJson(res));
   }
-
-  // -----------------------------------------------------------------------
-  // DELETE /api/v1/playback-ids/:playbackId
-  // -----------------------------------------------------------------------
 
   /** Delete a playback id by its public `pb_...` handle; URLs using it stop working. */
   async delete(playbackId: string, options?: RequestOptions): Promise<void> {

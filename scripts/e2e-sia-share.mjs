@@ -1,26 +1,22 @@
 #!/usr/bin/env node
-// ---------------------------------------------------------------------------
-// End-to-end check for the direct-from-Sia data path (opt-in, env-gated).
+// end-to-end check of the direct-from-sia data path, against a running
+// backend and a real indexer, without a browser (opt-in):
+//   1. the backend mints a per-object share map for the asset,
+//   2. a viewer app key, not the uploader's, resolves those share urls and
+//      downloads the asset's objects straight from sia,
+//   3. so the backend only ever serves the small json share map.
 //
-// Proves the pieces the browser relies on, against a REAL running backend and
-// a REAL indexer, without a browser:
-//   1. the backend mints a per-object share map (GET /playback/:id/share),
-//   2. a low-privilege VIEWER app key (not the uploader's) resolves those
-//      share URLs and downloads the asset's objects straight from Sia,
-//   3. so the backend serves only the small JSON share map, never the bytes.
+// it does not run the browser SiaSession or SiaLoader (the wasm build, covered
+// by the browser suites); the readme's "Direct-from-Sia playback" section has
+// the manual browser check.
 //
-// It does NOT exercise the browser SiaSession / SiaLoader themselves (those are
-// the WASM build and are covered by unit tests + the quickstart build); see the
-// "Direct-from-Sia playback" section in the README for the manual browser check.
-//
-// Skips cleanly (exit 0) unless every env var below is set:
+// skips (exit 0) unless every variable below is set:
 //   SIA_E2E_BACKEND_URL     e.g. http://localhost:8080
 //   SIA_E2E_API_KEY         a read-scoped Sluby API key that owns the asset
 //   SIA_E2E_ASSET_ID        a ready asset's id (or pb_ playback id)
 //   SIA_E2E_INDEXER_URL     e.g. https://sia.storage
 //   SIA_E2E_VIEWER_APP_ID   viewer app id (hex), from provision-viewer
 //   SIA_E2E_VIEWER_APP_KEY  viewer app key (hex), from provision-viewer
-// ---------------------------------------------------------------------------
 
 import siaPkg from '@siafoundation/sia-storage';
 

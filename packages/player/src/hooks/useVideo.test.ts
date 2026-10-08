@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useVideo } from './useVideo.js';
 
-// ---------------------------------------------------------------------------
-// Helpers: create a minimal mock video element
-// ---------------------------------------------------------------------------
-
 function createMockVideoElement(overrides?: Partial<HTMLVideoElement>): HTMLVideoElement {
   const listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
 
@@ -43,10 +39,6 @@ function createMockVideoElement(overrides?: Partial<HTMLVideoElement>): HTMLVide
 
   return video;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useVideo', () => {
   let mockVideo: HTMLVideoElement & { _fireEvent: (e: string) => void };

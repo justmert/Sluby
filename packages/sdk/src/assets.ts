@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// @sluby/sdk - AssetManager
-// ---------------------------------------------------------------------------
-
 import { AbortError, ProcessingFailedError, TimeoutError, readJson } from './errors.js';
 import type {
   AccessTier,
@@ -29,10 +25,6 @@ export class AssetManager {
   constructor(fetchFn: FetchFn) {
     this._fetch = fetchFn;
   }
-
-  // -----------------------------------------------------------------------
-  // GET /api/v1/assets
-  // -----------------------------------------------------------------------
 
   /**
    * List video assets with optional filtering and pagination: by `page`, or
@@ -64,10 +56,6 @@ export class AssetManager {
     };
   }
 
-  // -----------------------------------------------------------------------
-  // GET /api/v1/assets/:id
-  // -----------------------------------------------------------------------
-
   /**
    * Retrieve a single video asset by ID.
    */
@@ -77,10 +65,6 @@ export class AssetManager {
     });
     return mapAsset(await readJson(res));
   }
-
-  // -----------------------------------------------------------------------
-  // PATCH /api/v1/assets/:id
-  // -----------------------------------------------------------------------
 
   /**
    * Update mutable fields of a video asset.
@@ -105,10 +89,6 @@ export class AssetManager {
     return mapAsset(await readJson(res));
   }
 
-  // -----------------------------------------------------------------------
-  // DELETE /api/v1/assets/:id
-  // -----------------------------------------------------------------------
-
   /**
    * Delete a video asset.
    */
@@ -118,10 +98,6 @@ export class AssetManager {
       signal: options?.signal,
     });
   }
-
-  // -----------------------------------------------------------------------
-  // GET /api/v1/assets/:id/processing
-  // -----------------------------------------------------------------------
 
   /**
    * Processing progress for an asset: pipeline stage, percent, the error when
@@ -157,10 +133,6 @@ export class AssetManager {
     };
   }
 
-  // -----------------------------------------------------------------------
-  // GET /api/v1/assets/:id/renditions
-  // -----------------------------------------------------------------------
-
   /**
    * The HLS renditions processing produced, tallest first, with the Sia
    * objects holding each one's playlist and media. Empty until the asset is
@@ -182,10 +154,6 @@ export class AssetManager {
       playlistObjectId: raw.playlist_object_id as string,
     }));
   }
-
-  // -----------------------------------------------------------------------
-  // GET /api/v1/stats
-  // -----------------------------------------------------------------------
 
   /**
    * Library totals for the caller's account: asset counts by status, bytes
@@ -216,10 +184,6 @@ export class AssetManager {
     };
   }
 
-  // -----------------------------------------------------------------------
-  // POST /api/v1/assets/:id/retry
-  // -----------------------------------------------------------------------
-
   /**
    * Re-run processing for a failed asset. The backend resumes from the
    * furthest step it can (e.g. skips the transcode when its output survived).
@@ -233,10 +197,6 @@ export class AssetManager {
     const body = await readJson(res);
     return { stage: body.stage as RetryStage };
   }
-
-  // -----------------------------------------------------------------------
-  // Poll until ready
-  // -----------------------------------------------------------------------
 
   /**
    * Poll the asset status until it reaches `ready` or the timeout elapses.
@@ -285,10 +245,6 @@ export class AssetManager {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Map a snake_case API response object to the camelCase `VideoAsset`

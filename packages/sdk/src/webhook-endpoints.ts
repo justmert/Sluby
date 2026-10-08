@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// @sluby/sdk - WebhookEndpointManager
-// ---------------------------------------------------------------------------
-
 import { readJson } from './errors.js';
 import type {
   CreateWebhookEndpointInput,
@@ -26,10 +22,6 @@ export class WebhookEndpointManager {
     this._fetch = fetchFn;
   }
 
-  // -----------------------------------------------------------------------
-  // GET /api/v1/webhooks
-  // -----------------------------------------------------------------------
-
   /** The account's registered endpoints. */
   async list(options?: RequestOptions): Promise<WebhookEndpoint[]> {
     const res = await this._fetch('/api/v1/webhooks', { signal: options?.signal });
@@ -42,10 +34,6 @@ export class WebhookEndpointManager {
       createdAt: raw.created_at as string,
     }));
   }
-
-  // -----------------------------------------------------------------------
-  // POST /api/v1/webhooks
-  // -----------------------------------------------------------------------
 
   /**
    * Register an endpoint. Its signing `secret` is only ever returned here;
@@ -70,10 +58,6 @@ export class WebhookEndpointManager {
     };
   }
 
-  // -----------------------------------------------------------------------
-  // DELETE /api/v1/webhooks/:id
-  // -----------------------------------------------------------------------
-
   /** Remove an endpoint. */
   async delete(endpointId: string, options?: RequestOptions): Promise<void> {
     await this._fetch(`/api/v1/webhooks/${encodeURIComponent(endpointId)}`, {
@@ -81,10 +65,6 @@ export class WebhookEndpointManager {
       signal: options?.signal,
     });
   }
-
-  // -----------------------------------------------------------------------
-  // POST /api/v1/webhooks/:id/test
-  // -----------------------------------------------------------------------
 
   /**
    * Send a signed `webhook.test` event to the endpoint now and report how the
@@ -102,10 +82,6 @@ export class WebhookEndpointManager {
       error: (body.error as string | null | undefined) ?? null,
     };
   }
-
-  // -----------------------------------------------------------------------
-  // GET /api/v1/webhooks/:id/deliveries
-  // -----------------------------------------------------------------------
 
   /** The endpoint's latest delivery attempts, newest first (`limit` 1 to 100, default 50). */
   async deliveries(

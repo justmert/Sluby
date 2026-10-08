@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// @sluby/sdk - SlubyClient
-// ---------------------------------------------------------------------------
-
 import { AssetManager } from './assets.js';
 import { AbortError, TimeoutError, errorFromResponse } from './errors.js';
 import { KeyManager } from './keys.js';
@@ -123,10 +119,6 @@ export class SlubyClient {
       : undefined;
   }
 
-  // -----------------------------------------------------------------------
-  // Delivery URL resolution
-  // -----------------------------------------------------------------------
-
   /**
    * Resolve a server-relative delivery path (e.g. `/v1/objects/abc?type=manifest`)
    * into an absolute URL the browser fetches directly from Sia-backed delivery.
@@ -141,10 +133,6 @@ export class SlubyClient {
     const base = this._config.deliveryBaseUrl ?? this._config.baseUrl;
     return `${base}${pathOrUrl.startsWith('/') ? '' : '/'}${pathOrUrl}`;
   }
-
-  // -----------------------------------------------------------------------
-  // Internal HTTP helper
-  // -----------------------------------------------------------------------
 
   /**
    * Perform an HTTP request against the Sluby API.

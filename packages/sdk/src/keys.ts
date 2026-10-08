@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// @sluby/sdk - KeyManager
-// ---------------------------------------------------------------------------
-
 import { readJson } from './errors.js';
 import type {
   ApiKey,
@@ -26,10 +22,6 @@ export class KeyManager {
     this._fetch = fetchFn;
   }
 
-  // -----------------------------------------------------------------------
-  // GET /api/v1/keys
-  // -----------------------------------------------------------------------
-
   /**
    * One page of the account's usable keys, newest first. A key being rotated
    * out stays listed, with its `expiresAt`, until its grace period ends. Pass
@@ -52,10 +44,6 @@ export class KeyManager {
     };
   }
 
-  // -----------------------------------------------------------------------
-  // POST /api/v1/keys
-  // -----------------------------------------------------------------------
-
   /** Create a key for the account. The raw `key` is only ever returned here. */
   async create(input: CreateApiKeyInput, options?: RequestOptions): Promise<CreatedApiKey> {
     const payload: Record<string, unknown> = { name: input.name };
@@ -71,10 +59,6 @@ export class KeyManager {
     const body = await readJson(res);
     return { ...mapKey(body), key: body.key as string };
   }
-
-  // -----------------------------------------------------------------------
-  // POST /api/v1/keys/:id/rotate
-  // -----------------------------------------------------------------------
 
   /**
    * Replace a key with a new secret that keeps its name, scopes and rate
@@ -100,10 +84,6 @@ export class KeyManager {
       previousKeyExpiresAt: body.previous_key_expires_at as string,
     };
   }
-
-  // -----------------------------------------------------------------------
-  // DELETE /api/v1/keys/:id
-  // -----------------------------------------------------------------------
 
   /** Revoke a key now. */
   async revoke(keyId: string, options?: RequestOptions): Promise<void> {

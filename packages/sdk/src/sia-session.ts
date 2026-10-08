@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
-// @sluby/sdk - SiaSession (direct-from-Sia playback, browser only)
-// ---------------------------------------------------------------------------
+// direct-from-sia playback; runs only in a browser
 
 import { NotFoundError, SlubyError, errorFromResponse, readJson } from './errors.js';
 import type { FetchFn } from './uploads.js';
