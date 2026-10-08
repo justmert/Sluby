@@ -10,7 +10,7 @@ import {
   type VideoAsset,
 } from '@sluby/sdk';
 import { fakeUploadClient as fakeClient } from '@/test/fake-uploads';
-import { createUploadStore, type UploadStoreOptions } from './upload-store';
+import { createUploadStore, summarizeUploads, type UploadStoreOptions } from './upload-store';
 
 function job(overrides: Partial<ProcessingJob>): ProcessingJob {
   return {
@@ -475,5 +475,125 @@ describe('upload store: leaving the page', () => {
     await store.cancel(key);
     await flush();
     expect(leave()).toBe(false);
+  });
+});
+
+describe('upload store: queue', () => {
+  const other = new File([new Uint8Array(50)], 'b.mp4', { type: 'video/mp4', lastModified: 2 });
+  const third = new File([new Uint8Array(70)], 'c.mp4', { type: 'video/mp4', lastModified: 3 });
+
+  it('starts at once when idle and lines files up behind a running transfer', async () => {
+    const s = setup();
+    s.f.processing.mockResolvedValue(job({}));
+    s.store.enqueue(file, { title: 'A' });
+    s.store.enqueue(other, { title: 'B' });
+    s.store.enqueue(third, { title: 'C' });
+    expect(s.f.upload).toHaveBeenCalledTimes(1);
+    expect(s.store.getState().queued.map((q) => q.title)).toEqual(['B', 'C']);
+
+    s.f.current().resolveAsset('a');
+    s.f.current().finish();
+    await flush();
+    // the first is processing, so the second takes the line
+    expect(s.f.upload).toHaveBeenCalledTimes(2);
+    expect(s.f.upload.mock.calls[1][0]).toBe(other);
+    expect(s.store.getState().queued.map((q) => q.title)).toEqual(['C']);
+    expect(s.store.getState().uploads.map((u) => u.title)).toEqual(['B', 'A']);
+  });
+
+  it('keeps the key a queued upload was given once it starts', async () => {
+    const s = setup();
+    s.store.enqueue(file, { title: 'A' });
+    const key = s.store.enqueue(other, { title: 'B' });
+    await s.store.cancel(s.one().key);
+    expect(s.store.getState().uploads[0]).toMatchObject({ key, title: 'B', phase: 'uploading' });
+  });
+
+  it('takes a file out of the queue before it starts', () => {
+    const s = setup();
+    s.store.enqueue(file, { title: 'A' });
+    const key = s.store.enqueue(other, { title: 'B' });
+    s.store.removeQueued(key);
+    expect(s.store.getState().queued).toEqual([]);
+  });
+
+  it('holds the queue after a failed transfer until it is resumed', async () => {
+    const s = setup();
+    s.store.enqueue(file, { title: 'A' });
+    s.store.enqueue(other, { title: 'B' });
+    s.f.current().fail(new SlubyError('Upload failed: network error', 0));
+    await flush();
+    expect(s.store.getState().queueHeld).toBe(true);
+    expect(s.f.upload).toHaveBeenCalledTimes(1);
+
+    s.store.resumeTransfer(s.one().key);
+    expect(s.store.getState().queueHeld).toBe(false);
+    expect(s.f.upload).toHaveBeenCalledTimes(2);
+    expect(s.f.upload.mock.calls[1][0]).toBe(file);
+  });
+
+  it('goes on with the queue when told to, leaving the failed card', async () => {
+    const s = setup();
+    s.store.enqueue(file, { title: 'A' });
+    s.store.enqueue(other, { title: 'B' });
+    s.f.current().fail(new SlubyError('Upload failed: network error', 0));
+    await flush();
+    s.store.continueQueue();
+    expect(s.f.upload).toHaveBeenCalledTimes(2);
+    expect(s.f.upload.mock.calls[1][0]).toBe(other);
+  });
+
+  it('does not start queued files once the session ended', async () => {
+    const s = setup();
+    s.store.enqueue(file, { title: 'A' });
+    s.store.enqueue(other, { title: 'B' });
+    s.f.current().fail(new AuthenticationError('Not signed in'));
+    await flush();
+    expect(s.f.upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns before leaving the page while files wait in the queue', () => {
+    const target = { addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    const s = setup({ unloadTarget: target });
+    s.store.enqueue(file, { title: 'A' });
+    const key = s.store.enqueue(other, { title: 'B' });
+    expect(target.addEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+    s.store.removeQueued(key);
+    expect(target.removeEventListener).not.toHaveBeenCalled();
+  });
+});
+
+describe('upload store: transfer time', () => {
+  it('counts only the time spent sending, not paused', async () => {
+    let t = 0;
+    const s = setup({ now: () => t });
+    s.store.start(file, { title: 'Clip' });
+    t = 1000;
+    s.f.current().progress(30, 100);
+    expect(s.one().activeMs).toBe(1000);
+    t = 2000;
+    await s.store.pause(s.one().key);
+    t = 60_000;
+    s.store.resume(s.one().key);
+    t = 61_500;
+    s.f.current().resolveAsset('a');
+    s.f.current().finish();
+    await flush();
+    expect(s.one().activeMs).toBe(3500);
+  });
+
+  it('summarises uploads for a compact indicator', async () => {
+    const s = setup();
+    s.store.enqueue(file, { title: 'A' });
+    s.store.enqueue(new File([new Uint8Array(5)], 'z.mp4', { type: 'video/mp4' }), {
+      title: 'Z',
+    });
+    s.f.current().progress(25, 100);
+    expect(summarizeUploads(s.store.getState())).toMatchObject({
+      percent: 25,
+      queued: 1,
+      processing: 0,
+      failed: 0,
+    });
   });
 });

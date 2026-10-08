@@ -311,6 +311,7 @@ describe('stepStates', () => {
     pollStopped: false,
     cleanup: null,
     notice: null,
+    activeMs: 0,
   };
   const withJob = (stage: string, logs: Array<{ stage: string }> = []) =>
     job({
