@@ -428,6 +428,34 @@ export async function claimFailedAssetForRetry(id: string, owner?: string): Prom
 }
 
 /**
+ * Bytes of upload `uploadId` (its session id) started arriving: move the
+ * asset it created from created to uploading. Any other status, a deleted
+ * asset or a session that is no longer receiving leaves the row alone, so the
+ * many writes after the first, and a write that lands after the pipeline took
+ * over, change nothing. Returns whether it moved.
+ */
+export async function markAssetUploading(uploadId: string): Promise<boolean> {
+  const rows = await db
+    .update(videoAssets)
+    .set({ status: 'uploading', updatedAt: new Date() })
+    .where(
+      and(
+        eq(videoAssets.status, 'created'),
+        isNull(videoAssets.deletedAt),
+        inArray(
+          videoAssets.id,
+          db
+            .select({ id: uploadSessions.videoAssetId })
+            .from(uploadSessions)
+            .where(and(eq(uploadSessions.id, uploadId), eq(uploadSessions.status, 'uploading'))),
+        ),
+      ),
+    )
+    .returning({ id: videoAssets.id });
+  return rows.length > 0;
+}
+
+/**
  * Mark an asset whose pipeline gave up failed. A ready or failed asset does
  * not match, so a stale execution failing after its asset became ready (or
  * after the run already failed) changes nothing. Created counts, for a first

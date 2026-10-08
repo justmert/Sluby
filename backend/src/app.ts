@@ -43,6 +43,7 @@ import {
   updateVideoAsset,
   updateAssetMetadata,
   softDeleteVideoAsset,
+  markAssetUploading,
   claimFailedAssetForRetry,
   releaseRetryClaim,
   raiseSigningGeneration,
@@ -311,6 +312,10 @@ export function buildTusServerDeps(
 
     updateUploadProgress: async (uploadId, uploadedBytes) => {
       await sessionManager.updateProgress(uploadId, uploadedBytes);
+    },
+
+    markUploading: async (uploadId) => {
+      await markAssetUploading(uploadId);
     },
 
     completeUpload: async (uploadId, filePath, sha256) => {
