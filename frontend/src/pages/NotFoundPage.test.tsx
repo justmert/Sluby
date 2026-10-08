@@ -6,7 +6,7 @@ import NotFoundPage from './NotFoundPage';
 describe('NotFoundPage', () => {
   it('says the page does not exist and links back to the dashboard', () => {
     renderPage(<NotFoundPage />, { route: '/studio/nope' });
-    expect(screen.getByText('Page not found')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Back to dashboard' })).toHaveAttribute(
       'href',
       '/studio',
