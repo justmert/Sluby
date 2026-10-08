@@ -3,17 +3,18 @@ import { lazy } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { RouteSuspense } from '@/components/layout/RouteSuspense';
 import { PageTransition } from '@/components/motion/PageTransition';
+import { PAGE_CHUNKS } from '@/lib/page-chunks';
 
-const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
+const NotFoundPage = lazy(PAGE_CHUNKS.notFound);
 
-const StudioDashboard = lazy(() => import('@/pages/studio/DashboardPage'));
-const StudioUpload = lazy(() => import('@/pages/studio/UploadPage'));
-const StudioAssets = lazy(() => import('@/pages/studio/AssetsPage'));
-const StudioAssetDetail = lazy(() => import('@/pages/studio/AssetDetailPage'));
-const StudioPlayer = lazy(() => import('@/pages/studio/PlayerPage'));
-const StudioDeveloper = lazy(() => import('@/pages/studio/DeveloperPage'));
-const StudioAnalytics = lazy(() => import('@/pages/studio/AnalyticsPage'));
-const StudioSettings = lazy(() => import('@/pages/studio/SettingsPage'));
+const StudioDashboard = lazy(PAGE_CHUNKS.dashboard);
+const StudioUpload = lazy(PAGE_CHUNKS.upload);
+const StudioAssets = lazy(PAGE_CHUNKS.assets);
+const StudioAssetDetail = lazy(PAGE_CHUNKS.assetDetail);
+const StudioPlayer = lazy(PAGE_CHUNKS.player);
+const StudioDeveloper = lazy(PAGE_CHUNKS.developer);
+const StudioAnalytics = lazy(PAGE_CHUNKS.analytics);
+const StudioSettings = lazy(PAGE_CHUNKS.settings);
 
 export function App() {
   return (

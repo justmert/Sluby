@@ -15,6 +15,7 @@ import {
 import { Logo } from '@/components/brand/Logo';
 import { STUDIO_NAV, ROUTES } from '@/lib/constants';
 import { spring } from '@/lib/motion';
+import { preloadPage } from '@/lib/page-chunks';
 import { useSession } from '@/lib/session';
 
 function isActive(pathname: string, path: string) {
@@ -64,7 +65,13 @@ export function AppSidebar() {
                       // the highlight is the sliding pill below, not the button's own background
                       className="relative isolate data-active:bg-transparent data-active:hover:bg-sidebar-accent"
                     >
-                      <NavLink to={item.path} onClick={closeMobile}>
+                      <NavLink
+                        to={item.path}
+                        onClick={closeMobile}
+                        // fetch the page's code while the pointer is on its way
+                        onPointerEnter={() => preloadPage(item.path)}
+                        onFocus={() => preloadPage(item.path)}
+                      >
                         {active && (
                           <m.span
                             layoutId="sidebar-active"
