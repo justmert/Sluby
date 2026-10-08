@@ -11,12 +11,13 @@ import {
   RefreshCw,
   RotateCcw,
   Upload,
-  type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
 import { AssetThumbnail } from '@/components/asset/AssetThumbnail';
+import { lateSkeleton } from '@/components/dashboard/live';
+import { StatCard } from '@/components/dashboard/StatCard';
 import { UpdatedAgo } from '@/components/dashboard/UpdatedAgo';
 import {
   AnimatedItem,
@@ -25,7 +26,6 @@ import {
   NumberTicker,
   StatusTransition,
 } from '@/components/motion';
-import { StatValue } from '@/components/shared/StatValue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -73,61 +73,7 @@ import { cn } from '@/lib/utils';
 // grids below follow the width of this container, not media queries
 const CONTAINER = '@container/dash';
 
-// a skeleton that stays invisible for the first 150 ms, so a quick answer
-// never flashes one
-const lateSkeleton = 'animate-in fade-in-0 fill-mode-backwards delay-150 duration-200';
-
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  format,
-  failed,
-  hint,
-}: {
-  icon: LucideIcon;
-  label: string;
-  /** undefined while loading */
-  value: number | undefined;
-  format?: (n: number) => string;
-  /** the totals could not load, so there is nothing to wait for */
-  failed: boolean;
-  /** null while the hint waits on the same data as the value */
-  hint?: React.ReactNode;
-}) {
-  return (
-    <Card size="sm" className="h-full">
-      <CardHeader>
-        <CardDescription className="flex min-w-0 items-center gap-2">
-          <Icon className="size-4 shrink-0" />
-          <span className="truncate">{label}</span>
-        </CardDescription>
-        <CardTitle>
-          {value === undefined && failed ? (
-            <span className="block font-heading text-2xl leading-8 font-semibold text-muted-foreground">
-              -
-            </span>
-          ) : (
-            <StatValue value={value} format={format} />
-          )}
-        </CardTitle>
-      </CardHeader>
-      {hint !== undefined && (
-        <CardContent className="min-h-4 text-xs text-muted-foreground">
-          {hint === null ? (
-            failed ? null : (
-              <Skeleton className={cn('h-4 w-36 max-w-full', lateSkeleton)} />
-            )
-          ) : (
-            hint
-          )}
-        </CardContent>
-      )}
-    </Card>
-  );
-}
 
 function ratio(part: number, whole: number): number {
   return whole > 0 ? Math.min(100, (part / whole) * 100) : 0;

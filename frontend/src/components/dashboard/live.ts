@@ -6,3 +6,6 @@ export function agoText(ms: number): string {
   if (s < 3600) return `${Math.floor(s / 60)} min ago`;
   return `${Math.floor(s / 3600)} h ago`;
 }
+
+/** For a skeleton: it stays invisible for the first 150 ms, so a quick answer never flashes one. */
+export const lateSkeleton = 'animate-in fade-in-0 fill-mode-backwards delay-150 duration-200';

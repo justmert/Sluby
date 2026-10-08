@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { agoText } from './ago';
+import { agoText } from './live';
 
 function useNow(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
