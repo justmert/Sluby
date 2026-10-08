@@ -15,6 +15,7 @@ import {
   getAllTrackedObjectIds,
   getIndexerInventory,
   indexerFeedStore,
+  listPendingObjectStates,
   recordReconciliationRun,
 } from '../db/queries/reconciliation.js';
 import { applySweepSchedule, RECONCILE_SWEEP } from '../queue/schedules.js';
@@ -26,6 +27,7 @@ async function runPass(trigger: ReconcileJobData['trigger']) {
 
   const summary = await runReconciliation({
     getDbObjectIds: () => getAllTrackedObjectIds(),
+    getPendingObjects: () => listPendingObjectStates(),
     syncIndexer: async (settledBefore) => {
       // the saved inventory belongs to one indexer account; another one
       // (a new app key or indexer) starts it over

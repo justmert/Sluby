@@ -6,9 +6,14 @@ import {
   videoAssets,
   indexerObjects,
   reconcileFeed,
+  pendingObjects,
   type ReconciliationRun,
 } from '../schema.js';
-import { RECONCILE_RUNS_KEPT, type ReconciliationSummary } from '../../reconcile/reconciler.js';
+import {
+  RECONCILE_RUNS_KEPT,
+  type PendingObjectState,
+  type ReconciliationSummary,
+} from '../../reconcile/reconciler.js';
 import type { FeedStore, ObjectEventLite } from '../../reconcile/collect-inventory.js';
 import type { IndexerObjectState } from '../../reconcile/inventory-diff.js';
 
@@ -154,6 +159,22 @@ export async function getAllTrackedObjectIds(): Promise<string[]> {
     }
   }
   return [...ids];
+}
+
+/**
+ * Every object the pipeline has pinned, or is about to pin, that finalize has
+ * not recorded in artifacts yet, and every object waiting to be unpinned (see
+ * pending_objects in the schema). `updatedAt` of a release row is when it was
+ * marked for release.
+ */
+export async function listPendingObjectStates(): Promise<PendingObjectState[]> {
+  return db
+    .select({
+      objectId: pendingObjects.objectId,
+      state: pendingObjects.state,
+      updatedAt: pendingObjects.updatedAt,
+    })
+    .from(pendingObjects);
 }
 
 /**

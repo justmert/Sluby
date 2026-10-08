@@ -22,6 +22,7 @@ function makeDeps(overrides: Partial<ReconcileDeps> = {}): ReconcileDeps {
   let tick = 0;
   return {
     getDbObjectIds: vi.fn().mockResolvedValue(['a', 'b', 'c']),
+    getPendingObjects: vi.fn().mockResolvedValue([]),
     syncIndexer: vi.fn().mockResolvedValue(undefined),
     getIndexerInventory: vi.fn().mockResolvedValue(inventory(['b', 'c', 'd'])),
     recordRun: vi.fn().mockResolvedValue(undefined),
@@ -82,9 +83,13 @@ describe('runReconciliation', () => {
     expect(deps.recordRun).toHaveBeenCalledWith(summary);
   });
 
-  it('reads the database before it syncs the indexer, with the grace window as the settled line', async () => {
+  it('reads pending objects, then the database, before it syncs the indexer, with the grace window as the settled line', async () => {
     const order: string[] = [];
     const deps = makeDeps({
+      getPendingObjects: vi.fn(async () => {
+        order.push('pending');
+        return [];
+      }),
       getDbObjectIds: vi.fn(async () => {
         order.push('db');
         return ['a'];
@@ -100,7 +105,7 @@ describe('runReconciliation', () => {
 
     await runReconciliation(deps);
 
-    expect(order).toEqual(['db', 'sync', 'inventory']);
+    expect(order).toEqual(['pending', 'db', 'sync', 'inventory']);
     expect(deps.syncIndexer).toHaveBeenCalledWith(new Date(START.getTime() - RECONCILE_GRACE_MS));
   });
 
