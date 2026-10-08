@@ -1,4 +1,3 @@
-import 'express-async-errors';
 import express, { type Request, type Response, type NextFunction, type Express } from 'express';
 import type { Logger } from 'pino';
 import type { Server as TusServer } from '@tus/server';
@@ -7,6 +6,7 @@ import { env } from './config/env.js';
 import { db } from './config/database.js';
 
 import { createApiRouter, type ApiRouterDeps } from './api/router.js';
+import { mountRouter } from './api/list-routes.js';
 import { createApiCors, createCrossOriginWriteGuard } from './api/cors.js';
 import { createIpRateLimiter } from './api/rate-limiter.js';
 import { createTusServer, type TusServerDeps } from './upload/tus-server.js';
@@ -900,7 +900,7 @@ export function createApp(ctx: AppContext): {
   // The delivery router defines routes with /v1/ prefix in the path, so it
   // mounts at root. It comes before the api cors because it answers its own:
   // any origin, never credentials, and Range allowed on preflight.
-  app.use('/', deliveryRouter);
+  mountRouter(app, '/', deliveryRouter);
 
   // ── Metrics (Prometheus format) ──
 
@@ -967,7 +967,8 @@ export function createApp(ctx: AppContext): {
       return null;
     }
   };
-  app.use(
+  mountRouter(
+    app,
     '/api/v1',
     createApiRouter(
       buildApiDeps(ctx, sessionManager, deleteAsset, callers, localDevAccount, receivedBytes),

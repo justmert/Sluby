@@ -1,4 +1,3 @@
-import 'express-async-errors';
 import { describe, it, expect, vi } from 'vitest';
 import express, { type Request, type Response } from 'express';
 import request from 'supertest';

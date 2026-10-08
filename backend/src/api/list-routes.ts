@@ -1,13 +1,12 @@
 /**
  * Minimal Express route introspection, used by the OpenAPI drift-guard
- * test to enumerate every route actually mounted on a router and compare
- * it against the hand-authored spec. Walks the router's layer stack,
- * recursing into sub-routers and reconstructing their mount prefixes.
+ * test and the api's 404 check to enumerate every route actually mounted on
+ * a router. Walks the router's layer stack and recurses into sub-routers.
  *
  * Scoped to the two mounting styles this codebase uses: direct routes
- * (`router.get('/x', ...)`) and prefix-mounted sub-routers
- * (`router.use('/x', sub)` or `router.use('/', sub)`).
+ * (`router.get('/x', ...)`) and sub-routers mounted with mountRouter.
  */
+import type { Router } from 'express';
 
 export interface RouteInfo {
   method: string;
@@ -30,15 +29,14 @@ export function canonicalPath(path: string): string {
   return collapsed;
 }
 
-/** Reconstruct a sub-router's mount prefix from its layer regexp. */
-function mountPrefix(layer: AnyLayer): string {
-  const regexp = layer.regexp;
-  if (!regexp || regexp.fast_slash) return '';
-  const source: string = regexp.source ?? '';
-  // Matches the express-generated form `^\/uploads\/?(?=\/|$)`.
-  const m = source.match(/^\^\\\/(.*?)\\\/\?\(\?=/);
-  if (m && m[1]) return '/' + m[1].replace(/\\\//g, '/');
-  return '';
+// express 5's router keeps only a matcher function for a mounted path, not
+// the path itself, so mountRouter records it here
+const mountPaths = new WeakMap<object, string>();
+
+/** Mount a sub-router at a fixed path, and remember the path for listRoutes. */
+export function mountRouter(parent: Pick<Router, 'use'>, path: string, child: Router): void {
+  mountPaths.set(child, path === '/' ? '' : path);
+  parent.use(path, child);
 }
 
 export function listRoutes(router: AnyLayer, base = ''): RouteInfo[] {
@@ -66,7 +64,11 @@ export function listRoutes(router: AnyLayer, base = ''): RouteInfo[] {
         });
       }
     } else if (layer.name === 'router' && layer.handle?.stack) {
-      out.push(...listRoutes(layer.handle, base + mountPrefix(layer)));
+      const prefix = mountPaths.get(layer.handle);
+      if (prefix === undefined) {
+        throw new Error('A router was mounted without mountRouter, so its routes cannot be listed');
+      }
+      out.push(...listRoutes(layer.handle, base + prefix));
     }
   }
 
