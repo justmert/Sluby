@@ -42,7 +42,7 @@ interface PageStateProps {
  * smaller than a page, use InlineError or EmptyState.
  *
  *   <PageState title="Could not load this video" error={query.error} onRetry={query.refetch}
- *     actions={<Button variant="outline" asChild><Link to="/studio/assets">Back to videos</Link></Button>} />
+ *     actions={<Button variant="outline" asChild><Link to="/studio/videos">Back to videos</Link></Button>} />
  */
 export function PageState({
   icon,

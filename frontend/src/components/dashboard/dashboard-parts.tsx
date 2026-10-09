@@ -157,7 +157,7 @@ export function LatestCard({ children }: { children: React.ReactNode }) {
       className="@container/latest"
       action={
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/studio/assets">View all</Link>
+          <Link to="/studio/videos">View all</Link>
         </Button>
       }
     >

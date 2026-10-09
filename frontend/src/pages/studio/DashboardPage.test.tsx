@@ -238,7 +238,7 @@ describe('DashboardPage', () => {
   it('lists the latest uploads from the sdk', async () => {
     render();
     const link = await screen.findByRole('link', { name: /Big Buck Bunny/ });
-    expect(link).toHaveAttribute('href', '/studio/assets/a1');
+    expect(link).toHaveAttribute('href', '/studio/videos/a1');
   });
 
   it('draws stat values with StatValue: a 32px skeleton line that the number replaces', async () => {

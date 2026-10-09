@@ -120,14 +120,6 @@ export function useAssetStats() {
   });
 }
 
-export function useSystemStatus() {
-  return useQuery({
-    queryKey: ['system-status'],
-    queryFn: () => apiClient.get<SystemStatus>('/system/status'),
-    refetchInterval: 15_000,
-  });
-}
-
 /** The latest reconciliation run as the caller may see it; null before any run finished. */
 export function useReconciliation() {
   return useQuery({

@@ -61,7 +61,6 @@ import {
   useAssetStats,
   useReconciliation,
   useRunReconciliation,
-  useSystemStatus,
   type AccountReconciliation,
   type DeploymentReconciliation,
   type DeploymentStatus,
@@ -70,6 +69,7 @@ import {
   type SystemStatus,
 } from '@/hooks/useStats';
 import { useLatestAssets } from '@/hooks/useLatestAssets';
+import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { formatBytes, formatDuration, formatRelativeTime } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
@@ -197,7 +197,7 @@ function OwnObjectsRow() {
   return <Row label="Your objects">{text}</Row>;
 }
 
-function StatusCard({
+export function StatusCard({
   status,
   error,
   showOwnObjects,
@@ -463,7 +463,7 @@ function ReconciliationCard() {
   );
 }
 
-function OperatorCards({
+export function OperatorCards({
   status,
   error,
   storedBytes,
@@ -558,7 +558,7 @@ function UploadRow({ asset }: { asset: VideoAsset }) {
   return (
     <div className="flex items-center gap-1">
       <Link
-        to={`/studio/assets/${asset.id}`}
+        to={`/studio/videos/${asset.id}`}
         className="relative -mx-2 flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2.5 outline-none transition-colors duration-150 hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring"
       >
         <AssetThumbnail
@@ -659,7 +659,7 @@ function LatestUploads({ expected }: { expected?: number }) {
 export default function DashboardPage() {
   const { operator } = useSession();
   const stats = useAssetStats();
-  const system = useSystemStatus();
+  const system = useSystemStatus({ poll: true });
   const s = stats.data;
   // the server decides what the caller may see; the operator flag only
   // decides whether to ask for and show the deployment views

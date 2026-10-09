@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import * as m from 'motion/react-m';
 import {
   AlertTriangle,
@@ -11,7 +11,6 @@ import {
   Webhook,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { AnimatedItem, AnimatedList, Collapse, FadeSwap } from '@/components/motion';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CodeBlock } from '@/components/shared/CodeBlock';
@@ -85,6 +84,7 @@ import {
   type WebhookRecord,
 } from '@/hooks/useWebhooks';
 import { useFrozen } from '@/hooks/useFrozen';
+import { ROUTES } from '@/lib/constants';
 import { REQUEST_TEMPLATES, type RequestTemplate } from '@/lib/explorer-templates';
 import { formatRelativeTime } from '@/lib/formatters';
 import { fadeUp } from '@/lib/motion';
@@ -107,7 +107,7 @@ const WEBHOOK_EVENTS = [
   { value: 'asset.errored', detail: 'processing failed for good' },
 ];
 
-function Snippets() {
+export function Snippets() {
   const snippets = useMemo(() => buildSnippets(window.location.origin), []);
   const [active, setActive] = useState(snippets[0].id);
   const snippet = snippets.find((s) => s.id === active) ?? snippets[0];
@@ -117,12 +117,12 @@ function Snippets() {
       <CardHeader>
         <CardTitle>Integrate</CardTitle>
         <CardDescription>
-          Ready to copy, pointed at this server ({window.location.origin}). Create a key in{' '}
-          <Link to="/studio/settings" className="underline underline-offset-4">
-            Settings
+          Ready to copy, pointed at this server ({window.location.origin}). Create a key on the{' '}
+          <Link to={ROUTES.API_KEYS} className="underline underline-offset-4">
+            API keys
           </Link>{' '}
-          and export it as <code className="font-mono">SLUBY_API_KEY</code> on your server. A key
-          never goes into browser code: whoever holds it can act as you.
+          page and export it as <code className="font-mono">SLUBY_API_KEY</code> on your server. A
+          key never goes into browser code: whoever holds it can act as you.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 lg:grid-cols-[220px_1fr]">
@@ -333,7 +333,7 @@ function ArrivalFlash() {
   );
 }
 
-function Deliveries({ id, freshAfter }: { id: string; freshAfter: number | null }) {
+export function Deliveries({ id, freshAfter }: { id: string; freshAfter: number | null }) {
   const deliveries = useWebhookDeliveries(id, true);
   const rows = deliveries.data?.data ?? [];
   // what was already listed when the log opened; anything after that is new
@@ -470,10 +470,25 @@ function WebhookRow({ hook: w, onDelete }: { hook: WebhookRecord; onDelete: () =
   );
 }
 
-function Webhooks() {
+export function Webhooks() {
   const hooks = useWebhooks();
   const remove = useDeleteWebhook();
-  const [creating, setCreating] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  // ?create=webhook opens the dialog straight away, e.g. from the command palette
+  const [params, setParams] = useSearchParams();
+  const creating = createOpen || params.get('create') === 'webhook';
+  const setCreating = (open: boolean) => {
+    setCreateOpen(open);
+    if (!open && params.has('create')) {
+      setParams(
+        (p) => {
+          p.delete('create');
+          return p;
+        },
+        { replace: true },
+      );
+    }
+  };
   const [created, setCreated] = useState<CreatedWebhook | null>(null);
   const shownCreated = useFrozen(created, created !== null);
   const [deleting, setDeleting] = useState<WebhookRecord | null>(null);
@@ -620,7 +635,7 @@ const SHOWN_HEADERS = [
   'cache-control',
 ];
 
-function ApiExplorer() {
+export function ApiExplorer() {
   const [method, setMethod] = useState<RequestTemplate['method']>('GET');
   const [path, setPath] = useState('/api/v1/assets?limit=20');
   const [body, setBody] = useState('');
@@ -798,23 +813,5 @@ function ApiExplorer() {
         )}
       </CardContent>
     </Card>
-  );
-}
-
-export default function DeveloperPage() {
-  return (
-    <PageContainer>
-      <PageHeader
-        title="Developer"
-        description="Snippets for @sluby/sdk, @sluby/player and curl, plus webhooks and a live API explorer"
-      />
-      <div className="flex flex-col gap-4">
-        <Snippets />
-        <div className="grid items-start gap-4 lg:grid-cols-2">
-          <Webhooks />
-          <ApiExplorer />
-        </div>
-      </div>
-    </PageContainer>
   );
 }

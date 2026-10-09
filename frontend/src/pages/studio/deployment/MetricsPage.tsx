@@ -372,20 +372,13 @@ function LibraryCard() {
   );
 }
 
-export default function AnalyticsPage() {
+export default function MetricsPage() {
   const { operator } = useSession();
   // taking over from the route skeleton: keep its placeholders on screen
   const [instant] = useState(routeSkeletonWasVisible);
   return (
     <PageContainer>
-      <PageHeader
-        title="Analytics"
-        description={
-          operator
-            ? 'Live counters from this backend process since it started, plus your library mix'
-            : 'Your library mix'
-        }
-      />
+      <PageHeader title="Metrics" description="Server activity since it last started" />
       <div data-instant-skeletons={instant || undefined}>
         <ServerSection operator={operator} />
         <LibraryCard />

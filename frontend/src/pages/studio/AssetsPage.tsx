@@ -162,7 +162,7 @@ function RowMenu({ asset, onDelete }: { asset: VideoAsset; onDelete: () => void 
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={() => navigate(`/studio/assets/${asset.id}`)}>
+        <DropdownMenuItem onSelect={() => navigate(`/studio/videos/${asset.id}`)}>
           Open details
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -212,7 +212,7 @@ function AssetCard({
     >
       {/* the title link below names the asset; this one is a larger mouse target */}
       <Link
-        to={`/studio/assets/${asset.id}`}
+        to={`/studio/videos/${asset.id}`}
         className="relative block"
         tabIndex={-1}
         aria-hidden="true"
@@ -248,7 +248,7 @@ function AssetCard({
       </label>
       <div className="flex items-start gap-2 p-3">
         <Link
-          to={`/studio/assets/${asset.id}`}
+          to={`/studio/videos/${asset.id}`}
           className="min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring"
         >
           <p className="truncate text-sm font-medium" title={asset.title}>
@@ -303,7 +303,7 @@ function AssetRow({
             aria-label={`Select ${asset.title}`}
           />
           <Link
-            to={`/studio/assets/${asset.id}`}
+            to={`/studio/videos/${asset.id}`}
             className="flex min-w-0 items-center gap-3 rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring"
           >
             <AssetThumbnail

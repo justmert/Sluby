@@ -3,28 +3,41 @@ import { ROUTES } from './constants';
 // the code for each routed page, in one place, so App.tsx can lazy-load it
 // and the nav can start the download on hover or focus. import() returns the
 // same promise for the same module, so a page fetched early is not fetched
-// again when the route renders.
+// again when the route renders. a page area adds its own entry here and in
+// BY_PATH (or DETAIL_PATHS for a page with an id in its path).
 export const PAGE_CHUNKS = {
-  dashboard: () => import('@/pages/studio/DashboardPage'),
-  upload: () => import('@/pages/studio/UploadPage'),
-  assets: () => import('@/pages/studio/AssetsPage'),
-  assetDetail: () => import('@/pages/studio/AssetDetailPage'),
-  player: () => import('@/pages/studio/PlayerPage'),
-  developer: () => import('@/pages/studio/DeveloperPage'),
-  analytics: () => import('@/pages/studio/AnalyticsPage'),
+  overview: () => import('@/pages/studio/DashboardPage'),
+  videos: () => import('@/pages/studio/AssetsPage'),
+  video: () => import('@/pages/studio/AssetDetailPage'),
+  quickstart: () => import('@/pages/studio/developers/QuickstartPage'),
+  apiKeys: () => import('@/pages/studio/developers/KeysPage'),
+  webhooks: () => import('@/pages/studio/developers/WebhooksPage'),
+  webhook: () => import('@/pages/studio/developers/WebhookDetailPage'),
+  explorer: () => import('@/pages/studio/developers/ExplorerPage'),
+  health: () => import('@/pages/studio/deployment/HealthPage'),
+  metrics: () => import('@/pages/studio/deployment/MetricsPage'),
   settings: () => import('@/pages/studio/SettingsPage'),
   notFound: () => import('@/pages/NotFoundPage'),
 } as const;
 
-const BY_PATH: Record<string, keyof typeof PAGE_CHUNKS> = {
-  [ROUTES.STUDIO_DASHBOARD]: 'dashboard',
-  [ROUTES.STUDIO_UPLOAD]: 'upload',
-  [ROUTES.STUDIO_ASSETS]: 'assets',
-  [ROUTES.STUDIO_PLAYER]: 'player',
-  [ROUTES.STUDIO_DEVELOPER]: 'developer',
-  [ROUTES.STUDIO_ANALYTICS]: 'analytics',
-  [ROUTES.STUDIO_SETTINGS]: 'settings',
+export type PageChunk = keyof typeof PAGE_CHUNKS;
+
+const BY_PATH: Record<string, PageChunk> = {
+  [ROUTES.OVERVIEW]: 'overview',
+  [ROUTES.VIDEOS]: 'videos',
+  [ROUTES.DEVELOPERS]: 'quickstart',
+  [ROUTES.API_KEYS]: 'apiKeys',
+  [ROUTES.WEBHOOKS]: 'webhooks',
+  [ROUTES.EXPLORER]: 'explorer',
+  [ROUTES.DEPLOYMENT]: 'health',
+  [ROUTES.METRICS]: 'metrics',
+  [ROUTES.SETTINGS]: 'settings',
 };
+
+const DETAIL_PATHS: Array<[RegExp, PageChunk]> = [
+  [/^\/studio\/videos\/[^/]+$/, 'video'],
+  [/^\/studio\/developers\/webhooks\/[^/]+$/, 'webhook'],
+];
 
 /**
  * Starts loading a page's code before the click, so most navigations never
@@ -37,7 +50,9 @@ export function preloadPage(path: string): void {
   if (name) PAGE_CHUNKS[name]().catch(() => {});
 }
 
-/** Which page's code serves a path, if a studio page does. */
-export function chunkFor(path: string): keyof typeof PAGE_CHUNKS | undefined {
-  return /^\/studio\/assets\/[^/]+\/?$/.test(path) ? 'assetDetail' : BY_PATH[path];
+/** Which page's code serves a path, if a studio page does. Search and hash are ignored. */
+export function chunkFor(path: string): PageChunk | undefined {
+  const pathname = path.replace(/[?#].*$/, '');
+  const trimmed = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  return BY_PATH[trimmed] ?? DETAIL_PATHS.find(([re]) => re.test(trimmed))?.[1];
 }

@@ -23,7 +23,7 @@ function renderAt(route: string, seed?: (c: ReturnType<typeof renderPage>['clien
 
 describe('TopBar', () => {
   it('names the asset page by the title the page loaded', async () => {
-    renderAt('/studio/assets/a1', (client) =>
+    renderAt('/studio/videos/a1', (client) =>
       client.setQueryData(['assets', 'one', 'a1'], { id: 'a1', title: 'Keynote 2026' }),
     );
     expect(await screen.findByText('Keynote 2026')).toBeInTheDocument();
@@ -46,7 +46,7 @@ describe('TopBar', () => {
   });
 
   it('keeps the trail on one line on phones: only the page name, with a back link', () => {
-    const { container } = renderAt('/studio/assets/a1', (client) =>
+    const { container } = renderAt('/studio/videos/a1', (client) =>
       client.setQueryData(['assets', 'one', 'a1'], { id: 'a1', title: 'Keynote 2026' }),
     );
     const list = container.querySelector('[data-slot="breadcrumb-list"]');
@@ -58,7 +58,7 @@ describe('TopBar', () => {
       expect(el).toHaveClass('max-sm:hidden');
     }
     const back = screen.getByRole('link', { name: 'Back to Videos' });
-    expect(back).toHaveAttribute('href', '/studio/assets');
+    expect(back).toHaveAttribute('href', '/studio/videos');
     expect(back).toHaveClass('sm:hidden');
   });
 

@@ -177,7 +177,7 @@ describe('UploadPage', () => {
     expect(await screen.findByText(/Storing on Sia, 72%/)).toBeInTheDocument();
     expect(screen.getByText('From before the reload')).toHaveAttribute(
       'href',
-      '/studio/assets/srv-1',
+      '/studio/videos/srv-1',
     );
   });
 
@@ -212,7 +212,7 @@ describe('UploadPage', () => {
     expect(within(cards[1]).getByText('first')).toBeInTheDocument();
     expect(within(cards[1]).getByRole('link', { name: 'View asset' })).toHaveAttribute(
       'href',
-      '/studio/assets/a1',
+      '/studio/videos/a1',
     );
   });
 

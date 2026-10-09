@@ -392,7 +392,7 @@ type Tab = (typeof TABS)[number];
 function BackLink() {
   return (
     <Button variant="ghost" size="sm" className="mb-3 -ml-2" asChild>
-      <Link to="/studio/assets">
+      <Link to="/studio/videos">
         <ArrowLeft />
         Assets
       </Link>
@@ -496,7 +496,7 @@ export default function AssetDetailPage() {
                 </Button>
               )}
               <Button asChild>
-                <Link to="/studio/assets">Back to assets</Link>
+                <Link to="/studio/videos">Back to videos</Link>
               </Button>
             </>
           }
@@ -534,7 +534,7 @@ export default function AssetDetailPage() {
     }
     deleted.current = a.id;
     toast.success('Deleting the asset and unpinning it from Sia');
-    navigate('/studio/assets');
+    navigate('/studio/videos');
   };
 
   const objectCount = sia.data?.totals.object_count;

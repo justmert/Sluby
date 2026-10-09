@@ -1,11 +1,10 @@
-import { Link } from 'react-router';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
 import { Pause } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { ROUTES } from '@/lib/constants';
 import { scaleIn } from '@/lib/motion';
 import { uploadStore } from '@/lib/studio-upload';
+import { useUploadSheet } from '@/lib/upload-sheet';
 import { isTransferring, useUploads, type UploadState, type UploadStore } from '@/lib/upload-store';
 import { cn } from '@/lib/utils';
 
@@ -69,7 +68,7 @@ function Ring({ percent, paused }: { percent: number; paused: boolean }) {
 
 /**
  * A compact progress ring in the top bar while uploads transfer or process,
- * so leaving the upload page does not hide them. Links back to the page.
+ * so closing the upload sheet does not hide them. Opens the sheet again.
  */
 export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }) {
   const { uploads, queued } = useUploads(store);
@@ -89,6 +88,7 @@ export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }
 }
 
 function IndicatorLink({ lead, count }: { lead: UploadState; count: number }) {
+  const sheet = useUploadSheet();
   const percent = Math.floor(percentOf(lead));
   const paused = lead.phase === 'paused';
   const detail = describe(lead, percent);
@@ -100,8 +100,9 @@ function IndicatorLink({ lead, count }: { lead: UploadState; count: number }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Link
-          to={ROUTES.STUDIO_UPLOAD}
+        <button
+          type="button"
+          onClick={() => sheet.open()}
           aria-label={label}
           className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
         >
@@ -117,7 +118,7 @@ function IndicatorLink({ lead, count }: { lead: UploadState; count: number }) {
               {count}
             </span>
           )}
-        </Link>
+        </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">{detail}</TooltipContent>
     </Tooltip>

@@ -16,12 +16,13 @@ import {
 } from '@/components/ui/command';
 import { Spinner } from '@/components/ui/spinner';
 import { useDebounce } from '@/hooks/useDebounce';
-import { ROUTES, STUDIO_NAV } from '@/lib/constants';
+import { navItemsFor, ROUTES } from '@/lib/constants';
 import { withLead } from '@/lib/errors';
 import { formatDuration } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { sluby } from '@/lib/sluby';
 import { THEME_OPTIONS, useTheme } from '@/lib/theme';
+import { useUploadSheet } from '@/lib/upload-sheet';
 
 const isMac = () => /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
 
@@ -103,7 +104,7 @@ function Videos({
         <CommandItem
           key={asset.id}
           value={videoValue(asset.id)}
-          onSelect={() => open(`${ROUTES.STUDIO_ASSETS}/${asset.id}`)}
+          onSelect={() => open(ROUTES.video(asset.id))}
           className={typing ? 'opacity-60' : undefined}
         >
           <Film className="text-muted-foreground" />
@@ -126,43 +127,44 @@ function PaletteBody({ close }: { close: () => void }) {
   const navigate = useNavigate();
   const { operator } = useSession();
   const { theme, setTheme } = useTheme();
+  const uploadSheet = useUploadSheet();
 
   const open = (path: string) => {
     close();
     void navigate(path);
   };
 
-  const pages: Entry[] = STUDIO_NAV.filter((item) => operator || !item.operatorOnly).map(
-    (item) => ({
-      id: `page-${item.path}`,
-      label: item.label,
-      icon: item.icon,
-      keywords: 'go to page open',
-      run: () => open(item.path),
-    }),
-  );
+  const pages: Entry[] = navItemsFor(operator).map((item) => ({
+    id: `page-${item.path}`,
+    label: item.label,
+    icon: item.icon,
+    keywords: 'go to page open',
+    run: () => open(item.path),
+  }));
   const actions: Entry[] = [
     {
       id: 'action-upload',
       label: 'Upload video',
       icon: Upload,
       keywords: 'new add file',
-      run: () => open(ROUTES.STUDIO_UPLOAD),
+      run: () => {
+        close();
+        uploadSheet.open();
+      },
     },
     {
       id: 'action-key',
       label: 'Create API key',
       icon: KeyRound,
-      // not "settings": typing that should land on the settings page alone
-      keywords: 'new add token secret',
-      run: () => open(`${ROUTES.STUDIO_SETTINGS}?create=key`),
+      keywords: 'new add token secret developers',
+      run: () => open(`${ROUTES.API_KEYS}?create=key`),
     },
     {
-      id: 'action-webhooks',
-      label: 'Manage webhooks',
+      id: 'action-webhook',
+      label: 'Add a webhook',
       icon: Webhook,
-      keywords: 'add events developer',
-      run: () => open(ROUTES.STUDIO_DEVELOPER),
+      keywords: 'new create events developers',
+      run: () => open(`${ROUTES.WEBHOOKS}?create=webhook`),
     },
     ...THEME_OPTIONS.map(({ value, label, icon }) => ({
       id: `theme-${value}`,

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { UploadSheet } from '@/components/upload/UploadSheet';
 import { useIsWide } from '@/hooks/use-mobile';
 import { AppSidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -83,6 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>
         </main>
       </div>
+      <UploadSheet />
     </SidebarProvider>
   );
 }

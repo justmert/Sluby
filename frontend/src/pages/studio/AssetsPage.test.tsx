@@ -75,7 +75,7 @@ function Where() {
   return (
     <>
       <output data-testid="where">{location.search}</output>
-      <button type="button" onClick={() => navigate('/studio/assets?q=Bunny')}>
+      <button type="button" onClick={() => navigate('/studio/videos?q=Bunny')}>
         open a bunny search
       </button>
       <button type="button" onClick={() => navigate(-1)}>
@@ -85,11 +85,11 @@ function Where() {
   );
 }
 
-function renderLibrary(route = '/studio/assets') {
+function renderLibrary(route = '/studio/videos') {
   return renderPage(
     <Routes>
       <Route
-        path="/studio/assets"
+        path="/studio/videos"
         element={
           <>
             <AssetsPage />
@@ -107,7 +107,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('AssetsPage', () => {
   it('drives search, filter and sort from the url into the api', async () => {
     const server = library([bunny]);
-    renderLibrary('/studio/assets?q=Bunny&status=ready&tier=private&sort=title:asc');
+    renderLibrary('/studio/videos?q=Bunny&status=ready&tier=private&sort=title:asc');
     await screen.findByText('Big Buck Bunny');
 
     const params = listCalls(server)[0].query;
@@ -171,7 +171,7 @@ describe('AssetsPage', () => {
 
   it('clears the selection when the filter changes, so hidden rows are never deleted', async () => {
     const server = library();
-    renderLibrary('/studio/assets?status=failed');
+    renderLibrary('/studio/videos?status=failed');
     await screen.findByText('Broken upload');
     await userEvent.click(screen.getByRole('checkbox', { name: 'Select all on this page' }));
     expect(screen.getByText('1 of 1 selected')).toBeInTheDocument();
@@ -200,7 +200,7 @@ describe('AssetsPage', () => {
 
   it('goes back to the last page when the page is past the end', async () => {
     library();
-    renderLibrary('/studio/assets?page=5');
+    renderLibrary('/studio/videos?page=5');
     await screen.findByText('Big Buck Bunny');
     expect(screen.queryByText('No videos yet')).not.toBeInTheDocument();
     expect(screen.getByTestId('where')).toHaveTextContent(/^$/);
@@ -219,7 +219,7 @@ describe('AssetsPage', () => {
 
   it('switches to the list view with a select-all header', async () => {
     library();
-    renderLibrary('/studio/assets?view=list');
+    renderLibrary('/studio/videos?view=list');
     expect(await screen.findByRole('table')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('checkbox', { name: 'Select Sintel' }));
     expect(screen.getByRole('checkbox', { name: 'Select all rows' })).toHaveAttribute(
@@ -367,7 +367,7 @@ describe('AssetsPage', () => {
 
   it('puts the search box back in step with the url on back and forward', async () => {
     library();
-    renderLibrary('/studio/assets?q=Sintel');
+    renderLibrary('/studio/videos?q=Sintel');
     await screen.findByText('Sintel');
     const search = screen.getByRole('textbox', { name: 'Search assets' });
     expect(search).toHaveValue('Sintel');
@@ -399,7 +399,7 @@ describe('AssetsPage', () => {
         fail ? reply(503, { error: 'Database unavailable' }) : page([bunny]),
     });
     vi.stubGlobal('fetch', vi.fn(server));
-    renderLibrary('/studio/assets?status=ready');
+    renderLibrary('/studio/videos?status=ready');
 
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Could not load assets' }),

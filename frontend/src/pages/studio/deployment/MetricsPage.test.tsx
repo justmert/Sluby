@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '@/test/render';
 import { WithSession } from '@/test/session';
-import AnalyticsPage from './AnalyticsPage';
+import MetricsPage from './MetricsPage';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -57,7 +57,7 @@ afterEach(() => {
 const render = (operator: boolean) =>
   renderPage(
     <WithSession operator={operator}>
-      <AnalyticsPage />
+      <MetricsPage />
     </WithSession>,
   );
 
@@ -66,7 +66,7 @@ const readable = { ignore: '[aria-hidden="true"], script, style' };
 
 const called = (url: string) => fetchMock.mock.calls.some(([u]) => String(u) === url);
 
-describe('AnalyticsPage', () => {
+describe('MetricsPage', () => {
   it('shows a tenant their library and never asks for server metrics', async () => {
     render(false);
     expect(await screen.findByText('Server metrics are for operators')).toBeInTheDocument();

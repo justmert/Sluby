@@ -99,7 +99,7 @@ describe('AppShell', () => {
   });
 
   it('names the browser tab after the page', () => {
-    renderShell('/studio/assets');
+    renderShell('/studio/videos');
     expect(document.title).toBe('Videos · Sluby Studio');
   });
 
@@ -112,7 +112,7 @@ describe('AppShell', () => {
   });
 
   it('names a video tab by the title the page loaded', async () => {
-    const { client } = renderShell('/studio/assets/a1');
+    const { client } = renderShell('/studio/videos/a1');
     expect(document.title).toBe('Video · Sluby Studio');
     client.setQueryData(['assets', 'one', 'a1'], { id: 'a1', title: 'Keynote 2026' });
     await vi.waitFor(() => expect(document.title).toBe('Keynote 2026 · Sluby Studio'));

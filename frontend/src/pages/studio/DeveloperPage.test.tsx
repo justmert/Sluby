@@ -2,7 +2,18 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '@/test/render';
-import DeveloperPage from './DeveloperPage';
+import { ApiExplorer, Snippets, Webhooks } from './DeveloperPage';
+
+// the sections the quickstart, webhooks and explorer pages are made of, together
+function DeveloperPage() {
+  return (
+    <>
+      <Snippets />
+      <Webhooks />
+      <ApiExplorer />
+    </>
+  );
+}
 
 let fetchMock: ReturnType<typeof vi.fn>;
 let hooks: Array<Record<string, unknown>>;

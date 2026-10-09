@@ -139,3 +139,14 @@ export function useWebhookDeliveries(id: string, enabled: boolean) {
     refetchInterval: enabled ? 15_000 : false,
   });
 }
+
+/** How a webhook is named in titles and crumbs: its host and path, without the scheme. */
+export function webhookLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    const path = u.pathname === '/' ? '' : u.pathname;
+    return `${u.host}${path}`;
+  } catch {
+    return url;
+  }
+}

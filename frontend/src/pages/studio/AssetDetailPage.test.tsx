@@ -153,10 +153,10 @@ function render(assetBody = asset(), extra: Record<string, unknown> = {}) {
     server,
     ...renderPage(
       <Routes>
-        <Route path="/studio/assets/:id" element={<AssetDetailPage />} />
-        <Route path="/studio/assets" element={<p>Library</p>} />
+        <Route path="/studio/videos/:id" element={<AssetDetailPage />} />
+        <Route path="/studio/videos" element={<p>Library</p>} />
       </Routes>,
-      { route: '/studio/assets/a1' },
+      { route: '/studio/videos/a1' },
     ),
   };
 }
@@ -176,7 +176,7 @@ function renderAt(route: string) {
   return renderPage(
     <Routes>
       <Route
-        path="/studio/assets/:id"
+        path="/studio/videos/:id"
         element={
           <>
             <AssetDetailPage />
@@ -380,13 +380,13 @@ describe('AssetDetailPage', () => {
     );
     renderPage(
       <Routes>
-        <Route path="/studio/assets/:id" element={<AssetDetailPage />} />
+        <Route path="/studio/videos/:id" element={<AssetDetailPage />} />
       </Routes>,
-      { route: '/studio/assets/a1' },
+      { route: '/studio/videos/a1' },
     );
     expect(await screen.findByRole('link', { name: 'Assets' })).toHaveAttribute(
       'href',
-      '/studio/assets',
+      '/studio/videos',
     );
     expect(await screen.findByTestId('asset-detail-skeleton')).toBeInTheDocument();
   });
@@ -484,7 +484,7 @@ describe('AssetDetailPage', () => {
   });
 
   it('opens the tab named in the url and keeps the choice there', async () => {
-    renderAt('/studio/assets/a1?tab=renditions');
+    renderAt('/studio/videos/a1?tab=renditions');
     expect(
       await screen.findByRole('tab', { name: 'Renditions', selected: true }),
     ).toBeInTheDocument();
@@ -499,9 +499,9 @@ describe('AssetDetailPage', () => {
       await screen.findByRole('heading', { level: 1, name: 'Asset not found' }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to assets' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Back to videos' })).toHaveAttribute(
       'href',
-      '/studio/assets',
+      '/studio/videos',
     );
   });
 

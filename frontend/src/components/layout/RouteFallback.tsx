@@ -73,35 +73,52 @@ function AssetDetail() {
   );
 }
 
-function Player() {
-  return (
-    <>
-      <Header />
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Skeleton className={`aspect-video w-full lg:col-span-2 ${card}`} />
-        <Skeleton className={`h-[420px] ${card}`} />
-      </div>
-    </>
-  );
-}
-
-function Upload() {
-  return (
-    <>
-      <Header />
-      <Skeleton className={`h-[290px] max-w-2xl ${card}`} />
-    </>
-  );
-}
-
-function Developer() {
+function Quickstart() {
   return (
     <>
       <Header />
       <Skeleton className={`h-[510px] ${card}`} />
+    </>
+  );
+}
+
+// a list page with one card: keys, webhooks
+function ListPage() {
+  return (
+    <>
+      <Header />
+      <Skeleton className={`h-[300px] ${card}`} />
+    </>
+  );
+}
+
+function WebhookDetail() {
+  return (
+    <>
+      <Header />
+      <Skeleton className={`h-[160px] ${card}`} />
+      <Skeleton className={`mt-10 h-[240px] ${card}`} />
+    </>
+  );
+}
+
+function Explorer() {
+  return (
+    <>
+      <Header />
+      <Skeleton className={`h-[420px] ${card}`} />
+    </>
+  );
+}
+
+function Health() {
+  return (
+    <>
+      <Header />
+      <Skeleton className={`h-[260px] ${card}`} />
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Skeleton className={`h-[300px] ${card}`} />
-        <Skeleton className={`h-[300px] ${card}`} />
+        <Skeleton className={`h-[220px] ${card}`} />
+        <Skeleton className={`h-[220px] ${card}`} />
       </div>
     </>
   );
@@ -135,12 +152,14 @@ function Settings() {
 
 const SKELETONS: Array<[RegExp, () => React.ReactNode]> = [
   [/^\/studio\/?$/, Dashboard],
-  [/^\/studio\/assets\/?$/, Assets],
-  [/^\/studio\/assets\/[^/]+\/?$/, AssetDetail],
-  [/^\/studio\/player\/?$/, Player],
-  [/^\/studio\/upload\/?$/, Upload],
-  [/^\/studio\/developer\/?$/, Developer],
-  [/^\/studio\/analytics\/?$/, Analytics],
+  [/^\/studio\/videos\/?$/, Assets],
+  [/^\/studio\/videos\/[^/]+\/?$/, AssetDetail],
+  [/^\/studio\/developers\/?$/, Quickstart],
+  [/^\/studio\/developers\/(keys|webhooks)\/?$/, ListPage],
+  [/^\/studio\/developers\/webhooks\/[^/]+\/?$/, WebhookDetail],
+  [/^\/studio\/developers\/explorer\/?$/, Explorer],
+  [/^\/studio\/deployment\/?$/, Health],
+  [/^\/studio\/deployment\/metrics\/?$/, Analytics],
   [/^\/studio\/settings\/?$/, Settings],
 ];
 

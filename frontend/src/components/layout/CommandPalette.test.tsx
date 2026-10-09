@@ -86,12 +86,31 @@ describe('CommandPalette', () => {
     ).toHaveAccessibleDescription('Jump to a page, find a video or run an action');
   });
 
-  it('opens the create key dialog on settings from its action', async () => {
+  it('opens the create key dialog on the API keys page from its action', async () => {
     setup();
     await openWithKeys();
     await userEvent.type(await screen.findByRole('combobox'), 'api key');
     await userEvent.click(await screen.findByRole('option', { name: 'Create API key' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('/studio/settings?create=key');
+    expect(screen.getByTestId('where')).toHaveTextContent('/studio/developers/keys?create=key');
+  });
+
+  it('opens the add webhook dialog on the webhooks page from its action', async () => {
+    setup();
+    await openWithKeys();
+    await userEvent.type(await screen.findByRole('combobox'), 'webhook');
+    await userEvent.click(await screen.findByRole('option', { name: 'Add a webhook' }));
+    expect(screen.getByTestId('where')).toHaveTextContent(
+      '/studio/developers/webhooks?create=webhook',
+    );
+  });
+
+  it('opens the upload sheet on the current page', async () => {
+    setup();
+    await openWithKeys();
+    await userEvent.type(await screen.findByRole('combobox'), 'upload');
+    await userEvent.click(await screen.findByRole('option', { name: 'Upload video' }));
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio\?upload=1$/);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('finds only the settings page for "sett"', async () => {
@@ -106,12 +125,22 @@ describe('CommandPalette', () => {
     );
   });
 
-  it('leaves out operator pages for a tenant', async () => {
+  it('leaves out operator pages for a member', async () => {
     setup(false);
     await openWithKeys();
     await screen.findByRole('dialog');
-    expect(screen.queryByRole('option', { name: 'Analytics' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Health' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Metrics' })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Videos' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'API keys' })).toBeInTheDocument();
+  });
+
+  it('lists health and metrics for an operator', async () => {
+    setup(true);
+    await openWithKeys();
+    await userEvent.type(await screen.findByRole('combobox'), 'metrics');
+    await userEvent.click(await screen.findByRole('option', { name: 'Metrics' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/studio/deployment/metrics');
   });
 
   it('finds a video on the server and opens it with the keyboard', async () => {
@@ -126,7 +155,7 @@ describe('CommandPalette', () => {
     );
     expect(screen.getByRole('option', { name: /Sintel/ })).toHaveAttribute('aria-selected', 'true');
     await userEvent.keyboard('{Enter}');
-    expect(screen.getByTestId('where')).toHaveTextContent('/studio/assets/a2');
+    expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos/a2');
   });
 
   it('selects a video that the search keeps once the others drop out', async () => {
@@ -145,7 +174,7 @@ describe('CommandPalette', () => {
         'true',
       );
       await userEvent.keyboard('{Enter}');
-      expect(screen.getByTestId('where')).toHaveTextContent('/studio/assets/a3');
+      expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos/a3');
     } finally {
       library.splice(0, library.length, ...library.filter((a) => ['a1', 'a2'].includes(a.id)));
     }

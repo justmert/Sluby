@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
@@ -73,6 +73,12 @@ import {
   type UploadStore,
 } from '@/lib/upload-store';
 import { cn } from '@/lib/utils';
+import {
+  discardPendingFiles,
+  onPendingFiles,
+  peekPendingFiles,
+  takePendingFiles,
+} from '@/lib/upload-sheet';
 
 function titleFromFile(name: string): string {
   return (
@@ -81,6 +87,14 @@ function titleFromFile(name: string): string {
       .replace(/[_-]+/g, ' ')
       .trim() || 'Untitled'
   );
+}
+
+/** Why some picked files were left out, or null when all are videos. */
+function notVideos(files: File[]): string | null {
+  const others = files.filter((f) => !isVideo(f));
+  if (others.length === 0) return null;
+  if (others.length === 1) return `${others[0].name} is not a video file.`;
+  return `${others.length} files are not videos and were left out: ${others.map((f) => f.name).join(', ')}.`;
 }
 
 function isVideo(file: File): boolean {
@@ -818,7 +832,7 @@ function UploadCard({ store, s, busy }: { store: UploadStore; s: UploadState; bu
           <div className="flex flex-wrap gap-2 empty:hidden">
             {s.phase === 'ready' && assetLink && (
               <Button asChild>
-                <Link to={`/studio/assets/${assetLink}`}>
+                <Link to={`/studio/videos/${assetLink}`}>
                   <Play />
                   Open asset
                 </Link>
@@ -857,7 +871,7 @@ function UploadCard({ store, s, busy }: { store: UploadStore; s: UploadState; bu
             )}
             {(s.phase === 'processing' || s.phase === 'failed') && assetLink && (
               <Button variant="outline" asChild>
-                <Link to={`/studio/assets/${assetLink}`}>View asset</Link>
+                <Link to={`/studio/videos/${assetLink}`}>View asset</Link>
               </Button>
             )}
             {dismissable && (
@@ -971,7 +985,7 @@ function ServerInFlightRow({ asset }: { asset: VideoAsset }) {
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <Link
-            to={`/studio/assets/${asset.id}`}
+            to={`/studio/videos/${asset.id}`}
             className="block truncate text-sm font-medium underline-offset-4 hover:underline"
             title={asset.title}
           >
@@ -1021,10 +1035,20 @@ function ServerInFlight({ tracked }: { tracked: Set<string> }) {
   );
 }
 
-export default function UploadPage({ store = defaultStore }: { store?: UploadStore }) {
+export default function UploadPage({
+  store = defaultStore,
+  embedded = false,
+}: {
+  store?: UploadStore;
+  /** Inside the upload sheet, which has its own title. */
+  embedded?: boolean;
+}) {
   const { uploads, queued, queueHeld } = useUploads(store);
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [rejected, setRejected] = useState<string | null>(null);
+  // files handed over by useUploadSheet().open(files), such as a drop on
+  // another page, start as drafts; the effect below clears them from the handoff
+  const [handed] = useState(peekPendingFiles);
+  const [drafts, setDrafts] = useState<Draft[]>(() => handed.filter(isVideo).map(toDraft));
+  const [rejected, setRejected] = useState<string | null>(() => notVideos(handed));
   const busy = uploads.some(isTransferring);
   const known = new Set(uploads.map((u) => u.uploadId).filter((id): id is string => !!id));
   const trackedAssets = new Set(uploads.map((u) => u.assetId).filter((id): id is string => !!id));
@@ -1056,14 +1080,7 @@ export default function UploadPage({ store = defaultStore }: { store?: UploadSto
 
   const choose = (files: File[]) => {
     const videos = files.filter(isVideo);
-    const others = files.filter((f) => !isVideo(f));
-    setRejected(
-      others.length === 0
-        ? null
-        : others.length === 1
-          ? `${others[0].name} is not a video file.`
-          : `${others.length} files are not videos and were left out: ${others.map((f) => f.name).join(', ')}.`,
-    );
+    setRejected(notVideos(files));
     // a file that matches an unfinished upload picks up where it stopped,
     // with the details it was started with
     const fresh: File[] = [];
@@ -1074,6 +1091,16 @@ export default function UploadPage({ store = defaultStore }: { store?: UploadSto
     }
     if (fresh.length > 0) setDrafts((d) => [...d, ...fresh.map(toDraft)]);
   };
+
+  // files handed over while this is open, such as a second drop
+  const takeHandedFiles = useEffectEvent(() => {
+    const files = takePendingFiles();
+    if (files.length > 0) choose(files);
+  });
+  useEffect(() => {
+    discardPendingFiles(handed);
+    return onPendingFiles(() => takeHandedFiles());
+  }, [handed]);
 
   const start = (opts: { description: string; accessTier: AccessTier }) => {
     const single = drafts.length === 1;
@@ -1095,66 +1122,71 @@ export default function UploadPage({ store = defaultStore }: { store?: UploadSto
     setRejected(null);
   };
 
+  const body = (
+    <div className="flex flex-col gap-6">
+      <Card className="max-w-2xl">
+        <CardContent className="flex flex-col gap-4">
+          {/* the new view fades in where the old one was; an exit here would
+                overlap the two while the card changes height */}
+          <m.div
+            key={drafts.length > 0 ? 'form' : 'zone'}
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+          >
+            {drafts.length > 0 ? (
+              <DetailsForm
+                drafts={drafts}
+                busy={busy}
+                onChange={setDrafts}
+                onCancel={() => setDrafts([])}
+                onStart={start}
+              />
+            ) : (
+              <DropZone onFiles={choose} busy={busy} />
+            )}
+          </m.div>
+          {rejected && (
+            <p role="alert" className="text-sm text-destructive">
+              {rejected}
+            </p>
+          )}
+          {drafts.length === 0 && (
+            <UnfinishedUploads
+              rows={unfinishedRows}
+              error={unfinished.error}
+              onResume={resumeUnfinished}
+            />
+          )}
+        </CardContent>
+      </Card>
+      <QueuedList
+        queued={queued}
+        held={queueHeld}
+        onRemove={(key) => store.removeQueued(key)}
+        onContinue={() => store.continueQueue()}
+      />
+      <AnimatedList as="div" className="flex flex-col gap-6">
+        {uploads.map((u) => (
+          // slide only when a card comes or goes, not whenever something
+          // above the list changes height (the form opening, the queue)
+          <AnimatedItem key={u.key} as="div" layoutDependency={uploads.length}>
+            <UploadCard store={store} s={u} busy={busy} />
+          </AnimatedItem>
+        ))}
+      </AnimatedList>
+      <ServerInFlight tracked={trackedAssets} />
+    </div>
+  );
+
+  if (embedded) return body;
   return (
     <PageContainer>
       <PageHeader
         title="Upload"
         description="Videos are transcoded to adaptive HLS and stored on Sia"
       />
-      <div className="flex flex-col gap-6">
-        <Card className="max-w-2xl">
-          <CardContent className="flex flex-col gap-4">
-            {/* the new view fades in where the old one was; an exit here would
-                overlap the two while the card changes height */}
-            <m.div
-              key={drafts.length > 0 ? 'form' : 'zone'}
-              variants={fadeUp}
-              initial="hidden"
-              animate="visible"
-            >
-              {drafts.length > 0 ? (
-                <DetailsForm
-                  drafts={drafts}
-                  busy={busy}
-                  onChange={setDrafts}
-                  onCancel={() => setDrafts([])}
-                  onStart={start}
-                />
-              ) : (
-                <DropZone onFiles={choose} busy={busy} />
-              )}
-            </m.div>
-            {rejected && (
-              <p role="alert" className="text-sm text-destructive">
-                {rejected}
-              </p>
-            )}
-            {drafts.length === 0 && (
-              <UnfinishedUploads
-                rows={unfinishedRows}
-                error={unfinished.error}
-                onResume={resumeUnfinished}
-              />
-            )}
-          </CardContent>
-        </Card>
-        <QueuedList
-          queued={queued}
-          held={queueHeld}
-          onRemove={(key) => store.removeQueued(key)}
-          onContinue={() => store.continueQueue()}
-        />
-        <AnimatedList as="div" className="flex flex-col gap-6">
-          {uploads.map((u) => (
-            // slide only when a card comes or goes, not whenever something
-            // above the list changes height (the form opening, the queue)
-            <AnimatedItem key={u.key} as="div" layoutDependency={uploads.length}>
-              <UploadCard store={store} s={u} busy={busy} />
-            </AnimatedItem>
-          ))}
-        </AnimatedList>
-        <ServerInFlight tracked={trackedAssets} />
-      </div>
+      {body}
     </PageContainer>
   );
 }

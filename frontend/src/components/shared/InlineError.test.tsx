@@ -50,7 +50,7 @@ describe('PageState', () => {
         title="Could not load this video"
         error={new ApiError(503, 'Service Unavailable')}
         onRetry={() => {}}
-        actions={<a href="/studio/assets">Back to videos</a>}
+        actions={<a href="/studio/videos">Back to videos</a>}
       />,
     );
     expect(

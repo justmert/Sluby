@@ -5,6 +5,7 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -13,21 +14,15 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { Logo } from '@/components/brand/Logo';
-import { STUDIO_NAV, ROUTES } from '@/lib/constants';
+import { isNavActive, navGroupsFor, ROUTES, type NavItem } from '@/lib/constants';
 import { spring } from '@/lib/motion';
 import { preloadPage } from '@/lib/page-chunks';
 import { useSession } from '@/lib/session';
 
-function isActive(pathname: string, path: string) {
-  // the dashboard is the studio root, so only match it exactly
-  if (path === ROUTES.STUDIO_DASHBOARD) return pathname === path;
-  return pathname === path || pathname.startsWith(`${path}/`);
-}
-
 export function AppSidebar() {
   const { pathname } = useLocation();
   const { operator } = useSession();
-  const items = STUDIO_NAV.filter((item) => operator || !item.operatorOnly);
+  const groups = navGroupsFor(operator);
   // on mobile the sidebar is a sheet over the page; picking a page should
   // close it rather than leave it covering what was just opened
   const { setOpenMobile } = useSidebar();
@@ -39,7 +34,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <NavLink to={ROUTES.STUDIO_DASHBOARD} onClick={closeMobile}>
+              <NavLink to={ROUTES.OVERVIEW} onClick={closeMobile}>
                 {/* the menu button sizes every svg inside it to 16px; the mark keeps its 32 */}
                 <Logo className="size-8!" />
                 <div className="grid flex-1 text-left leading-tight">
@@ -53,51 +48,79 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         {/* the nav landmark, so screen readers can jump to it */}
-        <nav aria-label="Studio">
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {items.map((item) => {
-                  const active = isActive(pathname, item.path);
-                  return (
-                    <SidebarMenuItem key={item.path}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={active}
-                        tooltip={item.label}
-                        // the highlight is the sliding pill below, not the button's own background
-                        className="relative isolate data-active:bg-transparent data-active:hover:bg-sidebar-accent"
-                      >
-                        <NavLink
-                          to={item.path}
-                          onClick={closeMobile}
-                          // fetch the page's code while the pointer is on its way
-                          onPointerEnter={() => preloadPage(item.path)}
-                          onFocus={() => preloadPage(item.path)}
-                        >
-                          {active && (
-                            <m.span
-                              layoutId="sidebar-active"
-                              // measure only on navigation, so collapsing the sidebar does not slide it
-                              layoutDependency={pathname}
-                              transition={spring}
-                              aria-hidden="true"
-                              className="absolute inset-0 -z-10 rounded-md bg-sidebar-accent"
-                            />
-                          )}
-                          <item.icon />
-                          <span>{item.label}</span>
-                        </NavLink>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+        <nav aria-label="Studio" className="flex flex-1 flex-col">
+          {groups.map((group) => (
+            <SidebarGroup
+              key={group.id}
+              // settings sits at the bottom, apart from the work pages
+              className={group.id === 'settings' ? 'mt-auto' : undefined}
+            >
+              {group.label && <SidebarGroupLabel>{group.label}</SidebarGroupLabel>}
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {group.items.map((item) => (
+                    <NavEntry
+                      key={item.path}
+                      item={item}
+                      active={isNavActive(item, pathname)}
+                      pathname={pathname}
+                      onNavigate={closeMobile}
+                    />
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ))}
         </nav>
       </SidebarContent>
       <SidebarRail />
     </Sidebar>
+  );
+}
+
+function NavEntry({
+  item,
+  active,
+  pathname,
+  onNavigate,
+}: {
+  item: NavItem;
+  active: boolean;
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        asChild
+        isActive={active}
+        tooltip={item.label}
+        // the highlight is the sliding pill below, not the button's own background
+        className="relative isolate data-active:bg-transparent data-active:hover:bg-sidebar-accent"
+      >
+        <NavLink
+          to={item.path}
+          // aria-current follows the pill: Quickstart is not current on API keys
+          end={item.exact}
+          onClick={onNavigate}
+          // fetch the page's code while the pointer is on its way
+          onPointerEnter={() => preloadPage(item.path)}
+          onFocus={() => preloadPage(item.path)}
+        >
+          {active && (
+            <m.span
+              layoutId="sidebar-active"
+              // measure only on navigation, so collapsing the sidebar does not slide it
+              layoutDependency={pathname}
+              transition={spring}
+              aria-hidden="true"
+              className="absolute inset-0 -z-10 rounded-md bg-sidebar-accent"
+            />
+          )}
+          <item.icon />
+          <span>{item.label}</span>
+        </NavLink>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }

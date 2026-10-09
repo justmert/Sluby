@@ -76,7 +76,7 @@ import {
   type KeyScope,
 } from '@/hooks/useApiKeys';
 import { useFrozen } from '@/hooks/useFrozen';
-import { useSystemStatus } from '@/hooks/useStats';
+import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useRevokeAllSessions, useRevokeSession, useSessions } from '@/hooks/useSessions';
 import { statusOf } from '@/lib/api-client';
 import { formatDate, formatRelativeTime, formatTimeLeft } from '@/lib/formatters';
@@ -432,7 +432,7 @@ function KeyStatus({ k }: { k: ApiKeyRecord }) {
   return <Badge variant="success">Active</Badge>;
 }
 
-function ApiKeysCard() {
+export function ApiKeysCard() {
   const keys = useApiKeys();
   const revoke = useRevokeApiKey();
   const [createOpen, setCreateOpen] = useState(false);
