@@ -182,7 +182,9 @@ export default function WebhookDetailPage() {
         meta={
           <>
             <StatusBadge kind="webhook" status={hook.isActive ? 'active' : 'inactive'} />
+            <span aria-hidden="true">·</span>
             <span>Added {formatDate(hook.createdAt)}</span>
+            <span aria-hidden="true">·</span>
             <span className="inline-flex items-center gap-1.5">
               Last delivery <LastDelivery hook={hook} />
             </span>

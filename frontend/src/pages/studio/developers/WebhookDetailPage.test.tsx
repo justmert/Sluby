@@ -89,6 +89,13 @@ describe('webhook page', () => {
     expect(calls('GET', '/api/v1/webhooks/w1')).toHaveLength(1);
   });
 
+  it('separates the header facts with middle dots, like the video page', async () => {
+    render();
+    const added = await screen.findByText('Added Oct 1, 2026');
+    expect(added.previousElementSibling).toHaveTextContent('·');
+    expect(added.nextElementSibling).toHaveTextContent('·');
+  });
+
   it('says when the webhook does not exist', async () => {
     routes['/api/v1/webhooks/gone'] = reply(404, { error: 'Webhook endpoint not found' });
     render('gone');
