@@ -32,6 +32,8 @@ describe('focusable surfaces show a focus ring', () => {
     );
     const chart = container.querySelector('[data-slot=chart]')!;
     expect(chart.className).toContain('[&_.recharts-surface:focus-visible]:outline-ring');
+    // outline-hidden on the surface sets the style to none; focus has to set it back
+    expect(chart.className).toContain('[&_.recharts-surface:focus-visible]:outline-solid');
   });
 });
 
