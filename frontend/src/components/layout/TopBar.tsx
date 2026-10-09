@@ -63,12 +63,15 @@ export function TopBar() {
                 {i > 0 && <BreadcrumbSeparator className="max-sm:hidden" />}
                 <BreadcrumbItem className={last ? 'min-w-0' : 'shrink-0 max-sm:hidden'}>
                   {last || !crumb.path ? (
-                    <BreadcrumbPage className="truncate" title={crumb.label}>
+                    // a video title can be right to left; dir keeps its start in view when it truncates
+                    <BreadcrumbPage dir="auto" className="truncate" title={crumb.label}>
                       {crumb.label}
                     </BreadcrumbPage>
                   ) : (
                     <BreadcrumbLink asChild>
-                      <Link to={crumb.path}>{crumb.label}</Link>
+                      <Link to={crumb.path} dir="auto">
+                        {crumb.label}
+                      </Link>
                     </BreadcrumbLink>
                   )}
                 </BreadcrumbItem>
