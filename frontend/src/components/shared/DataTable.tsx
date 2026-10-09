@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, ChevronsUpDown, MoreHorizontal, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -12,9 +12,11 @@ import {
 import { ResponsiveCell, ResponsiveTable } from '@/components/ui/responsive-table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { AnimatedItem, AnimatedList } from '@/components/motion';
 import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { InlineError } from './InlineError';
+import { selectRange } from './select-range';
 
 export type SortDirection = 'asc' | 'desc';
 export interface SortState {
@@ -34,9 +36,29 @@ export interface DataTableColumn<T> {
   sortable?: boolean;
   /** numbers and sizes align right */
   align?: 'left' | 'right';
-  /** extra classes for this column's cells, e.g. a width */
+  /** extra classes for this column's cells */
   className?: string;
+  /** a width class for the column, such as `w-32`; with `layout="fixed"` the other columns share what is left */
+  width?: string;
+  /** hide the column while the table is narrower than this container size (see BREAKPOINT) */
+  hideBelow?: TableBreakpoint;
+  /** leave the column out of the phone cards, e.g. when the primary cell already shows it there */
+  hideInCards?: boolean;
 }
+
+/**
+ * Container sizes a column can wait for. They measure the table itself, not
+ * the window, so a table in a narrow card or beside a sidebar drops columns
+ * when it has to (A11Y-07). Full class names, so tailwind sees them.
+ */
+const BREAKPOINT = {
+  xl: 'hidden @xl/table:table-cell',
+  '2xl': 'hidden @2xl/table:table-cell',
+  '3xl': 'hidden @3xl/table:table-cell',
+  '4xl': 'hidden @4xl/table:table-cell',
+  '5xl': 'hidden @5xl/table:table-cell',
+} as const;
+export type TableBreakpoint = keyof typeof BREAKPOINT;
 
 export interface RowAction {
   label: string;
@@ -78,6 +100,17 @@ export interface DataTableProps<T> {
   loadingRows?: number;
   /** marks rows, e.g. a row that is being deleted */
   rowClassName?: (row: T) => string | undefined;
+  /** `fixed` keeps long cells from widening the table past its box; give columns a `width` */
+  layout?: 'auto' | 'fixed';
+  /** a refetch is running over rows already shown */
+  busy?: boolean;
+  /**
+   * Rows that leave fade out and the rest slide up. With `staggerIn` the rows
+   * present at mount also enter one after another; leave it off when the
+   * rows are not new to the reader (a cached list, a sort, another page).
+   */
+  animateRows?: boolean;
+  staggerIn?: boolean;
   className?: string;
 }
 
@@ -149,11 +182,13 @@ function RowMenu({ actions, label }: { actions: RowAction[]; label: string }) {
 }
 
 /**
- * The studio's table: sortable headers, a checkbox column, a row menu, a
- * toolbar, and its own loading, empty and error states. Below 640px each row
- * turns into a small card (ResponsiveTable), the primary column on top and
- * the menu pinned to the right. Sorting and filtering stay with the page
- * (usually in the url), so the table only reports clicks.
+ * The studio's table: sortable headers, a checkbox column with shift-click
+ * ranges, a row menu, a toolbar, and its own loading, empty and error
+ * states. When the table itself is narrower than 640px (a phone, or a narrow
+ * card on a wide screen) each row turns into a small card (ResponsiveTable),
+ * the primary column on top and the menu pinned to the right; columns can
+ * also drop out by the table's width (`hideBelow`). Sorting and filtering
+ * stay with the page (usually in the url), so the table only reports clicks.
  *
  *   <DataTable
  *     caption="API keys"
@@ -189,6 +224,10 @@ export function DataTable<T>({
   empty,
   loadingRows = 5,
   rowClassName,
+  layout = 'auto',
+  busy = false,
+  animateRows = false,
+  staggerIn = false,
   className,
 }: DataTableProps<T>) {
   const selectable = selected !== undefined && onSelectedChange !== undefined;
@@ -207,13 +246,23 @@ export function DataTable<T>({
     else ids.forEach((id) => next.add(id));
     onSelectedChange(next);
   };
+  // the last row toggled, and whether shift was down on the click that is
+  // about to toggle a row (radix reports the click before the change)
+  const anchor = useRef<string | null>(null);
+  const shift = useRef(false);
   const toggle = (id: string) => {
     if (!onSelectedChange || !selected) return;
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onSelectedChange(next);
+    const on = !selected.has(id);
+    onSelectedChange(selectRange(ids, selected, shift.current ? anchor.current : null, id, on));
+    anchor.current = id;
+    shift.current = false;
   };
+  const colClass = (c: DataTableColumn<T>) => c.hideBelow && BREAKPOINT[c.hideBelow];
+  // rows present at mount stay put unless asked to stagger in; later ones
+  // (a poll that brings a new row) fade in
+  const [mountedIds] = useState(() => new Set(ids));
+  const initialFor = (id: string) => (staggerIn || !mountedIds.has(id) ? undefined : false);
+  const Body = animateRows ? AnimatedList : TableBody;
 
   return (
     <div data-slot="data-table" className={cn('flex flex-col gap-3', className)}>
@@ -228,8 +277,13 @@ export function DataTable<T>({
       {failed ? (
         <InlineError error={error} what={what} onRetry={onRetry} retrying={retrying} />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card">
-          <ResponsiveTable aria-label={caption} aria-busy={loading || undefined}>
+        <div className="@container/table overflow-hidden rounded-xl border bg-card">
+          <ResponsiveTable
+            data-responsive="container"
+            aria-label={caption}
+            aria-busy={loading || busy || undefined}
+            className={cn(layout === 'fixed' && 'table-fixed')}
+          >
             <TableHeader>
               <TableRow>
                 {selectable && (
@@ -255,6 +309,8 @@ export function DataTable<T>({
                     className={cn(
                       c.align === 'right' && 'text-right',
                       i === 0 && !selectable && 'pl-4',
+                      c.width,
+                      colClass(c),
                       c.className,
                     )}
                   >
@@ -272,7 +328,15 @@ export function DataTable<T>({
                 )}
               </TableRow>
             </TableHeader>
-            <TableBody>
+            <Body
+              {...(animateRows
+                ? {
+                    as: 'tbody' as const,
+                    'data-slot': 'table-body',
+                    className: '[&_tr:last-child]:border-0',
+                  }
+                : {})}
+            >
               {loading &&
                 Array.from({ length: loadingRows }, (_, r) => (
                   <TableRow key={r} className="hover:bg-transparent">
@@ -282,7 +346,11 @@ export function DataTable<T>({
                       </TableCell>
                     )}
                     {columns.map((c, i) => (
-                      <TableCell key={c.id} className={cn(i === 0 && !selectable && 'pl-4')}>
+                      <TableCell
+                        key={c.id}
+                        data-card-hidden={c.hideInCards || undefined}
+                        className={cn(i === 0 && !selectable && 'pl-4', colClass(c))}
+                      >
                         <Skeleton
                           className={cn(
                             'h-4',
@@ -311,16 +379,13 @@ export function DataTable<T>({
                 const id = getRowId(row);
                 const label = getRowLabel(row);
                 const isSelected = selected?.has(id) ?? false;
-                return (
-                  <TableRow
-                    key={id}
-                    data-state={isSelected ? 'selected' : undefined}
-                    className={rowClassName?.(row)}
-                  >
+                const cells = (
+                  <>
                     {selectable && (
                       <ResponsiveCell cell="select" className="pl-4">
                         <Checkbox
                           checked={isSelected}
+                          onClick={(e) => (shift.current = e.shiftKey)}
                           onCheckedChange={() => toggle(id)}
                           aria-label={`Select ${label}`}
                         />
@@ -331,10 +396,12 @@ export function DataTable<T>({
                         key={c.id}
                         cell={c.primary ? 'primary' : undefined}
                         label={c.primary ? undefined : labelOf(c)}
+                        data-card-hidden={c.hideInCards || undefined}
                         className={cn(
                           c.align === 'right' && 'text-right tabular-nums',
                           c.primary && 'font-medium',
                           i === 0 && !selectable && 'pl-4',
+                          colClass(c),
                           c.className,
                         )}
                       >
@@ -346,10 +413,33 @@ export function DataTable<T>({
                         <RowMenu actions={rowActions(row)} label={label} />
                       </ResponsiveCell>
                     )}
+                  </>
+                );
+                return animateRows ? (
+                  <AnimatedItem
+                    key={id}
+                    as="tr"
+                    initial={initialFor(id)}
+                    data-slot="table-row"
+                    data-state={isSelected ? 'selected' : undefined}
+                    className={cn(
+                      'border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted',
+                      rowClassName?.(row),
+                    )}
+                  >
+                    {cells}
+                  </AnimatedItem>
+                ) : (
+                  <TableRow
+                    key={id}
+                    data-state={isSelected ? 'selected' : undefined}
+                    className={rowClassName?.(row)}
+                  >
+                    {cells}
                   </TableRow>
                 );
               })}
-            </TableBody>
+            </Body>
           </ResponsiveTable>
         </div>
       )}

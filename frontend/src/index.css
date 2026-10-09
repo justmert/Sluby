@@ -409,6 +409,80 @@
   }
 }
 
+/* the same cards for a DataTable, decided by the table's own width instead
+   of the window's, so a table in a narrow column turns into cards too. the
+   rules repeat the ones above because a media query and a container query
+   cannot share one block. data-card-hidden drops a column from the cards
+   when the primary cell already shows it there. */
+@container table (width < 40rem) {
+  table[data-responsive='container'] {
+    display: block;
+  }
+  table[data-responsive='container'] > thead th {
+    display: table-cell;
+  }
+  table[data-responsive='container'] > thead :is(button, a, input, [tabindex], [role='checkbox']) {
+    visibility: hidden;
+  }
+  table[data-responsive='container'] > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table[data-responsive='container'] > tbody {
+    display: block;
+  }
+  table[data-responsive='container'] > tbody > tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: calc(var(--spacing) * 3);
+    row-gap: calc(var(--spacing) * 1);
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 1) calc(var(--spacing) * 3)
+      calc(var(--spacing) * 4);
+  }
+  table[data-responsive='container'] > tbody > tr > td {
+    grid-column: 1;
+    display: flex;
+    align-items: baseline;
+    gap: calc(var(--spacing) * 2);
+    min-width: 0;
+    padding: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    justify-content: flex-start;
+    text-align: start;
+  }
+  table[data-responsive='container'] > tbody > tr > td[data-label]::before {
+    content: attr(data-label) / '';
+    text-align: start;
+    flex: none;
+    min-width: 5.5rem;
+    color: var(--muted-foreground);
+    font-size: var(--text-xs);
+  }
+  table[data-responsive='container'] > tbody > tr > td[data-cell='primary'] {
+    font-weight: 500;
+  }
+  table[data-responsive='container'] > tbody > tr > td[data-cell='actions'] {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+  }
+  table[data-responsive='container'] > tbody > tr > td[data-cell='select'] {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+    justify-self: end;
+    padding-inline: calc(var(--spacing) * 2);
+  }
+  table[data-responsive='container'] > tbody > tr > td[data-card-hidden] {
+    display: none;
+  }
+}
+
 /* forced colors (windows high contrast) drops box-shadow rings, and the
    primitives set outline: none, so focus would vanish. give every focused
    element a system-colored outline, and mark the current page in the nav. */

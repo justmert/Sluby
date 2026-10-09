@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api-client';
 import { renderWithMotion } from '@/test/render';
 import { DataTable, type DataTableColumn, type SortState } from './DataTable';
+import { selectRange } from './select-range';
 
 interface Row {
   id: string;
@@ -150,5 +151,94 @@ describe('DataTable', () => {
     const cell = screen.getByText('3 MB').closest('td')!;
     expect(cell).toHaveAttribute('data-label', 'Size');
     expect(screen.getByText('Alpha').closest('td')).toHaveAttribute('data-cell', 'primary');
+  });
+
+  it('selects a range on shift-click, from the last row toggled', async () => {
+    const many: Row[] = Array.from({ length: 6 }, (_, i) => ({
+      id: `r${i}`,
+      name: `Row ${i}`,
+      size: i,
+    }));
+    function Range() {
+      const [selected, setSelected] = useState<Set<string>>(new Set());
+      return (
+        <DataTable
+          caption="Rows"
+          columns={columns}
+          rows={many}
+          getRowId={(r) => r.id}
+          getRowLabel={(r) => r.name}
+          selected={selected}
+          onSelectedChange={setSelected}
+        />
+      );
+    }
+    const user = userEvent.setup();
+    renderWithMotion(<Range />);
+    const box = (n: number) => screen.getByRole('checkbox', { name: `Select Row ${n}` });
+    await user.click(box(1));
+    await user.keyboard('{Shift>}');
+    await user.click(box(4));
+    await user.keyboard('{/Shift}');
+    expect([0, 1, 2, 3, 4, 5].map((n) => box(n).getAttribute('aria-checked'))).toEqual([
+      'false',
+      'true',
+      'true',
+      'true',
+      'true',
+      'false',
+    ]);
+    // a shift-click that clears takes the range from the anchor with it
+    await user.keyboard('{Shift>}');
+    await user.click(box(2));
+    await user.keyboard('{/Shift}');
+    expect([0, 1, 2, 3, 4, 5].map((n) => box(n).getAttribute('aria-checked'))).toEqual([
+      'false',
+      'true',
+      'false',
+      'false',
+      'false',
+      'false',
+    ]);
+  });
+
+  it('computes ranges in either direction and without an anchor', () => {
+    const ids = ['a', 'b', 'c', 'd'];
+    expect([...selectRange(ids, new Set(), 'c', 'a', true)].sort()).toEqual(['a', 'b', 'c']);
+    expect([...selectRange(ids, new Set(['a', 'b', 'c']), 'a', 'b', false)].sort()).toEqual(['c']);
+    expect([...selectRange(ids, new Set(), null, 'd', true)]).toEqual(['d']);
+    expect([...selectRange(ids, new Set(), 'gone', 'b', true)]).toEqual(['b']);
+  });
+
+  it('switches to cards by its own width and hides columns by breakpoint', () => {
+    renderWithMotion(
+      <DataTable
+        caption="Videos"
+        layout="fixed"
+        columns={[
+          { id: 'name', header: 'Name', primary: true, cell: (r: Row) => r.name },
+          {
+            id: 'size',
+            header: 'Size',
+            width: 'w-24',
+            hideBelow: '3xl',
+            hideInCards: true,
+            cell: (r: Row) => r.size,
+          },
+        ]}
+        rows={rows}
+        getRowId={(r) => r.id}
+        getRowLabel={(r) => r.name}
+      />,
+    );
+    const table = screen.getByRole('table', { name: 'Videos' });
+    expect(table).toHaveAttribute('data-responsive', 'container');
+    expect(table).toHaveClass('table-fixed');
+    expect(table.closest('.\\@container\\/table')).not.toBeNull();
+    const header = screen.getByRole('columnheader', { name: 'Size' });
+    expect(header).toHaveClass('w-24', 'hidden', '@3xl/table:table-cell');
+    const cell = screen.getByText('3').closest('td')!;
+    expect(cell).toHaveAttribute('data-card-hidden', 'true');
+    expect(cell).toHaveClass('hidden', '@3xl/table:table-cell');
   });
 });
