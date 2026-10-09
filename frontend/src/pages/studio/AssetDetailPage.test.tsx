@@ -5,6 +5,8 @@ import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkValue, findOperation, responseSchema } from '@/test/openapi';
 import { jsonFetch, renderPage, reply, type RecordedCall } from '@/test/render';
+import { WithSession } from '@/test/session';
+import { reportUnauthorized } from '@/lib/session-events';
 import AssetDetailPage from './AssetDetailPage';
 
 const setQuality = vi.fn();
@@ -181,18 +183,20 @@ function render(
   return {
     server,
     ...renderPage(
-      <Routes>
-        <Route
-          path="/studio/videos/:id"
-          element={
-            <>
-              <AssetDetailPage />
-              <Where />
-            </>
-          }
-        />
-        <Route path="/studio/videos" element={<p>Library</p>} />
-      </Routes>,
+      <WithSession>
+        <Routes>
+          <Route
+            path="/studio/videos/:id"
+            element={
+              <>
+                <AssetDetailPage />
+                <Where />
+              </>
+            }
+          />
+          <Route path="/studio/videos" element={<p>Library</p>} />
+        </Routes>
+      </WithSession>,
       { route },
     ),
   };
@@ -443,6 +447,29 @@ describe('AssetDetailPage', () => {
       await waitFor(() => expect(ifMatch).toHaveLength(2));
       expect(ifMatch).toEqual([etag(UPDATED), etag('2026-10-03T00:00:00.000Z')]);
       expect(await screen.findByText('Changes saved')).toBeInTheDocument();
+    });
+
+    it('keeps a description whose save met an ended session, and reopens it after sign-in (FLW-15)', async () => {
+      sessionStorage.clear();
+      const first = render(undefined, {
+        // what the app's query client does with a 401
+        'PATCH /api/v1/assets/a1': () => {
+          reportUnauthorized('revoked');
+          return reply(401, { error: 'Not signed in', reason: 'revoked' });
+        },
+      });
+      await userEvent.click(await screen.findByRole('tab', { name: 'Details' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Edit description' }));
+      const box = screen.getByRole('textbox', { name: 'Edit description' });
+      await userEvent.clear(box);
+      await userEvent.type(box, 'Written before the session ended{Control>}{Enter}{/Control}');
+      await waitFor(() => expect(ifMatch).toHaveLength(1));
+      first.unmount();
+
+      render(undefined, {}, '/studio/videos/a1?panel=details');
+      expect(await screen.findByRole('textbox', { name: 'Edit description' })).toHaveValue(
+        'Written before the session ended',
+      );
     });
 
     it('caps the description and counts from 4,500 characters (FLW-30)', async () => {

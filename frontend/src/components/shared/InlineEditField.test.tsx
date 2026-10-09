@@ -1,8 +1,10 @@
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api-client';
 import { renderWithMotion } from '@/test/render';
+import { WithSession } from '@/test/session';
+import { reportUnauthorized } from '@/lib/session-events';
 import { InlineEditField } from './InlineEditField';
 
 describe('InlineEditField', () => {
@@ -137,5 +139,48 @@ describe('InlineEditField', () => {
     expect(screen.queryByText(/of 20/)).toBeNull();
     await userEvent.type(screen.getByRole('textbox'), 'yy');
     expect(screen.getByText('12 of 20')).toBeInTheDocument();
+  });
+});
+
+describe('InlineEditField drafts (FLW-15)', () => {
+  const field = (onSave = vi.fn()) => (
+    <WithSession>
+      <InlineEditField
+        label="description"
+        value="Old"
+        multiline
+        draftKey="video-description:a1"
+        onSave={onSave}
+      />
+    </WithSession>
+  );
+
+  it('keeps text that was being saved when the session ended and reopens it after sign-in', async () => {
+    sessionStorage.clear();
+    // the save is the call that comes back 401
+    const onSave = vi.fn(() => {
+      reportUnauthorized('revoked');
+      return new Promise(() => {});
+    });
+    const first = renderWithMotion(field(onSave));
+    await userEvent.click(screen.getByRole('button', { name: 'Edit description' }));
+    const box = screen.getByRole('textbox', { name: 'Edit description' });
+    await userEvent.clear(box);
+    await userEvent.type(box, 'Typed before the session ended{Control>}{Enter}{/Control}');
+    expect(onSave).toHaveBeenCalled();
+    first.unmount();
+
+    renderWithMotion(field());
+    expect(await screen.findByRole('textbox', { name: 'Edit description' })).toHaveValue(
+      'Typed before the session ended',
+    );
+  });
+
+  it('keeps nothing when the field was not being edited', () => {
+    sessionStorage.clear();
+    const first = renderWithMotion(field());
+    act(() => reportUnauthorized('revoked'));
+    first.unmount();
+    expect(sessionStorage.length).toBe(0);
   });
 });

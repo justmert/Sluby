@@ -210,6 +210,7 @@ function DetailsPanel({ asset, save, onEditStart, renderError }: EditProps) {
           maxLength={DESCRIPTION_MAX}
           counterFrom={4500}
           placeholder="Add a description"
+          draftKey={`video-description:${asset.id}`}
           onEditStart={onEditStart}
           renderError={renderError}
           onSave={(description) => save({ description })}
@@ -330,7 +331,8 @@ export default function AssetDetailPage() {
       { replace: true },
     );
 
-  const RELOADED = 'Reloaded. Save again to keep what you typed, or press Escape to keep the latest.';
+  const RELOADED =
+    'Reloaded. Save again to keep what you typed, or press Escape to keep the latest.';
   const reload = (err: unknown, settle: (note: ReactNode) => void) => {
     const current = err instanceof ConflictError ? err.current : undefined;
     if (current) {
@@ -446,6 +448,7 @@ export default function AssetDetailPage() {
             value={a.title}
             requiredMessage="Enter a title."
             maxLength={TITLE_MAX}
+            draftKey={`video-title:${a.id}`}
             onEditStart={editProps.onEditStart}
             renderError={renderError}
             onSave={(title) => save({ title })}
