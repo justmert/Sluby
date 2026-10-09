@@ -162,6 +162,8 @@ function useLibraryParams() {
     order,
     page,
     view,
+    /** whether the url names the view, or it came from this browser's last choice */
+    viewInUrl: viewParam !== undefined,
     preview,
     update,
   };
@@ -337,6 +339,13 @@ export default function AssetsPage() {
     assets.length === 0 && total > 0 && (deleting || list.isFetching) && !list.isPlaceholderData;
   const pastTheEnd = settled && assets.length === 0 && total > 0;
   const searching = searchInput.trim() !== p.q || (list.isFetching && list.isPlaceholderData);
+
+  // a link to a later page of a result that turned out empty: there is only page one
+  const emptyPastFirst = settled && total === 0 && p.page > 1;
+  useEffect(() => {
+    if (emptyPastFirst) p.update({ page: null }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emptyPastFirst]);
 
   useEffect(() => {
     if (!settled) return;
@@ -888,6 +897,18 @@ export default function AssetsPage() {
               aria-label="View"
               onValueChange={(v) => {
                 if (v !== 'table' && v !== 'grid') return;
+                // name the view this entry shows before leaving it: Back to a url
+                // without one would read the choice just stored and stay put
+                if (!p.viewInUrl) {
+                  p.update(
+                    {
+                      view: p.view,
+                      page: p.page > 1 ? String(p.page) : null,
+                      preview: p.preview,
+                    },
+                    { replace: true },
+                  );
+                }
                 rememberView(v);
                 go({ view: v, page: p.page > 1 ? String(p.page) : null });
               }}
@@ -961,7 +982,7 @@ export default function AssetsPage() {
         )}
       </div>
 
-      {(total > PAGE_SIZE || p.page > 1) && !pastTheEnd && !list.isLoading && (
+      {(total > PAGE_SIZE || (p.page > 1 && total > 0)) && !pastTheEnd && !list.isLoading && (
         <nav
           aria-label="Pages"
           className="mt-6 flex flex-wrap items-center justify-between gap-4 text-sm"

@@ -447,6 +447,26 @@ describe('AssetsPage: search and history', () => {
     expect(screen.queryByText('start page')).not.toBeInTheDocument();
   });
 
+  it('goes back to the table on Back after switching to the grid', async () => {
+    library();
+    renderLibrary();
+    await screen.findByRole('table', { name: 'Videos' });
+    await userEvent.click(screen.getByRole('radio', { name: 'Grid view' }));
+    expect(await screen.findByRole('list', { name: 'Videos' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'history back' }));
+    expect(await screen.findByRole('table', { name: 'Videos' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Table view' })).toBeChecked();
+  });
+
+  it('shows no pager and no page past the end for a link to an empty result', async () => {
+    library([]);
+    renderLibrary('/studio/videos?page=3&status=ready');
+    expect(await emptyTitle('No matching videos')).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Pages' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Page 3 of/)).not.toBeInTheDocument();
+    await waitFor(() => expect(where()).toBe('?status=ready'));
+  });
+
   it('brings the top of the results into view on a page change (FLW-32)', async () => {
     library(many(30));
     renderLibrary();
