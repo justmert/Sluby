@@ -9,6 +9,7 @@ import { jsonFetch, reply } from '@/test/render';
 import { useLatestAssets } from './useLatestAssets';
 import { useProcessingJob } from './asset-detail-queries';
 import { sluby } from '@/lib/sluby';
+import { findUpload, recordUpload } from '@/lib/upload-history';
 import {
   fetchAllMatching,
   isInFlight,
@@ -73,6 +74,25 @@ describe('isInFlight', () => {
 });
 
 describe('asset hooks', () => {
+  it('forgets that a deleted video was uploaded here, so its file reads as new again', async () => {
+    const server = jsonFetch({
+      'DELETE /api/v1/assets/a1': { success: true },
+      'DELETE /api/v1/assets/a2': reply(404, { error: 'not found' }),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    recordUpload({ fingerprint: 'clip-1', title: 'Clip', assetId: 'a1', accountId: 'me' });
+    recordUpload({ fingerprint: 'clip-2', title: 'Other', assetId: 'a2', accountId: 'me' });
+    recordUpload({ fingerprint: 'clip-3', title: 'Kept', assetId: 'a3', accountId: 'me' });
+    const { Wrapper } = wrapper();
+    const { result } = renderHook(() => useDeleteAssets(), { wrapper: Wrapper });
+    await act(() => result.current.mutateAsync(['a1', 'a2']));
+    expect(findUpload('clip-1', 'me')).toBeNull();
+    // already gone counts as deleted
+    expect(findUpload('clip-2', 'me')).toBeNull();
+    expect(findUpload('clip-3', 'me')).toMatchObject({ assetId: 'a3' });
+    localStorage.clear();
+  });
+
   it('a delete does not refetch the deleted asset while a page still shows it', async () => {
     const server = jsonFetch({
       '/api/v1/assets/a1': assetBody({ status: 'ready' }),

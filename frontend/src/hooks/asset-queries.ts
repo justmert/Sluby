@@ -10,6 +10,7 @@ import type { AccessTier, ListAssetsOptions, PaginatedResponse, VideoAsset } fro
 import { errorText } from '@/lib/errors';
 import { sluby } from '@/lib/sluby';
 import { uploadStore, uploadTabs } from '@/lib/studio-upload';
+import { forgetUpload } from '@/lib/upload-history';
 import { isTransferring } from '@/lib/upload-store';
 
 // a browser that is still sending a file moves its upload along well within
@@ -315,12 +316,16 @@ export function useDeleteAssets() {
         (r): r is PromiseRejectedResult => r.status === 'rejected' && errorStatus(r.reason) === 401,
       );
       if (signedOut) throw signedOut.reason;
-      return results.flatMap((r, i) =>
+      const failures = results.flatMap((r, i) =>
         // already gone is what a delete asks for
         r.status === 'rejected' && errorStatus(r.reason) !== 404
           ? [{ id: ids[i], error: errorText(r.reason) }]
           : [],
       );
+      // a deleted video's file is new again to the upload sheet
+      const failed = new Set(failures.map((f) => f.id));
+      for (const id of ids) if (!failed.has(id)) forgetUpload(id);
+      return failures;
     },
     onMutate: async (ids) => {
       // before the first await, so no poll can slip in between
