@@ -1,10 +1,11 @@
-import { ListFilter } from 'lucide-react';
+import { ListFilter, X } from 'lucide-react';
 import type { AccessTier, VideoAssetStatus } from '@sluby/sdk';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -18,6 +19,8 @@ export interface FilterPopoverProps {
   tier: AccessTier | undefined;
   onStatusChange: (status: VideoAssetStatus | undefined) => void;
   onTierChange: (tier: AccessTier | undefined) => void;
+  /** clears status and access (and the search, which the page owns) */
+  onClear?: () => void;
   className?: string;
 }
 
@@ -31,6 +34,7 @@ export function FilterPopover({
   tier,
   onStatusChange,
   onTierChange,
+  onClear,
   className,
 }: FilterPopoverProps) {
   const applied = (status ? 1 : 0) + (tier ? 1 : 0);
@@ -43,7 +47,8 @@ export function FilterPopover({
           aria-label={applied ? `Filter, ${applied} on` : 'Filter'}
         >
           <ListFilter />
-          Filter
+          {/* the narrowest phones keep the icon; the name stays in the label */}
+          <span className="max-[24rem]:hidden">Filter</span>
           {applied > 0 && (
             <Badge variant="secondary" className="tabular-nums" aria-hidden="true">
               {applied}
@@ -77,6 +82,15 @@ export function FilterPopover({
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+        {applied > 0 && onClear && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onClear}>
+              <X aria-hidden="true" />
+              Clear filters
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

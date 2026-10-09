@@ -80,7 +80,9 @@ export function BulkBar({
         className,
       )}
     >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {/* one row on wider screens; on phones the count and Clear share the
+          first row and the actions get the second, instead of a ragged wrap */}
+      <div className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-1 sm:flex">
         <span className="mr-1 whitespace-nowrap tabular-nums">
           {/* the page-level status region announces the count; this is the visible copy */}
           <NumberTicker value={count} format={(n) => formatCount(Math.round(n))} />
@@ -89,19 +91,21 @@ export function BulkBar({
           )}{' '}
           selected
         </span>
-        <Button variant="ghost" size="sm" disabled={busy} onClick={onMakePublic}>
-          {changing === 'public' ? <Spinner aria-hidden="true" /> : <Globe />}
-          Make public
-        </Button>
-        <Button variant="ghost" size="sm" disabled={busy} onClick={onMakePrivate}>
-          {changing === 'private' ? <Spinner aria-hidden="true" /> : <Lock />}
-          Make private
-        </Button>
-        <Button variant="destructive-outline" size="sm" disabled={busy} onClick={onDelete}>
-          <Icons.delete />
-          Delete
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onClear}>
+        <div className="col-span-2 row-start-2 -ml-2.5 flex items-center gap-1 sm:contents">
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onMakePublic}>
+            {changing === 'public' ? <Spinner aria-hidden="true" /> : <Globe />}
+            Make public
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onMakePrivate}>
+            {changing === 'private' ? <Spinner aria-hidden="true" /> : <Lock />}
+            Make private
+          </Button>
+          <Button variant="destructive-outline" size="sm" disabled={busy} onClick={onDelete}>
+            <Icons.delete />
+            Delete
+          </Button>
+        </div>
+        <Button variant="ghost" size="sm" className="col-start-2 row-start-1" onClick={onClear}>
           Clear
         </Button>
       </div>

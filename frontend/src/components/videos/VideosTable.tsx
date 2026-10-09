@@ -10,6 +10,7 @@ import {
 } from '@/components/shared/DataTable';
 import { AccessBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
 import { isStaleUpload } from '@/hooks/asset-queries';
 import { ROUTES } from '@/lib/constants';
 import {
@@ -21,6 +22,7 @@ import {
   formatRelativeTime,
   truncateMiddle,
 } from '@/lib/formatters';
+import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { playsOf, useRowProgress, videoMeta } from './video-progress';
 
@@ -76,8 +78,8 @@ function VideoCell({ asset }: { asset: VideoAsset }) {
           <span className="text-xs text-muted-foreground">Upload interrupted</span>
         ) : (
           // the id is for the table; the phone card shows facts instead
-          <span className="hidden items-center gap-1 @min-[40rem]/table:flex">
-            <code className="font-mono text-xs text-muted-foreground">
+          <span className="hidden min-w-0 items-center gap-1 @min-[40rem]/table:flex">
+            <code className="truncate font-mono text-xs whitespace-nowrap text-muted-foreground">
               {truncateMiddle(asset.id, 8)}
             </code>
             <CopyButton
@@ -105,11 +107,21 @@ const COLUMNS: DataTableColumn<VideoAsset>[] = [
     sortable: true,
     cell: (a) => <VideoCell asset={a} />,
     className: 'whitespace-normal',
+    // the thumbnail and two lines of a real row, so rows replace it in place
+    skeleton: (
+      <div className="flex items-start gap-3">
+        <Skeleton className={cn('aspect-video w-16 shrink-0', lateReveal)} />
+        <div className="flex flex-1 flex-col gap-1.5 py-0.5">
+          <Skeleton className={cn('h-3.5 w-3/5', lateReveal)} />
+          <Skeleton className={cn('h-3 w-2/5', lateReveal)} />
+        </div>
+      </div>
+    ),
   },
   {
     id: 'status',
     header: 'Status',
-    width: 'w-36',
+    width: 'w-34',
     hideInCards: true,
     cell: (a) => <StatusBadge kind="asset" status={a.status} />,
   },
@@ -135,8 +147,8 @@ const COLUMNS: DataTableColumn<VideoAsset>[] = [
     id: 'size',
     header: 'Size',
     align: 'right',
-    width: 'w-24',
-    hideBelow: '4xl',
+    width: 'w-22',
+    hideBelow: '5xl',
     hideInCards: true,
     sortable: true,
     cell: (a) => (a.totalStorageBytes > 0 ? formatBytes(a.totalStorageBytes) : muted(NO_VALUE)),
@@ -145,8 +157,8 @@ const COLUMNS: DataTableColumn<VideoAsset>[] = [
     id: 'plays',
     header: 'Plays',
     align: 'right',
-    width: 'w-20',
-    hideBelow: '4xl',
+    width: 'w-18',
+    hideBelow: '5xl',
     hideInCards: true,
     cell: (a) => {
       const n = playsOf(a);
@@ -156,7 +168,9 @@ const COLUMNS: DataTableColumn<VideoAsset>[] = [
   {
     id: 'created',
     header: 'Created',
-    width: 'w-32',
+    // a gap from the right-aligned numbers before it
+    width: 'w-36',
+    className: 'pl-6',
     hideBelow: '3xl',
     hideInCards: true,
     sortable: true,
@@ -189,7 +203,8 @@ export interface VideosTableProps {
 
 /**
  * The library as a table, the default view (D-09, RDS-09). Columns drop out
- * as the table narrows (Plays and Size first, then Duration and Created) and
+ * as the table narrows (Plays and Size below 64rem, then Duration and
+ * Created below 48rem, so the title keeps room for its words) and
  * below 40rem each row is a compact card: thumbnail, title, then status and
  * facts on one line (A11Y-07).
  */

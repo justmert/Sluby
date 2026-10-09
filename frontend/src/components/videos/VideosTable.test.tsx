@@ -61,9 +61,9 @@ describe('VideosTable', () => {
   it('drops columns by its own width and leaves facts the cards repeat out of them', () => {
     renderPage(<Harness assets={[video('a1', 'Walkthrough')]} />);
     expect(screen.getByRole('columnheader', { name: 'Plays' })).toHaveClass(
-      '@4xl/table:table-cell',
+      '@5xl/table:table-cell',
     );
-    expect(screen.getByRole('columnheader', { name: /Size/ })).toHaveClass('@4xl/table:table-cell');
+    expect(screen.getByRole('columnheader', { name: /Size/ })).toHaveClass('@5xl/table:table-cell');
     expect(screen.getByRole('columnheader', { name: /Duration/ })).toHaveClass(
       '@3xl/table:table-cell',
     );

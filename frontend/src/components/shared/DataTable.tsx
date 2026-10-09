@@ -44,6 +44,8 @@ export interface DataTableColumn<T> {
   hideBelow?: TableBreakpoint;
   /** leave the column out of the phone cards, e.g. when the primary cell already shows it there */
   hideInCards?: boolean;
+  /** the loading placeholder for this column's cells, shaped like a real cell so nothing moves when rows arrive */
+  skeleton?: ReactNode;
 }
 
 /**
@@ -365,14 +367,16 @@ export function DataTable<T>({
                         data-card-hidden={c.hideInCards || undefined}
                         className={cn(i === 0 && !selectable && 'pl-4', colClass(c))}
                       >
-                        <Skeleton
-                          className={cn(
-                            'h-4',
-                            c.primary ? 'w-40' : 'w-16',
-                            c.align === 'right' && 'ml-auto',
-                            lateReveal,
-                          )}
-                        />
+                        {c.skeleton ?? (
+                          <Skeleton
+                            className={cn(
+                              'h-4',
+                              c.primary ? 'w-40' : 'w-16',
+                              c.align === 'right' && 'ml-auto',
+                              lateReveal,
+                            )}
+                          />
+                        )}
                       </TableCell>
                     ))}
                     {rowActions && <TableCell className="pr-4" />}

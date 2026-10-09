@@ -37,4 +37,20 @@ describe('FilterPopover', () => {
     await userEvent.click(screen.getByRole('menuitemradio', { name: 'All access' }));
     expect(onTier).toHaveBeenCalledWith(undefined);
   });
+
+  it('clears every filter from the menu when one is on', async () => {
+    const onClear = vi.fn();
+    renderWithMotion(
+      <FilterPopover
+        status="failed"
+        tier={undefined}
+        onStatusChange={vi.fn()}
+        onTierChange={vi.fn()}
+        onClear={onClear}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Filter, 1 on' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Clear filters' }));
+    expect(onClear).toHaveBeenCalled();
+  });
 });

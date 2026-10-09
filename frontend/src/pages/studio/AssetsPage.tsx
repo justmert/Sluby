@@ -669,7 +669,10 @@ export default function AssetsPage() {
         onCheckedChange={(v) => selectPage(v === true)}
         aria-label="Select all on this page"
       />
-      <span aria-hidden="true">Select all</span>
+      {/* the grid's phone toolbar also holds the sort menu; the box alone is enough there */}
+      <span aria-hidden="true" className={cn(p.view === 'grid' && 'max-[27rem]:hidden')}>
+        Select all
+      </span>
     </label>
   );
 
@@ -829,6 +832,7 @@ export default function AssetsPage() {
             tier={p.tier}
             onStatusChange={(v) => go({ status: v ?? null })}
             onTierChange={(v) => go({ tier: v ?? null })}
+            onClear={clearFilters}
           />
           <Select
             value={p.status ?? ALL}
@@ -861,7 +865,7 @@ export default function AssetsPage() {
           </Select>
           {p.view === 'grid' && (
             <Select value={p.sortValue} onValueChange={(v) => go({ sort: v })}>
-              <SelectTrigger aria-label="Sort" className="w-40">
+              <SelectTrigger aria-label="Sort" className="w-auto min-w-34">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -875,7 +879,13 @@ export default function AssetsPage() {
           )}
           <div className="ml-auto flex items-center gap-2">
             {filtered && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
+              // on phones the Filter menu and the search box's own clear do this
+              <Button
+                variant="ghost"
+                size="sm"
+                className="hidden @2xl/page:inline-flex"
+                onClick={clearFilters}
+              >
                 Clear filters
               </Button>
             )}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { VideoAsset } from '@sluby/sdk';
 import { AssetPlayer } from '@/components/asset/AssetPlayer';
 import { AccessBadge, StatusBadge } from '@/components/shared/StatusBadge';
@@ -123,9 +123,14 @@ export function PreviewSheet({ asset, onClose, previous, next, onStep }: Preview
                 >
                   <ChevronRight />
                 </Button>
-                <span className="hidden items-center gap-1 text-xs text-muted-foreground pointer-fine:flex">
-                  <Kbd aria-hidden="true">←</Kbd>
-                  <Kbd aria-hidden="true">→</Kbd>
+                <span className="hidden items-center gap-1 text-xs text-muted-foreground sm:pointer-fine:flex">
+                  {/* icons: the mono face has no arrow glyphs */}
+                  <Kbd aria-hidden="true">
+                    <ArrowLeft className="size-3" />
+                  </Kbd>
+                  <Kbd aria-hidden="true">
+                    <ArrowRight className="size-3" />
+                  </Kbd>
                   <span aria-hidden="true">to step through ready videos</span>
                 </span>
               </div>
