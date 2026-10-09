@@ -124,14 +124,12 @@ export function lintSource(rel: string, source: string): Finding[] {
 }
 
 /*
- * what the page areas still have to fix, file by file, as found when this
- * test was written. the integrator empties this as the areas merge: an entry
- * that is fixed fails the test until it is taken out, and anything new fails
- * at once, so the list only shrinks.
+ * findings allowed for now, file by file. empty since every page was fixed;
+ * anything new fails at once, and an entry that gets fixed fails the test
+ * until it is taken out, so the list can only shrink.
  */
 const KNOWN: Array<[string, string, number]> = [
   // [file, rule, count]
-  ['components/upload/pipeline-steps.ts', 'sia internals', 1],
 ];
 
 const key = (f: { file: string; rule: string }) => `${f.file} | ${f.rule}`;
