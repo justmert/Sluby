@@ -457,6 +457,7 @@ export function DataTable<T>({
                 return animateRows ? (
                   <AnimatedItem
                     key={getRowKey?.(row) ?? id}
+                    data-row-id={id}
                     as="tr"
                     initial={initialFor(id)}
                     data-slot="table-row"
@@ -471,6 +472,7 @@ export function DataTable<T>({
                 ) : (
                   <TableRow
                     key={getRowKey?.(row) ?? id}
+                    data-row-id={id}
                     data-state={isSelected ? 'selected' : undefined}
                     className={rowClassName?.(row)}
                   >

@@ -42,10 +42,10 @@ export const REQUEST_TEMPLATES: RequestTemplate[] = [
     path: '/api/v1/assets/{id}/sia',
   },
   { group: 'Assets', label: 'Delete asset', method: 'DELETE', path: '/api/v1/assets/{id}' },
-  { group: 'Playback', label: 'Playback url', method: 'GET', path: '/api/v1/playback/{id}' },
+  { group: 'Playback', label: 'Playback URL', method: 'GET', path: '/api/v1/playback/{id}' },
   {
     group: 'Playback',
-    label: 'Signed url',
+    label: 'Signed URL',
     method: 'GET',
     path: '/api/v1/playback/{id}/signed?expires_in=3600',
   },
@@ -55,3 +55,31 @@ export const REQUEST_TEMPLATES: RequestTemplate[] = [
   { group: 'Account', label: 'List API keys', method: 'GET', path: '/api/v1/keys' },
   { group: 'Account', label: 'List webhooks', method: 'GET', path: '/api/v1/webhooks' },
 ];
+
+export type Method = RequestTemplate['method'];
+
+/** How long an explorer request may run before it gives up. */
+export const EXPLORER_TIMEOUT_MS = 30_000;
+
+export const METHODS: Method[] = ['GET', 'POST', 'PATCH', 'DELETE'];
+
+/**
+ * Whether a request changes real data enough to ask first: every DELETE, and
+ * writes to videos, keys and webhooks (FLW-18).
+ */
+export function needsConfirm(method: Method, path: string): boolean {
+  if (method === 'DELETE') return true;
+  if (method === 'GET') return false;
+  const route = path.split('?')[0];
+  return /^\/api\/v1\/(assets|keys|webhooks)(\/|$)/.test(route);
+}
+
+/** Why a path cannot be sent yet, or null when it can. */
+export function pathProblem(path: string): string | null {
+  // a path on this origin only; "//host/..." would be another site
+  if (!path.startsWith('/') || path.startsWith('//')) {
+    return 'Start the path with /, for example /api/v1/assets.';
+  }
+  if (path.includes('{id}')) return 'Replace {id} with a real ID first.';
+  return null;
+}

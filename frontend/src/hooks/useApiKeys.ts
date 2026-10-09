@@ -19,8 +19,6 @@ export interface ApiKeyRecord {
   prefix?: string | null;
   /** When a request last used the key, to the minute; null if never. B-01. */
   last_used_at?: string | null;
-  /** Only on the stand-in row shown while the server creates the key. */
-  pending?: true;
 }
 
 /** This server's limits on keys, to check a new key against. B-08. */
@@ -74,7 +72,7 @@ export function useApiKeys() {
 
 /** The listing part of an issued key: the secret must never reach the query cache. */
 function listed(k: IssuedKey): ApiKeyRecord {
-  return {
+  const row: ApiKeyRecord = {
     id: k.id,
     name: k.name,
     scopes: k.scopes,
@@ -83,6 +81,9 @@ function listed(k: IssuedKey): ApiKeyRecord {
     created_at: k.created_at,
     expires_at: k.expires_at,
   };
+  if (k.prefix !== undefined) row.prefix = k.prefix;
+  if (k.last_used_at !== undefined) row.last_used_at = k.last_used_at;
+  return row;
 }
 
 function editKeys(qc: QueryClient, edit: (rows: ApiKeyRecord[]) => ApiKeyRecord[]) {
@@ -92,8 +93,6 @@ function editKeys(qc: QueryClient, edit: (rows: ApiKeyRecord[]) => ApiKeyRecord[
 // the issued secret is handed to the dialog once; the mutation must not keep it
 const secretMutation = { gcTime: 0 } as const;
 
-let pendingSeq = 0;
-
 type CreateBody = { name: string; scopes: KeyScope[]; rate_limit: number };
 
 export function useCreateApiKey() {
@@ -101,26 +100,10 @@ export function useCreateApiKey() {
   return useMutation({
     ...secretMutation,
     mutationFn: (body: CreateBody) => apiClient.post<IssuedKey>('/keys', body),
-    // the list is newest first, so the stand-in goes on top where the key will land
-    onMutate: async (body) => {
-      await qc.cancelQueries({ queryKey: KEYS });
-      const id = `pending-${++pendingSeq}`;
-      const row: ApiKeyRecord = {
-        id,
-        ...body,
-        is_active: true,
-        created_at: new Date().toISOString(),
-        expires_at: null,
-        pending: true,
-      };
-      editKeys(qc, (rows) => [row, ...rows]);
-      return { id };
-    },
-    onSuccess: (issued, _body, ctx) =>
-      editKeys(qc, (rows) => rows.map((r) => (r.id === ctx.id ? listed(issued) : r))),
-    onError: (_err, _body, ctx) => {
-      if (ctx) editKeys(qc, (rows) => rows.filter((r) => r.id !== ctx.id));
-    },
+    // the row goes in once the server made the key, never before: a refused
+    // key would otherwise flash into the list and out again behind the dialog
+    onSuccess: (issued) =>
+      editKeys(qc, (rows) => [listed(issued), ...rows.filter((r) => r.id !== issued.id)]),
     onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
   });
 }
@@ -145,28 +128,30 @@ export function useRotateApiKey() {
   });
 }
 
+/** Rename a key (PATCH /keys/:id, B-02). Its secret, scopes and limit stay. */
+export function useRenameApiKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      apiClient.patch<ApiKeyRecord>(`/keys/${id}`, { name }),
+    onSuccess: (updated) =>
+      editKeys(qc, (rows) => rows.map((r) => (r.id === updated.id ? { ...r, ...updated } : r))),
+    onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
+  });
+}
+
+/**
+ * Revoke a key. The row leaves when the server confirms, since the confirm
+ * dialog waits for the answer and shows a refusal itself.
+ */
 export function useRevokeApiKey() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiClient.delete<{ success: boolean }>(`/keys/${id}`),
-    onMutate: async (id) => {
-      await qc.cancelQueries({ queryKey: KEYS });
-      const rows = qc.getQueryData<KeyList>(KEYS)?.data ?? [];
-      const index = rows.findIndex((r) => r.id === id);
-      const removed = index >= 0 ? rows[index] : null;
-      editKeys(qc, (list) => list.filter((r) => r.id !== id));
-      return { removed, index };
-    },
-    // put the key back where it was; a refetch would only move it there anyway
-    onError: (_err, _id, ctx) => {
-      if (!ctx?.removed) return;
-      const back = ctx.removed;
-      editKeys(qc, (rows) =>
-        rows.some((r) => r.id === back.id)
-          ? rows
-          : [...rows.slice(0, ctx.index), back, ...rows.slice(ctx.index)],
-      );
-    },
+    onSuccess: (_res, id) => editKeys(qc, (rows) => rows.filter((r) => r.id !== id)),
     onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
   });
 }
+
+/** A key the rotation replaced: it works until `expires_at`, then drops off the list. */
+export const isReplaced = (k: ApiKeyRecord) => k.expires_at !== null;

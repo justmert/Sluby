@@ -13,6 +13,8 @@ export interface CopyFieldProps {
   secret?: boolean;
   /** shorten to this many characters on each side of an ellipsis, e.g. 8 for an id */
   truncate?: number;
+  /** called after a copy, e.g. so a secret dialog knows the value was taken */
+  onCopied?: () => void;
   className?: string;
 }
 
@@ -24,7 +26,14 @@ export interface CopyFieldProps {
  *   <CopyField label="video ID" value={asset.id} truncate={8} />
  *   <CopyField label="API key" value={secret} secret />
  */
-export function CopyField({ value, label, secret = false, truncate, className }: CopyFieldProps) {
+export function CopyField({
+  value,
+  label,
+  secret = false,
+  truncate,
+  onCopied,
+  className,
+}: CopyFieldProps) {
   const [revealed, setRevealed] = useState(false);
   const hidden = secret && !revealed;
   const text = hidden
@@ -62,7 +71,7 @@ export function CopyField({ value, label, secret = false, truncate, className }:
           {revealed ? <EyeOff /> : <Eye />}
         </Button>
       )}
-      <CopyButton value={value} label={`Copy ${label}`} />
+      <CopyButton value={value} label={`Copy ${label}`} onCopied={onCopied} />
     </div>
   );
 }

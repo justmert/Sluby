@@ -64,7 +64,11 @@ export function InlineError({
         <div className="min-w-0">
           <p className="font-medium text-foreground">{heading}</p>
           <p className="mt-0.5 text-muted-foreground">{info.message}</p>
-          <ErrorDetails detail={info.detail} className="mt-1.5" />
+          {/* the raw text only adds something when it differs from the sentence */}
+          <ErrorDetails
+            detail={info.detail !== info.message ? info.detail : undefined}
+            className="mt-1.5"
+          />
         </div>
         {canRetry && (
           <div className="col-start-2 mt-1.5">

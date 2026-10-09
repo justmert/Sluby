@@ -1,0 +1,82 @@
+import type { VideoAsset } from '@sluby/sdk';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { errorText } from '@/lib/errors';
+import { useUploadSheet } from '@/lib/upload-sheet';
+
+/**
+ * Picks the video whose ID the snippets use. Without a ready video the
+ * snippets keep the YOUR_VIDEO_ID placeholder and this says why.
+ */
+export function VideoPicker({
+  videos,
+  selected,
+  error,
+  onChange,
+}: {
+  videos: VideoAsset[] | undefined;
+  selected: VideoAsset | null | undefined;
+  error: unknown;
+  onChange: (id: string) => void;
+}) {
+  const upload = useUploadSheet();
+  if (selected === undefined) {
+    return <Skeleton className="h-9 w-full max-w-sm" />;
+  }
+  if (error && !videos) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Could not load your videos, so the snippets use YOUR_VIDEO_ID. {errorText(error)}
+      </p>
+    );
+  }
+  if (!selected || !videos) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        The snippets use YOUR_VIDEO_ID until a video is ready.{' '}
+        <button
+          type="button"
+          onClick={() => upload.open()}
+          className="rounded-sm font-medium text-foreground underline underline-offset-4 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          Upload a video
+        </button>
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <Label htmlFor="snippet-video" className="shrink-0">
+        Video
+      </Label>
+      <Select value={selected.id} onValueChange={onChange}>
+        <SelectTrigger
+          id="snippet-video"
+          className="w-full max-w-sm min-w-0 sm:w-72"
+          aria-describedby="snippet-video-help"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {videos.map((v) => (
+            <SelectItem key={v.id} value={v.id}>
+              <span dir="auto" className="truncate">
+                {v.title || 'Untitled video'}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p id="snippet-video-help" className="text-xs text-muted-foreground">
+        Fills its video ID into these snippets
+      </p>
+    </div>
+  );
+}

@@ -1,16 +1,51 @@
-import { Link, useParams } from 'react-router';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router';
+import { MoreHorizontal } from 'lucide-react';
+import { DeliveriesTable } from '@/components/developers/DeliveriesTable';
+import { EventsEditor } from '@/components/developers/EventsEditor';
+import {
+  SecretRevealDialog,
+  type RevealedSecret,
+} from '@/components/developers/SecretRevealDialog';
+import { LastDelivery, PauseIcon } from '@/components/developers/webhook-parts';
+import {
+  TestIcon,
+  pauseLabel,
+  useWebhookActions,
+  webhookSecret,
+} from '@/components/developers/webhook-actions';
 import { PageContainer, PageHeader, SectionHeader } from '@/components/layout/PageContainer';
+import { CodeBlock } from '@/components/shared/CodeBlock';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DescriptionItem, DescriptionList } from '@/components/shared/DescriptionList';
+import { InlineError } from '@/components/shared/InlineError';
 import { PageState } from '@/components/shared/PageState';
 import { StatusBadge } from '@/components/shared/StatusBadge';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useWebhooks, webhookLabel } from '@/hooks/useWebhooks';
+import { Spinner } from '@/components/ui/spinner';
+import {
+  useDeleteWebhook,
+  useRotateWebhookSecret,
+  useUpdateWebhook,
+  useWebhook,
+  webhookLabel,
+  type WebhookRecord,
+} from '@/hooks/useWebhooks';
+import { statusOf } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import { formatDate } from '@/lib/formatters';
-import { Deliveries } from '@/pages/studio/DeveloperPage';
+import { Icons } from '@/lib/icons';
+import { RECEIVE_WEBHOOKS } from '@/lib/snippets';
+import { toastSuccess } from '@/lib/toast';
 
 const backToWebhooks = (
   <Button variant="outline" asChild>
@@ -18,77 +53,243 @@ const backToWebhooks = (
   </Button>
 );
 
+const sameEvents = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((e) => b.includes(e));
+
+/** The events the webhook gets, editable; Save changes appears once they differ. */
+function EventsCard({ hook }: { hook: WebhookRecord }) {
+  const update = useUpdateWebhook();
+  const [draft, setDraft] = useState<string[] | null>(null);
+  const events = draft ?? hook.events;
+  const dirty = draft !== null && !sameEvents(draft, hook.events);
+  const error = draft !== null && draft.length === 0 ? 'Choose at least one event.' : null;
+
+  const save = async () => {
+    if (!draft || error) return;
+    try {
+      await update.mutateAsync({ id: hook.id, patch: { events: draft } });
+      setDraft(null);
+      toastSuccess('Events saved');
+    } catch {
+      // shown under the events, which keep what was ticked
+    }
+  };
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-4">
+        <EventsEditor
+          value={events}
+          onChange={(next) => {
+            update.reset();
+            setDraft(next);
+          }}
+          error={error}
+          disabled={update.isPending}
+          idPrefix="edit-event"
+        />
+        <InlineError error={update.error} title="Could not save the events" />
+        {dirty && (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                update.reset();
+                setDraft(null);
+              }}
+              disabled={update.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void save()}
+              disabled={update.isPending || !!error}
+              aria-busy={update.isPending || undefined}
+            >
+              {update.isPending && <Spinner data-icon="inline-start" aria-hidden="true" />}
+              {update.isPending ? 'Saving…' : 'Save changes'}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Loading() {
+  return (
+    <PageContainer>
+      <h1 className="sr-only">Loading webhook</h1>
+      <Skeleton className="mb-2 h-8 w-72 max-w-full" />
+      <Skeleton className="mb-6 h-5 w-96 max-w-full" />
+      <Skeleton className="h-28 rounded-xl" />
+      <Skeleton className="mt-10 h-64 rounded-xl" />
+    </PageContainer>
+  );
+}
+
 export default function WebhookDetailPage() {
   const { id = '' } = useParams();
-  const hooks = useWebhooks();
+  const navigate = useNavigate();
+  const query = useWebhook(id);
+  const actions = useWebhookActions();
+  const rotate = useRotateWebhookSecret();
+  const remove = useDeleteWebhook();
+  const [confirm, setConfirm] = useState<'rotate' | 'delete' | null>(null);
+  const [revealed, setRevealed] = useState<RevealedSecret | null>(null);
+  const hook = query.data;
 
-  if (hooks.isError) {
-    return (
-      <PageState
-        title="Could not load this webhook"
-        error={hooks.error}
-        onRetry={() => void hooks.refetch()}
-        retrying={hooks.isFetching}
-        actions={backToWebhooks}
-      />
-    );
-  }
-  if (!hooks.data) {
-    return (
-      <PageContainer>
-        <h1 className="sr-only">Loading webhook</h1>
-        <Skeleton className="mb-6 h-8 w-72 max-w-full" />
-        <Skeleton className="h-40 rounded-xl" />
-      </PageContainer>
-    );
-  }
-
-  const hook = hooks.data.data.find((w) => w.id === id);
   if (!hook) {
-    return (
-      <PageState
-        title="Webhook not found"
-        description="It may have been deleted."
-        actions={backToWebhooks}
-      />
-    );
+    if (query.isError && statusOf(query.error) === 404) {
+      return (
+        <PageState
+          title="Webhook not found"
+          description="It may have been deleted."
+          actions={backToWebhooks}
+        />
+      );
+    }
+    if (query.isError) {
+      return (
+        <PageState
+          title="Could not load this webhook"
+          error={query.error}
+          onRetry={() => void query.refetch()}
+          retrying={query.isFetching}
+          actions={backToWebhooks}
+        />
+      );
+    }
+    return <Loading />;
   }
+
+  const label = webhookLabel(hook.url);
 
   return (
     <PageContainer>
       <PageHeader
-        title={webhookLabel(hook.url)}
+        title={label}
         meta={
           <>
             <StatusBadge kind="webhook" status={hook.is_active ? 'active' : 'inactive'} />
             <span>Added {formatDate(hook.created_at)}</span>
+            {hook.last_delivery_at !== undefined && (
+              <span className="inline-flex items-center gap-1.5">
+                Last delivery <LastDelivery hook={hook} />
+              </span>
+            )}
+          </>
+        }
+        secondaryActions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => void actions.sendTest(hook)}
+              disabled={actions.testing === hook.id}
+              aria-busy={actions.testing === hook.id || undefined}
+            >
+              {actions.testing === hook.id ? (
+                <Spinner data-icon="inline-start" aria-hidden="true" />
+              ) : (
+                <TestIcon />
+              )}
+              {actions.testing === hook.id ? 'Sending…' : 'Send test'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void actions.setActive(hook, !hook.is_active)}
+              disabled={actions.updating === hook.id}
+              aria-busy={actions.updating === hook.id || undefined}
+            >
+              {actions.updating === hook.id ? (
+                <Spinner data-icon="inline-start" aria-hidden="true" />
+              ) : (
+                <PauseIcon active={hook.is_active} />
+              )}
+              {pauseLabel(hook)}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" aria-label="More actions for this webhook">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-auto min-w-52">
+                <DropdownMenuItem onSelect={() => setConfirm('rotate')}>
+                  <Icons.rotate aria-hidden="true" />
+                  Rotate signing secret
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => setConfirm('delete')}>
+                  <Icons.delete aria-hidden="true" />
+                  Delete webhook
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         }
       />
+
       <Card>
         <CardContent>
           <DescriptionList>
             <DescriptionItem label="Endpoint URL" mono copy={hook.url}>
               {hook.url}
             </DescriptionItem>
-            <DescriptionItem label="Events">
-              <span className="flex flex-wrap gap-1">
-                {hook.events.map((e) => (
-                  <Badge key={e} variant="code">
-                    {e}
-                  </Badge>
-                ))}
-              </span>
+            <DescriptionItem label="Webhook ID" mono copy={hook.id}>
+              {hook.id}
             </DescriptionItem>
           </DescriptionList>
         </CardContent>
       </Card>
-      <SectionHeader title="Deliveries" />
-      <Card>
-        <CardContent>
-          <Deliveries id={hook.id} freshAfter={null} />
-        </CardContent>
-      </Card>
+
+      <SectionHeader title="Events" description="What this server sends to the endpoint" />
+      <EventsCard key={hook.events.join()} hook={hook} />
+
+      <SectionHeader title="Deliveries" description="The latest attempts, newest first" />
+      <DeliveriesTable webhookId={hook.id} paused={!hook.is_active} />
+
+      <SectionHeader
+        title="Verify requests"
+        description="Each request is signed so you can check it came from this server"
+      />
+      <CodeBlock code={RECEIVE_WEBHOOKS} language="ts" label="verify webhook requests" />
+
+      <ConfirmDialog
+        item={confirm === 'rotate' ? hook : null}
+        onClose={() => setConfirm(null)}
+        title="Rotate the signing secret?"
+        description="Requests are signed with the new secret right away, and checks with the old one start failing. This cannot be undone."
+        confirmLabel="Rotate secret"
+        pendingLabel="Rotating…"
+        errorTitle="Could not rotate the signing secret"
+        onConfirm={async (h) => {
+          const { secret } = await rotate.mutateAsync(h.id);
+          rotate.reset();
+          toastSuccess('Signing secret rotated');
+          setRevealed(webhookSecret(secret, true));
+        }}
+      />
+      <ConfirmDialog
+        item={confirm === 'delete' ? hook : null}
+        onClose={() => setConfirm(null)}
+        title="Delete this webhook?"
+        description={(h) => (
+          <>
+            Events stop going to <span className="font-mono wrap-anywhere">{h.url}</span> right
+            away, and its delivery log is deleted. This cannot be undone.
+          </>
+        )}
+        confirmLabel="Delete"
+        pendingLabel="Deleting…"
+        errorTitle="Could not delete the webhook"
+        onConfirm={async (h) => {
+          await remove.mutateAsync(h.id);
+          toastSuccess('Webhook deleted');
+          void navigate(ROUTES.WEBHOOKS, { replace: true });
+        }}
+      />
+      <SecretRevealDialog secret={revealed} onClose={() => setRevealed(null)} />
     </PageContainer>
   );
 }

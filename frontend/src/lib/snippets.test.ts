@@ -140,7 +140,7 @@ describe('developer snippets', () => {
 
   it('type every fetch answer with fields the api documents', () => {
     const checked = fetchResultProblems();
-    expect([...checked.keys()].sort()).toEqual(['__snippet_keys.ts', '__snippet_storage.ts']);
+    expect([...checked.keys()].sort()).toEqual(['__snippet_storage.ts']);
     for (const [file, problems] of checked) {
       expect({ file, problems }).toEqual({ file, problems: [] });
     }
@@ -217,5 +217,38 @@ describe('developer snippets', () => {
     ].join('\r\n');
     const out = execFileSync('sh', ['-c', `cat ${pipeline}`], { input: head }).toString();
     expect(out.trim()).toBe(assetId);
+  });
+
+  it('fill in the picked video id everywhere, and keep the placeholder without one', () => {
+    const id = '6c1b2f3e-0000-4000-8000-00000000abcd';
+    const filled = buildSnippets('https://studio.example.com', id);
+    for (const s of filled) {
+      expect({ id: s.id, code: s.js.code + s.curl }).not.toMatchObject({
+        code: expect.stringContaining('YOUR_VIDEO_ID'),
+      });
+    }
+    const usesId = filled.filter((s) => (s.js.code + s.curl).includes(id)).map((s) => s.id);
+    expect(usesId).toEqual(['processing', 'private', 'direct', 'storage']);
+    expect(snippets.some((s) => s.curl.includes('/YOUR_VIDEO_ID/'))).toBe(true);
+  });
+
+  it('say which snippets need the manage scope (FLW-56)', () => {
+    expect(snippets.filter((s) => s.scopeNote).map((s) => s.id)).toEqual([
+      'processing',
+      'webhooks',
+    ]);
+    for (const s of snippets.filter((x) => x.scopeNote)) {
+      expect(s.scopeNote).toBe('Needs a key with the manage scope.');
+    }
+  });
+
+  it('say video in their descriptions, never asset or tus, and use no em dash', () => {
+    for (const s of snippets) {
+      const text = s.description.replace('(an asset in the API)', '');
+      expect({ id: s.id, text }).not.toMatchObject({
+        text: expect.stringMatching(/\basset|\btus\b/i),
+      });
+      expect(s.description + s.js.code + s.curl).not.toContain('\u2014');
+    }
   });
 });

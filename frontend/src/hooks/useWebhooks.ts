@@ -11,8 +11,6 @@ export interface WebhookRecord {
   last_delivery_at?: string | null;
   /** Whether that delivery reached the endpoint; null before any. B-07. */
   last_delivery_ok?: boolean | null;
-  /** Only on the stand-in row shown while the server adds the endpoint. */
-  pending?: true;
 }
 
 /** The creation response, the only time the signing secret is returned. */
@@ -46,8 +44,20 @@ export interface WebhookTestResult {
   error: string | null;
 }
 
+/** A new signing secret, from POST /webhooks/:id/rotate-secret (B-04). */
+export interface RotatedSecret {
+  id: string;
+  secret: string;
+}
+
+export type WebhookPatch = { url?: string; events?: string[]; is_active?: boolean };
+
 const KEY = ['webhooks'];
+const oneKey = (id: string) => ['webhooks', 'one', id];
 const deliveriesKey = (id: string) => ['webhooks', id, 'deliveries'];
+
+/** How often the delivery log refreshes while its page is on screen. */
+export const DELIVERIES_POLL_MS = 10_000;
 
 type HookList = { data: WebhookRecord[] };
 
@@ -62,7 +72,23 @@ export function useWebhooks() {
   });
 }
 
-let pendingSeq = 0;
+/**
+ * One endpoint (GET /webhooks/:id, B-07). Coming from the list, it shows the
+ * listed copy at once while the request runs.
+ */
+export function useWebhook(id: string) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: oneKey(id),
+    queryFn: () => apiClient.get<WebhookRecord>(`/webhooks/${encodeURIComponent(id)}`),
+    placeholderData: () => qc.getQueryData<HookList>(KEY)?.data.find((w) => w.id === id),
+  });
+}
+
+function storeHook(qc: QueryClient, hook: WebhookRecord) {
+  qc.setQueryData(oneKey(hook.id), hook);
+  editHooks(qc, (rows) => rows.map((r) => (r.id === hook.id ? hook : r)));
+}
 
 export function useCreateWebhook() {
   const qc = useQueryClient();
@@ -71,60 +97,68 @@ export function useCreateWebhook() {
       apiClient.post<CreatedWebhook>('/webhooks', body),
     // the response holds the signing secret; do not keep it once handed over
     gcTime: 0,
-    // newest first, like the server lists them
-    onMutate: async (body) => {
-      await qc.cancelQueries({ queryKey: KEY, exact: true });
-      const id = `pending-${++pendingSeq}`;
+    // the row goes in once the server added the endpoint, newest first; the
+    // secret stays out of the query cache
+    onSuccess: (created) =>
       editHooks(qc, (rows) => [
-        { id, ...body, is_active: true, created_at: new Date().toISOString(), pending: true },
-        ...rows,
-      ]);
-      return { id };
-    },
-    onSuccess: (created, _body, ctx) =>
-      editHooks(qc, (rows) =>
-        rows.map((r) =>
-          r.id === ctx.id
-            ? // the secret stays out of the query cache
-              {
-                id: created.id,
-                url: created.url,
-                events: created.events,
-                is_active: true,
-                created_at: r.created_at,
-              }
-            : r,
-        ),
-      ),
-    onError: (_err, _body, ctx) => {
-      if (ctx) editHooks(qc, (rows) => rows.filter((r) => r.id !== ctx.id));
-    },
+        {
+          id: created.id,
+          url: created.url,
+          events: created.events,
+          is_active: true,
+          created_at: new Date().toISOString(),
+          last_delivery_at: null,
+          last_delivery_ok: null,
+        },
+        ...rows.filter((r) => r.id !== created.id),
+      ]),
+    onSettled: () => qc.invalidateQueries({ queryKey: KEY, exact: true }),
+  });
+}
+
+/** Change the url or events, or pause and resume (PATCH /webhooks/:id, B-03). */
+export function useUpdateWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: WebhookPatch }) =>
+      apiClient.patch<WebhookRecord>(`/webhooks/${encodeURIComponent(id)}`, patch),
+    onSuccess: (hook) => storeHook(qc, hook),
     onSettled: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }
 
+/** A new signing secret, shown once; the old one stops at once (B-04). */
+export function useRotateWebhookSecret() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.post<RotatedSecret>(`/webhooks/${encodeURIComponent(id)}/rotate-secret`),
+    gcTime: 0,
+  });
+}
+
+/** Queue a logged delivery again with the same event id (B-05). */
+export function useRedeliver(webhookId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (deliveryId: string) =>
+      apiClient.post<{ delivery_id: string }>(
+        `/webhooks/${encodeURIComponent(webhookId)}/deliveries/${encodeURIComponent(deliveryId)}/redeliver`,
+      ),
+    onSettled: () => qc.invalidateQueries({ queryKey: deliveriesKey(webhookId) }),
+  });
+}
+
+/** Delete an endpoint; the row leaves once the server confirms. */
 export function useDeleteWebhook() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiClient.delete<{ success: boolean }>(`/webhooks/${id}`),
-    onMutate: async (id) => {
-      await qc.cancelQueries({ queryKey: KEY, exact: true });
-      const rows = qc.getQueryData<HookList>(KEY)?.data ?? [];
-      const index = rows.findIndex((r) => r.id === id);
-      editHooks(qc, (list) => list.filter((r) => r.id !== id));
-      return { removed: index >= 0 ? rows[index] : null, index };
+    mutationFn: (id: string) =>
+      apiClient.delete<{ success: boolean }>(`/webhooks/${encodeURIComponent(id)}`),
+    onSuccess: (_res, id) => {
+      editHooks(qc, (rows) => rows.filter((r) => r.id !== id));
+      qc.removeQueries({ queryKey: oneKey(id) });
     },
-    // back where it was, so the list does not reshuffle on a failure
-    onError: (_err, _id, ctx) => {
-      const back = ctx?.removed;
-      if (!back) return;
-      editHooks(qc, (rows) =>
-        rows.some((r) => r.id === back.id)
-          ? rows
-          : [...rows.slice(0, ctx.index), back, ...rows.slice(ctx.index)],
-      );
-    },
-    onSettled: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSettled: () => qc.invalidateQueries({ queryKey: KEY, exact: true }),
   });
 }
 
@@ -132,19 +166,30 @@ export function useDeleteWebhook() {
 export function useTestWebhook() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiClient.post<WebhookTestResult>(`/webhooks/${id}/test`),
-    onSettled: (_data, _err, id) => qc.invalidateQueries({ queryKey: deliveriesKey(id) }),
+    mutationFn: (id: string) =>
+      apiClient.post<WebhookTestResult>(`/webhooks/${encodeURIComponent(id)}/test`),
+    onSettled: (_data, _err, id) => {
+      void qc.invalidateQueries({ queryKey: deliveriesKey(id) });
+      // the last delivery shown in the list and the header changed too
+      void qc.invalidateQueries({ queryKey: KEY, exact: true });
+      void qc.invalidateQueries({ queryKey: oneKey(id) });
+    },
   });
 }
 
-/** The endpoint's latest delivery attempts, newest first. */
-export function useWebhookDeliveries(id: string, enabled: boolean) {
+/**
+ * The endpoint's latest delivery attempts, newest first. Refreshes every 10
+ * seconds while the tab is visible (react query pauses the interval when it
+ * is hidden).
+ */
+export function useWebhookDeliveries(id: string) {
   return useQuery({
     queryKey: deliveriesKey(id),
     queryFn: () =>
-      apiClient.get<{ data: WebhookDelivery[] }>(`/webhooks/${id}/deliveries?limit=20`),
-    enabled,
-    refetchInterval: enabled ? 15_000 : false,
+      apiClient.get<{ data: WebhookDelivery[] }>(
+        `/webhooks/${encodeURIComponent(id)}/deliveries?limit=50`,
+      ),
+    refetchInterval: DELIVERIES_POLL_MS,
   });
 }
 

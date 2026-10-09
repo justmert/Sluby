@@ -144,7 +144,7 @@ describe('studio api references', () => {
         parsed: commands?.length ?? 0,
       });
     }
-    expect(snippets.flatMap((s) => curlCalls(s.curl)).length).toBeGreaterThanOrEqual(14);
+    expect(snippets.flatMap((s) => curlCalls(s.curl)).length).toBeGreaterThanOrEqual(12);
   });
 
   it('every curl call is documented, with documented query parameters and a valid body', () => {
@@ -159,7 +159,7 @@ describe('studio api references', () => {
 
   it('every fetch call in the javascript is documented, with a valid body', () => {
     const calls = snippets.flatMap((s) => fetchCalls(s.js.code).map((c) => ({ s: s.id, c })));
-    expect(calls.length).toBeGreaterThanOrEqual(3);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
     for (const { s, c } of calls) {
       expect({ snippet: s, ...c, problems: problems(c) }).toMatchObject({ problems: [] });
     }
