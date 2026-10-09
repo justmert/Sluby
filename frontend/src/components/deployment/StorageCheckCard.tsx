@@ -186,7 +186,14 @@ export function CheckNowButton({
   disabled?: boolean;
 }) {
   return (
-    <Button variant="outline" size="sm" onClick={onClick} disabled={disabled || pending}>
+    // wraps at a large text size instead of running out of the card
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-auto min-h-7 whitespace-normal"
+      onClick={onClick}
+      disabled={disabled || pending}
+    >
       {pending ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <Icons.refresh />}
       Check now
     </Button>

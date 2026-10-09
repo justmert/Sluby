@@ -66,7 +66,12 @@ function Frame({
         </div>
       </div>
       {steps}
-      {actions && <div className="flex flex-wrap justify-end gap-2">{actions}</div>}
+      {/* full width on phones, so two actions are not two ragged rows */}
+      {actions && (
+        <div className="flex flex-wrap justify-end gap-2 max-sm:flex-col max-sm:items-stretch">
+          {actions}
+        </div>
+      )}
     </section>
   );
 }
@@ -136,7 +141,12 @@ export function ProcessingCard({
             {/* outline on an error card: red is already there, a filled warm button would blur into it (VIS-11) */}
             {info.action === 'retry' && <RetryProcessingButton asset={asset} variant="outline" />}
             {info.action === 'reupload' && (
-              <Button variant="outline" onClick={() => uploadSheet.open()}>
+              // wraps at a large text size instead of running out of the card
+              <Button
+                variant="outline"
+                className="h-auto min-h-8 whitespace-normal"
+                onClick={() => uploadSheet.open()}
+              >
                 <Upload />
                 Upload a different file
               </Button>

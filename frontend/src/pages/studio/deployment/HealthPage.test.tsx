@@ -181,6 +181,8 @@ describe('HealthPage', () => {
       'POST /api/v1/reconciliation/run': reply(202, { enqueued: true, already_pending: false }),
     });
     await screen.findByText('Checked 3 minutes ago');
+    // wraps at a large default font instead of running out of the card (1.4.4)
+    expect(screen.getByRole('button', { name: 'Check now' })).toHaveClass('whitespace-normal');
     await userEvent.click(screen.getByRole('button', { name: 'Check now' }));
     expect(await screen.findByText('Storage check started')).toBeInTheDocument();
     expect(server.calls.filter((c) => c.method === 'POST')).toHaveLength(1);

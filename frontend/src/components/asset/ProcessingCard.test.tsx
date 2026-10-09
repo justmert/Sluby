@@ -158,7 +158,11 @@ describe('ProcessingCard', () => {
     });
     expect(screen.getByText('The file is not a readable video.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry processing' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Upload a different file' })).toBeInTheDocument();
+    const reupload = screen.getByRole('button', { name: 'Upload a different file' });
+    // at a large default font the label wraps instead of running out of the card (1.4.4),
+    // and on phones both actions take the full width instead of two ragged rows
+    expect(reupload).toHaveClass('whitespace-normal', 'h-auto');
+    expect(reupload.parentElement).toHaveClass('max-sm:flex-col', 'max-sm:items-stretch');
     // the ffmpeg line with the server path only under Details
     expect(screen.getByText('Details')).toBeInTheDocument();
     expect(screen.getByText(/\/app\/uploads\/x/).closest('details')).not.toBeNull();
