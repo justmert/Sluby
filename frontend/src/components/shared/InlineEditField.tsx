@@ -218,6 +218,8 @@ export function InlineEditField({
           {multiline ? (
             <Textarea
               {...shared}
+              // it grows with the text, up to most of a screen; past that it scrolls
+              className="max-h-[60vh] overflow-y-auto"
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') cancel();

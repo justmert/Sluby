@@ -142,6 +142,21 @@ describe('InlineEditField', () => {
   });
 });
 
+describe('InlineEditField long text', () => {
+  it('scrolls a long description inside a capped box instead of growing past the screen', async () => {
+    renderWithMotion(
+      <InlineEditField
+        label="description"
+        value={'line\n'.repeat(400)}
+        onSave={vi.fn()}
+        multiline
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Edit description' }));
+    expect(screen.getByRole('textbox')).toHaveClass('max-h-[60vh]', 'overflow-y-auto');
+  });
+});
+
 describe('InlineEditField drafts (FLW-15)', () => {
   const field = (onSave = vi.fn()) => (
     <WithSession>
