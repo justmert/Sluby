@@ -77,7 +77,8 @@ function toQualityLevel(
     width: level.width,
     height: level.height,
     bitrate: level.bitrate,
-    name: `${level.height}p`,
+    // by the short side, so a portrait 720x1280 is 720p like a landscape 1280x720
+    name: `${Math.min(level.width, level.height) || level.height}p`,
   };
 }
 
@@ -208,6 +209,9 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       signed = false,
       expiresIn,
       poster,
+      title,
+      tracks,
+      crossOrigin,
       autoPlay = false,
       controls = true,
       muted = false,
@@ -723,6 +727,8 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         <video
           ref={videoRef}
           poster={poster ?? playback?.poster}
+          aria-label={title}
+          crossOrigin={crossOrigin}
           controls={controls}
           muted={muted}
           width={width}
@@ -735,7 +741,18 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
           onWaiting={handleWaiting}
           onPlaying={handlePlaying}
           onError={handleVideoError}
-        />
+        >
+          {tracks?.map((t) => (
+            <track
+              key={`${t.kind}:${t.srclang}:${t.src}`}
+              src={t.src}
+              kind={t.kind}
+              srcLang={t.srclang}
+              label={t.label}
+              default={t.default}
+            />
+          ))}
+        </video>
 
         {showSpinner && (
           <div style={OVERLAY_STYLE} data-sluby-overlay="loading" role="status">

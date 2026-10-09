@@ -11,6 +11,19 @@ export interface QualityLevel {
   name: string;
 }
 
+/** A caption or subtitle file for the `tracks` prop. */
+export interface TextTrackSource {
+  /** URL of a WebVTT file. */
+  src: string;
+  kind: 'subtitles' | 'captions';
+  /** BCP 47 language tag, such as `en`. */
+  srclang: string;
+  /** The name players show in their track menu, such as `English`. */
+  label: string;
+  /** Show this track unless the viewer picks another. */
+  default?: boolean;
+}
+
 /** High-level playback state, surfaced via `onStateChange`. */
 export type PlayerState = 'idle' | 'loading' | 'ready' | 'buffering' | 'error';
 
@@ -87,6 +100,22 @@ export interface SlubyPlayerProps {
   expiresIn?: number;
 
   poster?: string;
+  /**
+   * The video's name for screen readers, set as the `<video>`'s `aria-label`.
+   * Without it a screen reader announces only "video".
+   */
+  title?: string;
+  /**
+   * Caption and subtitle files (WebVTT) as `<track>` elements. Tracks on
+   * another origin need `crossOrigin` and CORS headers on that origin.
+   */
+  tracks?: TextTrackSource[];
+  /**
+   * The `<video>`'s `crossorigin` attribute. Leave it out unless something
+   * needs it: cross-origin `tracks` do, and the media origin must then send
+   * CORS headers.
+   */
+  crossOrigin?: '' | 'anonymous' | 'use-credentials';
   autoPlay?: boolean;
   controls?: boolean;
   muted?: boolean;

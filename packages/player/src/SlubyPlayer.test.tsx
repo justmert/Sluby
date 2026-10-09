@@ -202,6 +202,61 @@ describe('SlubyPlayer', () => {
       ref.current!.setQuality(7);
       expect(hls.currentLevel).toBe(-1);
     });
+    it('names a portrait rendition by its short side, like a landscape one (FLW-36)', () => {
+      const onQualitiesChange = vi.fn();
+      render(<SlubyPlayer src={SRC} onQualitiesChange={onQualitiesChange} />);
+      const hls = hlsInstanceRef.current;
+      hls.levels = [
+        { width: 720, height: 1280, bitrate: 3_700_000 },
+        { width: 540, height: 960, bitrate: 2_000_000 },
+        { width: 360, height: 640, bitrate: 800_000 },
+      ];
+      fireHls(MockHlsEvents.MANIFEST_PARSED);
+      expect(onQualitiesChange.mock.calls[0][0].map((l: { name: string }) => l.name)).toEqual([
+        '720p',
+        '540p',
+        '360p',
+      ]);
+    });
+  });
+
+  describe('accessibility', () => {
+    it('names the video for screen readers from title', () => {
+      const { container } = render(<SlubyPlayer src={SRC} title="Product walkthrough" />);
+      expect(container.querySelector('video')).toHaveAttribute('aria-label', 'Product walkthrough');
+    });
+
+    it('leaves the video unnamed without a title', () => {
+      const { container } = render(<SlubyPlayer src={SRC} />);
+      expect(container.querySelector('video')).not.toHaveAttribute('aria-label');
+    });
+
+    it('renders caption and subtitle tracks, with the cors mode the tracks need', () => {
+      const { container } = render(
+        <SlubyPlayer
+          src={SRC}
+          crossOrigin="anonymous"
+          tracks={[
+            { src: '/en.vtt', kind: 'captions', srclang: 'en', label: 'English', default: true },
+            { src: '/de.vtt', kind: 'subtitles', srclang: 'de', label: 'Deutsch' },
+          ]}
+        />,
+      );
+      const video = container.querySelector('video')!;
+      expect(video).toHaveAttribute('crossorigin', 'anonymous');
+      const tracks = [...video.querySelectorAll('track')];
+      expect(
+        tracks.map((t) => [t.getAttribute('src'), t.kind, t.srclang, t.label, t.default]),
+      ).toEqual([
+        ['/en.vtt', 'captions', 'en', 'English', true],
+        ['/de.vtt', 'subtitles', 'de', 'Deutsch', false],
+      ]);
+    });
+
+    it('sets no cors mode unless asked, so gateway media loads as before', () => {
+      const { container } = render(<SlubyPlayer src={SRC} />);
+      expect(container.querySelector('video')).not.toHaveAttribute('crossorigin');
+    });
   });
 
   describe('state & callbacks', () => {
