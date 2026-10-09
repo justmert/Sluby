@@ -248,7 +248,10 @@ export function errorText(err: unknown): string {
  */
 export function withLead(lead: string, err: unknown): string {
   const head = lead.trim().replace(/[.:]$/, '');
-  return `${head}. ${errorText(err)}`;
+  const text = errorText(err);
+  // a server sentence that already opens with the lead says it once
+  if (text.toLowerCase().startsWith(head.toLowerCase())) return text;
+  return `${head}. ${text}`;
 }
 
 /** True when trying the same request again could work. */

@@ -164,6 +164,16 @@ describe('withLead', () => {
       /^Could not save\. Could not reach the server\./,
     );
   });
+
+  it('does not repeat a lead the error sentence starts with', () => {
+    const gone = new ApiError(
+      410,
+      'Could not retry because the original file is gone. Upload the video again.',
+    );
+    expect(withLead('Could not retry', gone)).toBe(
+      'Could not retry because the original file is gone. Upload the video again.',
+    );
+  });
 });
 
 describe('isRetryable', () => {
