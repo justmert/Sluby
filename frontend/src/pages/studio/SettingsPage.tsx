@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import * as m from 'motion/react-m';
-import { AlertTriangle, KeyRound, LogOut, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { AlertTriangle, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
+import { AccountSection } from '@/components/settings/AccountSection';
+import { AppearanceSection } from '@/components/settings/AppearanceSection';
+import { SessionsSection } from '@/components/settings/SessionsSection';
 import { AnimatedItem, AnimatedList } from '@/components/motion';
 import { CopyButton } from '@/components/shared/CopyButton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -65,7 +68,6 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
   useApiKeys,
   useCreateApiKey,
@@ -76,14 +78,10 @@ import {
   type KeyScope,
 } from '@/hooks/useApiKeys';
 import { useFrozen } from '@/hooks/useFrozen';
-import { useSystemStatus } from '@/hooks/useSystemStatus';
-import { useRevokeAllSessions, useRevokeSession, useSessions } from '@/hooks/useSessions';
 import { statusOf } from '@/lib/api-client';
 import { formatDate, formatRelativeTime, formatTimeLeft } from '@/lib/formatters';
 import { fadeUp } from '@/lib/motion';
-import { loadPage } from '@/lib/navigation';
 import { useSession } from '@/lib/session';
-import { THEME_OPTIONS, useTheme, type Theme } from '@/lib/theme';
 
 const SCOPES: { value: KeyScope; label: string; detail: string }[] = [
   { value: 'upload', label: 'upload', detail: 'Upload videos through tus' },
@@ -621,275 +619,16 @@ export function ApiKeysCard() {
   );
 }
 
-function SessionsCard() {
-  const session = useSession();
-  const sessions = useSessions(!session.authDisabled);
-  const revoke = useRevokeSession();
-  const revokeAll = useRevokeAllSessions();
-  const [confirmAll, setConfirmAll] = useState(false);
-  const rows = sessions.data?.data ?? [];
-
-  const end = async (id: string, current: boolean) => {
-    try {
-      await revoke.mutateAsync(id);
-      if (current) {
-        // this browser's session is gone; let the auth gate show sign-in
-        loadPage('/studio');
-        return;
-      }
-      toast.success('Session ended. That browser has to sign in again.');
-    } catch (err) {
-      toast.error(`Could not end the session: ${errorText(err)}`);
-    }
-  };
-
-  const endAll = async () => {
-    try {
-      await revokeAll.mutateAsync();
-      setConfirmAll(false);
-      loadPage('/studio');
-    } catch (err) {
-      setConfirmAll(false);
-      toast.error(`Could not sign out: ${errorText(err)}`);
-    }
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Sessions</CardTitle>
-        <CardDescription>
-          {session.authDisabled
-            ? 'Sign-in is off on this server, so nobody signs in and there are no sessions.'
-            : `Browsers signed in to the Studio as ${session.username}.`}
-        </CardDescription>
-        {!session.authDisabled && rows.length > 0 && (
-          <CardAction>
-            <Button variant="outline" size="sm" onClick={() => setConfirmAll(true)}>
-              <LogOut />
-              <span className="max-sm:sr-only">Sign out everywhere</span>
-            </Button>
-          </CardAction>
-        )}
-      </CardHeader>
-      {!session.authDisabled && (
-        <CardContent className="px-0">
-          {sessions.isLoading ? (
-            <div className="flex flex-col gap-2 px-4" aria-hidden="true">
-              <Skeleton className="h-9" />
-              <Skeleton className="h-12" />
-            </div>
-          ) : sessions.isError ? (
-            <Alert variant="destructive" className="mx-4 w-auto">
-              <AlertTriangle />
-              <AlertTitle>Could not load sessions</AlertTitle>
-              <AlertDescription>{sessions.error.message}</AlertDescription>
-            </Alert>
-          ) : (
-            <ResponsiveTable className="max-sm:[&_tbody>tr]:px-4">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-4">Browser</TableHead>
-                  <TableHead className="hidden md:table-cell">Signed in</TableHead>
-                  <TableHead className="hidden sm:table-cell">Expires</TableHead>
-                  <TableHead className="pr-4 text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <AnimatedList
-                as="tbody"
-                data-slot="table-body"
-                className="[&_tr:last-child]:border-0"
-              >
-                {rows.map((s) => {
-                  const ending = revoke.isPending && revoke.variables === s.id;
-                  return (
-                    <AnimatedItem
-                      key={s.id}
-                      as="tr"
-                      data-slot="table-row"
-                      className="border-b transition-colors hover:bg-muted/50"
-                    >
-                      <ResponsiveCell
-                        cell="primary"
-                        className="max-w-[280px] pl-4 max-sm:max-w-none"
-                      >
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <Monitor className="size-4 shrink-0 text-muted-foreground" />
-                          <span
-                            className="min-w-0 truncate text-xs font-normal"
-                            title={s.user_agent ?? undefined}
-                          >
-                            {s.user_agent ?? 'Unknown browser'}
-                          </span>
-                          {s.current && <Badge variant="secondary">This browser</Badge>}
-                        </div>
-                      </ResponsiveCell>
-                      <ResponsiveCell
-                        label="Signed in"
-                        className="hidden text-muted-foreground md:table-cell"
-                      >
-                        <span title={formatDate(s.created_at)}>
-                          {formatRelativeTime(s.created_at)}
-                        </span>
-                      </ResponsiveCell>
-                      <ResponsiveCell
-                        label="Expires"
-                        className="hidden text-muted-foreground sm:table-cell"
-                      >
-                        {formatTimeLeft(s.expires_at)}
-                      </ResponsiveCell>
-                      <ResponsiveCell cell="actions" className="pr-4 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive"
-                          disabled={ending}
-                          onClick={() => void end(s.id, s.current)}
-                        >
-                          {ending ? <ButtonSpinner /> : <LogOut />}
-                          {s.current ? 'Sign out' : 'End'}
-                        </Button>
-                      </ResponsiveCell>
-                    </AnimatedItem>
-                  );
-                })}
-              </AnimatedList>
-            </ResponsiveTable>
-          )}
-        </CardContent>
-      )}
-      <AlertDialog
-        open={confirmAll}
-        onOpenChange={(o) => {
-          if (!revokeAll.isPending) setConfirmAll(o);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Sign out everywhere?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Every browser signed in as {session.username} is signed out right away, this one
-              included. API keys keep working.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={revokeAll.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={revokeAll.isPending}
-              onClick={(e) => {
-                // stay open with a spinner until the server answered
-                e.preventDefault();
-                void endAll();
-              }}
-            >
-              {revokeAll.isPending && <ButtonSpinner />}
-              {revokeAll.isPending ? 'Signing out...' : 'Sign out everywhere'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Card>
-  );
-}
-
-function AppearanceCard() {
-  const { theme, resolvedTheme, setTheme } = useTheme();
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Appearance</CardTitle>
-        <CardDescription>
-          {theme === 'system'
-            ? `Following your system, now ${resolvedTheme}`
-            : 'Saved in this browser'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          value={theme}
-          onValueChange={(v) => v && setTheme(v as Theme)}
-          aria-label="Theme"
-          className="w-full max-w-sm"
-        >
-          {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
-            <ToggleGroupItem key={value} value={value} className="min-w-0 flex-1 gap-2 px-3">
-              <Icon />
-              {label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AccountCard() {
-  const session = useSession();
-  const status = useSystemStatus();
-  const rows: Array<[string, React.ReactNode]> = [
-    [
-      'Signed in as',
-      <span key="u" className="font-mono">
-        {session.username}
-      </span>,
-    ],
-    [
-      'API base URL',
-      <span key="b" className="flex min-w-0 items-center justify-end gap-1 font-mono">
-        <span className="min-w-0 text-xs [overflow-wrap:anywhere]">{window.location.origin}</span>
-        <CopyButton value={window.location.origin} label="Copy base URL" className="size-6" />
-      </span>,
-    ],
-    ['Role', session.operator ? 'Operator: sees deployment status and metrics' : 'Account'],
-    ['Backend version', status.data ? `v${status.data.version}` : status.isError ? '-' : '...'],
-    ['Sia network', status.data?.indexer.network ?? (status.isError ? '-' : '...')],
-  ];
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Account</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2.5">
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex items-start justify-between gap-4 text-sm">
-            <span className="shrink-0 text-muted-foreground">{label}</span>
-            <span className="min-w-0 text-right break-words">{value}</span>
-          </div>
-        ))}
-        <div className="mt-2 flex flex-wrap gap-2 border-t pt-3">
-          <Button variant="outline" size="sm" asChild>
-            <a href="/api/v1/docs" target="_blank" rel="noopener noreferrer">
-              API reference
-            </a>
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <a href="https://github.com/justmert/Sluby" target="_blank" rel="noopener noreferrer">
-              Source on GitHub
-            </a>
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function SettingsPage() {
+  const { authDisabled } = useSession();
   return (
-    <PageContainer>
-      <PageHeader title="Settings" description="API keys, sessions, appearance and account" />
-      {/* three columns only once the key table has room for its columns */}
-      <div className="grid gap-4 xl:grid-cols-3">
-        <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
-          <ApiKeysCard />
-          <SessionsCard />
-        </div>
-        <div className="grid min-w-0 items-start gap-4 md:grid-cols-2 xl:flex xl:flex-col">
-          <AppearanceCard />
-          <AccountCard />
-        </div>
+    <PageContainer className="max-w-3xl">
+      <PageHeader title="Settings" description="Your account, browsers and appearance" />
+      <div className="flex flex-col gap-10">
+        <AccountSection />
+        {/* with sign-in off nobody signs in, so there are no browsers to list */}
+        {!authDisabled && <SessionsSection />}
+        <AppearanceSection />
       </div>
     </PageContainer>
   );

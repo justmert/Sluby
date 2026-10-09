@@ -5,7 +5,7 @@ import { renderPage } from '@/test/render';
 import type { AuthSession } from '@/lib/session';
 import { WithSession } from '@/test/session';
 import { formatTimeLeft as timeLeft } from '@/lib/formatters';
-import SettingsPage from './SettingsPage';
+import SettingsPage, { ApiKeysCard } from './SettingsPage';
 
 let keys: Array<Record<string, unknown>>;
 let sessions: Array<Record<string, unknown>>;
@@ -31,14 +31,16 @@ beforeEach(() => {
   sessions = [
     {
       id: 's1',
-      user_agent: 'Mozilla/5.0 (Macintosh) Chrome/141',
+      user_agent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
       created_at: '2026-10-05T00:00:00Z',
       expires_at: new Date(Date.now() + 5 * 86_400_000).toISOString(),
       current: true,
     },
     {
       id: 's2',
-      user_agent: 'Mozilla/5.0 (iPhone) Safari/18',
+      user_agent:
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1',
       created_at: '2026-10-04T00:00:00Z',
       expires_at: new Date(Date.now() + 4 * 86_400_000).toISOString(),
       current: false,
@@ -101,10 +103,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+// the keys card lives on the API keys page now; these tests drive it alone
 const render = (session: Partial<AuthSession> = {}) =>
   renderPage(
     <WithSession {...session}>
-      <SettingsPage />
+      <ApiKeysCard />
     </WithSession>,
   );
 
@@ -167,14 +170,6 @@ describe('SettingsPage', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Revoke' }));
     await waitFor(() => expect(calls('DELETE', '/api/v1/keys/k1')).toHaveLength(1));
   });
-
-  it('switches the theme', async () => {
-    render();
-    await userEvent.click(screen.getByRole('radio', { name: /light/i }));
-    expect(document.documentElement).toHaveClass('light');
-    await userEvent.click(screen.getByRole('radio', { name: /dark/i }));
-    expect(document.documentElement).toHaveClass('dark');
-  });
 });
 
 describe('formatTimeLeft', () => {
@@ -184,31 +179,6 @@ describe('formatTimeLeft', () => {
     expect(timeLeft(at(5 * 60_000), 1_000_000)).toBe('in 5 minutes');
     expect(timeLeft(at(26 * 3_600_000), 1_000_000)).toBe('in 1 day 2 hours');
     expect(timeLeft(at(-1), 1_000_000)).toBe('now');
-  });
-});
-
-describe('SettingsPage sessions', () => {
-  it('lists the signed-in sessions and ends another one', async () => {
-    render();
-    await screen.findByText('Mozilla/5.0 (iPhone) Safari/18');
-    expect(screen.getByText('This browser')).toBeInTheDocument();
-    const iphoneRow = screen.getByText('Mozilla/5.0 (iPhone) Safari/18').closest('tr')!;
-    await userEvent.click(within(iphoneRow).getByRole('button', { name: /end/i }));
-    await waitFor(() => expect(calls('DELETE', '/api/v1/auth/sessions/s2')).toHaveLength(1));
-    await waitFor(() =>
-      expect(screen.queryByText('Mozilla/5.0 (iPhone) Safari/18')).not.toBeInTheDocument(),
-    );
-  });
-
-  it('does not talk about signed-in browsers when sign-in is off', async () => {
-    render({ authDisabled: true, username: 'dev', provider: 'local' });
-    expect(
-      await screen.findByText(
-        'Sign-in is off on this server, so nobody signs in and there are no sessions.',
-      ),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/Browsers signed in/)).not.toBeInTheDocument();
-    expect(calls('GET', '/api/v1/auth/sessions')).toHaveLength(0);
   });
 });
 
@@ -289,13 +259,6 @@ describe('SettingsPage keys', () => {
     render();
     expect(await screen.findByText('id abcd1234')).toBeInTheDocument();
     expect(screen.getByText('id f00dcafe')).toBeInTheDocument();
-  });
-
-  it('shows the role on the account card', async () => {
-    render({ operator: true });
-    expect(
-      await screen.findByText('Operator: sees deployment status and metrics'),
-    ).toBeInTheDocument();
   });
 });
 
@@ -455,26 +418,7 @@ describe('SettingsPage key forms and optimistic rows', () => {
   });
 });
 
-describe('SettingsPage sessions, optimistic', () => {
-  it('drops an ended session at once and restores it when ending fails', async () => {
-    let answer!: (r: Response) => void;
-    const base = fetchMock.getMockImplementation() as typeof fetch;
-    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input) === '/api/v1/auth/sessions/s2' && init?.method === 'DELETE') {
-        return new Promise<Response>((r) => (answer = r));
-      }
-      return base(input, init);
-    });
-    render();
-    const ua = 'Mozilla/5.0 (iPhone) Safari/18';
-    const row = (await screen.findByText(ua)).closest('tr')!;
-    await userEvent.click(within(row).getByRole('button', { name: /end/i }));
-    await waitFor(() => expect(screen.queryByText(ua)).not.toBeInTheDocument());
-    answer(json({ error: 'nope' }, 500));
-    expect(await screen.findByText('Could not end the session: nope')).toBeInTheDocument();
-    expect(screen.getByText(ua)).toBeInTheDocument();
-  });
-
+describe('SettingsPage keys loading', () => {
   it('shapes the loading keys like the rows they stand for, stacked on phones', async () => {
     let answer!: (r: Response) => void;
     const held = new Promise<Response>((r) => (answer = r));
@@ -505,9 +449,9 @@ describe('SettingsPage deep link', () => {
   it('opens the create key dialog from ?create=key and drops the param on close', async () => {
     renderPage(
       <WithSession>
-        <SettingsPage />
+        <ApiKeysCard />
       </WithSession>,
-      { route: '/studio/settings?create=key' },
+      { route: '/studio/developers/keys?create=key' },
     );
     const dialog = await screen.findByRole('dialog', { name: 'Create API key' });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
@@ -515,5 +459,42 @@ describe('SettingsPage deep link', () => {
     // closed for good: the param is gone, so a re-render does not reopen it
     await screen.findByText('production');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('SettingsPage', () => {
+  const renderSettings = (session: Partial<AuthSession> = {}) =>
+    renderPage(
+      <WithSession {...session}>
+        <SettingsPage />
+      </WithSession>,
+    );
+
+  it('has the account, browsers and appearance sections and no API keys', async () => {
+    renderSettings();
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByText('Your account, browsers and appearance')).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
+      'Account',
+      'Signed-in browsers',
+      'Appearance',
+    ]);
+    await screen.findByText('Safari on iPhone');
+    expect(screen.queryByText('API keys')).not.toBeInTheDocument();
+    expect(calls('GET', '/api/v1/keys')).toHaveLength(0);
+  });
+
+  it('asks for no server status: the version and network live in the sidebar now', async () => {
+    renderSettings();
+    await screen.findByText('Safari on iPhone');
+    expect(calls('GET', '/api/v1/system/status')).toHaveLength(0);
+  });
+
+  it('leaves out signed-in browsers and sign out when sign-in is off', async () => {
+    renderSettings({ authDisabled: true, username: 'dev', provider: 'local', operator: true });
+    expect(screen.getByText('Sign-in is off on this server')).toBeInTheDocument();
+    expect(screen.queryByText('Signed-in browsers')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
+    expect(calls('GET', '/api/v1/auth/sessions')).toHaveLength(0);
   });
 });
