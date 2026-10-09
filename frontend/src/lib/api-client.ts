@@ -96,7 +96,14 @@ async function parse<T>(response: Response): Promise<T> {
   const text = await response.text();
   if (response.status === 204 || text === '') return undefined as T;
   const contentType = response.headers.get('content-type') ?? '';
-  if (!contentType.includes('application/json')) return text as unknown as T;
+  // every endpoint this client calls answers json; a page here is a proxy
+  // serving the studio for /api, which must not read as a signed-in answer
+  if (contentType.includes('text/html')) {
+    throw new ApiError(response.status, 'The server answered with a web page, not JSON');
+  }
+  if (!contentType.includes('application/json')) {
+    throw new ApiError(response.status, 'The server answered with malformed JSON');
+  }
   try {
     return JSON.parse(text) as T;
   } catch {

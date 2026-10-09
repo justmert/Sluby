@@ -58,6 +58,12 @@ const KNOWN: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/^Webhook endpoint not found/i, () => 'That webhook no longer exists.'],
   [/^API key not found/i, () => 'That API key no longer exists.'],
   [/^Session not found/i, () => 'That browser was already signed out.'],
+  // api-client.ts: a 200 page where json belongs, a proxy sending /api to the studio
+  [
+    /^The server answered with a web page, not JSON$/,
+    () =>
+      'The server sent a web page instead of data. Check that requests to /api reach the Sluby backend.',
+  ],
   // error-handler.ts: no such route, so the server is older than the studio
   [
     /^Route [A-Z]+ \S+ not found$/,

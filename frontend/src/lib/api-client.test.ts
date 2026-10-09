@@ -75,6 +75,19 @@ describe('apiClient', () => {
     expect(err).toMatchObject({ status: 500, message: 'HTTP 500' });
   });
 
+  it('refuses a 200 that is not json, such as a proxy serving the studio page for /api', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(respond(200, '<!doctype html><html></html>', 'text/html')),
+    );
+    const err = await apiClient.get('/auth/me').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({
+      status: 200,
+      message: 'The server answered with a web page, not JSON',
+    });
+  });
+
   it('keeps the status line for an html error page', async () => {
     vi.stubGlobal(
       'fetch',

@@ -180,6 +180,16 @@ describe('errorText', () => {
     );
   });
 
+  it('points a web page answer at the proxy, the usual cause', () => {
+    expect(
+      describeError(new ApiError(200, 'The server answered with a web page, not JSON')),
+    ).toMatchObject({
+      message:
+        'The server sent a web page instead of data. Check that requests to /api reach the Sluby backend.',
+      action: 'retry',
+    });
+  });
+
   it('keeps a readable validation message as a sentence', () => {
     expect(
       errorText(new ApiError(400, 'title: String must contain at most 200 character(s)')),

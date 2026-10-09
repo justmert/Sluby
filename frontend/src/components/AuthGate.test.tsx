@@ -126,6 +126,24 @@ describe('AuthGate', () => {
     expect(screen.queryByText(/It answered with error/)).not.toBeInTheDocument();
   });
 
+  it('does not take the studio page served for /api as a session', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('<!doctype html><title>Sluby</title>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+    );
+    renderGate();
+    expect(await screen.findByText('Could not check your session')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Check that requests to \/api reach the Sluby backend\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/via GitHub/)).not.toBeInTheDocument();
+  });
+
   it('does not call an unreadable answer error 200', async () => {
     vi.stubGlobal(
       'fetch',
