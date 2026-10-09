@@ -80,7 +80,7 @@ beforeEach(() => {
 });
 
 describe('/v1/stream tier + policy enforcement', () => {
-  it('serves a public asset manifest without a signature, briefly kept by nginx', async () => {
+  it('serves a public asset manifest without a signature, never kept by nginx', async () => {
     const res = await request(app()).get(`/v1/stream/${ASSET}/master.m3u8`);
 
     expect(res.status).toBe(200);
@@ -88,7 +88,8 @@ describe('/v1/stream tier + policy enforcement', () => {
     expect(res.text).toContain(`/v1/objects/${VARIANT}`);
     expect(res.text).not.toContain('sig=');
     expect(res.headers['cache-control']).toBe('public, no-cache');
-    expect(res.headers['x-accel-expires']).toBe('60');
+    // each load must reach the backend to be counted as a play
+    expect(res.headers['x-accel-expires']).toBeUndefined();
     expect(res.headers['etag']).toBe(`"${MASTER}"`);
   });
 
@@ -189,7 +190,11 @@ describe('/v1/stream tier + policy enforcement', () => {
       async (pb: string) =>
         ({ videoAssetId: ASSET, policy: pb === PB_SIGNED ? 'signed' : 'public' }) as never,
     );
-    vi.mocked(resolveObjectAccess).mockResolvedValue({ kind: 'public', assetId: ASSET });
+    vi.mocked(resolveObjectAccess).mockResolvedValue({
+      kind: 'public',
+      assetId: ASSET,
+      isMaster: false,
+    });
 
     for (const entry of [PB_PUBLIC, ASSET]) {
       const master = await request(app()).get(`/v1/stream/${entry}/master.m3u8`);

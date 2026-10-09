@@ -34,6 +34,7 @@ import { scheduleDeletionGc, closeDeletionWorker } from './deletion/worker.js';
 // importing the webhook module starts its worker, which sends the queued
 // deliveries
 import { webhookDispatcher, closeWebhookWorker } from './webhooks/worker.js';
+import { playCounter } from './delivery/play-recorder.js';
 
 for (const dir of [env.UPLOAD_DIR, env.TRANSCODE_OUTPUT_DIR]) {
   mkdirSync(dir, { recursive: true });
@@ -152,6 +153,9 @@ const uploadSweepTimer = setInterval(() => {
 }, UPLOAD_SWEEP_INTERVAL_MS);
 uploadSweepTimer.unref();
 
+// plays are buffered in memory and written every few seconds
+playCounter.start();
+
 const server = app.listen(env.PORT, env.HOST, () => {
   logger.info({ host: env.HOST, port: env.PORT }, 'Sluby backend is running');
   // connecting to the indexer takes a while on a cold start; do it now rather
@@ -178,7 +182,11 @@ const shutdown = createShutdown({
       closeWebhookWorker(),
     ]),
   closeQueues,
-  closeDatabase,
+  // http has drained by now, so the last plays are in the buffer
+  closeDatabase: async () => {
+    await playCounter.stop();
+    await closeDatabase();
+  },
   exit: (code) => process.exit(code),
 });
 

@@ -139,6 +139,9 @@ interface VideoAssetRecord {
   creatorAddress: string;
   segmentCount: number;
   totalStorageBytes: number;
+  /** All-time plays, see delivery/plays.ts. */
+  playCount: number;
+  lastPlayedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -402,6 +405,8 @@ function formatAsset(asset: VideoAssetRecord) {
     creator_address: asset.creatorAddress,
     segment_count: asset.segmentCount,
     total_storage_bytes: asset.totalStorageBytes,
+    play_count: asset.playCount,
+    last_played_at: asset.lastPlayedAt ? asset.lastPlayedAt.toISOString() : null,
     created_at: asset.createdAt.toISOString(),
     updated_at: asset.updatedAt.toISOString(),
   };

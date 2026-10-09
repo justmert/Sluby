@@ -6,6 +6,7 @@ import {
   integer,
   boolean,
   timestamp,
+  date,
   jsonb,
   pgEnum,
   index,
@@ -123,6 +124,9 @@ export const videoAssets = pgTable(
     // A non-null value means "deletion in progress"; the row is gone once the
     // objects are unpinned.
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    // the newest counted play (see delivery/plays.ts); written without
+    // touching updated_at, so a play never changes the asset's ETag
+    lastPlayedAt: timestamp('last_played_at', { withTimezone: true }),
     // millisecond precision, the precision of a js date and so of a listing
     // cursor, which lets the listing order and page on the plain column
     createdAt: timestamp('created_at', { withTimezone: true, precision: 3 }).notNull().defaultNow(),
@@ -142,6 +146,23 @@ export const videoAssets = pgTable(
     // the deletion gc sweep looks for rows stuck mid-deletion
     index('video_assets_deleted_at_idx').on(t.deletedAt),
   ],
+);
+
+/**
+ * asset_plays_daily counts plays per asset and UTC day; what counts as a
+ * play is in delivery/plays.ts. One row per asset and day keeps the table
+ * small and the per-day usage a range read of the primary key.
+ */
+export const assetPlaysDaily = pgTable(
+  'asset_plays_daily',
+  {
+    videoAssetId: uuid('video_asset_id')
+      .notNull()
+      .references(() => videoAssets.id, { onDelete: 'cascade' }),
+    day: date('day', { mode: 'string' }).notNull(),
+    plays: integer('plays').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.videoAssetId, t.day] })],
 );
 
 /**

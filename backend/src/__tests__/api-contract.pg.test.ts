@@ -1416,6 +1416,36 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(res.body.total).toBe(2);
     });
 
+    it('scopes plays per day to the tenant, and gives the platform key every account', async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      await tdb.sql`
+        insert into asset_plays_daily (video_asset_id, day, plays)
+        values (${assetA.id}, ${today}, 3), (${assetB.id}, ${today}, 4)`;
+      const usage = async (who: Who, query = '') => {
+        const res = await call('GET', `/api/v1/stats/usage${query}`, who);
+        check('GET', '/api/v1/stats/usage', res);
+        return res;
+      };
+      const a = await usage('a', '?days=2');
+      expect(a.status).toBe(200);
+      expect(a.body.days).toEqual([
+        { date: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10), plays: 0 },
+        { date: today, plays: 3 },
+      ]);
+      expect(a.body.total).toBe(3);
+      expect((await usage('b')).body.total).toBe(4);
+      expect((await usage('platform')).body.total).toBe(7);
+      expect((await usage('aRead')).status).toBe(200);
+      expect((await usage('aUpload')).status).toBe(403);
+      expect((await usage('a', '?days=91')).status).toBe(400);
+
+      const asset = await call('GET', `/api/v1/assets/${assetA.id}`, 'a');
+      expect(asset.body.play_count).toBe(3);
+      const list = await call('GET', '/api/v1/assets', 'a');
+      check('GET', '/api/v1/assets', list);
+      expect(list.body.data.find((x: { id: string }) => x.id === assetA.id).play_count).toBe(3);
+    });
+
     describe('an operator (OPERATOR_USERS)', () => {
       const OPERATOR_KEY = `sluby_${'o'.repeat(40)}`;
       let env: typeof import('../config/env.js').env;

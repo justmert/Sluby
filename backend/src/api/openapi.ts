@@ -262,6 +262,8 @@ export const openapiDocument = {
           'creator_address',
           'segment_count',
           'total_storage_bytes',
+          'play_count',
+          'last_played_at',
           'created_at',
           'updated_at',
         ],
@@ -285,6 +287,19 @@ export const openapiDocument = {
           creator_address: { type: 'string' },
           segment_count: { type: 'integer' },
           total_storage_bytes: { type: 'integer' },
+          play_count: {
+            type: 'integer',
+            minimum: 0,
+            description:
+              'All-time plays: player loads this server saw, through the gateway or by minting ' +
+              'a share map to play direct from Sia. One viewer loading the same video again ' +
+              'within 30 minutes counts once, previews in the Studio do not count, and counts ' +
+              'reach the API within about 10 seconds.',
+          },
+          last_played_at: nullable('string', {
+            format: 'date-time',
+            description: 'When the newest counted play happened; null before the first.',
+          }),
           created_at: { type: 'string', format: 'date-time' },
           updated_at: { type: 'string', format: 'date-time' },
         },
@@ -1769,6 +1784,14 @@ export const openapiDocument = {
         parameters: [
           idParam('id', 'Asset UUID or pb_ playback ID.'),
           { name: 'expires_in', in: 'query', schema: { type: 'integer', default: 3600 } },
+          {
+            name: 'renew',
+            in: 'query',
+            schema: { type: 'string' },
+            description:
+              'Set (any value) when replacing a map the player already holds during one ' +
+              'watch, so it is not counted as another play. The SDK sets it.',
+          },
         ],
         responses: {
           '200': jsonResponse('SharePlaybackInfo', 'Share URL map.'),
@@ -2305,6 +2328,50 @@ export const openapiDocument = {
         responses: { '200': jsonResponse('AssetStats', 'Totals.'), ...authFailures },
       },
     },
+    '/api/v1/stats/usage': {
+      get: {
+        tags: ['Ops'],
+        summary: 'Plays per day of your videos.',
+        description:
+          'Plays of the caller’s videos per UTC day for the last `days` days, today included, ' +
+          'oldest first, with days without plays as 0. What counts as a play is described on ' +
+          '`play_count` of an asset. The platform identity gets every account together.',
+        'x-required-scope': 'read',
+        parameters: [
+          {
+            name: 'days',
+            in: 'query' as const,
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 90, default: 30 },
+          },
+        ],
+        responses: {
+          '200': jsonSchemaResponse(
+            {
+              type: 'object',
+              required: ['days', 'total'],
+              properties: {
+                days: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['date', 'plays'],
+                    properties: {
+                      date: { type: 'string', format: 'date', description: 'YYYY-MM-DD, UTC.' },
+                      plays: { type: 'integer', minimum: 0 },
+                    },
+                  },
+                },
+                total: { type: 'integer', minimum: 0, description: 'Plays over all the days.' },
+              },
+            },
+            'Plays per day.',
+          ),
+          '400': ref('BadRequest'),
+          ...authFailures,
+        },
+      },
+    },
     '/api/v1/system/status': {
       get: {
         tags: ['Ops'],
@@ -2403,7 +2470,9 @@ export const openapiDocument = {
           'asset’s signed master url; the child urls in the answer are then signed too. A ' +
           'signed playback ID gates only this entry: on a public asset its objects stay ' +
           'public, so the bytes are not private (make the asset private for that), and other ' +
-          'embeds of the asset keep playing. A public answer is cached like a public object.',
+          'embeds of the asset keep playing. A public answer carries an ETag and ' +
+          '`public, no-cache`, but no shared cache keeps it: each 200 GET counts as a play ' +
+          '(see `play_count` on an asset); HEAD and 304 do not.',
         security: [],
         parameters: [
           idParam('videoAssetId', 'Asset UUID or pb_ playback ID.'),
@@ -2440,8 +2509,9 @@ export const openapiDocument = {
           '`sig` of its signed master URL, and the shares then never outlive `expires`. ' +
           'Expiries are capped like the authenticated route (six hours, one hour when gated) ' +
           'and rounded to five-minute slots that the server caches, so repeated calls do not ' +
-          'mint again. A gated map is sent `private, no-store`; a public one may be kept by ' +
-          'the shipped nginx for up to a minute and is revalidated by every other cache. ' +
+          'mint again. Every map is sent `no-store` (`private, no-store` when gated): minting ' +
+          'one is how a direct-from-Sia play reaches the server, and each counts as a play ' +
+          '(see `play_count` on an asset), unless `renew` is set. ' +
           'Share URLs already handed out keep working until they expire, whatever happens to ' +
           'the asset meanwhile.',
         security: [],

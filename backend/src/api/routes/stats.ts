@@ -3,10 +3,20 @@ import { requireScope } from '../middleware/api-key.js';
 import { ownerFilter, seesOperations } from '../ownership.js';
 import type { AssetStats } from '../../db/queries/stats.js';
 import type { SystemStatus } from '../../system/status.js';
+import { z } from 'zod';
+import { integerParam, parseOrThrow } from '../validation.js';
+
+const DAY_MS = 24 * 3600 * 1000;
+const usageQuerySchema = z.object({ days: integerParam('days', 1, 90).optional() });
 
 export interface StatsRouteDeps {
   /** `owner` scopes the totals to one tenant (undefined = platform key). */
   getAssetStats: (owner?: string) => Promise<AssetStats>;
+  /** Plays per UTC day from `since` (YYYY-MM-DD) on; days with none left out. */
+  getDailyPlays: (
+    owner: string | undefined,
+    since: string,
+  ) => Promise<Array<{ day: string; plays: number }>>;
   getSystemStatus: () => Promise<SystemStatus>;
 }
 
@@ -120,6 +130,29 @@ export function createStatsRoutes(deps: StatsRouteDeps): Router {
   router.get('/stats', requireScope('read'), async (req: Request, res: Response) => {
     const stats = await deps.getAssetStats(ownerFilter(req.apiKey!.creatorAddress));
     res.json(formatAssetStats(stats));
+  });
+
+  /**
+   * GET /api/v1/stats/usage?days=30
+   * Plays of the caller's videos per UTC day for the last `days` days (1 to
+   * 90), today included, oldest first, days without plays as 0. What counts
+   * as a play is in delivery/plays.ts.
+   */
+  router.get('/stats/usage', requireScope('read'), async (req: Request, res: Response) => {
+    const q = parseOrThrow(usageQuerySchema, req.query);
+    const days = q.days ?? 30;
+    const today = Date.UTC(
+      new Date().getUTCFullYear(),
+      new Date().getUTCMonth(),
+      new Date().getUTCDate(),
+    );
+    const dates = Array.from({ length: days }, (_, i) =>
+      new Date(today - (days - 1 - i) * DAY_MS).toISOString().slice(0, 10),
+    );
+    const rows = await deps.getDailyPlays(ownerFilter(req.apiKey!.creatorAddress), dates[0]);
+    const byDay = new Map(rows.map((r) => [r.day, r.plays]));
+    const series = dates.map((date) => ({ date, plays: byDay.get(date) ?? 0 }));
+    res.json({ days: series, total: series.reduce((n, d) => n + d.plays, 0) });
   });
 
   /**

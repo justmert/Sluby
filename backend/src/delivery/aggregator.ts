@@ -12,6 +12,7 @@ import { isPlaybackId } from '../api/playback-id.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { playbackInitiationTotal, recordDelivery } from '../metrics/collector.js';
+import { countPlay } from './play-recorder.js';
 
 export const deliveryRouter = Router();
 
@@ -46,6 +47,10 @@ export const deliveryRouter = Router();
  * 304 only after checking access again. So an asset made private, revoked or
  * deleted stops being served within that window. Private responses are
  * `no-store` and errors are never cacheable.
+ *
+ * The entry points of a play (a master playlist and a share map) never carry
+ * X-Accel-Expires, so every player load reaches this gateway and is counted
+ * (see plays.ts). They are small and served from memory here.
  */
 
 // how long the shipped nginx may serve a small public object before asking
@@ -287,6 +292,8 @@ async function streamBody(
 
 interface Grant {
   isPrivate: boolean;
+  /** the asset's master playlist: not kept by nginx, so each load is counted */
+  isMaster?: boolean;
   /** applied to a manifest body before sending, to sign its child urls */
   signManifest?: (text: string) => string;
 }
@@ -344,7 +351,7 @@ async function serveWhole(
       : (hinted ?? detectBinaryContentType(data)),
     'Content-Length': String(body.length),
     'Accept-Ranges': 'bytes',
-    ...(grant.isPrivate ? PRIVATE_CACHE : publicCache(etagFor(objectId), true)),
+    ...(grant.isPrivate ? PRIVATE_CACHE : publicCache(etagFor(objectId), !grant.isMaster)),
     'X-Cache-Status': status,
     ...COMMON_CORS,
   });
@@ -473,7 +480,7 @@ deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) 
     return;
   }
 
-  const grant: Grant = { isPrivate: access.kind === 'private' };
+  const grant: Grant = { isPrivate: access.kind === 'private', isMaster: access.isMaster };
   if (access.kind === 'private') {
     const check = verifyObjectAccess(
       objectId,
@@ -494,7 +501,7 @@ deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) 
     // still public: the copy the client (or nginx) holds may be used again
     res
       .status(304)
-      .set({ ...publicCache(etagFor(objectId), true), ...COMMON_CORS })
+      .set({ ...publicCache(etagFor(objectId), !access.isMaster), ...COMMON_CORS })
       .end();
     return;
   }
@@ -505,6 +512,8 @@ deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) 
       await serveRange(req, res, objectId, rangeHeader, grant);
     } else {
       await serveWhole(req, res, objectId, grant);
+      // a signed playback url points at the master object itself
+      if (access.isMaster && res.statusCode === 200) countPlay(req, access.assetId);
     }
   } catch (err) {
     upstreamFailure(res, err, objectId);
@@ -604,7 +613,7 @@ deliveryRouter.get('/v1/stream/:videoAssetId/master.m3u8', async (req: Request, 
   } else if (namesEtag(req.headers['if-none-match'], etag)) {
     res
       .status(304)
-      .set({ ...publicCache(etag, true), ...COMMON_CORS })
+      .set({ ...publicCache(etag, false), ...COMMON_CORS })
       .end();
     return;
   }
@@ -622,7 +631,7 @@ deliveryRouter.get('/v1/stream/:videoAssetId/master.m3u8', async (req: Request, 
       'Content-Type': 'application/vnd.apple.mpegurl',
       'Content-Length': String(body.length),
       // a signed manifest is per request; a public one is the object's bytes
-      ...(requiresSigning ? PRIVATE_CACHE : publicCache(etag, true)),
+      ...(requiresSigning ? PRIVATE_CACHE : publicCache(etag, false)),
       'X-Cache-Status': status,
       ...COMMON_CORS,
     });
@@ -632,17 +641,11 @@ deliveryRouter.get('/v1/stream/:videoAssetId/master.m3u8', async (req: Request, 
     }
     res.end(body);
     recordDelivery('manifest', body.length);
+    countPlay(req, asset.id);
   } catch (err) {
     upstreamFailure(res, err, manifestObjectId);
   }
 });
-
-// a public share map may sit in nginx this long at most, and never so long
-// that a cached copy is handed out after the shares lapse
-const PUBLIC_SHARE_MAX_AGE_SEC = SHARED_CACHE_SECONDS;
-// lifetime a cached copy must still have left when served: the sdk refreshes a
-// map 60s before it expires, plus slack for a second cache in front
-const PUBLIC_SHARE_CACHE_MARGIN_SEC = 120;
 
 /**
  * GET /v1/share/:id
@@ -717,20 +720,14 @@ deliveryRouter.get('/v1/share/:id', async (req: Request, res: Response) => {
     return;
   }
 
-  // a public map may be kept by nginx briefly; browsers and other caches must
-  // ask again, so a cached map never outlives an access change by more than
-  // the shared window
-  let cache: Record<string, string> = { 'Cache-Control': 'private, no-store' };
-  if (!gated) {
-    const remaining = Math.floor(Date.parse(result.expiresAt) / 1000) - nowSec;
-    const maxAge = Math.min(PUBLIC_SHARE_MAX_AGE_SEC, remaining - PUBLIC_SHARE_CACHE_MARGIN_SEC);
-    cache =
-      maxAge > 0
-        ? { 'Cache-Control': 'public, no-cache', 'X-Accel-Expires': String(maxAge) }
-        : { 'Cache-Control': 'no-store' };
-  }
+  // never kept by a cache: each map is a player load to count (see plays.ts),
+  // and minting is cheap here, since share-urls.ts keeps one map per asset and
+  // expiry slot
+  const cache = { 'Cache-Control': gated ? 'private, no-store' : 'no-store' };
 
   playbackInitiationTotal.inc({ mode: 'sia' });
+  // the sdk marks the refresh of a map it already holds, which is the same play
+  if (req.query.renew === undefined) countPlay(req, asset.id);
   res.set({ ...cache, ...COMMON_CORS }).json({
     master_object_id: result.masterObjectId,
     shares: result.shares,

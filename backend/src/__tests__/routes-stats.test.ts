@@ -28,6 +28,7 @@ describe('stats routes', () => {
         readyDurationMs: 60000,
         objectCount: 12,
       }),
+      getDailyPlays: vi.fn().mockResolvedValue([]),
       getSystemStatus: vi.fn().mockResolvedValue({
         status: 'degraded',
         checkedAt: '2026-10-02T00:00:00.000Z',
@@ -128,5 +129,48 @@ describe('stats routes', () => {
   it('requires the read scope', async () => {
     const res = await request(app({ ...readKey, scopes: ['upload'] })).get('/stats');
     expect(res.status).toBe(403);
+  });
+
+  describe('GET /stats/usage', () => {
+    const app = (key = readKey) => withApiKey(createTestApp(createStatsRoutes(deps)), key);
+
+    it('answers plays per UTC day, oldest first, zero-filled, with the total', async () => {
+      vi.useFakeTimers({ now: new Date('2026-10-09T15:00:00Z'), toFake: ['Date'] });
+      vi.mocked(deps.getDailyPlays).mockResolvedValue([
+        { day: '2026-10-07', plays: 4 },
+        { day: '2026-10-09', plays: 1 },
+      ]);
+      const res = await request(app()).get('/stats/usage').query({ days: 3 });
+      vi.useRealTimers();
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        days: [
+          { date: '2026-10-07', plays: 4 },
+          { date: '2026-10-08', plays: 0 },
+          { date: '2026-10-09', plays: 1 },
+        ],
+        total: 5,
+      });
+      expect(deps.getDailyPlays).toHaveBeenCalledWith('github:owner', '2026-10-07');
+    });
+
+    it('covers 30 days by default, and every account for the platform key', async () => {
+      const res = await request(app({ ...readKey, creatorAddress: PLATFORM_ADDRESS })).get(
+        '/stats/usage',
+      );
+      expect(res.body.days).toHaveLength(30);
+      expect(res.body.total).toBe(0);
+      expect(vi.mocked(deps.getDailyPlays).mock.calls[0][0]).toBeUndefined();
+    });
+
+    it.each(['0', '91', 'x', '1.5'])('rejects days=%s', async (days) => {
+      const res = await request(app()).get('/stats/usage').query({ days });
+      expect(res.status).toBe(400);
+    });
+
+    it('needs read', async () => {
+      const res = await request(app({ ...readKey, scopes: ['upload'] })).get('/stats/usage');
+      expect(res.status).toBe(403);
+    });
   });
 });

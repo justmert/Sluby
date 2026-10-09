@@ -113,6 +113,7 @@ import type { CallerDeps } from './api/auth/caller.js';
 import { LOCAL_DEV_SUBJECT, LOCAL_PROVIDER } from './api/auth/providers/index.js';
 import { getLatestReconciliationRun, filterObjectIdsOwnedBy } from './db/queries/reconciliation.js';
 import { getAssetStats } from './db/queries/stats.js';
+import { getDailyPlays, getPlayCounts } from './db/queries/plays.js';
 import { getArtifacts, getRenditions } from './db/queries/storage-records.js';
 import { createCachedSystemStatus } from './system/status.js';
 import {
@@ -435,7 +436,7 @@ export function buildUploadExpiry(
  * expect. Single place so the field list does not drift across the
  * list/get/update adapters.
  */
-function toAssetRecord(asset: VideoAsset) {
+function toAssetRecord(asset: VideoAsset, playCount: number) {
   return {
     id: asset.id,
     title: asset.title,
@@ -451,9 +452,17 @@ function toAssetRecord(asset: VideoAsset) {
     creatorAddress: asset.creatorAddress,
     segmentCount: asset.segmentCount,
     totalStorageBytes: asset.totalStorageBytes,
+    playCount,
+    lastPlayedAt: asset.lastPlayedAt,
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt,
   };
+}
+
+/** Asset records with their play counts, read in one query for the lot. */
+async function withPlayCounts(assets: VideoAsset[]) {
+  const counts = await getPlayCounts(assets.map((a) => a.id));
+  return assets.map((a) => toAssetRecord(a, counts.get(a.id) ?? 0));
 }
 
 function toWebhookRecord(ep: WebhookEndpointWithHealth) {
@@ -549,7 +558,7 @@ export function buildApiDeps(
       return {
         nextCursor: result.nextCursor,
         hasMore: result.hasMore,
-        data: result.data.map(toAssetRecord),
+        data: await withPlayCounts(result.data),
         total: result.total,
       };
     },
@@ -557,7 +566,7 @@ export function buildApiDeps(
     getAsset: async (id, owner) => {
       const asset = await getVideoAssetById(id, owner);
       if (!asset) return null;
-      return toAssetRecord(asset);
+      return (await withPlayCounts([asset]))[0];
     },
 
     updateAsset: async (id, data, owner, ifMatch) => {
@@ -576,7 +585,7 @@ export function buildApiDeps(
         // there is no such asset for this caller
         const current = ifMatch !== undefined ? await getVideoAssetById(id, owner) : undefined;
         return current
-          ? { status: 'conflict', current: toAssetRecord(current) }
+          ? { status: 'conflict', current: (await withPlayCounts([current]))[0] }
           : { status: 'not_found' };
       }
 
@@ -586,7 +595,7 @@ export function buildApiDeps(
       // up to a minute by this process).
       if (data.accessTier !== undefined) invalidateAssetAccess(id);
 
-      return { status: 'updated', asset: toAssetRecord(updated) };
+      return { status: 'updated', asset: (await withPlayCounts([updated]))[0] };
     },
 
     deleteAsset,
@@ -705,6 +714,7 @@ export function buildApiDeps(
     },
 
     getAssetStats: (owner) => getAssetStats(owner),
+    getDailyPlays,
     getSystemStatus: createCachedSystemStatus({
       version: ctx.version,
       startedAt: ctx.startedAt,

@@ -36,6 +36,8 @@ function createMockAsset(overrides: Record<string, unknown> = {}) {
     creatorAddress: '0xabc123',
     segmentCount: 20,
     totalStorageBytes: 50_000_000,
+    playCount: 7,
+    lastPlayedAt: new Date('2025-01-02T00:00:00Z'),
     createdAt: new Date('2025-01-01T00:00:00Z'),
     updatedAt: new Date('2025-01-01T01:00:00Z'),
     ...overrides,
@@ -209,6 +211,8 @@ describe('asset routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.id).toBe('asset-1');
       expect(res.body.title).toBe('Test Video');
+      expect(res.body.play_count).toBe(7);
+      expect(res.body.last_played_at).toBe('2025-01-02T00:00:00.000Z');
       // the version is updated_at in epoch milliseconds
       expect(res.headers.etag).toBe(`"${Date.parse('2025-01-01T01:00:00Z')}"`);
     });

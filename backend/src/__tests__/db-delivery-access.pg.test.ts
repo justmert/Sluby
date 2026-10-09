@@ -62,11 +62,16 @@ describe.skipIf(!hasTestDatabase)('delivery access per object (postgres)', () =>
     const pubAsset = await assetWith([pub]);
     const privAsset = await assetWith([priv], { tier: 'private' });
 
-    expect(await access.resolveObjectAccess(pub)).toEqual({ kind: 'public', assetId: pubAsset });
+    expect(await access.resolveObjectAccess(pub)).toEqual({
+      kind: 'public',
+      assetId: pubAsset,
+      isMaster: false,
+    });
     expect(await access.resolveObjectAccess(priv)).toEqual({
       kind: 'private',
       assetId: privAsset,
       signing: { generation: 0, legacyUntilSec: null },
+      isMaster: false,
     });
   });
 
@@ -84,7 +89,11 @@ describe.skipIf(!hasTestDatabase)('delivery access per object (postgres)', () =>
       insert into playback_ids (playback_id, video_asset_id, policy)
       values ('pb_signedsignedsignedsign', ${asset}, 'signed')
     `;
-    expect(await access.resolveObjectAccess(id)).toEqual({ kind: 'public', assetId: asset });
+    expect(await access.resolveObjectAccess(id)).toEqual({
+      kind: 'public',
+      assetId: asset,
+      isMaster: false,
+    });
   });
 
   it('picks the strictest claim when two assets hold one object', async () => {
@@ -201,7 +210,12 @@ describe.skipIf(!hasTestDatabase)('delivery access per object (postgres)', () =>
     expect(done.outcome).toBe('ready');
 
     for (const id of [master, playlist, data, thumb]) {
-      expect(await access.resolveObjectAccess(id)).toEqual({ kind: 'public', assetId: a.id });
+      // the master is where a play starts, so the gateway counts it there
+      expect(await access.resolveObjectAccess(id)).toEqual({
+        kind: 'public',
+        assetId: a.id,
+        isMaster: id === master,
+      });
     }
 
     // made private after it went ready: the poster needs a signature too
@@ -211,6 +225,7 @@ describe.skipIf(!hasTestDatabase)('delivery access per object (postgres)', () =>
       kind: 'private',
       assetId: a.id,
       signing: { generation: flipped?.signingGeneration, legacyUntilSec: null },
+      isMaster: false,
     });
   });
 

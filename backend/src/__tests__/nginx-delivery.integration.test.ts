@@ -118,12 +118,12 @@ http {
       try_files /v1/objects/slow =404;
       limit_rate 4k;
     }
-    # share maps: the backend marks a public map briefly cacheable and a gated
-    # one private, no-store
+    # share maps: the backend marks every map no-store, since each is a play
+    # to count, and a gated one private, no-store
     location /v1/share/ {
       root /origin;
       default_type application/json;
-      add_header Cache-Control "public, max-age=30" always;
+      add_header Cache-Control "no-store" always;
       add_header Access-Control-Allow-Origin * always;
       add_header Access-Control-Allow-Credentials true always;
     }
@@ -438,14 +438,15 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       expect(signed.headers.get('x-cache-status')).toBe('BYPASS');
     });
 
-    it('proxies share maps with one set of cors headers, caching only public ones', async () => {
+    it('proxies share maps with one set of cors headers, keeping none', async () => {
       const origin = { Origin: 'http://example.test' };
       const first = await fetchThroughNginx(base, '/v1/share/public', origin);
       const second = await fetchThroughNginx(base, '/v1/share/public', origin);
       expect(first.status).toBe(200);
       expect(JSON.parse(first.buf.toString()).master_object_id).toBe('master');
       expect(first.headers.get('x-cache-status')).toBe('MISS');
-      expect(second.headers.get('x-cache-status')).toBe('HIT');
+      // every load reaches the backend, which counts it as a play
+      expect(second.headers.get('x-cache-status')).toBe('MISS');
 
       const gatedFirst = await fetchThroughNginx(base, '/v1/share/gated?expires=1&sig=a', origin);
       const gatedSecond = await fetchThroughNginx(base, '/v1/share/gated?expires=1&sig=a', origin);
@@ -887,16 +888,22 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
     const objectPath = (id: string) => `/v1/objects/${id}`;
 
     it('stops serving cached copies within the shared window after a tier change or a delete, and keeps playing next to a new signed handle', async () => {
-      // fill nginx with every object and master of the three assets
+      // fill nginx with every object of the three assets. A master playlist
+      // is where a play starts, so it is never kept: each load reaches the
+      // backend, which counts it
       for (const a of Object.values(assets)) {
-        for (const id of a.ids) {
+        const [masterId, ...children] = a.ids;
+        for (const id of children) {
           expect((await fetchThroughNginx(base, objectPath(id))).status).toBe(200);
           const again = await fetchThroughNginx(base, objectPath(id));
           expect(again.headers.get('x-cache-status')).toBe('HIT');
         }
-        const master = `/v1/stream/${a.id}/master.m3u8`;
-        expect((await fetchThroughNginx(base, master)).status).toBe(200);
-        expect((await fetchThroughNginx(base, master)).headers.get('x-cache-status')).toBe('HIT');
+        for (const path of [objectPath(masterId), `/v1/stream/${a.id}/master.m3u8`]) {
+          expect((await fetchThroughNginx(base, path)).status).toBe(200);
+          const again = await fetchThroughNginx(base, path);
+          expect(again.status).toBe(200);
+          expect(again.headers.get('x-cache-status')).toBe('MISS');
+        }
       }
       const filledAt = Date.now();
 
@@ -946,11 +953,12 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
 
       // a signed handle gates only its own entry: every object and the
       // asset's own master keep playing, revalidated rather than refetched
-      for (const id of assets.handle.ids) {
+      for (const id of assets.handle.ids.slice(1)) {
         const r = await fetchThroughNginx(base, objectPath(id));
         expect(r.status, `handle ${id}`).toBe(200);
         expect(r.headers.get('x-cache-status')).toBe('REVALIDATED');
       }
+      expect((await fetchThroughNginx(base, objectPath(assets.handle.ids[0]))).status).toBe(200);
       expect(
         (await fetchThroughNginx(base, `/v1/stream/${assets.handle.id}/master.m3u8`)).status,
       ).toBe(200);
