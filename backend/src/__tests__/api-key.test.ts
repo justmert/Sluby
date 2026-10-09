@@ -328,8 +328,9 @@ describe('api-key middleware', () => {
       const { res, next } = await run({ cookie });
       expect(next).not.toHaveBeenCalled();
       expect(res._status).toBe(401);
+      // the text says what happened, not that a header was missing
       expect(res._json).toEqual({
-        error: 'Missing or invalid Authorization header',
+        error: 'This session was signed out',
         reason: 'revoked',
       });
     });

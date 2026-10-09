@@ -11,6 +11,15 @@ import { resolveKeyOwner, type OwnerAccessDeps } from './access.js';
 import { isOperatorAccount } from './operators.js';
 import { userAddress } from '../ownership.js';
 
+// what a 401 says, by why the cookie did not count; with no cookie at all the
+// request simply lacked credentials
+const ENDED: Record<SessionEndReason, string> = {
+  missing: 'Missing or invalid Authorization header',
+  expired: 'This session has expired',
+  revoked: 'This session was signed out',
+  not_allowed: 'This account is not allowed on this server',
+};
+
 /** Who is making a request, as every route and tus see it. */
 export interface Caller {
   /** The key id, or `session:<user id>` for a Studio session or the dev account. */
@@ -110,7 +119,7 @@ export async function resolveCaller(
       findSession: deps.findSession,
       getAccount: deps.getAccount,
     });
-    return { ok: false, error: 'Missing or invalid Authorization header', reason };
+    return { ok: false, error: ENDED[reason], reason };
   }
   const key = await deps.findApiKeyByHash(hashApiKey(auth.slice(7)));
   if (!key) return { ok: false, error: 'Invalid API key' };
