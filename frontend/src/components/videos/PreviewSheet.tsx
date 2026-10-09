@@ -96,6 +96,7 @@ export function PreviewSheet({ asset, onClose, previous, next, onStep }: Preview
                 key={shown.id}
                 assetId={shown.id}
                 signed={shown.accessTier === 'private'}
+                title={shown.title}
               />
               <EmbedPanel asset={shown} compact />
             </div>

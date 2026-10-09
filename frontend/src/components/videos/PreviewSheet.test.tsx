@@ -8,8 +8,21 @@ import { video } from './test-assets';
 import { PreviewSheet } from './PreviewSheet';
 
 vi.mock('@sluby/player', () => ({
-  SlubyPlayer: ({ assetId, signed }: { assetId: string; signed?: boolean }) => (
-    <video data-testid="player" data-asset={assetId} data-signed={String(!!signed)} />
+  SlubyPlayer: ({
+    assetId,
+    signed,
+    title,
+  }: {
+    assetId: string;
+    signed?: boolean;
+    title?: string;
+  }) => (
+    <video
+      data-testid="player"
+      data-asset={assetId}
+      data-signed={String(!!signed)}
+      aria-label={title}
+    />
   ),
 }));
 
@@ -60,6 +73,13 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('PreviewSheet', () => {
+  it('names the video after its title, as the video page does (A11Y-20)', async () => {
+    renderPage(<Harness />);
+    await userEvent.click(screen.getByText('Third'));
+    const sheet = await screen.findByRole('dialog', { name: 'Third' });
+    expect(within(sheet).getByTestId('player')).toHaveAccessibleName('Third');
+  });
+
   it('plays the video, signs a private one, and links to its page', async () => {
     renderPage(<Harness />);
     await userEvent.click(screen.getByText('Second'));
