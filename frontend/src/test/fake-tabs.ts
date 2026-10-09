@@ -41,5 +41,8 @@ export function fakeLocks() {
       held.add(name);
       return Promise.resolve(callback({ name })).finally(() => held.delete(name));
     },
+    query() {
+      return Promise.resolve({ held: [...held].map((name) => ({ name })), pending: [] });
+    },
   } as unknown as LockManager & { held: Set<string> };
 }

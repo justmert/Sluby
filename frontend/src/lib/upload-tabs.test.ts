@@ -75,6 +75,29 @@ describe('upload tabs', () => {
     expect(b.remote()).toEqual([]);
   });
 
+  it('keeps listing an upload whose tab went quiet while that tab still holds the file', async () => {
+    const locks = fakeLocks();
+    const bus = fakeBus();
+    const b = createUploadTabs({ channel: bus.channel(), locks, pageTarget: null });
+    // a tab in the background: the browser throttles its timers, so its
+    // heartbeats stop, but it keeps the file's lock while it sends
+    let release!: () => void;
+    void locks.request(
+      'sluby-upload:clip.mp4-video/mp4-100-1',
+      { ifAvailable: true },
+      () => new Promise<void>((r) => (release = r)),
+    );
+    bus.channel().postMessage({ type: 'state', tabId: 'hidden', uploads: [sending()] });
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 10);
+    expect(b.remote()).toEqual([expect.objectContaining({ uploadId: 'u1' })]);
+    expect(b.ownedElsewhere('clip.mp4-video/mp4-100-1')).toBe(true);
+
+    // the tab closed or finished: the lock is gone and so is the row
+    release();
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 2);
+    expect(b.remote()).toEqual([]);
+  });
+
   it('answers a tab that just opened without waiting for the next heartbeat', () => {
     const bus = fakeBus();
     const a = createUploadTabs({ channel: bus.channel(), locks: null, pageTarget: null });

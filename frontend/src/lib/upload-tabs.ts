@@ -4,7 +4,9 @@
  * refused even when both start in the same instant. every tab also posts what
  * it is sending on a BroadcastChannel every 2 seconds, which is how the
  * others can show "Uploading in another tab, 7%" instead of listing that
- * upload as unfinished and offering to delete it.
+ * upload as unfinished and offering to delete it. a tab in the background
+ * may go quiet (browsers run its timers once a minute after a few minutes
+ * hidden), so an announcement is only dropped once its file's lock is free.
  */
 
 const CHANNEL = 'sluby-uploads';
@@ -40,7 +42,7 @@ type Channel = Pick<BroadcastChannel, 'postMessage' | 'close'> & {
   onmessage: ((event: MessageEvent) => void) | null;
 };
 
-type Locks = Pick<LockManager, 'request'>;
+type Locks = Pick<LockManager, 'request'> & Partial<Pick<LockManager, 'query'>>;
 
 export interface UploadTabsOptions {
   /** null turns the announcements off, as in a browser without BroadcastChannel */
@@ -98,6 +100,8 @@ export function createUploadTabs(opts: UploadTabsOptions = {}): UploadTabs {
   let snapshot: RemoteUpload[] = [];
   const listeners = new Set<() => void>();
   let timer: ReturnType<typeof setInterval> | undefined;
+  // files whose lock some tab holds, from the last look at the lock manager
+  let locked = new Set<string>();
 
   const post = (message: Message) => {
     try {
@@ -124,13 +128,33 @@ export function createUploadTabs(opts: UploadTabsOptions = {}): UploadTabs {
 
   const prune = () => {
     const cutoff = now() - EXPIRE_MS;
-    for (const [id, entry] of seen) if (entry.at < cutoff) seen.delete(id);
+    for (const [id, entry] of seen) {
+      const stillSending = entry.uploads.some((u) => locked.has(u.fingerprint));
+      if (entry.at < cutoff && !stillSending) seen.delete(id);
+    }
     rebuild();
+  };
+
+  const lookAtLocks = () => {
+    if (!locks?.query || seen.size === 0) return;
+    locks.query().then(
+      ({ held }) => {
+        locked = new Set(
+          (held ?? [])
+            .map((l) => l.name ?? '')
+            .filter((name) => name.startsWith(LOCK_PREFIX))
+            .map((name) => name.slice(LOCK_PREFIX.length)),
+        );
+        prune();
+      },
+      (err: unknown) => console.warn('upload tabs: could not read the upload locks', err),
+    );
   };
 
   const tick = () => {
     if (local.length > 0) post({ type: 'state', tabId, uploads: local });
     prune();
+    lookAtLocks();
     // nothing to announce and nobody to forget: sleep until something changes
     if (local.length === 0 && seen.size === 0) {
       clearInterval(timer);
