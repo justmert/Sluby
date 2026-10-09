@@ -60,6 +60,16 @@ describe('API explorer', () => {
     expect(response()).toHaveTextContent('x-ratelimit-remaining99');
   });
 
+  it('says the status of the answer in a status region, since focus stays on Send', async () => {
+    answers['GET /api/v1/assets?limit=20'] = () => respond({ body: { data: [] } });
+    render();
+    const region = screen.getByRole('status', { name: '' });
+    expect(region).toBeEmptyDOMElement();
+    await userEvent.type(path(), '{Enter}');
+    await screen.findByTestId('explorer-response');
+    expect(region).toHaveTextContent(/^Answer: 200 OK in \d+ ms$/);
+  });
+
   it('never shows a late answer under a newer request (FLW-18)', async () => {
     let slow!: (r: Response) => void;
     answers['GET /api/v1/assets?limit=20'] = () => new Promise((r) => (slow = r));

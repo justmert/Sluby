@@ -344,6 +344,12 @@ export default function ExplorerPage() {
             <CardTitle>Response</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
+            {/* focus stays on Send, so the answer is said here; a failure is an alert */}
+            <p className="sr-only" role="status">
+              {answer && !sending
+                ? `Answer: ${answer.status}${answer.statusText ? ` ${answer.statusText}` : ''} in ${answer.ms} ms`
+                : ''}
+            </p>
             {failure && (
               <InlineError
                 error={failure.error}
