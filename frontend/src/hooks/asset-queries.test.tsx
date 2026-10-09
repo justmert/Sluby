@@ -11,6 +11,7 @@ import { useProcessingJob } from './asset-detail-queries';
 import { sluby } from '@/lib/sluby';
 import { findUpload, recordUpload } from '@/lib/upload-history';
 import {
+  assetPollMs,
   fetchAllMatching,
   isInFlight,
   isStaleUpload,
@@ -69,6 +70,25 @@ describe('isInFlight', () => {
     expect(isStaleUpload(at('created', '2026-10-07T11:50:00Z'), now)).toBe(true);
     expect(isStaleUpload(at('created', '2026-10-07T11:50:01Z'), now)).toBe(false);
     expect(isStaleUpload(at('processing', '2026-10-01T00:00:00Z'), now)).toBe(false);
+  });
+});
+
+describe('assetPollMs', () => {
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const at = (status: VideoAsset['status'], updatedAt: string, createdAt = updatedAt) =>
+    ({ id: 'a1', status, createdAt, updatedAt }) as VideoAsset;
+
+  it('reads a video that just moved every 3 s, and one that sits in processing every 10 s', () => {
+    expect(assetPollMs(at('processing', '2026-10-07T11:59:50Z'), false, now)).toBe(3_000);
+    // twenty minutes waiting in the sia queue: nothing to see between readings
+    expect(assetPollMs(at('processing', '2026-10-07T11:40:00Z'), false, now)).toBe(10_000);
+  });
+
+  it('keeps an upload this browser sends at 3 s, and stops for finished or abandoned ones', () => {
+    expect(assetPollMs(at('created', '2026-10-07T11:00:00Z'), true, now)).toBe(3_000);
+    expect(assetPollMs(at('created', '2026-10-07T11:58:00Z'), false, now)).toBe(3_000);
+    expect(assetPollMs(at('created', '2026-10-07T11:00:00Z'), false, now)).toBe(false);
+    expect(assetPollMs(at('ready', '2026-10-07T11:59:59Z'), false, now)).toBe(false);
   });
 });
 
@@ -158,6 +178,37 @@ describe('asset hooks', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('reads the video again as soon as its processing job ends', async () => {
+    let job = 'processing';
+    const server = jsonFetch({
+      '/api/v1/assets/a1/processing': () => ({
+        id: 'j1',
+        video_asset_id: 'a1',
+        status: job,
+        stage: job === 'completed' ? 'completed' : 'upload',
+        progress_percent: 50,
+        error_message: null,
+        retryable: true,
+        attempts: 1,
+        logs: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { Wrapper, client } = wrapper();
+    client.setQueryData(['assets', 'one', 'a1'], { id: 'a1' });
+    const { result } = renderHook(() => useProcessingJob('a1', 'processing', true), {
+      wrapper: Wrapper,
+    });
+    await waitFor(() => expect(result.current.data?.status).toBe('processing'));
+    expect(client.getQueryState(['assets', 'one', 'a1'])?.isInvalidated).toBe(false);
+    job = 'completed';
+    await act(() => result.current.refetch());
+    await waitFor(() => expect(result.current.data?.status).toBe('completed'));
+    expect(client.getQueryState(['assets', 'one', 'a1'])?.isInvalidated).toBe(true);
   });
 
   it('stops polling the processing job on a 401', async () => {

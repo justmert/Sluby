@@ -85,6 +85,24 @@ export function isInFlight(asset: VideoAsset, now = Date.now()): boolean {
   return !isStaleUpload(asset, now);
 }
 
+// a video unchanged this long is waiting (in the sia queue, mostly); the job
+// poll says when its stage moves, so the video itself can be read slower
+const QUIET_AFTER_MS = 30_000;
+
+/** How often to read one video: often while it moves, slower while it sits in processing. */
+export function assetPollMs(
+  asset: VideoAsset,
+  sendingHere: boolean,
+  now = Date.now(),
+): number | false {
+  if (sendingHere) return 3_000;
+  if (!isInFlight(asset, now)) return false;
+  if (asset.status === 'processing' && now - Date.parse(asset.updatedAt) > QUIET_AFTER_MS) {
+    return 10_000;
+  }
+  return 3_000;
+}
+
 // the version of the upload store's asset changes these hooks already acted
 // on; module wide so several hooks on one page invalidate once
 let handledAssetVersion = 0;
@@ -168,7 +186,7 @@ export function useAssetById(id: string | undefined) {
     refetchInterval: (query) => {
       const asset = query.state.data;
       if (failedForGood(query) || !asset) return false;
-      return isInFlight(asset) || sendingInBrowser(asset.id) ? 3_000 : false;
+      return assetPollMs(asset, sendingInBrowser(asset.id));
     },
   });
 }

@@ -117,6 +117,8 @@ export function nextJobPoll(
  * wait for the Sia uploader, say); react query stops polling while the tab
  * is hidden.
  */
+const ended = (job: ProcessingJob) => job.status === 'completed' || job.status === 'failed';
+
 export function useProcessingJob(
   id: string | undefined,
   assetStatus: VideoAssetStatus | undefined,
@@ -125,9 +127,20 @@ export function useProcessingJob(
   interval?: number,
 ) {
   const seen = useRef<JobPollState>({ signature: '', at: 0 });
+  const queryClient = useQueryClient();
+  const queryKey = ['assets', 'processing', id, assetStatus];
   return useQuery({
-    queryKey: ['assets', 'processing', id, assetStatus],
-    queryFn: () => sluby.assets.processing(id!),
+    queryKey,
+    queryFn: async () => {
+      const before = queryClient.getQueryData<ProcessingJob>(queryKey);
+      const job = await sluby.assets.processing(id!);
+      // the video reads slowly while it waits; when the job ends here, its
+      // status has moved too, so read it now instead of on its next slow turn
+      if (before && !ended(before) && ended(job)) {
+        void queryClient.invalidateQueries({ queryKey: ['assets', 'one', id], exact: true });
+      }
+      return job;
+    },
     enabled: !!id && enabled,
     refetchInterval: (query) => {
       // a 404 (no job yet, or the asset is gone) or a 401 does not change by asking again
