@@ -146,7 +146,7 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
 
   const unfinished = useQuery({
     queryKey: ['uploads', 'unfinished'],
-    queryFn: findUnfinishedUploads,
+    queryFn: () => findUnfinishedUploads(session.id),
     staleTime: 0,
   });
   const remoteIds = new Set(remote.map((r) => r.uploadId).filter(Boolean));

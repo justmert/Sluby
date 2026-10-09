@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jsonFetch, reply } from '@/test/render';
-import { findUnfinishedUploads, isSameFile, recheckUnfinishedUpload } from './unfinished-uploads';
+import {
+  findUnfinishedUploads,
+  isSameFile,
+  recheckUnfinishedUpload,
+  rememberUploadOwner,
+} from './unfinished-uploads';
 
 const entry = (url: string, title = 'Clip') =>
   JSON.stringify({
@@ -16,7 +21,10 @@ const key = (n: number, lastModified = 1700000000000) =>
 const head = (offset: number) => () =>
   new Response(null, { headers: { 'Upload-Offset': String(offset), 'Upload-Length': '1000' } });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  localStorage.clear();
+});
 
 describe('findUnfinishedUploads', () => {
   it('lists unfinished sluby uploads and forgets the ones the server dropped or finished', async () => {
@@ -44,6 +52,26 @@ describe('findUnfinishedUploads', () => {
     expect(localStorage.getItem(key(2))).toBeNull();
     expect(localStorage.getItem(key(3))).toBeNull();
     expect(localStorage.getItem('tus::tus-br-other.mp4-x::9')).not.toBeNull();
+  });
+
+  it('leaves an upload another account started in this browser alone', async () => {
+    localStorage.setItem(key(1), entry('http://localhost:3000/api/v1/uploads/theirs', 'Theirs'));
+    localStorage.setItem(key(2), entry('http://localhost:3000/api/v1/uploads/mine', 'Mine'));
+    rememberUploadOwner('theirs', 'account-a');
+    rememberUploadOwner('mine', 'account-b');
+    const server = jsonFetch({
+      // the server hides another account's upload behind a 404
+      'HEAD /api/v1/uploads/theirs': reply(404),
+      'HEAD /api/v1/uploads/mine': head(100),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+
+    const found = await findUnfinishedUploads('account-b');
+
+    expect(found.map((u) => u.uploadId)).toEqual(['mine']);
+    expect(server.calls.map((c) => c.path)).toEqual(['/api/v1/uploads/mine']);
+    // still there for account a to resume
+    expect(localStorage.getItem(key(1))).not.toBeNull();
   });
 
   it('keeps an entry when the server could not answer, and reports the failure', async () => {

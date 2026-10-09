@@ -4,6 +4,7 @@ import { statusSpec } from '@/components/shared/status';
 import { ROUTES } from '@/lib/constants';
 import { primaryEmbed } from '@/lib/embed';
 import { toastError, toastSuccess, toastWarning } from '@/lib/toast';
+import { rememberUploadOwner } from '@/lib/unfinished-uploads';
 import { recordUpload } from '@/lib/upload-history';
 import { endedText } from './upload-status';
 import { useUploadSheet } from '@/lib/upload-sheet';
@@ -14,7 +15,7 @@ import {
   type UploadStore,
 } from '@/lib/upload-store';
 
-type Seen = Map<string, { phase: UploadPhase; resumed: boolean }>;
+type Seen = Map<string, { phase: UploadPhase; resumed: boolean; uploadId: string | null }>;
 
 // a small file goes from uploading to processing within a fraction of a
 // second; the region waits this long and then says where each upload ended up
@@ -58,7 +59,9 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
     const said = new Map<string, string>();
     for (const u of list) {
       const was = before.get(u.key);
-      next.set(u.key, { phase: u.phase, resumed: u.resumedFrom !== null });
+      next.set(u.key, { phase: u.phase, resumed: u.resumedFrom !== null, uploadId: u.uploadId });
+      // so the unfinished list of another account in this browser leaves it be
+      if (u.uploadId && was?.uploadId !== u.uploadId) rememberUploadOwner(u.uploadId, accountId);
       // mounted with uploads already there: nothing just happened to them
       if (first) continue;
 

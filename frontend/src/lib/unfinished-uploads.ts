@@ -37,6 +37,46 @@ function uploadIdFromUrl(url: string): string {
   return decodeURIComponent(path.slice(path.lastIndexOf('/') + 1));
 }
 
+// which account started each upload, by upload id: the server answers 404 for
+// another account's upload, which would otherwise read as gone and drop it
+const OWNERS_KEY = 'sluby:upload-owners';
+const OWNERS_MAX = 50;
+
+function readOwners(): Record<string, string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(OWNERS_KEY) ?? '{}') as unknown;
+    return raw && typeof raw === 'object' ? (raw as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeOwners(owners: Record<string, string>) {
+  try {
+    // insertion order: the oldest go first once the map is full
+    const kept = Object.entries(owners).slice(-OWNERS_MAX);
+    localStorage.setItem(OWNERS_KEY, JSON.stringify(Object.fromEntries(kept)));
+  } catch {
+    // storage full or blocked: the upload still works, only this hint is lost
+  }
+}
+
+/** Note which account an upload belongs to, once the server gave it an id. */
+export function rememberUploadOwner(uploadId: string, accountId: string): void {
+  const owners = readOwners();
+  if (owners[uploadId] === accountId) return;
+  delete owners[uploadId];
+  owners[uploadId] = accountId;
+  writeOwners(owners);
+}
+
+function forgetUploadOwner(uploadId: string) {
+  const owners = readOwners();
+  if (!(uploadId in owners)) return;
+  delete owners[uploadId];
+  writeOwners(owners);
+}
+
 function storedEntries(): Array<{ storageKey: string; entry: StoredEntry }> {
   const out: Array<{ storageKey: string; entry: StoredEntry }> = [];
   for (let i = 0; i < localStorage.length; i++) {
@@ -74,6 +114,7 @@ async function check(storageKey: string, entry: StoredEntry): Promise<Unfinished
   });
   if (res.status >= 400 && res.status < 500 && res.status !== 401 && res.status !== 429) {
     localStorage.removeItem(storageKey);
+    forgetUploadOwner(uploadIdFromUrl(entry.uploadUrl));
     return null;
   }
   if (!res.ok) {
@@ -83,6 +124,7 @@ async function check(storageKey: string, entry: StoredEntry): Promise<Unfinished
   const length = Number(res.headers.get('Upload-Length'));
   if (Number.isFinite(offset) && Number.isFinite(length) && offset >= length) {
     localStorage.removeItem(storageKey);
+    forgetUploadOwner(uploadIdFromUrl(entry.uploadUrl));
     return null;
   }
   const m = entry.metadata;
@@ -102,10 +144,16 @@ async function check(storageKey: string, entry: StoredEntry): Promise<Unfinished
   };
 }
 
-/** Unfinished uploads tus remembers, checked against the server. */
-export async function findUnfinishedUploads(): Promise<UnfinishedUpload[]> {
+/**
+ * Unfinished uploads tus remembers, checked against the server. With an
+ * account, uploads another account started here are skipped, not dropped.
+ */
+export async function findUnfinishedUploads(accountId?: string): Promise<UnfinishedUpload[]> {
   const found: UnfinishedUpload[] = [];
+  const owners = readOwners();
   for (const { storageKey, entry } of storedEntries()) {
+    const owner = entry?.uploadUrl ? owners[uploadIdFromUrl(entry.uploadUrl)] : undefined;
+    if (accountId && owner && owner !== accountId) continue;
     const upload = await check(storageKey, entry);
     if (upload) found.push(upload);
   }
