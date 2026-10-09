@@ -1,7 +1,6 @@
-import type { ProcessingJob } from '@sluby/sdk';
 import { describe, expect, it } from 'vitest';
 import { assetSteps, uploadSteps } from './pipeline-states';
-import { SIA_WAIT_MESSAGE } from './processing';
+import { SIA_WAIT_MESSAGE, type Job } from './processing';
 
 const log = (stage: string, message = 'line') => ({
   timestamp: '2026-10-09T00:00:00Z',
@@ -9,7 +8,7 @@ const log = (stage: string, message = 'line') => ({
   message,
 });
 
-function job(over: Partial<ProcessingJob> = {}): ProcessingJob {
+function job(over: Partial<Job> = {}): Job {
   return {
     id: 'j1',
     status: 'processing',

@@ -44,6 +44,8 @@ export const STATUS = {
     processing: spec('Processing', 'progress', undefined, true),
     ready: spec('Ready', 'success', CircleCheck),
     failed: spec('Failed', 'danger', CircleAlert),
+    /** created or uploading, but no bytes have come for a while (see isInterrupted) */
+    interrupted: spec('Interrupted', 'warning', CirclePause),
   },
   /** an upload in this browser (upload-store phases) */
   upload: {

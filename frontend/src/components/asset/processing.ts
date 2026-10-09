@@ -258,3 +258,21 @@ export function restartedMessage(stage: RetryStage, title?: string): string {
     ? `“${title}”: processing restarted from ${from}`
     : `Processing restarted from ${from}`;
 }
+
+/** How long an upload may sit at created or uploading before it counts as interrupted. */
+export const INTERRUPTED_AFTER_MS = 10 * 60 * 1000;
+
+/**
+ * Whether a video's upload stopped arriving: created or uploading for more
+ * than ten minutes and not being sent by this browser right now (FLW-12).
+ * Another tab may still be sending it; the card says how to continue either way.
+ */
+export function isInterrupted(
+  asset: Pick<VideoAsset, 'status' | 'createdAt'>,
+  sendingHere: boolean,
+  now = Date.now(),
+): boolean {
+  if (asset.status !== 'created' && asset.status !== 'uploading') return false;
+  if (sendingHere) return false;
+  return now - Date.parse(asset.createdAt) > INTERRUPTED_AFTER_MS;
+}

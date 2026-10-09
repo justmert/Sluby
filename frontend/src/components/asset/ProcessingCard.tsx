@@ -1,0 +1,202 @@
+import type { ReactNode } from 'react';
+import { CircleAlert, CirclePause, Upload } from 'lucide-react';
+import type { VideoAsset } from '@sluby/sdk';
+import { ErrorDetails } from '@/components/shared/ErrorDetails';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Icons } from '@/lib/icons';
+import { useUploadSheet } from '@/lib/upload-sheet';
+import { cn } from '@/lib/utils';
+import { assetSteps } from './pipeline-states';
+import { PipelineSteps } from './PipelineSteps';
+import { failureInfo, processingView, type Job } from './processing';
+import { RetryProcessingButton } from './RetryProcessingButton';
+
+export interface ProcessingCardProps {
+  asset: Pick<VideoAsset, 'id' | 'title' | 'status'>;
+  /** The processing job as last read; undefined before the first answer or when there is none. */
+  job: Job | undefined;
+  /** The last read of the job failed (FLW-11). */
+  jobError: boolean;
+  /** Reading the job again is under way. */
+  checking: boolean;
+  onCheckAgain: () => void;
+  /** The upload stopped arriving (isInterrupted). */
+  interrupted: boolean;
+  /** Opens the page's delete confirmation. */
+  onDelete: () => void;
+  className?: string;
+}
+
+function Frame({
+  icon,
+  title,
+  children,
+  actions,
+  steps,
+  tone = 'default',
+  className,
+}: {
+  icon?: ReactNode;
+  title: string;
+  children: ReactNode;
+  actions?: ReactNode;
+  steps: ReactNode;
+  tone?: 'default' | 'danger' | 'warning';
+  className?: string;
+}) {
+  return (
+    <section
+      aria-labelledby="processing-card-title"
+      data-slot="processing-card"
+      data-tone={tone}
+      className={cn(
+        'flex aspect-video min-h-64 w-full flex-col justify-center gap-5 rounded-xl border bg-card p-5 shadow-xs sm:p-8 dark:shadow-none',
+        // the card fills the player's box, so the page does not jump when it turns into the player
+        className,
+      )}
+    >
+      <div className="flex items-start gap-3">
+        {icon}
+        <div className="min-w-0 flex-1">
+          <h2 id="processing-card-title" className="font-heading text-heading">
+            {title}
+          </h2>
+          <div className="mt-1 text-sm text-muted-foreground">{children}</div>
+        </div>
+      </div>
+      {steps}
+      {actions && <div className="flex flex-wrap justify-end gap-2">{actions}</div>}
+    </section>
+  );
+}
+
+/**
+ * What the player box shows before a video can play: the processing steps
+ * and progress, a failure with the one action that helps, or an upload that
+ * stopped. Status read errors say so instead of guessing a step.
+ */
+export function ProcessingCard({
+  asset,
+  job,
+  jobError,
+  checking,
+  onCheckAgain,
+  interrupted,
+  onDelete,
+  className,
+}: ProcessingCardProps) {
+  const uploadSheet = useUploadSheet();
+  const deleteButton = (
+    <Button variant="outline" onClick={onDelete}>
+      <Icons.delete />
+      Delete video
+    </Button>
+  );
+
+  if (interrupted) {
+    return (
+      <Frame
+        className={className}
+        tone="warning"
+        icon={
+          <CirclePause
+            aria-hidden="true"
+            className="mt-0.5 size-5 shrink-0 text-warning-foreground"
+          />
+        }
+        title="Upload interrupted"
+        actions={deleteButton}
+        steps={<PipelineSteps steps={assetSteps(asset, job, { interrupted: true })} />}
+      >
+        <p>
+          The browser sending this file stopped. Add the same file again in that browser to
+          continue, or delete this video. Unfinished uploads are removed after 24 hours.
+        </p>
+      </Frame>
+    );
+  }
+
+  // the job is the fresher signal: it moves first when a retry starts
+  const failed = job ? job.status === 'failed' : asset.status === 'failed';
+  if (failed) {
+    const info = failureInfo(job, { status: 'failed' });
+    return (
+      <Frame
+        className={className}
+        tone="danger"
+        icon={
+          <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-destructive" />
+        }
+        title={info.title}
+        steps={<PipelineSteps steps={assetSteps(asset, job)} />}
+        actions={
+          <>
+            {deleteButton}
+            {info.action === 'retry' && <RetryProcessingButton asset={asset} />}
+            {info.action === 'reupload' && (
+              <Button onClick={() => uploadSheet.open()}>
+                <Upload />
+                Upload a different file
+              </Button>
+            )}
+          </>
+        }
+      >
+        <p>{info.body}</p>
+        <ErrorDetails detail={info.detail ?? 'No details were recorded.'} className="mt-2" />
+      </Frame>
+    );
+  }
+
+  const uploading = asset.status === 'created' || asset.status === 'uploading';
+  const view = job && !uploading ? processingView(job) : null;
+  const label = uploading
+    ? 'Waiting for the upload to finish'
+    : view
+      ? view.label
+      : jobError
+        ? 'Could not read the processing status.'
+        : 'Checking the processing status…';
+
+  return (
+    <Frame
+      className={className}
+      title={uploading ? 'Uploading' : 'Processing'}
+      steps={<PipelineSteps steps={assetSteps(asset, job)} />}
+      actions={
+        jobError && !uploading ? (
+          <Button variant="outline" onClick={onCheckAgain} disabled={checking}>
+            <Icons.refresh className={cn(checking && 'motion-safe:animate-spin')} />
+            Check again
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="flex items-baseline justify-between gap-3" aria-live="polite">
+        <p className="text-foreground">
+          {label}
+          {view?.detail && <span className="block text-muted-foreground">{view.detail}</span>}
+          {jobError && view && (
+            <span className="block text-muted-foreground">
+              Could not read the processing status. Showing the last one that loaded.
+            </span>
+          )}
+        </p>
+        {view?.percent != null && (
+          <span className="font-heading text-figure-sm text-foreground tabular-nums">
+            {view.percent}%
+          </span>
+        )}
+      </div>
+      {view?.percent != null && (
+        <Progress
+          smooth
+          value={view.percent}
+          className="mt-3"
+          aria-label={`${asset.title}, processing progress`}
+        />
+      )}
+    </Frame>
+  );
+}
