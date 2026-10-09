@@ -27,6 +27,7 @@ function job(over: Partial<Job> = {}): Job {
     completedAt: null,
     createdAt: '2026-10-09T00:00:00Z',
     logs: [log('transcode')],
+    retryable: true,
     ...over,
   };
 }
@@ -126,7 +127,9 @@ describe('failureInfo', () => {
   it('treats an unreadable file as final without the flag, and keeps the raw text in detail', () => {
     const message =
       'ffprobe exited with code 1: /app/uploads/bf58: Invalid data found when processing input';
-    expect(failureInfo(failed({ errorMessage: message }), asset)).toEqual({
+    // a job as a server without the flag sends it
+    const { retryable: _flag, ...noFlag } = failed({ errorMessage: message });
+    expect(failureInfo(noFlag as Job, asset)).toEqual({
       title: 'Processing failed',
       body: 'The file is not a readable video.',
       retryable: false,
