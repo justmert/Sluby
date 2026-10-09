@@ -29,30 +29,6 @@ type SidebarContextProps = {
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
 
-// keys held right now. a sheet opened with Enter gets that key's keypress
-// and keyup too; focus moved into it at once lands on a link that the same
-// Enter then follows, closing the sheet it just opened
-const heldKeys = new Set<string>();
-if (typeof window !== 'undefined') {
-  window.addEventListener('keydown', (e) => heldKeys.add(e.key), true);
-  window.addEventListener('keyup', (e) => heldKeys.delete(e.key), true);
-  window.addEventListener('blur', () => heldKeys.clear());
-}
-
-/** Run `fn` now, or once every key held now is released. */
-function afterKeysReleased(fn: () => void) {
-  if (heldKeys.size === 0) {
-    fn();
-    return;
-  }
-  const onUp = () => {
-    if (heldKeys.size > 0) return;
-    window.removeEventListener('keyup', onUp);
-    fn();
-  };
-  window.addEventListener('keyup', onUp);
-}
-
 function useSidebar() {
   const context = React.useContext(SidebarContext);
   if (!context) {
@@ -218,17 +194,16 @@ function Sidebar({
           aria-describedby={undefined}
           onOpenAutoFocus={(e) => {
             opener.current = document.activeElement as HTMLElement | null;
-            // start on the current page's link rather than the sheet itself,
-            // and only after the key that opened it is up (A11Y-41)
+            // start on the current page's link rather than the sheet itself
+            // (A11Y-41). the Enter or Space that opened it does not follow
+            // the link: the sidebar browser test checks that in chromium,
+            // firefox and webkit
             e.preventDefault();
             const sheet = e.currentTarget as HTMLElement;
-            afterKeysReleased(() => {
-              if (!sheet.isConnected) return;
-              const target =
-                sheet.querySelector<HTMLElement>('[data-sidebar=menu-button][data-active=true]') ??
-                sheet.querySelector<HTMLElement>('a[href], button:not([disabled])');
-              (target ?? sheet).focus();
-            });
+            const target =
+              sheet.querySelector<HTMLElement>('[data-sidebar=menu-button][data-active=true]') ??
+              sheet.querySelector<HTMLElement>('a[href], button:not([disabled])');
+            (target ?? sheet).focus();
           }}
           onCloseAutoFocus={(e) => {
             const el = opener.current;
