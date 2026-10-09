@@ -102,7 +102,7 @@ export function BulkBar({
           )}{' '}
           selected
         </span>
-        <div className="col-span-2 row-start-2 -ml-2.5 flex items-center gap-1 sm:contents">
+        <div className="col-span-2 row-start-2 -ml-2.5 flex flex-wrap items-center gap-1 sm:contents">
           <Button variant="ghost" size="sm" disabled={busy} onClick={onMakePublic}>
             {changing === 'public' ? <Spinner aria-hidden="true" /> : <Globe />}
             Make public

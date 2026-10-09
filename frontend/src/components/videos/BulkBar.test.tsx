@@ -43,6 +43,11 @@ describe('BulkBar', () => {
     expect(screen.getByText('of 24', { exact: false })).toHaveClass('max-[359px]:hidden');
   });
 
+  it('wraps its actions at 320 instead of pushing Delete past the screen edge (1.4.10)', () => {
+    renderWithMotion(<BulkBar {...props()} />);
+    expect(screen.getByRole('button', { name: 'Delete' }).parentElement).toHaveClass('flex-wrap');
+  });
+
   it('offers every result once the whole page is selected (FLW-43)', async () => {
     const p = props({ count: 24 });
     renderWithMotion(<BulkBar {...p} />);
