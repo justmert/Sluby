@@ -33,7 +33,11 @@ export function DropZone({
   return (
     // the box is a big mouse target; the button inside is the keyboard's way in
     <div
-      onClick={() => input.current?.click()}
+      onClick={(e) => {
+        // the input's own click bubbles up here; opening it again would stack a second picker
+        if (e.target === input.current) return;
+        input.current?.click();
+      }}
       onDragEnter={(e) => {
         e.preventDefault();
         depth.current += 1;

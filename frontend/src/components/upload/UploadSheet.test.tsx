@@ -4,6 +4,7 @@ import { useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { jsonFetch, renderPage } from '@/test/render';
 import { WithSession } from '@/test/session';
+import { uploadStore } from '@/lib/studio-upload';
 import { useUploadSheet } from '@/lib/upload-sheet';
 import { UploadSheet } from './UploadSheet';
 
@@ -26,6 +27,8 @@ function Opener() {
 }
 
 beforeEach(() => {
+  // the studio's store keeps drafts for the tab's life, so tests start from none
+  uploadStore.clearDrafts();
   vi.stubGlobal(
     'fetch',
     vi.fn(
@@ -86,5 +89,20 @@ describe('UploadSheet', () => {
         screen.getByRole('button', { name: /drop videos here, or choose files/i }),
       ).toHaveFocus(),
     );
+  });
+
+  it('keeps every keystroke typed right after the sheet opens with dropped files', async () => {
+    renderAt('/studio');
+    const user = userEvent.setup({ delay: null });
+    await user.click(screen.getByText('drop'));
+    // type the moment the sheet shows, with no wait for the field and no
+    // delay between keys (autofill, a fast typist): the title must already
+    // have focus in the same commit the sheet appears
+    await screen.findByRole('dialog', { name: 'Upload videos' });
+    await user.keyboard('Teaser cut');
+    await new Promise((r) => setTimeout(r, 100));
+    const title = screen.getByDisplayValue('Teaser cut');
+    expect(title).toHaveAccessibleName('Title');
+    expect(title).toHaveFocus();
   });
 });

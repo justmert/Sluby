@@ -1,4 +1,11 @@
-import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, WifiOff, X } from 'lucide-react';
 import { AnimatedItem, AnimatedList, Collapse } from '@/components/motion';
@@ -219,7 +226,9 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
     const files = takePendingFiles();
     if (files.length > 0) choose(files);
   });
-  useEffect(() => {
+  // in the layout phase, so the drafts and their focused title are on screen
+  // in the same frame the sheet opens
+  useLayoutEffect(() => {
     takeHanded();
     return onPendingFiles(() => takeHanded());
   }, []);

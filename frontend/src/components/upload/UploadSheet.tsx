@@ -1,11 +1,10 @@
-import { lazy, Suspense } from 'react';
+import { useEffect } from 'react';
+import { InlineError } from '@/components/shared/InlineError';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Spinner } from '@/components/ui/spinner';
 import { useMediaQuery } from '@/hooks/use-mobile';
 import { useReturnFocus } from '@/hooks/useReturnFocus';
 import { useUploadSheet } from '@/lib/upload-sheet';
-
-const StudioUploadPanel = lazy(() => import('./StudioUploadPanel'));
+import { loadUploadPanel, useUploadPanel } from './panel-loader';
 
 /**
  * The upload sheet, open while the url has ?upload=1 (plan D-08): from the
@@ -18,18 +17,21 @@ export function UploadSheet() {
   const phone = useMediaQuery('(max-width: 639px)');
   // opened through the url, so radix has no trigger to give focus back to
   const focus = useReturnFocus();
+  const panel = useUploadPanel();
+  useEffect(() => loadUploadPanel(), []);
+  // the sheet waits for its panel, so it never shows a title that is not
+  // there yet; a panel that could not load still opens, with the reason
+  const shown = isOpen && (panel.status === 'ready' || panel.status === 'failed');
   return (
-    <Sheet open={isOpen} onOpenChange={(open) => !open && close()}>
+    <Sheet open={shown} onOpenChange={(open) => !open && close()}>
       <SheetContent
         side={phone ? 'bottom' : 'right'}
         aria-describedby={undefined}
         onOpenAutoFocus={(e) => {
           focus.onOpenAutoFocus(e);
-          // the panel loads after the sheet opens; hold focus on the sheet
-          // until it can move to "choose files" (UploadPanel)
+          // a title the panel just focused keeps it; otherwise start on "choose files"
           e.preventDefault();
           const sheet = e.currentTarget as HTMLElement | null;
-          // already loaded: go straight there; dropped files move focus on to a title
           const choose = sheet?.querySelector<HTMLElement>('[data-upload-choose]');
           if (choose && !sheet?.contains(document.activeElement)) choose.focus();
           else if (!sheet?.contains(document.activeElement)) sheet?.focus();
@@ -41,16 +43,15 @@ export function UploadSheet() {
           <SheetTitle>Upload videos</SheetTitle>
         </SheetHeader>
         <div className="px-4 pb-8">
-          <Suspense
-            fallback={
-              <div role="status" className="flex items-center gap-2 py-8 text-muted-foreground">
-                <Spinner aria-hidden="true" />
-                Loading…
-              </div>
-            }
-          >
-            <StudioUploadPanel />
-          </Suspense>
+          {panel.status === 'ready' ? (
+            <panel.Panel />
+          ) : panel.status === 'failed' ? (
+            <InlineError
+              title="Could not load the upload sheet"
+              error={panel.error}
+              onRetry={loadUploadPanel}
+            />
+          ) : null}
         </div>
       </SheetContent>
     </Sheet>
