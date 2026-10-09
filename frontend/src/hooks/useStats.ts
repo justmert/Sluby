@@ -84,6 +84,8 @@ interface RunTimes {
   status: 'ok' | 'drift' | 'failed';
   missing_count: number;
   missing_ids: string[];
+  /** `missing_ids` in the same order, each with the video that uses it, when one does */
+  missing_objects: { object_id: string; video_asset_id: string | null; title: string | null }[];
 }
 
 /** The caller's own assets in the latest run: `drift` when some of their objects are missing. */

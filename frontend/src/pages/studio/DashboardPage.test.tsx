@@ -79,6 +79,7 @@ const accountRun = (missing = 0) => ({
   status: missing ? 'drift' : 'ok',
   missing_count: missing,
   missing_ids: [],
+  missing_objects: [],
 });
 
 let seq = 0;

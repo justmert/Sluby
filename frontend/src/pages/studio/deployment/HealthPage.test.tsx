@@ -60,6 +60,7 @@ const run = {
   missing_count: 0,
   error_message: null,
   missing_ids: [],
+  missing_objects: [],
   orphaned_ids: ['o1', 'o2'],
 };
 
@@ -145,6 +146,32 @@ describe('HealthPage', () => {
     );
     // nothing is missing, so there is nothing to list
     expect(within(check).queryByRole('button', { name: /missing files/ })).not.toBeInTheDocument();
+  });
+
+  it('lists missing files under the videos that use them, each linked', async () => {
+    setup({
+      '/api/v1/reconciliation': {
+        ...run,
+        missing_count: 3,
+        missing_ids: ['m1', 'm2', 'm3'],
+        missing_objects: [
+          { object_id: 'm1', video_asset_id: 'a1', title: 'Big Buck Bunny' },
+          { object_id: 'm2', video_asset_id: 'a1', title: 'Big Buck Bunny' },
+          { object_id: 'm3', video_asset_id: null, title: null },
+        ],
+      },
+    });
+    await screen.findByText('Checked 3 minutes ago');
+    const check = card('Storage check');
+    await userEvent.click(within(check).getByRole('button', { name: 'Show missing files (3)' }));
+    const list = within(check).getByRole('list', { name: 'Missing files' });
+    const video = within(list).getByRole('link', { name: 'Big Buck Bunny' });
+    expect(video).toHaveAttribute('href', '/studio/videos/a1');
+    const entry = video.closest('li')!;
+    expect(entry).toHaveTextContent('2 files');
+    expect(entry).toHaveTextContent('m1');
+    expect(entry).toHaveTextContent('m2');
+    expect(within(list).getByText('Video not found').closest('li')).toHaveTextContent('m3');
   });
 
   it('starts a storage check', async () => {

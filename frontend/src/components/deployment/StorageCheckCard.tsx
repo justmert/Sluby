@@ -1,4 +1,5 @@
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
+import { Link } from 'react-router';
 import { ChevronRight } from 'lucide-react';
 import { Collapse } from '@/components/motion';
 import { ErrorDetails } from '@/components/shared/ErrorDetails';
@@ -13,6 +14,7 @@ import {
   type DeploymentReconciliation,
 } from '@/hooks/useStats';
 import { withLead } from '@/lib/errors';
+import { ROUTES } from '@/lib/constants';
 import { formatCount, formatRelativeTime, plural } from '@/lib/formatters';
 import { Icons } from '@/lib/icons';
 import { lateReveal } from '@/lib/motion';
@@ -52,11 +54,19 @@ function Figure({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** A button that shows or hides a list of file IDs under it. */
-function IdList({ label, ids }: { label: string; ids: string[] }) {
+/** A button that shows or hides what it is given under it. */
+function Disclosure({
+  label,
+  count,
+  children,
+}: {
+  label: string;
+  count: number;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const id = useId();
-  if (ids.length === 0) return null;
+  if (count === 0) return null;
   return (
     <div>
       <Button
@@ -71,21 +81,72 @@ function IdList({ label, ids }: { label: string; ids: string[] }) {
           aria-hidden="true"
           className={cn('transition-transform duration-150', open && 'rotate-90')}
         />
-        {open ? 'Hide' : 'Show'} {label} ({formatCount(ids.length)})
+        {open ? 'Hide' : 'Show'} {label} ({formatCount(count)})
       </Button>
       <Collapse open={open} id={id}>
-        <ul
-          aria-label={label.charAt(0).toUpperCase() + label.slice(1)}
-          className="mt-1 max-h-60 overflow-y-auto rounded-lg border bg-muted/40 p-2 font-mono text-xs break-all text-muted-foreground"
-        >
-          {ids.map((x) => (
-            <li key={x} className="py-0.5">
-              {x}
-            </li>
-          ))}
-        </ul>
+        {children}
       </Collapse>
     </div>
+  );
+}
+
+const LIST =
+  'mt-1 max-h-60 overflow-y-auto rounded-lg border bg-muted/40 p-2 text-xs text-muted-foreground';
+const IDS = 'font-mono break-all';
+
+/** File IDs, one per line. */
+function IdList({ label, ids }: { label: string; ids: string[] }) {
+  return (
+    <Disclosure label={label} count={ids.length}>
+      <ul aria-label={label.charAt(0).toUpperCase() + label.slice(1)} className={cn(LIST, IDS)}>
+        {ids.map((x) => (
+          <li key={x} className="py-0.5">
+            {x}
+          </li>
+        ))}
+      </ul>
+    </Disclosure>
+  );
+}
+
+type MissingObject = DeploymentReconciliation['missing_objects'][number];
+
+/**
+ * Missing files grouped under the video that uses them, so the reader can go
+ * to the video that may not play. Files no video claims come last.
+ */
+function MissingList({ objects }: { objects: MissingObject[] }) {
+  const groups = new Map<string | null, { title: string | null; ids: string[] }>();
+  for (const o of objects) {
+    const group = groups.get(o.video_asset_id) ?? { title: o.title, ids: [] };
+    group.ids.push(o.object_id);
+    groups.set(o.video_asset_id, group);
+  }
+  const ordered = [...groups].sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : 0));
+  return (
+    <Disclosure label="missing files" count={objects.length}>
+      <ul aria-label="Missing files" className={cn(LIST, 'flex flex-col gap-2')}>
+        {ordered.map(([videoId, g]) => (
+          <li key={videoId ?? 'none'} className="flex flex-col gap-0.5">
+            <span className="flex flex-wrap items-baseline gap-x-2">
+              {videoId ? (
+                <Link
+                  to={ROUTES.video(videoId)}
+                  dir="auto"
+                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                >
+                  {g.title || 'Untitled video'}
+                </Link>
+              ) : (
+                <span className="font-medium text-foreground">Video not found</span>
+              )}
+              <span>{plural(g.ids.length, 'file')}</span>
+            </span>
+            <span className={IDS}>{g.ids.join(' ')}</span>
+          </li>
+        ))}
+      </ul>
+    </Disclosure>
   );
 }
 
@@ -187,7 +248,7 @@ export function StorageCheckCard() {
               </p>
               {(r.missing_ids.length > 0 || r.orphaned_ids.length > 0) && (
                 <div className="flex flex-col gap-1">
-                  <IdList label="missing files" ids={r.missing_ids} />
+                  <MissingList objects={r.missing_objects} />
                   <IdList label="unused files on Sia" ids={r.orphaned_ids} />
                 </div>
               )}
