@@ -102,6 +102,11 @@ export interface DataTableProps<T> {
   loadingRows?: number;
   /** marks rows, e.g. a row that is being deleted */
   rowClassName?: (row: T) => string | undefined;
+  /**
+   * Opens a row from a click anywhere on it that is not a control. For the
+   * mouse only: the row must still hold a link or button for the keyboard.
+   */
+  onRowClick?: (row: T) => void;
   /** `fixed` keeps long cells from widening the table past its box; give columns a `width` */
   layout?: 'auto' | 'fixed';
   /** a refetch is running over rows already shown */
@@ -236,6 +241,7 @@ export function DataTable<T>({
   empty,
   loadingRows = 5,
   rowClassName,
+  onRowClick,
   layout = 'auto',
   busy = false,
   animateRows = false,
@@ -467,6 +473,18 @@ export function DataTable<T>({
                     )}
                   </>
                 );
+                const clickRow = onRowClick
+                  ? (e: React.MouseEvent<HTMLTableRowElement>) => {
+                      const target = e.target as Element;
+                      // a menu or dialog opened from the row is portaled out of it, and
+                      // its clicks still bubble here through react
+                      if (!e.currentTarget.contains(target)) return;
+                      if (target.closest('a, button, input, label, [role=checkbox]')) return;
+                      // selecting text to copy it is not opening the row
+                      if (window.getSelection()?.toString()) return;
+                      onRowClick(row);
+                    }
+                  : undefined;
                 return animateRows ? (
                   <AnimatedItem
                     key={getRowKey?.(row) ?? id}
@@ -477,8 +495,10 @@ export function DataTable<T>({
                     data-state={isSelected ? 'selected' : undefined}
                     className={cn(
                       'border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted',
+                      onRowClick && 'cursor-pointer',
                       rowClassName?.(row),
                     )}
+                    onClick={clickRow}
                   >
                     {cells}
                   </AnimatedItem>
@@ -487,7 +507,8 @@ export function DataTable<T>({
                     key={getRowKey?.(row) ?? id}
                     data-row-id={id}
                     data-state={isSelected ? 'selected' : undefined}
-                    className={rowClassName?.(row)}
+                    className={cn(onRowClick && 'cursor-pointer', rowClassName?.(row))}
+                    onClick={clickRow}
                   >
                     {cells}
                   </TableRow>

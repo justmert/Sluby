@@ -1,5 +1,6 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RESTORED_DRAFT_MESSAGE } from '@/lib/drafts';
 import { reportUnauthorized } from '@/lib/session-events';
@@ -91,6 +92,20 @@ describe('Webhooks page', () => {
     const fresh = screen.getByText('https://new.example.com/').closest('tr')!;
     expect(within(fresh).getByText('None yet')).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Webhooks' })).toBeInTheDocument();
+  });
+
+  it('opens the webhook from a click anywhere on its row', async () => {
+    renderPage(
+      <WithSession>
+        <Routes>
+          <Route path="/studio/developers/webhooks" element={<WebhooksPage />} />
+          <Route path="/studio/developers/webhooks/:id" element={<p>webhook page</p>} />
+        </Routes>
+      </WithSession>,
+      { route: '/studio/developers/webhooks' },
+    );
+    await userEvent.click(await screen.findByText('2 events'));
+    expect(await screen.findByText('webhook page')).toBeInTheDocument();
   });
 
   it('offers Add webhook in the empty state (CPY-20, FLW-57)', async () => {

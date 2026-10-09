@@ -345,3 +345,35 @@ describe('DataTable', () => {
     expect(screen.getByText('Alpha')).toBeInTheDocument();
   });
 });
+
+describe('DataTable row click', () => {
+  it('opens a row from a plain cell, but not from its checkbox, menu or menu items', async () => {
+    const onRowClick = vi.fn();
+    const onOpen = vi.fn();
+    function Clickable() {
+      const [selected, setSelected] = useState<Set<string>>(new Set());
+      return (
+        <DataTable
+          caption="Videos"
+          columns={columns}
+          rows={rows}
+          getRowId={(r) => r.id}
+          getRowLabel={(r) => r.name}
+          selected={selected}
+          onSelectedChange={setSelected}
+          onRowClick={onRowClick}
+          rowActions={() => [{ label: 'Open', icon: ArrowUpRight, onSelect: onOpen }]}
+        />
+      );
+    }
+    renderWithMotion(<Clickable />);
+    await userEvent.click(screen.getByText('9 MB'));
+    expect(onRowClick).toHaveBeenCalledWith(rows[1]);
+    onRowClick.mockClear();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for Alpha' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Open' }));
+    expect(onOpen).toHaveBeenCalled();
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+});

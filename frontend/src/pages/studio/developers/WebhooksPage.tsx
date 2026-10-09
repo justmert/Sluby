@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { Plus, Webhook } from 'lucide-react';
 import { AddWebhookDialog } from '@/components/developers/AddWebhookDialog';
 import { emptyWebhookForm, type WebhookForm } from '@/components/developers/forms';
@@ -47,6 +47,7 @@ const TABLE = 'Webhooks';
 const ADD_BUTTON_ID = 'add-webhook-button';
 
 export default function WebhooksPage() {
+  const navigate = useNavigate();
   const hooks = useWebhooks();
   const remove = useDeleteWebhook();
   const actions = useWebhookActions();
@@ -85,6 +86,7 @@ export default function WebhooksPage() {
         rows={rows}
         getRowId={(w) => w.id}
         getRowLabel={(w) => webhookLabel(w.url)}
+        onRowClick={(w) => void navigate(ROUTES.webhook(w.id))}
         animateRows
         loadingRows={3}
         error={hooks.error}
