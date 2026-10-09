@@ -33,8 +33,9 @@ export function NavSignalMark({ signal }: { signal: NavSignal }) {
       {signal.kind === 'dot' ? (
         <span
           data-tone={signal.tone}
+          // forced colors would drop the fill and with it the dot; keep its color
           className={cn(
-            'size-2 rounded-full ring-2 ring-sidebar group-data-[collapsible=icon]:size-1.5',
+            'size-2 rounded-full ring-2 ring-sidebar forced-color-adjust-none group-data-[collapsible=icon]:size-1.5',
             DOT_TONE[signal.tone],
           )}
         />
@@ -44,7 +45,7 @@ export function NavSignalMark({ signal }: { signal: NavSignal }) {
             {formatCount(signal.count)}
           </span>
           {/* no room for a number on the rail; a dot in the progress color says "busy" */}
-          <span className="hidden size-1.5 rounded-full bg-progress ring-2 ring-sidebar group-data-[collapsible=icon]:block" />
+          <span className="hidden size-1.5 rounded-full bg-progress ring-2 ring-sidebar forced-color-adjust-none group-data-[collapsible=icon]:block" />
         </>
       )}
     </m.span>
