@@ -404,10 +404,10 @@ function HostRows({ hosts, explorer }: { hosts: SiaStorageInfo['hosts']; explore
         className="flex min-w-0 items-center gap-1.5 font-mono text-xs hover:underline"
         title={h.public_key}
       >
-        {shortKey(h.public_key)}
+        <span className="truncate">{shortKey(h.public_key)}</span>
         <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
       </a>
-      <span className="flex items-center gap-3 text-muted-foreground">
+      <span className="flex shrink-0 items-center gap-3 text-muted-foreground">
         <span>{h.country_code ? countryName(h.country_code) : 'Unknown'}</span>
         <span className="w-20 text-right tabular-nums">{plural(h.sectors, 'sector')}</span>
       </span>
