@@ -211,6 +211,21 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
     });
   });
 
+  describe('renameApiKey', () => {
+    it('renames a usable key of the owner and nothing else', async () => {
+      const mine = await newKey({ name: 'old' });
+      const off = await newKey({ isActive: false });
+      const gone = await newKey({ expiresAt: new Date(Date.now() - 1) });
+      expect(await q.renameApiKey(mine.apiKey.id, 'bob', 'x')).toBeUndefined();
+      expect(await q.renameApiKey(off.apiKey.id, 'alice', 'x')).toBeUndefined();
+      expect(await q.renameApiKey(gone.apiKey.id, 'alice', 'x')).toBeUndefined();
+      expect((await q.renameApiKey(mine.apiKey.id, 'alice', 'new'))?.name).toBe('new');
+      expect((await q.renameApiKey(mine.apiKey.id, undefined, 'platform'))?.name).toBe('platform');
+      const names = await tdb.sql`select name from api_keys order by name`;
+      expect(names.map((r) => r.name)).toEqual(['k', 'k', 'platform']);
+    });
+  });
+
   describe('rotateApiKey', () => {
     it('mints a replacement with the same settings and retires the old key at the given time', async () => {
       const old = await newKey({ name: 'ci', scopes: ['read', 'upload'], rateLimit: 42 });

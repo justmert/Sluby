@@ -686,6 +686,22 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       check('POST', '/api/v1/keys/{id}/rotate', badGrace);
       expect(badGrace.status).toBe(400);
 
+      const renameByA = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'a', { name: 'mine now' });
+      check('PATCH', '/api/v1/keys/{id}', renameByA);
+      expect(renameByA.status).toBe(404);
+      const renamed = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'b', { name: ' bob ci ' });
+      check('PATCH', '/api/v1/keys/{id}', renamed);
+      expect(renamed.status).toBe(200);
+      expect(renamed.body).toMatchObject({ id: bKeyId, name: 'bob ci' });
+      const badName = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'b', { name: '' });
+      check('PATCH', '/api/v1/keys/{id}', badName);
+      expect(badName.status).toBe(400);
+      const byPlatform = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'platform', {
+        name: 'renamed by the platform',
+      });
+      check('PATCH', '/api/v1/keys/{id}', byPlatform);
+      expect(byPlatform.status).toBe(200);
+
       const deleted = await call('DELETE', `/api/v1/keys/${rotated.body.id}`, 'platform');
       check('DELETE', '/api/v1/keys/{id}', deleted);
       expect(deleted.status).toBe(200);

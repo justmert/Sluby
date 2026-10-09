@@ -1782,6 +1782,41 @@ export const openapiDocument = {
       },
     },
     '/api/v1/keys/{id}': {
+      patch: {
+        tags: ['Keys'],
+        summary: 'Rename an API key.',
+        description:
+          'Changes only the name; the secret, scopes and rate limit stay. A key of another ' +
+          'account, a revoked key and a key past its grace period answer 404.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Key id.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['name'],
+                properties: {
+                  name: {
+                    type: 'string',
+                    minLength: 1,
+                    maxLength: 100,
+                    description: 'Trimmed; no control characters.',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': jsonResponse('ApiKey', 'The renamed key.'),
+          '400': ref('BadRequest'),
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
+      },
       delete: {
         tags: ['Keys'],
         summary: 'Delete an API key.',

@@ -60,6 +60,7 @@ import {
   listApiKeys as dbListApiKeys,
   deleteApiKey as dbDeleteApiKey,
   rotateApiKey as dbRotateApiKey,
+  renameApiKey as dbRenameApiKey,
   touchApiKeyLastUsed,
 } from './db/queries/api-keys.js';
 import { createKeyUseRecorder } from './api/auth/key-usage.js';
@@ -836,6 +837,11 @@ export function buildApiDeps(
         replacement: toKeyRecord(result.replacement),
         retiredAt: result.retiredAt,
       };
+    },
+
+    renameApiKey: async (id, owner, name) => {
+      const row = await dbRenameApiKey(id, owner, name);
+      return row ? toKeyRecord(row) : null;
     },
 
     deleteApiKey: async (id, owner) => {

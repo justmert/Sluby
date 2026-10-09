@@ -48,6 +48,12 @@ export interface KeyRouteDeps {
     owner: string | undefined,
     page: { limit: number; cursor?: CursorKey },
   ) => Promise<{ data: ApiKeyRecord[]; hasMore: boolean; nextCursor: string | null }>;
+  /** Renames a usable key of `owner`; null when there is none. */
+  renameApiKey: (
+    id: string,
+    owner: string | undefined,
+    name: string,
+  ) => Promise<ApiKeyRecord | null>;
   /** Deletes only if the key belongs to `owner`; false when it does not. */
   deleteApiKey: (id: string, owner?: string) => Promise<boolean>;
   /**
@@ -105,6 +111,8 @@ const createBodySchema = z
       .optional(),
   })
   .strict();
+
+const updateBodySchema = z.object({ name: keyNameSchema }).strict();
 
 const listQuerySchema = z.object({
   limit: integerParam('limit', 1, LIST_LIMIT_MAX).optional(),
@@ -227,6 +235,21 @@ export function createKeyRoutes(
       rotated_from: id,
       previous_key_expires_at: result.retiredAt.toISOString(),
     });
+  });
+
+  /**
+   * PATCH /api/v1/keys/:id
+   * Rename a key. Its secret, scopes and limit stay as they are.
+   */
+  router.patch('/:id', requireScope('manage'), async (req: Request, res: Response) => {
+    const body = parseOrThrow(updateBodySchema, req.body ?? {});
+    const updated = await deps.renameApiKey(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+      body.name,
+    );
+    if (!updated) throw new AppError(404, 'API key not found');
+    res.json(formatKey(updated));
   });
 
   /**

@@ -45,6 +45,7 @@ describe('key routes', () => {
       ),
       listApiKeys: vi.fn().mockResolvedValue({ data: [], hasMore: false, nextCursor: null }),
       deleteApiKey: vi.fn().mockResolvedValue(true),
+      renameApiKey: vi.fn(async (id, _owner, name) => record({ id, name })),
       rotateApiKey: vi.fn(),
     };
   });
@@ -209,6 +210,31 @@ describe('key routes', () => {
       expect(res.status).toBe(409);
       expect(res.body.error).toBe('API key was already rotated; rotate its replacement instead');
     });
+  });
+
+  describe('rename', () => {
+    it('renames a key of the caller, trimming the name', async () => {
+      const res = await request(app()).patch('/key-2').send({ name: ' deploy bot ' });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ id: 'key-2', name: 'deploy bot' });
+      expect(deps.renameApiKey).toHaveBeenCalledWith('key-2', 'github:alice', 'deploy bot');
+    });
+
+    it('answers 404 for a key the caller cannot rename', async () => {
+      vi.mocked(deps.renameApiKey).mockResolvedValue(null);
+      const res = await request(app()).patch('/key-9').send({ name: 'x' });
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('API key not found');
+    });
+
+    it.each([{}, { name: '' }, { name: 'x'.repeat(101) }, { name: 'x', scopes: ['read'] }])(
+      'rejects %j',
+      async (body) => {
+        const res = await request(app()).patch('/key-2').send(body);
+        expect(res.status).toBe(400);
+        expect(deps.renameApiKey).not.toHaveBeenCalled();
+      },
+    );
   });
 
   it('revokes only within the account', async () => {

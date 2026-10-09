@@ -124,6 +124,29 @@ export async function deleteApiKey(id: string, owner?: string): Promise<ApiKey |
   return deleted;
 }
 
+/**
+ * Rename a usable (active, unexpired) key. `owner` scopes it like deletion;
+ * undefined for the platform identity. Undefined when no such key.
+ */
+export async function renameApiKey(
+  id: string,
+  owner: string | undefined,
+  name: string,
+): Promise<ApiKey | undefined> {
+  const conditions = [
+    eq(apiKeys.id, id),
+    eq(apiKeys.isActive, true),
+    or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
+  ];
+  if (owner !== undefined) conditions.push(eq(apiKeys.creatorAddress, owner));
+  const [row] = await db
+    .update(apiKeys)
+    .set({ name })
+    .where(and(...conditions))
+    .returning();
+  return row;
+}
+
 export type RotateResult =
   | { status: 'rotated'; replacement: ApiKey; retiredAt: Date }
   | { status: 'not_found' }
