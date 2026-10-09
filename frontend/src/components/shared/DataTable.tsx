@@ -293,7 +293,10 @@ export function DataTable<T>({
   if (current !== mounted) setMounted(current);
   const initialFor = (id: string) =>
     (staggerIn && rowsKey === first) || !current.ids.has(id) ? undefined : false;
-  const Body = animateRows ? AnimatedList : TableBody;
+  // the skeleton stays out of the rows' presence: inside it, its rows lingered
+  // a commit after the data came and the first rows slid up from under them
+  const animated = animateRows && !loading;
+  const Body = animated ? AnimatedList : TableBody;
 
   return (
     <div data-slot="data-table" className={cn('flex flex-col gap-3', className)}>
@@ -372,7 +375,7 @@ export function DataTable<T>({
             </TableHeader>
             <Body
               key={rowsKey}
-              {...(animateRows
+              {...(animated
                 ? {
                     as: 'tbody' as const,
                     'data-slot': 'table-body',
@@ -460,7 +463,7 @@ export function DataTable<T>({
                     )}
                   </>
                 );
-                return animateRows ? (
+                return animated ? (
                   <AnimatedItem
                     key={getRowKey?.(row) ?? id}
                     data-row-id={id}
