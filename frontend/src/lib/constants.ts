@@ -27,6 +27,15 @@ export const ROUTES = {
   SETTINGS: '/studio/settings',
 } as const;
 
+/** Places outside the studio that it links to. */
+export const LINKS = {
+  /** The server's own OpenAPI reference. */
+  API_REFERENCE: '/api/v1/docs',
+  SOURCE: 'https://github.com/justmert/Sluby',
+  /** How to turn sign-in on, for the warning a server with AUTH_DISABLED shows. */
+  SIGN_IN_SETUP: 'https://github.com/justmert/Sluby/blob/main/docs/guide/configuration.md#sign-in',
+} as const;
+
 /** `?upload=1` on any route opens the upload sheet (lib/upload-sheet.ts). */
 export const UPLOAD_PARAM = 'upload';
 
