@@ -315,8 +315,8 @@
     scrollbar-gutter: stable;
     /* a control focused from the keyboard never hides under the sticky top
        bar, the Videos toolbar while it sticks, the bulk bar or a toast; the
-       variables come from the toolbar and bulk bar themselves */
-    scroll-padding-top: calc(4.5rem + var(--sticky-toolbar-h, 0px));
+       variables come from the top bar, toolbar and bulk bar themselves */
+    scroll-padding-top: calc(var(--top-bar-h, 3.5rem) + 1rem + var(--sticky-toolbar-h, 0px));
     scroll-padding-bottom: max(var(--bulk-bar-pad, 0px), var(--toast-pad, 0px));
   }
   /* radix pads the body by the scrollbar width when it locks scrolling for a

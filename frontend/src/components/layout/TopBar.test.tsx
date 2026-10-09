@@ -1,5 +1,5 @@
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ThemeProvider } from '@/components/theme-provider';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { renderPage } from '@/test/render';
@@ -60,6 +60,21 @@ describe('TopBar', () => {
     const back = screen.getByRole('link', { name: 'Back to Videos' });
     expect(back).toHaveAttribute('href', '/studio/videos');
     expect(back).toHaveClass('sm:hidden');
+  });
+
+  it('wraps to a second row when large text needs it, and pads the page by its real height (1.4.4, 2.4.11)', () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(112);
+    const { unmount } = renderAt('/studio/videos');
+    const header = screen.getByRole('banner');
+    expect(header).toHaveClass(
+      'max-[24rem]:flex-wrap',
+      'max-[24rem]:h-auto',
+      'max-[24rem]:min-h-14',
+    );
+    expect(document.documentElement.style.getPropertyValue('--top-bar-h')).toBe('112px');
+    unmount();
+    expect(document.documentElement.style.getPropertyValue('--top-bar-h')).toBe('');
+    vi.restoreAllMocks();
   });
 
   it('has no back link on a top level page', () => {
