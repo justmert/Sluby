@@ -57,24 +57,64 @@ describe('errorText', () => {
       'This video no longer exists. It may have been deleted.',
     );
     expect(
-      errorText(new ConflictError('This account already has 20 API keys; delete one first')),
-    ).toBe(
-      'This account already has 20 API keys, the most allowed. Revoke one you no longer use, then try again.',
-    );
-    expect(errorText(new ApiError(410, 'Source file not found, please re-upload the video'))).toBe(
-      'Could not retry because the original file is gone. Upload the video again.',
-    );
-    expect(errorText(new ApiError(400, 'Asset is not in failed state'))).toMatch(
-      /^Only a failed video can be retried/,
-    );
-    expect(
       errorText(
         new SlubyError('The Sia indexer did not answer while minting share URLs; try again', 502),
       ),
     ).toBe('Could not start playback from Sia. Try again in a moment.');
-    expect(
-      errorText(new ApiError(400, 'URL refused: localhost resolves to loopback (::1)')),
-    ).toMatch(/WEBHOOK_ALLOWED_NETWORKS/);
+  });
+
+  it('shows the server’s own final wording as it is', () => {
+    const said = [
+      [
+        new ConflictError(
+          'This account already has 20 API keys, the most allowed. Revoke one you no longer use, then try again.',
+        ),
+      ],
+      [new ConflictError('This key was already rotated. Rotate its replacement instead.')],
+      [
+        new ApiError(
+          410,
+          'Could not retry because the original file is gone. Upload the video again.',
+        ),
+      ],
+      [new ApiError(400, 'Only a failed video can be retried. It may have restarted already.')],
+      [
+        new ApiError(
+          400,
+          'Webhooks can only reach public addresses, and localhost points to this machine. To allow it, add the network to WEBHOOK_ALLOWED_NETWORKS on the server.',
+        ),
+      ],
+      [new ConflictError('This webhook is paused. Resume it to resend.')],
+    ] as const;
+    for (const [err] of said) {
+      expect(errorText(err)).toBe(err.message);
+      expect(describeError(err).detail).toBe(err.message);
+    }
+  });
+
+  it('no longer rewrites the wording the backend replaced', () => {
+    // the old texts now read as themselves, a sign the dead mappings are gone
+    expect(errorText(new ApiError(400, 'URL refused: x'))).toBe('URL refused: x.');
+    expect(errorText(new ApiError(400, 'Asset is not in failed state'))).toBe(
+      'Asset is not in failed state.',
+    );
+  });
+
+  it('keeps a 410 without a readable sentence generic', () => {
+    expect(errorText(new ApiError(410, 'HTTP 410'))).toBe(
+      'It no longer exists. It may have been deleted.',
+    );
+  });
+
+  it('reads field errors from an sdk error body too', () => {
+    const body = JSON.stringify({
+      error: 'name: name is required',
+      details: [{ field: 'name', message: 'name is required' }],
+    });
+    expect(fieldErrorsOf(new SlubyError('name: name is required', 400, body))).toEqual({
+      name: 'Name is required.',
+    });
+    expect(fieldErrorsOf(new SlubyError('x', 400, '<html>'))).toEqual({});
   });
 
   it('treats a malformed id like a missing one', () => {

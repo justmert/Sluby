@@ -63,28 +63,10 @@ const KNOWN: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
     /^Video (is not ready for playback|manifest not available)/i,
     () => 'This video is still processing. It can play once it is ready.',
   ],
-  // keys.ts:150
-  [
-    /already has (\d+) API keys/i,
-    (m) =>
-      `This account already has ${m[1]} API keys, the most allowed. Revoke one you no longer use, then try again.`,
-  ],
-  // keys.ts:214
-  [/already rotated/i, () => 'This key was already rotated. Rotate its replacement instead.'],
   // keys.ts:135
   [
     /rate_limit must be at most (\d+)/i,
     (m) => `Enter a number from 1 to ${Number(m[1]).toLocaleString('en-US')}.`,
-  ],
-  // retry.ts:54
-  [
-    /^Source file not found/i,
-    () => 'Could not retry because the original file is gone. Upload the video again.',
-  ],
-  // retry.ts:47, 59
-  [
-    /not in failed state/i,
-    () => 'Only a failed video can be retried. It may have restarted already.',
   ],
   // playback.ts:212, 217
   [
@@ -97,12 +79,6 @@ const KNOWN: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [
     /^The upload is no longer in progress/i,
     () => 'The upload finished before it could be canceled.',
-  ],
-  // webhooks.ts:82 and egress.ts
-  [
-    /^URL refused/i,
-    () =>
-      'Webhooks can only reach public addresses. To allow a private one, add its network to WEBHOOK_ALLOWED_NETWORKS on the server.',
   ],
   [/^URL is required/i, () => 'Enter the URL that should get the events.'],
   [/^At least one event type is required/i, () => 'Choose at least one event.'],
@@ -220,8 +196,15 @@ export function describeError(err: unknown): ErrorInfo {
     case 403:
       return { ...base, kind: 'forbidden', message: mapped ?? FORBIDDEN, action: 'none' };
     case 404:
-    case 410:
       return { ...base, kind: 'not-found', message: mapped ?? GONE, action: 'none' };
+    case 410:
+      // gone for good, and the server says what to do instead (retry.ts)
+      return {
+        ...base,
+        kind: 'not-found',
+        message: mapped ?? (readable(raw) ? sentence(raw) : GONE),
+        action: 'none',
+      };
     case 409:
       return {
         ...base,
@@ -274,15 +257,29 @@ export function isRetryable(err: unknown): boolean {
   return action === 'retry' || action === 'wait';
 }
 
+/** The `details` a 400 carries, from apiClient or from the sdk's raw response body. */
+function detailsOf(err: unknown): unknown {
+  if (err instanceof ApiError) return err.details;
+  if (err instanceof SlubyError && err.responseBody) {
+    try {
+      return (JSON.parse(err.responseBody) as { details?: unknown }).details;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Field errors from a 400 the backend validated, keyed by field name
  * (`rate_limit`, `url`), so a form can show each one next to its field. Empty
  * when the error carries none.
  */
 export function fieldErrorsOf(err: unknown): Record<string, string> {
-  if (!(err instanceof ApiError) || !Array.isArray(err.details)) return {};
+  const details = detailsOf(err);
+  if (!Array.isArray(details)) return {};
   const out: Record<string, string> = {};
-  for (const issue of err.details as Array<{ field?: unknown; message?: unknown }>) {
+  for (const issue of details as Array<{ field?: unknown; message?: unknown }>) {
     if (typeof issue?.field !== 'string' || typeof issue.message !== 'string') continue;
     if (issue.field in out) continue;
     out[issue.field] = known(issue.message) ?? sentence(issue.message);
