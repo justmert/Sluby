@@ -185,4 +185,14 @@ describe('Quickstart', () => {
       '/studio/developers/explorer',
     );
   });
+
+  it('offers Try again when the keys do not load, and keeps the rest of the page (D-25)', async () => {
+    routes['/api/v1/keys'] = reply(502, '<html>Bad Gateway</html>');
+    render();
+    expect(await screen.findByText('Could not load your API keys.')).toBeInTheDocument();
+    routes['/api/v1/keys'] = { data: [], has_more: false, next_cursor: null };
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('No active keys yet')).toBeInTheDocument();
+    expect(screen.getByRole('tablist', { name: 'Snippets' })).toBeInTheDocument();
+  });
 });

@@ -87,6 +87,8 @@ function EventsCard({ hook }: { hook: WebhookRecord }) {
           error={error}
           disabled={update.isPending}
           idPrefix="edit-event"
+          hideLegend
+          className="@3xl/page:grid-flow-col @3xl/page:grid-rows-3"
         />
         <InlineError error={update.error} title="Could not save the events" />
         {dirty && (

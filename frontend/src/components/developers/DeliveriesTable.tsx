@@ -178,7 +178,7 @@ export function DeliveriesTable({ webhookId, paused }: { webhookId: string; paus
         </p>
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card">
-          <ResponsiveTable aria-label="Deliveries">
+          <ResponsiveTable aria-label="Deliveries" className="max-sm:[&_tbody>tr]:px-4">
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-4">Status</TableHead>

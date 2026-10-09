@@ -1,6 +1,7 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import { FieldError, FieldLegend, FieldSet } from '@/components/ui/field';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 
 export interface Option {
   /** the api value, shown in mono: "upload", "asset.ready" */
@@ -21,8 +22,14 @@ export function OptionList({
   idPrefix,
   error,
   disabled,
+  hideLegend = false,
+  className,
 }: {
   legend: string;
+  /** the legend for screen readers only, under a heading that already says it */
+  hideLegend?: boolean;
+  /** classes for the list of options, e.g. columns on a wide page */
+  className?: string;
   options: Option[];
   value: string[];
   onChange: (next: string[]) => void;
@@ -38,8 +45,10 @@ export function OptionList({
       aria-describedby={error ? errorId : undefined}
       className="gap-3"
     >
-      <FieldLegend variant="label">{legend}</FieldLegend>
-      <div className="flex flex-col gap-3">
+      <FieldLegend variant="label" className={cn(hideLegend && 'sr-only')}>
+        {legend}
+      </FieldLegend>
+      <div className={cn('grid gap-3', className)}>
         {options.map((o) => {
           const id = `${idPrefix}-${o.value}`;
           return (

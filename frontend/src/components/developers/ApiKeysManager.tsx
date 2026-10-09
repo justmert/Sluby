@@ -110,7 +110,7 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
       id: 'name',
       header: 'Name',
       primary: true,
-      className: 'max-w-64 min-w-40',
+      className: 'max-w-64 min-w-36 whitespace-normal',
       cell: (k) => (
         <InlineEditField
           label={`name of ${k.name}`}
@@ -149,7 +149,8 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
     {
       id: 'scopes',
       header: 'Scopes',
-      className: 'max-sm:hidden!',
+      // shown from lg: at tablet width the table keeps name, key, last use and status
+      className: 'max-lg:hidden!',
       cell: (k) => (
         <span className="flex flex-wrap gap-1">
           {k.scopes.map((s) => (

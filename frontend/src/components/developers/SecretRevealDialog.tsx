@@ -81,6 +81,8 @@ export function SecretRevealDialog({
               language="bash"
               label={`${shown.label} as an environment variable`}
               onCopied={markCopied}
+              // the line wraps so the end of the value never hides under the copy button
+              preClassName="whitespace-pre-wrap break-all"
             />
             {shown.note && <p className="text-sm text-muted-foreground">{shown.note}</p>}
           </div>

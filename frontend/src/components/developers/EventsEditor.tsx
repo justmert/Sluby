@@ -8,12 +8,16 @@ export function EventsEditor({
   error,
   disabled,
   idPrefix = 'event',
+  hideLegend,
+  className,
 }: {
   value: string[];
   onChange: (next: string[]) => void;
   error?: string | null;
   disabled?: boolean;
   idPrefix?: string;
+  hideLegend?: boolean;
+  className?: string;
 }) {
   // keep the order the events happen in, whatever order they were ticked
   const ordered = (next: string[]) =>
@@ -27,6 +31,8 @@ export function EventsEditor({
       idPrefix={idPrefix}
       error={error}
       disabled={disabled}
+      hideLegend={hideLegend}
+      className={className}
     />
   );
 }

@@ -94,7 +94,7 @@ export default function WebhooksPage() {
             id: 'url',
             header: 'Endpoint URL',
             primary: true,
-            className: 'max-w-96 min-w-48',
+            className: 'max-w-96 min-w-48 whitespace-normal',
             cell: (w) => (
               <Link
                 to={ROUTES.webhook(w.id)}

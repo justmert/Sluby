@@ -49,7 +49,18 @@ function KeysSummary() {
       <span className="mr-auto text-sm">
         {active === undefined ? (
           keys.isError ? (
-            <span className="text-muted-foreground">Could not load your API keys</span>
+            <span className="inline-flex flex-wrap items-center gap-x-2 text-muted-foreground">
+              Could not load your API keys.
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0"
+                onClick={() => void keys.refetch()}
+                disabled={keys.isFetching}
+              >
+                {keys.isFetching ? 'Trying again…' : 'Try again'}
+              </Button>
+            </span>
           ) : (
             <Skeleton className="inline-block h-4 w-24 align-middle" />
           )
