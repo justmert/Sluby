@@ -110,7 +110,7 @@ function Screen({ children, contentKey }: { children: ReactNode; contentKey: str
       animate={{ opacity: 1 }}
       transition={{ ...transition.base, delay: contentKey === 'loading' ? LOADING_DELAY : 0 }}
     >
-      <div className="flex w-full max-w-sm flex-col items-center gap-8 px-6 text-center">
+      <main className="flex w-full max-w-sm flex-col items-center gap-8 px-6 text-center">
         <div className="flex flex-col items-center gap-3">
           <Logo className="size-11" />
           <h1 className="text-3xl font-semibold">Sluby Studio</h1>
@@ -142,7 +142,7 @@ function Screen({ children, contentKey }: { children: ReactNode; contentKey: str
             )}
           </AnimatePresence>
         </div>
-      </div>
+      </main>
     </m.div>
   );
 }
