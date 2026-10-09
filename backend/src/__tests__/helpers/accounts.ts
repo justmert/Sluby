@@ -124,6 +124,7 @@ export function memoryAccounts() {
         }
       );
     },
+    findSession: async (id) => sessions.find((x) => x.id === id),
     markSessionSeen: (id) => {
       const s = sessions.find((x) => x.id === id);
       if (s) s.lastSeenAt = new Date();
@@ -137,6 +138,7 @@ export function memoryAccounts() {
     localDevAccount,
     findActiveSession: callerDeps.findActiveSession,
     markSessionSeen: callerDeps.markSessionSeen,
+    findSession: callerDeps.findSession,
     createSession: async ({ userId, identityId, expiresAt, userAgent }) => {
       const row = {
         id: uuid(++seq),

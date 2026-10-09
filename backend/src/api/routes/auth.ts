@@ -10,8 +10,10 @@ import {
   parseCookieHeader,
   resolveSession,
   signSession,
+  whySessionEnded,
   type ActiveSession,
   type FindActiveSession,
+  type FindSession,
 } from '../auth/session.js';
 import type { Account } from '../auth/access.js';
 import { isOperatorAccount, operatorAllowlist } from '../auth/operators.js';
@@ -144,6 +146,8 @@ export interface AuthRouteDeps {
     userAgent: string | null;
   }) => Promise<{ id: string }>;
   findActiveSession: FindActiveSession;
+  /** Any session row, to say why a cookie no longer signs in. */
+  findSession: FindSession;
   /** Note a session was used now; must not throw or wait. */
   markSessionSeen: (sid: string) => void;
   listActiveSessions: (userId: string) => Promise<StudioSessionRecord[]>;
@@ -169,13 +173,22 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       markSeen: deps.markSessionSeen,
     });
 
+  const notSignedIn = async (req: Request) =>
+    new AppError(401, 'Not signed in', undefined, {
+      reason: await whySessionEnded(req.headers.cookie, {
+        secret: env.SESSION_SECRET,
+        findSession: deps.findSession,
+        getAccount: deps.getAccount,
+      }),
+    });
+
   /** The caller's live session, or a 401. Only a Studio session, never a key. */
   const requireSession = async (req: Request) => {
     if (env.AUTH_DISABLED) {
       throw new AppError(409, 'Sign-in is disabled on this server, so there are no sessions');
     }
     const current = await currentSession(req);
-    if (!current) throw new AppError(401, 'Not signed in');
+    if (!current) throw await notSignedIn(req);
     return current;
   };
 
@@ -334,10 +347,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       return;
     }
     const current = await currentSession(req);
-    if (!current) {
-      res.status(401).json({ error: 'Not signed in' });
-      return;
-    }
+    if (!current) throw await notSignedIn(req);
     const { session, account } = current;
     const identity = account.identities.find((i) => i.id === session.identityId);
     const providerLabel = (identity && getProvider(identity.provider)?.label) ?? null;

@@ -109,11 +109,14 @@ describe('api router public and guarded routes', () => {
     creatorAddress,
     isActive: true,
     expiresAt: null,
+    lastUsedAt: null,
   });
   const deps = new Proxy(
     {
       findActiveSession: async () => undefined,
       markSessionSeen: () => {},
+      findSession: async () => undefined,
+      recordKeyUse: () => {},
       getAccount: async () => null,
       findLegacyClaim: async () => null,
       isAllowlistEntryPinned: async () => false,
@@ -153,7 +156,7 @@ describe('api router public and guarded routes', () => {
   it('lets /auth/me through without a key so the studio can ask', async () => {
     const res = await request(app()).get('/api/v1/auth/me');
     expect(res.status).toBe(401);
-    expect(res.body).toEqual({ error: 'Not signed in' });
+    expect(res.body).toEqual({ error: 'Not signed in', reason: 'missing' });
   });
 
   it('answers 404 for an unknown path without asking for a key', async () => {
@@ -172,7 +175,10 @@ describe('api router public and guarded routes', () => {
   it('guards the json metrics behind a platform key with read scope', async () => {
     const anon = await request(app()).get('/api/v1/metrics');
     expect(anon.status).toBe(401);
-    expect(anon.body).toEqual({ error: 'Missing or invalid Authorization header' });
+    expect(anon.body).toEqual({
+      error: 'Missing or invalid Authorization header',
+      reason: 'missing',
+    });
 
     const bad = await request(app()).get('/api/v1/metrics').set('Authorization', 'Bearer sluby_x');
     expect(bad.status).toBe(401);

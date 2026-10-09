@@ -13,6 +13,12 @@ export async function createStudioSession(data: {
   return row;
 }
 
+/** The session in whatever state, revoked and expired included. */
+export async function findStudioSession(id: string): Promise<StudioSession | undefined> {
+  const [row] = await db.select().from(studioSessions).where(eq(studioSessions.id, id)).limit(1);
+  return row;
+}
+
 /** The session if it exists, has not been revoked and has not expired. */
 export async function findActiveStudioSession(id: string): Promise<StudioSession | undefined> {
   const [row] = await db

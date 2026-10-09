@@ -96,6 +96,7 @@ import {
   createStudioSession,
   findActiveStudioSession,
   listActiveStudioSessions,
+  findStudioSession,
   markStudioSessionSeen,
   pruneStudioSessions,
   revokeAllStudioSessions,
@@ -263,6 +264,7 @@ export function buildCallerDeps(
 ): CallerDeps {
   return {
     findActiveSession: findActiveStudioSession,
+    findSession: findStudioSession,
     markSessionSeen: (sid) => {
       markStudioSessionSeen(sid).catch((err: unknown) =>
         logger.warn({ err, sessionId: sid }, 'Could not record session activity'),

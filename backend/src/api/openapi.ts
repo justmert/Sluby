@@ -164,7 +164,9 @@ export const openapiDocument = {
     },
     responses: {
       BadRequest: errorWith('Invalid input; `details` lists the fields.'),
-      Unauthorized: errorWith('No valid API key or session.'),
+      Unauthorized: errorWith(
+        'No valid API key or session. Without a key, `reason` says why the session ended.',
+      ),
       Forbidden: errorWith('The key lacks the scope (or identity) the operation needs.'),
       NotFound: errorWith('No such resource in the caller’s account.'),
       TooManyRequests: {
@@ -205,6 +207,15 @@ export const openapiDocument = {
           stack: {
             type: 'string',
             description: 'Only with EXPOSE_ERROR_STACKS=true: the stack trace.',
+          },
+          reason: {
+            type: 'string',
+            enum: ['missing', 'expired', 'revoked', 'not_allowed'],
+            description:
+              'On a 401 to a request without an API key (a browser session): `missing` (no ' +
+              'session cookie, or one this server did not sign), `expired`, `revoked` (signed ' +
+              'out, here or from another browser) or `not_allowed` (the account is no longer on ' +
+              'the allowlist).',
           },
         },
         required: ['error'],

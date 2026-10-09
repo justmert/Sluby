@@ -544,7 +544,7 @@ describe('GET /auth/me', () => {
   it('answers 401 without a session cookie', async () => {
     const res = await request(app()).get('/api/v1/auth/me');
     expect(res.status).toBe(401);
-    expect(res.body).toEqual({ error: 'Not signed in' });
+    expect(res.body).toEqual({ error: 'Not signed in', reason: 'missing' });
   });
 
   it('returns the account, the identity it signed in with and the expiry', async () => {
@@ -570,12 +570,22 @@ describe('GET /auth/me', () => {
     const { cookie } = await signedIn('octocat', '1', 3600, 'some-other-secret');
     const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
     expect(res.status).toBe(401);
+    expect(res.body.reason).toBe('missing');
   });
 
   it('answers 401 for an expired session', async () => {
     const { cookie } = await signedIn('octocat', '1', -1);
     const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
     expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Not signed in', reason: 'expired' });
+  });
+
+  it('says expired when the stored session ran out before its cookie', async () => {
+    const { id, cookie } = await signedIn();
+    accounts.sessions.find((x) => x.id === id)!.expiresAt = new Date(Date.now() - 1000);
+    const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
+    expect(res.status).toBe(401);
+    expect(res.body.reason).toBe('expired');
   });
 
   it('answers 401 for a session whose payload was edited', async () => {
@@ -589,6 +599,7 @@ describe('GET /auth/me', () => {
       .get('/api/v1/auth/me')
       .set('Cookie', `${SESSION_COOKIE_NAME}=${forged}.${sig}`);
     expect(res.status).toBe(401);
+    expect(res.body.reason).toBe('missing');
   });
 
   it('answers 401 for a cookie from before accounts (login payload)', async () => {
@@ -602,6 +613,7 @@ describe('GET /auth/me', () => {
       .get('/api/v1/auth/me')
       .set('Cookie', `${SESSION_COOKIE_NAME}=${encoded}.${sig}`);
     expect(res.status).toBe(401);
+    expect(res.body.reason).toBe('missing');
   });
 
   it('reports the local dev account when auth is disabled', async () => {
@@ -672,6 +684,7 @@ describe('server-side session state', () => {
     await accounts.authDeps.revokeSession(id, userId);
     const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
     expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Not signed in', reason: 'revoked' });
   });
 
   it('ends existing sessions of an account taken off the allowlist', async () => {
@@ -679,7 +692,9 @@ describe('server-side session state', () => {
     const { cookie } = await signedIn('octocat');
     expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).status).toBe(200);
     env.GITHUB_ALLOWED_USERS = 'alice';
-    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).status).toBe(401);
+    const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
+    expect(res.status).toBe(401);
+    expect(res.body.reason).toBe('not_allowed');
   });
 });
 
@@ -737,9 +752,12 @@ describe('/auth/sessions', () => {
       .set('Cookie', laptop.cookie);
     expect(res.status).toBe(200);
     expect(setCookies(res)).toEqual([]);
-    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', phone.cookie)).status).toBe(
-      401,
-    );
+    const ended = await request(app()).get('/api/v1/auth/me').set('Cookie', phone.cookie);
+    expect(ended.status).toBe(401);
+    // what the phone's studio shows: signed out from another browser
+    expect(ended.body.reason).toBe('revoked');
+    const listed = await request(app()).get('/api/v1/auth/sessions').set('Cookie', phone.cookie);
+    expect(listed.body).toEqual({ error: 'Not signed in', reason: 'revoked' });
     expect((await request(app()).get('/api/v1/auth/me').set('Cookie', laptop.cookie)).status).toBe(
       200,
     );

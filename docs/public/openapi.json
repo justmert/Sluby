@@ -146,7 +146,7 @@
         }
       },
       "Unauthorized": {
-        "description": "No valid API key or session.",
+        "description": "No valid API key or session. Without a key, `reason` says why the session ended.",
         "content": {
           "application/json": {
             "schema": {
@@ -235,6 +235,16 @@
           "stack": {
             "type": "string",
             "description": "Only with EXPOSE_ERROR_STACKS=true: the stack trace."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "expired",
+              "revoked",
+              "not_allowed"
+            ],
+            "description": "On a 401 to a request without an API key (a browser session): `missing` (no session cookie, or one this server did not sign), `expired`, `revoked` (signed out, here or from another browser) or `not_allowed` (the account is no longer on the allowlist)."
           }
         },
         "required": [

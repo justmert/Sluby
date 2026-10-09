@@ -467,6 +467,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       const mw = middleware.createApiKeyMiddleware({
         findActiveSession: async () => undefined,
         markSessionSeen: () => {},
+        findSession: async () => undefined,
         findApiKeyByHash: async (hash) => (await q.getApiKeyByHash(hash)) ?? null,
         recordKeyUse: () => {},
         getAccount: accounts.getAccount,

@@ -30,7 +30,9 @@ export function createApiKeyMiddleware(deps: ApiKeyMiddlewareDeps) {
         deps,
       );
       if (!result.ok) {
-        res.status(401).json({ error: result.error });
+        res
+          .status(401)
+          .json({ error: result.error, ...(result.reason ? { reason: result.reason } : {}) });
         return;
       }
       req.apiKey = result.caller;

@@ -42,7 +42,11 @@ export function signSession(
   return `${encoded}.${sig}`;
 }
 
-export function verifySession(token: string | undefined, secret: string): SessionPayload | null {
+/**
+ * The payload of a cookie this server signed, whether or not it has expired;
+ * null when the signature or the shape is wrong.
+ */
+function readSessionCookie(token: string | undefined, secret: string): SessionPayload | null {
   if (!token) return null;
   const [encoded, sig] = token.split('.');
   if (!encoded || !sig) return null;
@@ -61,8 +65,7 @@ export function verifySession(token: string | undefined, secret: string): Sessio
     if (
       typeof payload.sid !== 'string' ||
       typeof payload.uid !== 'string' ||
-      typeof payload.exp !== 'number' ||
-      payload.exp < Math.floor(Date.now() / 1000)
+      typeof payload.exp !== 'number'
     ) {
       return null;
     }
@@ -70,6 +73,13 @@ export function verifySession(token: string | undefined, secret: string): Sessio
   } catch {
     return null;
   }
+}
+
+const cookieExpired = (payload: SessionPayload) => payload.exp < Math.floor(Date.now() / 1000);
+
+export function verifySession(token: string | undefined, secret: string): SessionPayload | null {
+  const payload = readSessionCookie(token, secret);
+  return payload && !cookieExpired(payload) ? payload : null;
 }
 
 /**
@@ -171,4 +181,50 @@ export async function resolveSession(
     opts.markSeen(session.id);
   }
   return { session, account };
+}
+
+/**
+ * Why a request has no live session, for the 401 a browser gets: `missing`
+ * (no cookie, or one this server did not sign), `expired`, `revoked` (signed
+ * out here or from another browser, or the row is gone) or `not_allowed` (the
+ * account is no longer on the allowlist).
+ */
+export type SessionEndReason = 'missing' | 'expired' | 'revoked' | 'not_allowed';
+
+/** A session row in any state. */
+export interface SessionState {
+  userId: string;
+  expiresAt: Date;
+  revokedAt: Date | null;
+}
+
+export type FindSession = (sid: string) => Promise<SessionState | undefined>;
+
+/**
+ * The reason behind a cookie header resolveSession turned down. Only called
+ * on that path, so a signed-in request never pays for the extra lookup.
+ */
+export async function whySessionEnded(
+  cookieHeader: string | undefined,
+  opts: {
+    secret: string;
+    findSession: FindSession;
+    getAccount: (userId: string) => Promise<Account | null>;
+  },
+): Promise<SessionEndReason> {
+  const payload = readSessionCookie(
+    parseCookieHeader(cookieHeader)[SESSION_COOKIE_NAME],
+    opts.secret,
+  );
+  if (!payload) return 'missing';
+  if (cookieExpired(payload)) return 'expired';
+  const row = await opts.findSession(payload.sid);
+  if (!row || row.userId !== payload.uid || row.revokedAt) return 'revoked';
+  if (row.expiresAt <= new Date()) return 'expired';
+  const account = await opts.getAccount(row.userId);
+  if (!account) return 'revoked';
+  if (!isAccountAllowed(account)) return 'not_allowed';
+  // live by now: it ended and came back between the two reads, which only a
+  // race allows; the browser should simply try again
+  return 'missing';
 }

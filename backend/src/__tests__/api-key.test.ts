@@ -51,6 +51,7 @@ function keyDeps(overrides: Partial<ApiKeyMiddlewareDeps>): ApiKeyMiddlewareDeps
   return {
     findActiveSession: vi.fn(async () => undefined),
     markSessionSeen: vi.fn(),
+    findSession: vi.fn(async () => undefined),
     findApiKeyByHash: vi.fn(),
     recordKeyUse: vi.fn(),
     getAccount: vi.fn(async () => null),
@@ -90,7 +91,10 @@ describe('api-key middleware', () => {
       await middleware(req, res as any, next);
 
       expect(res._status).toBe(401);
-      expect(res._json).toEqual({ error: 'Missing or invalid Authorization header' });
+      expect(res._json).toEqual({
+        error: 'Missing or invalid Authorization header',
+        reason: 'missing',
+      });
       expect(next).not.toHaveBeenCalled();
     });
 
@@ -315,6 +319,19 @@ describe('api-key middleware', () => {
       accounts.addKey('sluby_other', { creatorAddress: 'platform' });
       const { req } = await run({ cookie, authorization: 'Bearer sluby_other' });
       expect(req.apiKey?.creatorAddress).toBe(`user:${userId}`);
+    });
+
+    it('says why the session ended when a browser sends no key', async () => {
+      const { userId, cookie } = await sessionCookie();
+      const sid = accounts.sessions.find((x) => x.userId === userId)!.id;
+      await accounts.authDeps.revokeSession(sid, userId);
+      const { res, next } = await run({ cookie });
+      expect(next).not.toHaveBeenCalled();
+      expect(res._status).toBe(401);
+      expect(res._json).toEqual({
+        error: 'Missing or invalid Authorization header',
+        reason: 'revoked',
+      });
     });
 
     it('falls back to the bearer key when the cookie is not a live session', async () => {
