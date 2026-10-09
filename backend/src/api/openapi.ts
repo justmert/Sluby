@@ -511,6 +511,7 @@ export const openapiDocument = {
           'error_message',
           'created_at',
           'missing_ids',
+          'missing_objects',
           'orphaned_ids',
         ],
         properties: {
@@ -531,6 +532,14 @@ export const openapiDocument = {
             items: { type: 'string' },
             description: 'Tracked by an asset, absent from the indexer.',
           },
+          missing_objects: {
+            type: 'array',
+            description:
+              'Each of `missing_ids`, in the same order, with the video that holds it, so a ' +
+              'report can link to it. `video_asset_id` and `title` are null when no live video ' +
+              'holds the object any more (its video was deleted since the run).',
+            items: { $ref: '#/components/schemas/MissingObject' },
+          },
           orphaned_ids: {
             type: 'array',
             items: { type: 'string' },
@@ -549,6 +558,7 @@ export const openapiDocument = {
           'status',
           'missing_count',
           'missing_ids',
+          'missing_objects',
         ],
         properties: {
           scope: { const: 'account' },
@@ -568,6 +578,23 @@ export const openapiDocument = {
             description: 'Missing objects of the caller’s assets.',
           },
           missing_ids: { type: 'array', items: { type: 'string' } },
+          missing_objects: {
+            type: 'array',
+            description:
+              'Each of `missing_ids`, in the same order, with the video that holds it, so a ' +
+              'report can link to it. `video_asset_id` and `title` are null when no live video ' +
+              'holds the object any more (its video was deleted since the run).',
+            items: { $ref: '#/components/schemas/MissingObject' },
+          },
+        },
+      },
+      MissingObject: {
+        type: 'object',
+        required: ['object_id', 'video_asset_id', 'title'],
+        properties: {
+          object_id: { type: 'string' },
+          video_asset_id: nullable('string', { format: 'uuid' }),
+          title: nullable('string'),
         },
       },
       ReconciliationTrigger: {

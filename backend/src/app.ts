@@ -111,7 +111,11 @@ import {
 } from './db/queries/accounts.js';
 import type { CallerDeps } from './api/auth/caller.js';
 import { LOCAL_DEV_SUBJECT, LOCAL_PROVIDER } from './api/auth/providers/index.js';
-import { getLatestReconciliationRun, filterObjectIdsOwnedBy } from './db/queries/reconciliation.js';
+import {
+  getLatestReconciliationRun,
+  filterObjectIdsOwnedBy,
+  findVideosForObjectIds,
+} from './db/queries/reconciliation.js';
 import { getAssetStats } from './db/queries/stats.js';
 import { getDailyPlays, getPlayCounts } from './db/queries/plays.js';
 import { getArtifacts, getRenditions } from './db/queries/storage-records.js';
@@ -771,6 +775,7 @@ export function buildApiDeps(
     },
 
     filterReconciliationIdsOwnedBy: filterObjectIdsOwnedBy,
+    findVideosForObjectIds,
 
     triggerRun: () => ctx.triggerReconciliation(),
 

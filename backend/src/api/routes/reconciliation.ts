@@ -23,6 +23,14 @@ export interface ReconciliationRouteDeps {
   getLatestRun: () => Promise<ReconciliationRunRecord | null>;
   /** The subset of a run's object ids that belong to `owner`'s assets. */
   filterReconciliationIdsOwnedBy: (ids: string[], owner: string) => Promise<string[]>;
+  /**
+   * The live video holding each id, among `owner`'s videos (every account's
+   * for undefined); ids no such video holds are left out.
+   */
+  findVideosForObjectIds: (
+    ids: string[],
+    owner: string | undefined,
+  ) => Promise<Array<{ objectId: string; videoAssetId: string; title: string }>>;
   /** Enqueue an on-demand pass; `enqueued` is false when one was already pending. */
   triggerRun: () => Promise<{ enqueued: boolean }>;
 }
@@ -55,6 +63,29 @@ function formatAggregates(r: ReconciliationRunRecord) {
  * among them), since the deployment-wide counts, orphans and failure text
  * describe other tenants and the deployment's setup.
  */
+/**
+ * Each missing id with the video it belongs to, in the order of `ids`, so
+ * a report can link to the video. Null fields when no live video in scope
+ * holds the object (its video was deleted since, say).
+ */
+async function missingObjects(
+  deps: ReconciliationRouteDeps,
+  ids: string[],
+  owner: string | undefined,
+) {
+  const videos = new Map(
+    (await deps.findVideosForObjectIds(ids, owner)).map((v) => [v.objectId, v]),
+  );
+  return ids.map((id) => {
+    const v = videos.get(id);
+    return {
+      object_id: id,
+      video_asset_id: v?.videoAssetId ?? null,
+      title: v?.title ?? null,
+    };
+  });
+}
+
 export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Router {
   const router = Router();
 
@@ -69,6 +100,7 @@ export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Route
         ...formatAggregates(run),
         scope: 'deployment',
         missing_ids: run.missingIds,
+        missing_objects: await missingObjects(deps, run.missingIds, undefined),
         orphaned_ids: run.orphanedIds,
       });
       return;
@@ -87,6 +119,7 @@ export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Route
       status: run.status === 'failed' ? 'failed' : missingIds.length > 0 ? 'drift' : 'ok',
       missing_count: missingIds.length,
       missing_ids: missingIds,
+      missing_objects: await missingObjects(deps, missingIds, req.apiKey!.creatorAddress),
     });
   });
 

@@ -206,3 +206,51 @@ export async function filterObjectIdsOwnedBy(ids: string[], owner: string): Prom
   const owned = new Set(rows.map((r) => r.id));
   return ids.filter((id) => owned.has(id));
 }
+
+/** The video an object belongs to, for a link from the reconciliation report. */
+export interface ObjectVideo {
+  objectId: string;
+  videoAssetId: string;
+  title: string;
+}
+
+/**
+ * The live (not deleted) video each object id belongs to, through the same
+ * columns filterObjectIdsOwnedBy reads: artifacts, and the object id columns
+ * of the asset. `owner` undefined looks across every account. An id no live
+ * video holds is left out; should one be held by several, the oldest wins.
+ */
+export async function findVideosForObjectIds(
+  ids: string[],
+  owner: string | undefined,
+): Promise<ObjectVideo[]> {
+  if (ids.length === 0) return [];
+  const wanted = sql`(select jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb))`;
+  const ownedBy = owner !== undefined ? sql`and v.creator_address = ${owner}` : sql``;
+  const rows = await db.execute<{ object_id: string; video_asset_id: string; title: string }>(sql`
+    select distinct on (o.object_id) o.object_id, v.id as video_asset_id, v.title
+    from (
+      select a.object_id, a.video_asset_id as asset_id from ${artifacts} a
+        where a.object_id in ${wanted}
+      union all
+      select v.manifest_object_id, v.id from ${videoAssets} v
+        where v.manifest_object_id in ${wanted}
+      union all
+      select t.id, v.id from ${videoAssets} v, unnest(v.thumbnail_object_ids) as t(id)
+        where t.id in ${wanted}
+      union all
+      select s.id, v.id from ${videoAssets} v, jsonb_array_elements_text(
+          case when jsonb_typeof(v.sia_object_ids) = 'array' then v.sia_object_ids else '[]'::jsonb end
+        ) as s(id)
+        where s.id in ${wanted}
+    ) o
+    join ${videoAssets} v on v.id = o.asset_id
+    where v.deleted_at is null ${ownedBy}
+    order by o.object_id, v.created_at, v.id
+  `);
+  return rows.map((r) => ({
+    objectId: r.object_id,
+    videoAssetId: r.video_asset_id,
+    title: r.title,
+  }));
+}

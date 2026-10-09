@@ -265,6 +265,61 @@ describe.skipIf(!hasTestDatabase)(
           expect(await recon.filterObjectIdsOwnedBy(ids, 'alice')).toEqual(['needle']);
         });
       });
+
+      describe('findVideosForObjectIds', () => {
+        it('names the live video of each id from every source, scoped to the owner', async () => {
+          const a = await asset({
+            title: 'Alice video',
+            manifestObjectId: 'master-a',
+            thumbnailObjectIds: ['thumb-a'],
+            siaObjectIds: ['legacy-a'],
+          });
+          await storage.persistStorageRecords(a.id, {
+            renditions: [],
+            artifacts: [
+              { role: 'thumbnail', objectId: 'artifact-a', byteSize: 1, renditionName: null },
+            ],
+          });
+          const gone = await asset({ title: 'Gone', manifestObjectId: 'master-deleted' });
+          await assets.softDeleteVideoAsset(gone.id);
+          const b = await asset({
+            title: 'Bob video',
+            creatorAddress: 'bob',
+            manifestObjectId: 'master-b',
+          });
+          const ids = [
+            'artifact-a',
+            'thumb-a',
+            'legacy-a',
+            'master-a',
+            'master-b',
+            'master-deleted',
+            'nobody',
+          ];
+          const byId = (rows: Awaited<ReturnType<typeof recon.findVideosForObjectIds>>) =>
+            Object.fromEntries(rows.map((r) => [r.objectId, [r.videoAssetId, r.title]]));
+
+          expect(byId(await recon.findVideosForObjectIds(ids, 'alice'))).toEqual({
+            'artifact-a': [a.id, 'Alice video'],
+            'thumb-a': [a.id, 'Alice video'],
+            'legacy-a': [a.id, 'Alice video'],
+            'master-a': [a.id, 'Alice video'],
+          });
+          expect(byId(await recon.findVideosForObjectIds(ids, 'bob'))).toEqual({
+            'master-b': [b.id, 'Bob video'],
+          });
+          // every account for the platform identity; a deleted video is no link
+          expect(byId(await recon.findVideosForObjectIds(ids, undefined))).toEqual({
+            'artifact-a': [a.id, 'Alice video'],
+            'thumb-a': [a.id, 'Alice video'],
+            'legacy-a': [a.id, 'Alice video'],
+            'master-a': [a.id, 'Alice video'],
+            'master-b': [b.id, 'Bob video'],
+          });
+          expect(await recon.findVideosForObjectIds(ids, '')).toEqual([]);
+          expect(await recon.findVideosForObjectIds([], undefined)).toEqual([]);
+        });
+      });
     });
 
     describe('getAssetStats', () => {

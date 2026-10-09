@@ -1369,6 +1369,9 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         status: 'drift',
         missing_count: 1,
         missing_ids: ['a1'.repeat(32)],
+        missing_objects: [
+          { object_id: 'a1'.repeat(32), video_asset_id: assetA.id, title: 'alice ready' },
+        ],
       });
       for (const field of [
         'db_object_count',
@@ -1388,7 +1391,16 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         missing_count: 2,
         orphan_count: 1,
         orphaned_ids: ['ff'.repeat(32)],
+        missing_objects: [
+          { object_id: 'a1'.repeat(32), video_asset_id: assetA.id, title: 'alice ready' },
+          { object_id: 'b1'.repeat(32), video_asset_id: assetB.id, title: 'bob ready' },
+        ],
       });
+      const bob = await call('GET', '/api/v1/reconciliation', 'b');
+      check('GET', '/api/v1/reconciliation', bob);
+      expect(bob.body.missing_objects).toEqual([
+        { object_id: 'b1'.repeat(32), video_asset_id: assetB.id, title: 'bob ready' },
+      ]);
     });
 
     it('lets only the platform key start a deployment-wide run', async () => {
