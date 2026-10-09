@@ -428,6 +428,14 @@ describe('AssetDetailPage', () => {
 
       await userEvent.click(within(alert).getByRole('button', { name: 'Reload' }));
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Renamed in tab B');
+      // the reload worked: the warning gives way to what to do next, and the text stays
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'Reloaded. Save again to keep what you typed, or press Escape to keep the latest.',
+        ),
+      ).toHaveAttribute('role', 'status');
+      expect(screen.getByRole('textbox', { name: 'Edit description' })).toHaveValue('Mine');
       await userEvent.type(
         screen.getByRole('textbox', { name: 'Edit description' }),
         '{Control>}{Enter}{/Control}',

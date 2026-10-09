@@ -20,7 +20,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { ScrollFade } from '@/components/shared/ScrollFade';
 import { CopyField } from '@/components/shared/CopyField';
 import { DescriptionItem, DescriptionList } from '@/components/shared/DescriptionList';
-import { InlineEditField } from '@/components/shared/InlineEditField';
+import { InlineEditField, type InlineEditFieldProps } from '@/components/shared/InlineEditField';
 import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { PageState } from '@/components/shared/PageState';
@@ -176,7 +176,7 @@ interface EditProps {
   /** saves one field, based on the version the edit started from */
   save: (patch: Partial<Pick<VideoAsset, 'title' | 'description'>>) => Promise<unknown>;
   onEditStart: () => void;
-  renderError: (err: unknown) => ReactNode;
+  renderError: NonNullable<InlineEditFieldProps['renderError']>;
 }
 
 function DetailsPanel({ asset, save, onEditStart, renderError }: EditProps) {
@@ -330,23 +330,35 @@ export default function AssetDetailPage() {
       { replace: true },
     );
 
-  const reload = (err: unknown) => {
+  const RELOADED = 'Reloaded. Save again to keep what you typed, or press Escape to keep the latest.';
+  const reload = (err: unknown, settle: (note: ReactNode) => void) => {
     const current = err instanceof ConflictError ? err.current : undefined;
     if (current) {
       queryClient.setQueryData(['assets', 'one', current.id], current);
       editBase.current = current;
+      settle(RELOADED);
     } else {
       void asset.refetch().then((r) => {
-        if (r.data) editBase.current = r.data;
+        if (!r.data) return;
+        editBase.current = r.data;
+        settle(RELOADED);
       });
     }
   };
 
-  const renderError = (err: unknown): ReactNode =>
+  const renderError = (
+    err: unknown,
+    { settle }: { settle: (note: ReactNode) => void },
+  ): ReactNode =>
     err instanceof ConflictError && err.statusCode === 412 ? (
       <>
         This video was changed somewhere else. Reload it to see the latest, then edit again.{' '}
-        <Button variant="link" size="sm" className="h-auto px-0" onClick={() => reload(err)}>
+        <Button
+          variant="link"
+          size="sm"
+          className="h-auto px-0"
+          onClick={() => reload(err, settle)}
+        >
           Reload
         </Button>
       </>

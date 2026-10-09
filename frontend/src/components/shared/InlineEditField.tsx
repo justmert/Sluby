@@ -40,8 +40,12 @@ export interface InlineEditFieldProps {
    * page title's h1, say, so the page keeps its heading during the edit.
    */
   whileEditing?: (shown: string) => ReactNode;
-  /** what to show under the field when a save fails; the reader's sentence from errorText by default */
-  renderError?: (err: unknown) => ReactNode;
+  /**
+   * what to show under the field when a save fails; the reader's sentence
+   * from errorText by default. `settle` swaps the error for a calm note, for
+   * an error the reader has dealt with (a Reload after a conflict).
+   */
+  renderError?: (err: unknown, actions: { settle: (note: ReactNode) => void }) => ReactNode;
   /** show "{n} of {maxLength}" under the field once the text reaches this length */
   counterFrom?: number;
 }
@@ -78,6 +82,7 @@ export function InlineEditField({
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<ReactNode>(null);
+  const [note, setNote] = useState<ReactNode>(null);
   // the value just saved, shown until the new value comes back as a prop
   const [saved, setSaved] = useState<string | null>(null);
   const [lastValue, setLastValue] = useState(value);
@@ -104,6 +109,7 @@ export function InlineEditField({
     cancelled.current = false;
     setDraft(saved ?? value);
     setError(null);
+    setNote(null);
     setEditing(true);
     onEditStart?.();
   };
@@ -113,6 +119,12 @@ export function InlineEditField({
     refocus.current = true;
     setEditing(false);
     setError(null);
+    setNote(null);
+  };
+
+  const settle = (next: ReactNode) => {
+    setError(null);
+    setNote(next);
   };
 
   const commit = async () => {
@@ -130,6 +142,7 @@ export function InlineEditField({
     setEditing(false);
     setSaving(next);
     setError(null);
+    setNote(null);
     try {
       await onSave(next);
       setSaved(next);
@@ -137,7 +150,7 @@ export function InlineEditField({
     } catch (err) {
       setSaving(null);
       setDraft(next);
-      setError(renderError ? renderError(err) : errorText(err));
+      setError(renderError ? renderError(err, { settle }) : errorText(err));
       setEditing(true);
     }
   };
@@ -202,6 +215,11 @@ export function InlineEditField({
           <div id={errorId} role="alert" className="mt-1.5 text-sm text-destructive">
             {error}
           </div>
+        )}
+        {note && (
+          <p role="status" className="mt-1.5 text-sm text-muted-foreground">
+            {note}
+          </p>
         )}
       </div>
     );
