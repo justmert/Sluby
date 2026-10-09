@@ -1,9 +1,10 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 import { retryAfterOf, statusOf } from './api-client';
+import { sessionEndReasonOf } from './session';
 import { reportUnauthorized } from './session-events';
 
 function onError(err: unknown) {
-  if (statusOf(err) === 401) reportUnauthorized();
+  if (statusOf(err) === 401) reportUnauthorized(sessionEndReasonOf(err));
 }
 
 // a 4xx answer will not change on a second try; a 5xx, a timeout or a network

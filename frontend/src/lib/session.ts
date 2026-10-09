@@ -1,4 +1,6 @@
 import { createContext, useContext } from 'react';
+import { SlubyError } from '@sluby/sdk';
+import { ApiError } from './api-client';
 
 /** The signed-in account, from GET /auth/me. */
 export interface AuthSession {
@@ -60,6 +62,31 @@ export function useSession(): AuthSession {
  */
 export type SessionEndReason = 'missing' | 'expired' | 'revoked' | 'not_allowed';
 
-/** The `?signin_error=` codes the GitHub callback sends back to the studio (plan B-12). */
+const END_REASONS: readonly SessionEndReason[] = ['missing', 'expired', 'revoked', 'not_allowed'];
+
+function bodyOf(err: unknown): unknown {
+  if (err instanceof ApiError) return err.body;
+  if (err instanceof SlubyError && err.responseBody) {
+    try {
+      return JSON.parse(err.responseBody);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/** The reason a 401 gave, from apiClient or the sdk; undefined when it gave none we know. */
+export function sessionEndReasonOf(err: unknown): SessionEndReason | undefined {
+  const reason = (bodyOf(err) as { reason?: unknown } | null | undefined)?.reason;
+  return END_REASONS.includes(reason as SessionEndReason)
+    ? (reason as SessionEndReason)
+    : undefined;
+}
+
+/**
+ * The `?signin_error=` codes the GitHub callback sends back to the studio
+ * (plan B-12). `cancelled` is the person backing out at GitHub.
+ */
 export type SignInError =
-  'expired_handshake' | 'not_allowed' | 'provider_failed' | 'not_configured';
+  'expired_handshake' | 'not_allowed' | 'cancelled' | 'provider_failed' | 'not_configured';

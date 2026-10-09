@@ -10,18 +10,88 @@ import { Logo } from '@/components/brand/Logo';
 import { apiClient, statusOf } from '@/lib/api-client';
 import { fadeUp, transition } from '@/lib/motion';
 import { loadPage } from '@/lib/navigation';
-import { SessionContext, sessionFromMe, type AuthSession, type MeResponse } from '@/lib/session';
+import {
+  SessionContext,
+  sessionEndReasonOf,
+  sessionFromMe,
+  type AuthSession,
+  type MeResponse,
+  type SessionEndReason,
+  type SignInError,
+} from '@/lib/session';
 import { onUnauthorized } from '@/lib/session-events';
 
 type GateState =
   | { kind: 'loading' }
   | { kind: 'signedIn'; session: AuthSession }
-  | { kind: 'signedOut'; ended: boolean }
+  /**
+   * `ended` when the session went away while the studio was open; `reason`
+   * is the server's account of why, when it gave one (plan B-11).
+   */
+  | { kind: 'signedOut'; ended: boolean; reason?: SessionEndReason }
   /**
    * The server did not answer usefully; signing in again would not help.
    * `answered` tells an error reply apart from a request that never arrived.
    */
   | { kind: 'unreachable'; answered: boolean; detail: string };
+
+/** What the sign-in screen says about a session that ended. Null says nothing. */
+function endedMessage(ended: boolean, reason: SessionEndReason | undefined): string | null {
+  switch (reason) {
+    case 'expired':
+      return 'Your session expired. Sign in again to continue.';
+    case 'revoked':
+      return 'You were signed out from another browser.';
+    case 'not_allowed':
+      return "Your GitHub account is no longer on this Studio's allowlist. Ask the operator to add it back.";
+    default:
+      // "missing" means no session cookie came with the request: on a first
+      // visit that is just signed out, mid-session it means the cookie went
+      return ended ? 'Your session ended. Sign in again to continue.' : null;
+  }
+}
+
+interface SignInFailure {
+  code: SignInError | string;
+  /** The GitHub login the allowlist refused, for not_allowed. */
+  handle: string | null;
+}
+
+/** Why the last sign-in did not finish, as the GitHub callback put it in the url (plan B-12). */
+function signInFailureText({ code, handle }: SignInFailure): string {
+  switch (code) {
+    case 'expired_handshake':
+      return 'That sign-in link expired. Try again.';
+    case 'not_allowed':
+      return handle
+        ? `GitHub account ${handle} is not on this Studio's allowlist.`
+        : "That GitHub account is not on this Studio's allowlist.";
+    case 'cancelled':
+      return 'Sign-in was canceled on GitHub.';
+    case 'provider_failed':
+      return 'GitHub did not confirm the sign-in. Try again.';
+    case 'not_configured':
+      return 'Sign-in with GitHub is not set up on this server.';
+    default:
+      return 'Sign-in did not finish. Try again.';
+  }
+}
+
+/**
+ * Read `signin_error` (and `handle`) once and take them out of the url, so a
+ * reload or a shared link does not show the failure again and the next
+ * sign-in does not carry it back as its `next`.
+ */
+function takeSignInFailure(): SignInFailure | null {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get('signin_error');
+  if (code === null) return null;
+  const handle = url.searchParams.get('handle');
+  url.searchParams.delete('signin_error');
+  url.searchParams.delete('handle');
+  window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  return { code, handle };
+}
 
 function githubLoginUrl() {
   const next = window.location.pathname + window.location.search;
@@ -77,7 +147,16 @@ function Screen({ children, contentKey }: { children: ReactNode; contentKey: str
   );
 }
 
-function SignIn({ ended }: { ended: boolean }) {
+function SignIn({
+  message,
+  failure,
+  canSignIn,
+}: {
+  message: string | null;
+  failure: string | null;
+  /** False when signing in again cannot help (the account left the allowlist). */
+  canSignIn: boolean;
+}) {
   const [redirecting, setRedirecting] = useState(false);
 
   // coming back with the browser's back button can restore this page from
@@ -92,25 +171,30 @@ function SignIn({ ended }: { ended: boolean }) {
 
   return (
     <>
-      {ended && (
-        <p role="alert" className="text-sm">
-          Your session ended. Sign in again to continue.
-        </p>
+      {(message || failure) && (
+        <div role="alert" className="flex flex-col gap-1.5 text-sm">
+          {message && <p>{message}</p>}
+          {failure && <p dir="auto">{failure}</p>}
+        </div>
       )}
-      <Button
-        size="lg"
-        disabled={redirecting}
-        onClick={() => {
-          setRedirecting(true);
-          loadPage(githubLoginUrl());
-        }}
-      >
-        {redirecting ? <Spinner aria-hidden="true" /> : <GitHubMark className="size-4" />}
-        {redirecting ? 'Redirecting to GitHub…' : 'Sign in with GitHub'}
-      </Button>
-      <p className="max-w-xs text-xs text-muted-foreground">
-        Using the API? Create an API key in Settings after you sign in.
-      </p>
+      {canSignIn && (
+        <>
+          <Button
+            size="lg"
+            disabled={redirecting}
+            onClick={() => {
+              setRedirecting(true);
+              loadPage(githubLoginUrl());
+            }}
+          >
+            {redirecting ? <Spinner aria-hidden="true" /> : <GitHubMark className="size-4" />}
+            {redirecting ? 'Redirecting to GitHub…' : 'Sign in with GitHub'}
+          </Button>
+          <p className="max-w-xs text-xs text-muted-foreground">
+            Using the API? Create an API key under Developers after you sign in.
+          </p>
+        </>
+      )}
     </>
   );
 }
@@ -121,6 +205,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [attempt, setAttempt] = useState(0);
   // a retry keeps the error on screen with a pending button until it answers
   const [retrying, setRetrying] = useState(false);
+  // read before the first check, while the url still has it
+  const [failure] = useState(takeSignInFailure);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,7 +219,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         if (cancelled) return;
         const status = statusOf(err);
         if (status === 401) {
-          setState({ kind: 'signedOut', ended: false });
+          setState({ kind: 'signedOut', ended: false, reason: sessionEndReasonOf(err) });
           return;
         }
         setState({
@@ -171,8 +257,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // pages showing errors and stale data
   useEffect(
     () =>
-      onUnauthorized(() =>
-        setState((prev) => (prev.kind === 'signedIn' ? { kind: 'signedOut', ended: true } : prev)),
+      onUnauthorized((reason) =>
+        setState((prev) =>
+          prev.kind === 'signedIn' ? { kind: 'signedOut', ended: true, reason } : prev,
+        ),
       ),
     [],
   );
@@ -219,9 +307,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
+  const message = endedMessage(state.ended, state.reason);
   return (
-    <Screen contentKey={state.ended ? 'ended' : 'signedOut'}>
-      <SignIn ended={state.ended} />
+    <Screen contentKey={message ? `ended-${state.reason ?? ''}` : 'signedOut'}>
+      <SignIn
+        message={message}
+        // a failed sign-in is old news once the session has ended since
+        failure={failure && !state.ended ? signInFailureText(failure) : null}
+        canSignIn={state.reason !== 'not_allowed'}
+      />
     </Screen>
   );
 }

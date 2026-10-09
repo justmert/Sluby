@@ -21,6 +21,8 @@ export class ApiError extends Error {
     public readonly details?: unknown,
     /** Seconds the server asked to wait (Retry-After on a 429 or 503). */
     public readonly retryAfter?: number,
+    /** The whole json body, for fields beside the message such as a 401's `reason`. */
+    public readonly body?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -85,6 +87,7 @@ async function toApiError(response: Response): Promise<ApiError> {
     field('error') ?? field('message') ?? `HTTP ${response.status}`,
     (body as { details?: unknown } | undefined)?.details,
     parseRetryAfter(response.headers.get('Retry-After')),
+    body,
   );
 }
 

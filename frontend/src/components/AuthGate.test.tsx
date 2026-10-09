@@ -5,6 +5,7 @@ import { QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { domMax } from 'motion/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MotionProvider } from '@/components/motion/MotionProvider';
+import { sluby } from '@/lib/sluby';
 import { apiClient } from '@/lib/api-client';
 import { loadPage } from '@/lib/navigation';
 import { createQueryClient } from '@/lib/query-client';
@@ -212,5 +213,157 @@ describe('AuthGate', () => {
     window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }));
     expect(screen.getByText(/alice via GitHub/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AuthGate reasons (B-11)', () => {
+  const unauthorized = (reason?: string) =>
+    json({ error: 'Not signed in', ...(reason ? { reason } : {}) }, 401);
+
+  it.each([
+    ['expired', 'Your session expired. Sign in again to continue.'],
+    ['revoked', 'You were signed out from another browser.'],
+  ])('says why on load when the 401 says %s, with the sign-in button', async (reason, text) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(unauthorized(reason)));
+    renderGate();
+    expect(await screen.findByRole('alert')).toHaveTextContent(text);
+    expect(screen.getByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
+  });
+
+  it('says nothing for a plain missing session on load', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(unauthorized('missing')));
+    renderGate();
+    expect(await screen.findByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('offers no sign-in when the account left the allowlist', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(unauthorized('not_allowed')));
+    renderGate();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Your GitHub account is no longer on this Studio's allowlist. Ask the operator to add it back.",
+    );
+    expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Using the API/)).not.toBeInTheDocument();
+  });
+
+  it('carries the reason of a later 401 from apiClient to the screen', async () => {
+    let signedIn = true;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/v1/auth/me') return json(me);
+        return signedIn ? json({ total: 1 }) : unauthorized('revoked');
+      }),
+    );
+    function Stats() {
+      const q = useQuery({ queryKey: ['stats'], queryFn: () => apiClient.get('/stats') });
+      return <p>{q.data ? 'loaded' : 'loading'}</p>;
+    }
+    const client = renderGate(<Stats />);
+    await screen.findByText('loaded');
+    signedIn = false;
+    await client.refetchQueries({ queryKey: ['stats'] });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'You were signed out from another browser.',
+    );
+  });
+
+  it('carries the reason of a later 401 from the sdk to the screen', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === '/api/v1/auth/me' ? json(me) : unauthorized('expired'),
+      ),
+    );
+    function Videos() {
+      const q = useQuery({ queryKey: ['assets'], queryFn: () => sluby.assets.list() });
+      return <p>{q.isPending ? 'loading' : 'done'}</p>;
+    }
+    renderGate(<Videos />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Your session expired. Sign in again to continue.',
+    );
+  });
+
+  it('keeps the generic line when a later 401 gives no reason', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === '/api/v1/auth/me' ? json(me) : unauthorized(),
+      ),
+    );
+    const client = renderGate();
+    await screen.findByText(/alice via GitHub/);
+    await client
+      .getMutationCache()
+      .build(client, { mutationFn: () => apiClient.post('/keys', { name: 'k' }) })
+      .execute(undefined)
+      .catch(() => {});
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Your session ended. Sign in again to continue.',
+    );
+  });
+});
+
+describe('AuthGate sign-in failures (B-12)', () => {
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  it.each([
+    ['expired_handshake', '', 'That sign-in link expired. Try again.'],
+    [
+      'not_allowed',
+      '&handle=octo-cat',
+      "GitHub account octo-cat is not on this Studio's allowlist.",
+    ],
+    ['not_allowed', '', "That GitHub account is not on this Studio's allowlist."],
+    ['provider_failed', '', 'GitHub did not confirm the sign-in. Try again.'],
+    ['not_configured', '', 'Sign-in with GitHub is not set up on this server.'],
+    ['cancelled', '', 'Sign-in was canceled on GitHub.'],
+    ['something_new', '', 'Sign-in did not finish. Try again.'],
+  ])('shows %s above the button and takes it out of the url', async (code, extra, text) => {
+    window.history.replaceState(
+      null,
+      '',
+      `/studio/videos?view=grid&signin_error=${code}${extra}#top`,
+    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
+    renderGate();
+    expect(await screen.findByRole('alert')).toHaveTextContent(text);
+    expect(screen.getByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      '/studio/videos?view=grid#top',
+    );
+  });
+
+  it('renders the handle as text, never as markup', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      `/studio?signin_error=not_allowed&handle=${encodeURIComponent('<b>x</b>')}`,
+    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
+    renderGate();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("GitHub account <b>x</b> is not on this Studio's allowlist.");
+    expect(alert.querySelector('b')).toBeNull();
+  });
+
+  it('signs in with a next that no longer carries the failure', async () => {
+    window.history.replaceState(null, '', '/studio/settings?signin_error=provider_failed');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
+    renderGate();
+    await userEvent.click(await screen.findByRole('button', { name: /sign in with github/i }));
+    expect(loadPage).toHaveBeenCalledWith(
+      `/api/v1/auth/github/login?${new URLSearchParams({ next: '/studio/settings' })}`,
+    );
+  });
+
+  it('drops the failure when the session is fine after all', async () => {
+    window.history.replaceState(null, '', '/studio?signin_error=expired_handshake');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(me)));
+    renderGate();
+    expect(await screen.findByText(/alice via GitHub/)).toBeInTheDocument();
+    expect(window.location.search).toBe('');
   });
 });

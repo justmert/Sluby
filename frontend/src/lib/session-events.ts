@@ -3,13 +3,16 @@
 // and returns to sign-in. anything outside react query (the upload store)
 // reports here too.
 
-type Listener = () => void;
+import type { SessionEndReason } from './session';
+
+/** `reason` is the server's, when the 401 said why (plan B-11). */
+type Listener = (reason?: SessionEndReason) => void;
 
 const listeners = new Set<Listener>();
 
-/** Tell the auth gate the session is no longer valid. */
-export function reportUnauthorized(): void {
-  for (const listener of [...listeners]) listener();
+/** Tell the auth gate the session is no longer valid, and why when the server said. */
+export function reportUnauthorized(reason?: SessionEndReason): void {
+  for (const listener of [...listeners]) listener(reason);
 }
 
 /** Run `listener` whenever a call reports the session gone; returns the unsubscribe. */
