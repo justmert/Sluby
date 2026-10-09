@@ -152,13 +152,17 @@ export function useWebhookDeliveries(id: string) {
   });
 }
 
+// a crumb, a menu name or a toast holds this much; the page shows the whole url
+const LABEL_MAX = 60;
+
 /** How a webhook is named in titles and crumbs: its host and path, without the scheme. */
 export function webhookLabel(url: string): string {
+  let label = url;
   try {
     const u = new URL(url);
-    const path = u.pathname === '/' ? '' : u.pathname;
-    return `${u.host}${path}`;
+    label = `${u.host}${u.pathname === '/' ? '' : u.pathname}`;
   } catch {
-    return url;
+    // not a url: name it as typed
   }
+  return label.length > LABEL_MAX ? `${label.slice(0, LABEL_MAX - 1)}…` : label;
 }

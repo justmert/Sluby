@@ -97,7 +97,8 @@ export default function WebhooksPage() {
           url: (w) => (
             <Link
               to={ROUTES.webhook(w.id)}
-              className="rounded-sm font-mono text-xs font-normal wrap-anywhere hover:underline focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+              title={w.url}
+              className="line-clamp-2 rounded-sm font-mono text-xs font-normal wrap-anywhere hover:underline focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
             >
               {w.url}
             </Link>

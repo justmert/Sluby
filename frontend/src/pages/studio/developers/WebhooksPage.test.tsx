@@ -205,6 +205,17 @@ describe('Webhooks page', () => {
 });
 
 describe('a very long endpoint URL (FLW-02)', () => {
+  it('keeps it to two lines in the list, and its menu name short', async () => {
+    const long = `https://example.com/${'x'.repeat(2000)}`;
+    hooks = [hook({ url: long })];
+    render();
+    const link = await screen.findByRole('link', { name: long });
+    expect(link).toHaveAttribute('title', long);
+    expect(link).toHaveClass('line-clamp-2');
+    const actions = within(link.closest('tr')!).getByRole('button', { name: /^Actions for/ });
+    expect(actions.getAttribute('aria-label')!.length).toBeLessThan(100);
+  });
+
   it('keeps it to a few lines in the delete dialog, with the whole URL on hover', async () => {
     const long = `https://example.com/${'x'.repeat(2000)}`;
     hooks = [hook({ url: long })];
