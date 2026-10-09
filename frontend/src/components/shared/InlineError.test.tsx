@@ -24,6 +24,19 @@ describe('InlineError', () => {
     expect(screen.getByText('HTTP 502').closest('details')).not.toHaveAttribute('open');
   });
 
+  it('adds a note after the message, for figures kept from the last good answer', () => {
+    renderWithMotion(
+      <InlineError
+        error={new ApiError(502, 'HTTP 502')}
+        title="Totals are out of date"
+        note="Showing the last figures that loaded."
+      />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'check the server logs. Showing the last figures that loaded.',
+    );
+  });
+
   it('offers Try again only when retrying can help', async () => {
     const retry = vi.fn();
     const { rerender } = renderWithMotion(

@@ -1,68 +1,186 @@
-import { screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { jsonFetch, renderPage } from '@/test/render';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { jsonFetch, renderPage, reply } from '@/test/render';
 import { WithSession } from '@/test/session';
 import HealthPage from './HealthPage';
+
+const tls =
+  'request to https://sia.storage/api/v2/account failed, reason: unable_to_verify_leaf_signature';
 
 const status = {
   scope: 'deployment',
   status: 'degraded',
   checked_at: '2026-10-02T00:00:00.000Z',
   version: '0.2.0',
-  uptime_seconds: 3600,
+  uptime_seconds: 3 * 3600 + 43 * 60,
   database: { ok: true, latency_ms: 2 },
   redis: { ok: true, latency_ms: 1 },
   indexer: {
     ok: false,
     latency_ms: 30,
-    error: 'indexer account is not ready yet',
+    error: tls,
     url: 'https://sia.storage',
     network: 'mainnet',
-    hosts: { total: 213, good_for_upload: 193, countries: 45 },
-    account: null,
+    hosts: { total: 213, good_for_upload: 203, countries: 1 },
+    account: {
+      account_key: 'ed25519:abc',
+      ready: true,
+      app_name: 'Sluby',
+      pinned_data: 545_000_000,
+      pinned_size: 1_600_000_000,
+      max_pinned_data: 50_000_000_000,
+      remaining_storage: 49_000_000_000,
+      last_used: '2026-10-01T00:00:00.000Z',
+    },
   },
   reconciliation: null,
   cache: {
-    hits: 3,
-    misses: 1,
-    object_bytes: 0,
-    object_max_bytes: 1024,
-    object_items: 0,
+    hits: 1204,
+    misses: 263,
+    object_bytes: 100,
+    object_max_bytes: 1000,
+    object_items: 510,
     manifest_items: 2,
   },
 };
 
-beforeEach(() => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(
-      jsonFetch({
-        '/api/v1/system/status': status,
-        '/api/v1/stats': {
-          total: 1,
-          by_status: { created: 0, uploading: 0, processing: 0, ready: 1, failed: 0 },
-          stored_bytes: 1000,
-          ready_duration_ms: 1000,
-          object_count: 3,
-        },
-        '/api/v1/reconciliation': () => new Response('{"error":"none"}', { status: 404 }),
-      }),
-    ),
+const finished = new Date(Date.now() - 3 * 60_000).toISOString();
+const run = {
+  scope: 'deployment',
+  id: 'r1',
+  started_at: finished,
+  finished_at: finished,
+  created_at: finished,
+  status: 'drift',
+  db_object_count: 38,
+  indexer_object_count: 54,
+  in_sync_count: 38,
+  orphan_count: 16,
+  missing_count: 0,
+  error_message: null,
+  missing_ids: [],
+  orphaned_ids: ['o1', 'o2'],
+};
+
+function setup(routes: Record<string, unknown> = {}) {
+  const server = jsonFetch({
+    '/api/v1/system/status': status,
+    '/api/v1/reconciliation': run,
+    ...routes,
+  });
+  vi.stubGlobal('fetch', vi.fn(server));
+  renderPage(
+    <WithSession operator>
+      <HealthPage />
+    </WithSession>,
   );
-});
+  return server;
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
+const card = (title: string) =>
+  screen
+    .getByRole('heading', { level: 2, name: title })
+    .closest('[data-slot="card"]') as HTMLElement;
+
 describe('HealthPage', () => {
-  it('shows the overall verdict, the probes and the operator cards', async () => {
-    renderPage(
-      <WithSession operator>
-        <HealthPage />
-      </WithSession>,
-    );
+  it('leads with the overall verdict and when it was checked', async () => {
+    setup();
     expect(screen.getByRole('heading', { level: 1, name: 'Health' })).toBeInTheDocument();
-    // the header's verdict and the status card's
-    expect(await screen.findAllByText('Degraded')).toHaveLength(2);
-    expect(screen.getByText('indexer account is not ready yet')).toBeInTheDocument();
-    expect(await screen.findByText('Storage usage')).toBeInTheDocument();
+    expect(await screen.findByText('Degraded')).toBeInTheDocument();
+    expect(screen.getByText(/^Checked just now/)).toBeInTheDocument();
+  });
+
+  it('names each service, says which one is down in words, and keeps the raw error under Details', async () => {
+    setup();
+    const services = (await screen.findByRole('list', { name: 'Services' })) as HTMLElement;
+    const rows = within(services).getAllByRole('listitem');
+    expect(rows.map((r) => r.querySelector('p')?.textContent)).toEqual([
+      'Sia indexer',
+      'Database',
+      'Job queue',
+    ]);
+    expect(within(rows[0]).getByText('Not responding')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('Down')).toBeInTheDocument();
+    expect(within(rows[0]).getByText(tls).closest('details')).not.toHaveAttribute('open');
+    expect(within(rows[1]).getByText('2 ms')).toBeInTheDocument();
+    expect(screen.getByText(/running for 3 hours 43 minutes/)).toBeInTheDocument();
+  });
+
+  it('shows the Sia account in plain words, with a singular country', async () => {
+    setup();
+    await screen.findByText('545 MB');
+    const account = card('Sia account');
+    expect(within(account).getByText('of 50 GB used')).toBeInTheDocument();
+    expect(
+      within(account).getByRole('progressbar', { name: 'Sia storage used' }),
+    ).toBeInTheDocument();
+    expect(within(account).getByText('1.6 GB, with redundancy')).toBeInTheDocument();
+    expect(
+      within(account).getByText('203 of 213 accept uploads, in 1 country'),
+    ).toBeInTheDocument();
+    expect(within(account).getByText('Ready')).toBeInTheDocument();
+  });
+
+  it('explains a check that only found unused files, inline, and lists them on request', async () => {
+    setup();
+    const check = card('Storage check');
+    expect(await within(check).findByText('Needs attention')).toBeInTheDocument();
+    expect(
+      within(check).getByText(/Nothing is missing\. Sia holds 16 files no video uses/),
+    ).toBeVisible();
+    expect(within(check).getByText('Checked 3 minutes ago')).toBeInTheDocument();
+    const toggle = within(check).getByRole('button', { name: 'Show unused files on Sia (2)' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(check).getByRole('list', { name: 'Unused files on Sia' })).toHaveTextContent(
+      'o1o2',
+    );
+    // nothing is missing, so there is nothing to list
+    expect(within(check).queryByRole('button', { name: /missing files/ })).not.toBeInTheDocument();
+  });
+
+  it('starts a storage check', async () => {
+    const server = setup({
+      'POST /api/v1/reconciliation/run': reply(202, { enqueued: true, already_pending: false }),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Check now' }));
+    expect(await screen.findByText('Storage check started')).toBeInTheDocument();
+    expect(server.calls.filter((c) => c.method === 'POST')).toHaveLength(1);
+  });
+
+  it('turns a failed start into a sentence, not a raw message', async () => {
+    setup({ 'POST /api/v1/reconciliation/run': reply(500, { error: 'boom' }) });
+    await userEvent.click(await screen.findByRole('button', { name: 'Check now' }));
+    expect(
+      await screen.findByText(/^Could not start the storage check\. The server ran into a problem/),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the stream cache figures', async () => {
+    setup();
+    const cache = await screen.findByText('82%');
+    expect(cache).toBeInTheDocument();
+    expect(screen.getByText('1,204 / 263')).toBeInTheDocument();
+    expect(screen.getByText('510 files, 2 playlists')).toBeInTheDocument();
+  });
+
+  it('says when no check has run yet', async () => {
+    setup({ '/api/v1/reconciliation': reply(404, { error: 'none' }) });
+    expect(await screen.findByText(/No check has run yet/)).toBeInTheDocument();
+  });
+
+  it('shows one error with Try again when the status cannot load', async () => {
+    setup({ '/api/v1/system/status': reply(500, { error: 'Internal Server Error' }) });
+    expect(await screen.findByText("Could not load this server's status")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(
+      screen.queryByText('Internal Server Error', { selector: 'p:not(details p)' }),
+    ).toBeNull();
+    // the storage check does not depend on it
+    expect(card('Storage check')).toBeInTheDocument();
   });
 });

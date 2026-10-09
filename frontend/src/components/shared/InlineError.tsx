@@ -18,6 +18,8 @@ export interface InlineErrorProps {
   onRetry?: () => unknown;
   /** the retry is running: the button spins and is disabled */
   retrying?: boolean;
+  /** a sentence after the message, e.g. "Showing the last figures that loaded." */
+  note?: string;
   className?: string;
 }
 
@@ -40,6 +42,7 @@ export function InlineError({
   title,
   onRetry,
   retrying = false,
+  note,
   className,
 }: InlineErrorProps) {
   const present = error != null && error !== false;
@@ -63,7 +66,10 @@ export function InlineError({
         <CircleAlert aria-hidden="true" className="mt-0.5 size-4 text-destructive" />
         <div className="min-w-0">
           <p className="font-medium text-foreground">{heading}</p>
-          <p className="mt-0.5 text-muted-foreground">{info.message}</p>
+          <p className="mt-0.5 text-muted-foreground">
+            {info.message}
+            {note && ` ${note}`}
+          </p>
           {/* the raw text only adds something when it differs from the sentence */}
           <ErrorDetails
             detail={info.detail !== info.message ? info.detail : undefined}
