@@ -422,7 +422,8 @@
    of the window's, so a table in a narrow column turns into cards too. the
    rules repeat the ones above because a media query and a container query
    cannot share one block. data-card-hidden drops a column from the cards
-   when the primary cell already shows it there. */
+   when the primary cell already shows it there; the cell stays for screen
+   readers. */
 @container table (width < 40rem) {
   table[data-responsive='container'] {
     display: block;
@@ -490,8 +491,25 @@
     justify-self: end;
     padding-inline: calc(var(--spacing) * 2);
   }
+  /* out of sight but still in the table: a dropped cell would shift every
+     later cell under the wrong header for a screen reader */
+  table[data-responsive='container'] > tbody > tr:has(> td[data-card-hidden]) {
+    position: relative;
+  }
   table[data-responsive='container'] > tbody > tr > td[data-card-hidden] {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table[data-responsive='container']
+    > tbody
+    > tr
+    > td[data-card-hidden]
+    :is(button, a, input, [tabindex]) {
+    visibility: hidden;
   }
 }
 

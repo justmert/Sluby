@@ -108,7 +108,12 @@ function VideoCell({ asset }: { asset: VideoAsset }) {
             />
           </span>
         )}
-        <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 @min-[40rem]/table:hidden">
+        {/* the cards' summary, for the eye: screen readers get the same facts
+            from the cells the cards hide, each under its own header */}
+        <span
+          aria-hidden="true"
+          className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 @min-[40rem]/table:hidden"
+        >
           <StatusBadge kind="asset" status={asset.status} />
           <AccessBadge access={asset.accessTier} />
           <span className="text-xs text-muted-foreground">{videoMeta(asset)}</span>

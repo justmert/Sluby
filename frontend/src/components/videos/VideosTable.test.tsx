@@ -76,6 +76,22 @@ describe('VideosTable', () => {
     expect(cell).toHaveAttribute('data-card-hidden', 'true');
   });
 
+  it('keeps every cell under its own header in the phone cards (1.3.1)', async () => {
+    renderPage(<Harness assets={[video('a1', 'Walkthrough')]} />);
+    // the summary under the title repeats the hidden cells for the eye only
+    const title = screen.getByRole('link', { name: 'Walkthrough' });
+    const summary = title.closest('td')!.querySelector('.\\@min-\\[40rem\\]\\/table\\:hidden');
+    expect(summary).toHaveAttribute('aria-hidden', 'true');
+    // and the hidden cells leave the cards visually but stay in the table, so
+    // the actions cell is not read out under the Status header
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const css = readFileSync(path.resolve(__dirname, '../../index.css'), 'utf8');
+    const rule = /td\[data-card-hidden\]\s*\{([^}]*)\}/.exec(css)![1];
+    expect(rule).not.toMatch(/display:\s*none/);
+    expect(rule).toMatch(/clip-path:\s*inset\(50%\)/);
+  });
+
   it('sorts title, duration, size and created, not status, access or plays', async () => {
     const onSort = vi.fn();
     renderPage(<Harness assets={[video('a1', 'Walkthrough')]} onSort={onSort} />);
