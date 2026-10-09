@@ -163,6 +163,8 @@ describe('ProcessingCard', () => {
     // and on phones both actions take the full width instead of two ragged rows
     expect(reupload).toHaveClass('whitespace-normal', 'h-auto', 'pointer-coarse:h-auto');
     expect(reupload.parentElement).toHaveClass('max-sm:flex-col', 'max-sm:items-stretch');
+    // which makes it taller than a 16:9 box on phones, so the card grows instead of spilling
+    expect(reupload.closest('[data-slot=processing-card]')).toHaveClass('max-sm:aspect-auto');
     // the ffmpeg line with the server path only under Details
     expect(screen.getByText('Details')).toBeInTheDocument();
     expect(screen.getByText(/\/app\/uploads\/x/).closest('details')).not.toBeNull();

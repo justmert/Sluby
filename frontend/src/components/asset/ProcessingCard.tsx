@@ -51,8 +51,9 @@ function Frame({
       data-slot="processing-card"
       data-tone={tone}
       className={cn(
-        'flex aspect-video min-h-64 w-full flex-col justify-center gap-5 rounded-xl border bg-card p-5 shadow-xs sm:p-8 dark:shadow-none',
-        // the card fills the player's box, so the page does not jump when it turns into the player
+        'flex aspect-video min-h-64 w-full flex-col justify-center gap-5 rounded-xl border bg-card p-5 shadow-xs max-sm:aspect-auto sm:p-8 dark:shadow-none',
+        // the card fills the player's box, so the page does not jump when it turns into the player.
+        // on phones the stacked actions need more height than a 16:9 box has, so it grows
         className,
       )}
     >
