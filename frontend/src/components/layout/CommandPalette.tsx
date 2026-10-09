@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
@@ -251,6 +251,35 @@ function PaletteBody({ close }: { close: () => void }) {
   ];
   const value = shown.includes(selected) ? selected : (shown[0] ?? '');
 
+  // cmdk 1.1.1 moves aria-activedescendant only when its own keys or the
+  // pointer move the selection, not when the value above does, so after a
+  // search it pointed at an option that was gone; it follows the selected
+  // option here, or goes when there is none
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const sync = () => {
+      const id = el.querySelector('[cmdk-item][aria-selected="true"]')?.id;
+      for (const target of el.querySelectorAll('[cmdk-input], [cmdk-list]')) {
+        if (id && target.getAttribute('aria-activedescendant') !== id) {
+          target.setAttribute('aria-activedescendant', id);
+        } else if (!id && target.hasAttribute('aria-activedescendant')) {
+          target.removeAttribute('aria-activedescendant');
+        }
+      }
+    };
+    const observer = new MutationObserver(sync);
+    observer.observe(el, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['aria-selected', 'aria-activedescendant'],
+    });
+    sync();
+    return () => observer.disconnect();
+  }, []);
+
   // said once the search settles, not on every key; the active option is
   // read out on its own as the arrows move
   const { search, videos } = found;
@@ -267,6 +296,7 @@ function PaletteBody({ close }: { close: () => void }) {
     // filtering is done here: video results come from the server, which also
     // matches descriptions and ids that cmdk's own filter would drop
     <Command
+      ref={root}
       shouldFilter={false}
       loop
       label="Search videos, pages and actions"

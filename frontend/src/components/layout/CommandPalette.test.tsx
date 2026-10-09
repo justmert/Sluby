@@ -185,6 +185,24 @@ describe('CommandPalette', () => {
     }
   });
 
+  it('points the active option at the selected one after a search moves it', async () => {
+    setup();
+    await openWithKeys();
+    const input = await screen.findByRole('combobox');
+    await screen.findByRole('option', { name: /Big Buck Bunny/ });
+    await userEvent.keyboard('{ArrowDown}');
+    await userEvent.type(input, 'sintel');
+    await waitFor(() =>
+      expect(screen.queryByRole('option', { name: /Big Buck Bunny/ })).not.toBeInTheDocument(),
+    );
+    const sintel = screen.getByRole('option', { name: /Sintel/ });
+    expect(sintel).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(input).toHaveAttribute('aria-activedescendant', sintel.id));
+    await userEvent.type(input, 'zzzz');
+    await waitFor(() => expect(screen.queryByRole('option')).not.toBeInTheDocument());
+    await waitFor(() => expect(input).not.toHaveAttribute('aria-activedescendant'));
+  });
+
   it('switches the theme', async () => {
     setup();
     await openWithKeys();
