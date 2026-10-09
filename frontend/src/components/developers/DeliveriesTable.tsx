@@ -207,6 +207,7 @@ export function DeliveriesTable({ webhookId, paused }: { webhookId: string; paus
                           {fresh && <ArrivalFlash />}
                           <span className="relative flex flex-wrap items-center gap-1.5">
                             <HttpStatusBadge code={d.statusCode} />
+                            {d.event === 'webhook.test' && <Badge variant="outline">Test</Badge>}
                             {d.manual && <Badge variant="outline">Resent</Badge>}
                           </span>
                         </ResponsiveCell>

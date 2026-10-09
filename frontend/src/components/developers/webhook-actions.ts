@@ -20,7 +20,13 @@ export function useWebhookActions() {
     try {
       const result = await test.mutateAsync(hook.id);
       if (result.delivered) {
-        toastSuccess(`Test delivered (your endpoint answered ${result.statusCode})`);
+        // a test reaches a paused webhook too, which is how a receiver is
+        // checked before resuming; say so, since real events stay paused
+        toastSuccess(
+          hook.isActive
+            ? `Test delivered (your endpoint answered ${result.statusCode})`
+            : `Test delivered while paused (your endpoint answered ${result.statusCode})`,
+        );
       } else {
         toastError(
           result.error

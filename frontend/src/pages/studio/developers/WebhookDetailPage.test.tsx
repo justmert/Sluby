@@ -289,4 +289,38 @@ describe('deliveries', () => {
       vi.useRealTimers();
     }
   });
+
+  it('marks test sends in the log', async () => {
+    deliveries = [delivery({ event: 'webhook.test', status_code: 204 })];
+    render();
+    const region = await screen.findByRole('region', { name: 'Recent deliveries' });
+    expect(within(region).getByText('Test')).toBeInTheDocument();
+  });
+});
+
+describe('a paused webhook', () => {
+  it('says a test is still delivered while events are paused', async () => {
+    current = hook({ is_active: false });
+    routes['POST /api/v1/webhooks/w1/test'] = { delivered: true, status_code: 204, error: null };
+    render();
+    const send = await screen.findByRole('button', { name: 'Send test' });
+    expect(send).toHaveAccessibleDescription(
+      'Paused: no events are sent to this endpoint. Send test still delivers a test request, so you can check your receiver before you resume.',
+    );
+    await userEvent.click(send);
+    expect(
+      await screen.findByText('Test delivered while paused (your endpoint answered 204)'),
+    ).toBeInTheDocument();
+  });
+
+  it('says nothing about pausing on an active webhook', async () => {
+    routes['POST /api/v1/webhooks/w1/test'] = { delivered: true, status_code: 204, error: null };
+    render();
+    const send = await screen.findByRole('button', { name: 'Send test' });
+    expect(send).not.toHaveAttribute('aria-describedby');
+    await userEvent.click(send);
+    expect(
+      await screen.findByText('Test delivered (your endpoint answered 204)'),
+    ).toBeInTheDocument();
+  });
 });
