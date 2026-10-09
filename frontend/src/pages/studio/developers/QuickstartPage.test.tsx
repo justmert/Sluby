@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { jsonFetch, renderPage, reply } from '@/test/render';
@@ -117,6 +117,17 @@ describe('Quickstart', () => {
     expect(
       screen.getByText('A video is called an asset in the API.', { exact: false }),
     ).toBeInTheDocument();
+  });
+
+  it('scrolls a tab that is cut off by its sideways strip into view when it takes focus (2.4.11)', async () => {
+    render();
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    const tabs = within(await screen.findByRole('tablist', { name: 'Snippets' })).getAllByRole(
+      'tab',
+    );
+    act(() => tabs[tabs.length - 1].focus());
+    expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
   });
 
   it('fills the newest ready video’s ID into the snippets, and another one when picked', async () => {

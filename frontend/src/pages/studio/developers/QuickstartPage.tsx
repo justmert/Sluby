@@ -168,8 +168,12 @@ export default function QuickstartPage() {
         <CardContent className="flex flex-col gap-4">
           <Tabs value={active} onValueChange={setActive} className="min-w-0 gap-4">
             {/* nine tasks do not fit a phone; the list scrolls sideways instead */}
-            <div className="-mx-1 overflow-x-auto px-1 pb-1">
-              <TabsList aria-label="Snippets">
+            <div className="-mx-1 scroll-px-1 overflow-x-auto px-1 pb-1">
+              <TabsList
+                aria-label="Snippets"
+                // a tab half outside the strip scrolls into view when it takes focus
+                onFocus={(e) => e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
+              >
                 {tabs.map((t) => (
                   <TabsTrigger key={t.id} value={t.id} className="flex-none px-2.5">
                     {t.title}

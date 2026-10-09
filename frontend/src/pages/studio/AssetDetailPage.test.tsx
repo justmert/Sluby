@@ -317,6 +317,18 @@ describe('AssetDetailPage', () => {
       );
     });
 
+    it('scrolls a tab that is cut off by its sideways strip into view when it takes focus (2.4.11)', async () => {
+      render();
+      await screen.findByTestId('player');
+      const scrolled = vi.fn();
+      Element.prototype.scrollIntoView = scrolled;
+      const tabs = within(
+        await screen.findByRole('tablist', { name: 'Video sections' }),
+      ).getAllByRole('tab');
+      act(() => tabs[tabs.length - 1].focus());
+      expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    });
+
     it('shows the details with copyable IDs and the description', async () => {
       render(undefined, {}, '/studio/videos/a1?panel=details');
       const details = await screen.findByRole('tabpanel', { name: 'Details' });

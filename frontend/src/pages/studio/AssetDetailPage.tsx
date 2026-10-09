@@ -521,8 +521,12 @@ export default function AssetDetailPage() {
         onValueChange={(v) => setParam('tab', v === 'playback' ? null : v)}
         className="mt-10"
       >
-        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-          <TabsList aria-label="Video sections">
+        <div className="-mx-4 scroll-px-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+          <TabsList
+            aria-label="Video sections"
+            // a tab half outside the strip scrolls into view when it takes focus
+            onFocus={(e) => e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
+          >
             {ready && (
               <>
                 <TabsTrigger value="playback">
