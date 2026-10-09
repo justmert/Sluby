@@ -27,6 +27,8 @@ describe('WebhookEndpointManager.list()', () => {
             events: ['asset.ready'],
             is_active: true,
             created_at: '2026-01-01T00:00:00.000Z',
+            last_delivery_at: '2026-01-02T00:00:00.000Z',
+            last_delivery_ok: false,
           },
         ],
       }),
@@ -42,6 +44,8 @@ describe('WebhookEndpointManager.list()', () => {
         events: ['asset.ready'],
         isActive: true,
         createdAt: '2026-01-01T00:00:00.000Z',
+        lastDeliveryAt: '2026-01-02T00:00:00.000Z',
+        lastDeliveryOk: false,
       },
     ]);
   });
@@ -119,6 +123,8 @@ describe('WebhookEndpointManager.deliveries()', () => {
     error: null,
     attempt: 1,
     created_at: '2026-01-01T00:00:00.000Z',
+    payload: { id: 'e1', event: 'asset.ready', data: { id: 'a1' } },
+    manual: true,
   };
 
   it('gets the attempts and maps them', async () => {
@@ -139,6 +145,8 @@ describe('WebhookEndpointManager.deliveries()', () => {
         error: null,
         attempt: 1,
         createdAt: '2026-01-01T00:00:00.000Z',
+        payload: { id: 'e1', event: 'asset.ready', data: { id: 'a1' } },
+        manual: true,
       },
     ]);
   });
@@ -150,5 +158,82 @@ describe('WebhookEndpointManager.deliveries()', () => {
 
     expect(mockFetch.mock.calls[0][0]).toBe('/api/v1/webhooks/w1/deliveries?limit=5');
     expect(rows[0].eventId).toBeNull();
+  });
+});
+
+const RAW_ENDPOINT = {
+  id: 'w1',
+  url: 'https://hooks.example/a',
+  events: ['asset.ready'],
+  is_active: false,
+  created_at: '2026-01-01T00:00:00.000Z',
+  last_delivery_at: null,
+  last_delivery_ok: null,
+};
+const ENDPOINT = {
+  id: 'w1',
+  url: 'https://hooks.example/a',
+  events: ['asset.ready'],
+  isActive: false,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  lastDeliveryAt: null,
+  lastDeliveryOk: null,
+};
+
+describe('WebhookEndpointManager.get()', () => {
+  it('gets one endpoint and maps it', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse(RAW_ENDPOINT));
+    expect(await new WebhookEndpointManager(mockFetch).get('w 1')).toEqual(ENDPOINT);
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/webhooks/w%201', { signal: undefined });
+  });
+});
+
+describe('WebhookEndpointManager.update()', () => {
+  it('patches only the given fields in snake_case', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse(RAW_ENDPOINT));
+    const updated = await new WebhookEndpointManager(mockFetch).update('w1', { isActive: false });
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/webhooks/w1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: false }),
+      signal: undefined,
+    });
+    expect(updated).toEqual(ENDPOINT);
+  });
+
+  it('sends a new url and events', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse(RAW_ENDPOINT));
+    await new WebhookEndpointManager(mockFetch).update('w1', {
+      url: 'https://hooks.example/b',
+      events: ['asset.errored'],
+    });
+    expect(JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string)).toEqual({
+      url: 'https://hooks.example/b',
+      events: ['asset.errored'],
+    });
+  });
+});
+
+describe('WebhookEndpointManager.rotateSecret()', () => {
+  it('posts to rotate-secret and returns the new secret', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ id: 'w1', secret: 's2' }));
+    const out = await new WebhookEndpointManager(mockFetch).rotateSecret('w1');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/webhooks/w1/rotate-secret', {
+      method: 'POST',
+      signal: undefined,
+    });
+    expect(out).toEqual({ id: 'w1', secret: 's2' });
+  });
+});
+
+describe('WebhookEndpointManager.redeliver()', () => {
+  it('posts to the delivery and returns the new delivery id', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ delivery_id: 'dlv_2' }));
+    const out = await new WebhookEndpointManager(mockFetch).redeliver('w1', 'd/1');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/webhooks/w1/deliveries/d%2F1/redeliver', {
+      method: 'POST',
+      signal: undefined,
+    });
+    expect(out).toEqual({ deliveryId: 'dlv_2' });
   });
 });

@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AssetManager } from './assets.js';
-import { AbortError, ProcessingFailedError, SlubyError, TimeoutError } from './errors.js';
+import {
+  AbortError,
+  ConflictError,
+  ProcessingFailedError,
+  SlubyError,
+  TimeoutError,
+  errorFromStatus,
+} from './errors.js';
+import { assetEtag } from './assets.js';
 import type { FetchFn } from './uploads.js';
 
 let mockFetch: ReturnType<typeof vi.fn<FetchFn>>;
@@ -18,6 +26,8 @@ const SAMPLE_RAW_ASSET = {
   creator_address: '0xcreator',
   segment_count: 24,
   total_storage_bytes: 50000000,
+  play_count: 12,
+  last_played_at: '2025-01-03T00:00:00Z',
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-02T00:00:00Z',
 };
@@ -35,6 +45,8 @@ const EXPECTED_MAPPED_ASSET = {
   creatorAddress: '0xcreator',
   segmentCount: 24,
   totalStorageBytes: 50000000,
+  playCount: 12,
+  lastPlayedAt: '2025-01-03T00:00:00Z',
   createdAt: '2025-01-01T00:00:00Z',
   updatedAt: '2025-01-02T00:00:00Z',
 };
@@ -288,6 +300,7 @@ describe('AssetManager.processing()', () => {
         completed_at: null,
         created_at: '2025-01-01T00:00:00Z',
         logs: [{ timestamp: 't', stage: 'transcode', message: 'Starting transcode' }],
+        retryable: false,
       }),
     );
 
@@ -307,6 +320,7 @@ describe('AssetManager.processing()', () => {
       completedAt: null,
       createdAt: '2025-01-01T00:00:00Z',
       logs: [{ timestamp: 't', stage: 'transcode', message: 'Starting transcode' }],
+      retryable: false,
     });
   });
 });
@@ -519,5 +533,74 @@ describe('AssetManager.stats()', () => {
       readyDurationMs: 60000,
       objectCount: 12,
     });
+  });
+});
+
+describe('AssetManager.update() with ifMatch', () => {
+  it('sends the version of an asset as read as If-Match', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse(SAMPLE_RAW_ASSET));
+
+    await new AssetManager(mockFetch).update(
+      'asset_1',
+      { title: 'New' },
+      { ifMatch: EXPECTED_MAPPED_ASSET as never },
+    );
+
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)['If-Match']).toBe(
+      `"${Date.parse('2025-01-02T00:00:00Z')}"`,
+    );
+  });
+
+  it('sends an ETag string as it is, and no If-Match without one', async () => {
+    mockFetch.mockResolvedValue(makeJsonResponse(SAMPLE_RAW_ASSET));
+    const assets = new AssetManager(mockFetch);
+    await assets.update('asset_1', { title: 'a' }, { ifMatch: '"123"' });
+    await assets.update('asset_1', { title: 'b' });
+    const headers = mockFetch.mock.calls.map(
+      (c) => (c[1] as RequestInit).headers as Record<string, string>,
+    );
+    expect(headers[0]['If-Match']).toBe('"123"');
+    expect(headers[1]['If-Match']).toBeUndefined();
+  });
+
+  it('rejects a 412 with a ConflictError carrying the asset as it is now', async () => {
+    const body = JSON.stringify({
+      error: 'This video was changed somewhere else.',
+      current: { ...SAMPLE_RAW_ASSET, title: 'Theirs' },
+    });
+    mockFetch.mockRejectedValueOnce(
+      errorFromStatus(412, 'This video was changed somewhere else.', body),
+    );
+
+    const err = await new AssetManager(mockFetch)
+      .update('asset_1', { title: 'Mine' }, { ifMatch: '"1"' })
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).statusCode).toBe(412);
+    expect((err as ConflictError).current).toEqual({ ...EXPECTED_MAPPED_ASSET, title: 'Theirs' });
+  });
+
+  it('builds the ETag from updatedAt, and refuses one that is not a date', () => {
+    expect(assetEtag({ updatedAt: '2026-01-01T00:00:00.000Z' })).toBe('"1767225600000"');
+    expect(() => assetEtag({ updatedAt: 'soon' })).toThrow(TypeError);
+  });
+});
+
+describe('AssetManager.usage()', () => {
+  it('gets plays per day and maps them', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeJsonResponse({ days: [{ date: '2026-10-09', plays: 3 }], total: 3 }),
+    );
+    const usage = await new AssetManager(mockFetch).usage({ days: 1 });
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/stats/usage?days=1', { signal: undefined });
+    expect(usage).toEqual({ days: [{ date: '2026-10-09', plays: 3 }], total: 3 });
+  });
+
+  it('asks for the server default without days', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ days: [], total: 0 }));
+    await new AssetManager(mockFetch).usage();
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/v1/stats/usage');
   });
 });

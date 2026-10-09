@@ -1,10 +1,10 @@
 import { readJson } from './errors.js';
 import type {
   ApiKey,
+  ApiKeyPage,
   ApiKeyScope,
   CreateApiKeyInput,
   CreatedApiKey,
-  CursorPage,
   ListApiKeysOptions,
   RequestOptions,
   RotatedApiKey,
@@ -25,9 +25,10 @@ export class KeyManager {
   /**
    * One page of the account's usable keys, newest first. A key being rotated
    * out stays listed, with its `expiresAt`, until its grace period ends. Pass
-   * each page's `nextCursor` back as `cursor` for the next one.
+   * each page's `nextCursor` back as `cursor` for the next one. `limits` are
+   * the server's caps, to check a new key against before creating it.
    */
-  async list(options?: ListApiKeysOptions): Promise<CursorPage<ApiKey>> {
+  async list(options?: ListApiKeysOptions): Promise<ApiKeyPage> {
     const params = new URLSearchParams();
     if (options?.limit != null) params.set('limit', String(options.limit));
     if (options?.cursor) params.set('cursor', options.cursor);
@@ -41,7 +42,22 @@ export class KeyManager {
       data: (body.data as Array<Record<string, unknown>>).map(mapKey),
       hasMore: body.has_more === true,
       nextCursor: (body.next_cursor as string | null | undefined) ?? null,
+      limits: {
+        maxKeys: (body.limits as { max_keys: number }).max_keys,
+        maxRateLimit: (body.limits as { max_rate_limit: number }).max_rate_limit,
+      },
     };
+  }
+
+  /** Rename a key. Its secret, scopes and rate limit stay as they are. */
+  async update(keyId: string, input: { name: string }, options?: RequestOptions): Promise<ApiKey> {
+    const res = await this._fetch(`/api/v1/keys/${encodeURIComponent(keyId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: input.name }),
+      signal: options?.signal,
+    });
+    return mapKey(await readJson(res));
   }
 
   /** Create a key for the account. The raw `key` is only ever returned here. */
@@ -103,5 +119,7 @@ function mapKey(raw: Record<string, unknown>): ApiKey {
     isActive: raw.is_active as boolean,
     createdAt: raw.created_at as string,
     expiresAt: (raw.expires_at as string | null | undefined) ?? null,
+    prefix: (raw.prefix as string | null | undefined) ?? null,
+    lastUsedAt: (raw.last_used_at as string | null | undefined) ?? null,
   };
 }

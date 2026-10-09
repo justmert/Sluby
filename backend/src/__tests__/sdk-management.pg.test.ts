@@ -4,7 +4,7 @@
  * shipped app.ts over a real Postgres database, as sdk-uploads.pg.test.ts
  * does for uploads. Webhook test sends go to a real local receiver.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -35,13 +35,34 @@ interface ApiKey {
   isActive: boolean;
   createdAt: string;
   expiresAt: string | null;
+  prefix: string | null;
+  lastUsedAt: string | null;
+}
+interface Endpoint {
+  id: string;
+  url: string;
+  events: string[];
+  isActive: boolean;
+  createdAt: string;
+  lastDeliveryAt: string | null;
+  lastDeliveryOk: boolean | null;
+}
+interface Asset {
+  id: string;
+  title: string;
+  updatedAt: string;
+  playCount: number;
+  lastPlayedAt: string | null;
 }
 interface SdkClient {
   keys: {
-    list: (o?: {
-      limit?: number;
-      cursor?: string;
-    }) => Promise<{ data: ApiKey[]; hasMore: boolean; nextCursor: string | null }>;
+    list: (o?: { limit?: number; cursor?: string }) => Promise<{
+      data: ApiKey[];
+      hasMore: boolean;
+      nextCursor: string | null;
+      limits: { maxKeys: number; maxRateLimit: number };
+    }>;
+    update: (id: string, i: { name: string }) => Promise<ApiKey>;
     create: (i: {
       name: string;
       scopes?: string[];
@@ -54,9 +75,14 @@ interface SdkClient {
     revoke: (id: string) => Promise<void>;
   };
   webhookEndpoints: {
-    list: () => Promise<
-      Array<{ id: string; url: string; events: string[]; isActive: boolean; createdAt: string }>
-    >;
+    list: () => Promise<Endpoint[]>;
+    get: (id: string) => Promise<Endpoint>;
+    update: (
+      id: string,
+      i: { url?: string; events?: string[]; isActive?: boolean },
+    ) => Promise<Endpoint>;
+    rotateSecret: (id: string) => Promise<{ id: string; secret: string }>;
+    redeliver: (id: string, deliveryId: string) => Promise<{ deliveryId: string }>;
     create: (i: {
       url: string;
       events: string[];
@@ -78,6 +104,8 @@ interface SdkClient {
         error: string | null;
         attempt: number;
         createdAt: string;
+        payload: Record<string, unknown>;
+        manual: boolean;
       }>
     >;
   };
@@ -103,6 +131,16 @@ interface SdkClient {
     delete: (playbackId: string) => Promise<void>;
   };
   assets: {
+    get: (id: string) => Promise<Asset>;
+    update: (
+      id: string,
+      data: { title?: string },
+      o?: { ifMatch?: Asset | string },
+    ) => Promise<Asset>;
+    usage: (o?: {
+      days?: number;
+    }) => Promise<{ days: Array<{ date: string; plays: number }>; total: number }>;
+    processing: (id: string) => Promise<{ status: string; retryable: boolean }>;
     renditions: (id: string) => Promise<unknown[]>;
     stats: () => Promise<{
       total: number;
@@ -116,7 +154,7 @@ interface SdkClient {
 interface SdkModule {
   SlubyClient: new (config: { apiKey: string; baseUrl: string }) => SdkClient;
   NotFoundError: new (...args: never[]) => Error;
-  ConflictError: new (...args: never[]) => Error;
+  ConflictError: new (...args: never[]) => Error & { statusCode: number; current?: Asset };
   AuthenticationError: new (...args: never[]) => Error;
 }
 const SDK_ENTRY = new URL('../../../packages/sdk/src/index.ts', import.meta.url).href;
@@ -273,6 +311,8 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
           events: ['asset.ready', 'asset.errored'],
           isActive: true,
           createdAt: expect.any(String),
+          lastDeliveryAt: null,
+          lastDeliveryOk: null,
         },
       ]);
       expect(await bob.webhookEndpoints.list()).toEqual([]);
@@ -412,5 +452,127 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
       objectCount: 6,
     });
     expect((await bob.assets.stats()).total).toBe(1);
+  });
+
+  it('renames a key, and reports its prefix, last use and the key limits', async () => {
+    const created = await alice.keys.create({ name: 'ci', scopes: ['read'] });
+    expect(created.prefix).toBe(created.key.slice(0, 12));
+    expect(created.lastUsedAt).toBeNull();
+    const page = await alice.keys.list();
+    expect(page.limits).toEqual({ maxKeys: 100, maxRateLimit: 10000 });
+
+    const renamed = await alice.keys.update(created.id, { name: 'deploy bot' });
+    expect(renamed).toMatchObject({ id: created.id, name: 'deploy bot', prefix: created.prefix });
+    await expect(bob.keys.update(created.id, { name: 'x' })).rejects.toBeInstanceOf(
+      sdk.NotFoundError,
+    );
+
+    await new sdk.SlubyClient({ apiKey: created.key, baseUrl }).assets.stats();
+    // the use is written after the request answers
+    await vi.waitFor(async () => {
+      const key = (await alice.keys.list()).data.find((k) => k.id === created.id);
+      expect(key?.lastUsedAt).not.toBeNull();
+    });
+  });
+
+  it('gets, pauses, re-points, rotates the secret of and resends to a webhook endpoint', async () => {
+    const receiver = await startReceiver((_n, res) => answer(res, 204));
+    const previous = envModule.env.WEBHOOK_ALLOWED_NETWORKS;
+    envModule.env.WEBHOOK_ALLOWED_NETWORKS = '127.0.0.0/8';
+    try {
+      const created = await alice.webhookEndpoints.create({
+        url: receiver.url,
+        events: ['asset.ready'],
+      });
+      await alice.webhookEndpoints.test(created.id);
+      const got = await alice.webhookEndpoints.get(created.id);
+      expect(got).toMatchObject({ id: created.id, isActive: true, lastDeliveryOk: true });
+      expect(got.lastDeliveryAt).not.toBeNull();
+      await expect(bob.webhookEndpoints.get(created.id)).rejects.toBeInstanceOf(sdk.NotFoundError);
+
+      const [delivery] = await alice.webhookEndpoints.deliveries(created.id);
+      expect(delivery.manual).toBe(false);
+      expect(delivery.payload).toMatchObject({ id: delivery.eventId, event: 'webhook.test' });
+      const resent = await alice.webhookEndpoints.redeliver(created.id, delivery.id);
+      expect(resent.deliveryId).toMatch(/^dlv_/);
+
+      const paused = await alice.webhookEndpoints.update(created.id, {
+        isActive: false,
+        events: ['asset.ready', 'asset.errored'],
+      });
+      expect(paused).toMatchObject({ isActive: false, events: ['asset.ready', 'asset.errored'] });
+      await expect(
+        alice.webhookEndpoints.redeliver(created.id, delivery.id),
+      ).rejects.toBeInstanceOf(sdk.ConflictError);
+      await expect(
+        bob.webhookEndpoints.update(created.id, { isActive: true }),
+      ).rejects.toBeInstanceOf(sdk.NotFoundError);
+
+      const rotated = await alice.webhookEndpoints.rotateSecret(created.id);
+      expect(rotated.id).toBe(created.id);
+      expect(rotated.secret).not.toBe(created.secret);
+      await alice.webhookEndpoints.update(created.id, { isActive: true });
+      receiver.requests.length = 0;
+      await alice.webhookEndpoints.test(created.id);
+      const [req] = receiver.requests;
+      // signed with the new secret only
+      expect(alice.webhooks.verifyRequest(req.body, req.headers, rotated.secret)).toBe(true);
+      expect(alice.webhooks.verifyRequest(req.body, req.headers, created.secret)).toBe(false);
+      await alice.webhookEndpoints.delete(created.id);
+    } finally {
+      envModule.env.WEBHOOK_ALLOWED_NETWORKS = previous;
+      await receiver.close();
+    }
+  });
+
+  it('refuses an edit based on an old version with a ConflictError carrying the current asset', async () => {
+    const asset = await assets.createVideoAsset({ title: 'v', creatorAddress: ALICE });
+    const read = await alice.assets.get(asset.id);
+    expect(read).toMatchObject({ playCount: 0, lastPlayedAt: null });
+
+    const mine = await alice.assets.update(asset.id, { title: 'tab one' }, { ifMatch: read });
+    expect(mine.title).toBe('tab one');
+    const err = await alice.assets
+      .update(asset.id, { title: 'tab two' }, { ifMatch: read })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(sdk.ConflictError);
+    const conflict = err as InstanceType<SdkModule['ConflictError']>;
+    expect(conflict.statusCode).toBe(412);
+    expect(conflict.current?.title).toBe('tab one');
+    // retried on the version it carries, the edit goes through
+    const retried = await alice.assets.update(
+      asset.id,
+      { title: 'tab two' },
+      { ifMatch: conflict.current },
+    );
+    expect(retried.title).toBe('tab two');
+  });
+
+  it('reads plays per day and whether a failed video can be retried', async () => {
+    const asset = await assets.createVideoAsset({ title: 'v', creatorAddress: ALICE });
+    const today = new Date().toISOString().slice(0, 10);
+    await tdb.sql`insert into asset_plays_daily (video_asset_id, day, plays) values (${asset.id}, ${today}, 2)`;
+    const usage = await alice.assets.usage({ days: 3 });
+    expect(usage.days).toHaveLength(3);
+    expect(usage.days[2]).toEqual({ date: today, plays: 2 });
+    expect(usage.total).toBe(2);
+    expect((await bob.assets.usage()).total).toBe(0);
+    expect((await alice.assets.get(asset.id)).playCount).toBe(2);
+
+    const failed = await assets.createVideoAsset({
+      title: 'broken',
+      creatorAddress: ALICE,
+      status: 'failed',
+    });
+    const [session] = await tdb.sql`
+      insert into upload_sessions (video_asset_id, upload_url, file_path, file_size, status)
+      values (${failed.id}, 'u', '/nowhere/gone.mp4', 10, 'completed') returning id`;
+    await tdb.sql`
+      insert into processing_jobs (video_asset_id, upload_session_id, status, retryable)
+      values (${failed.id}, ${session.id}, 'failed', false)`;
+    expect(await alice.assets.processing(failed.id)).toMatchObject({
+      status: 'failed',
+      retryable: false,
+    });
   });
 });

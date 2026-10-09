@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractErrorMessage,
+  errorFromStatus,
+  ConflictError,
   SlubyError,
   AuthenticationError,
   NotFoundError,
@@ -178,5 +180,14 @@ describe('extractErrorMessage', () => {
     expect(extractErrorMessage('x'.repeat(250), 'Internal Server Error')).toBe(
       'Internal Server Error',
     );
+  });
+});
+
+describe('a 412 Precondition Failed', () => {
+  it('is a ConflictError with its own status', () => {
+    const err = errorFromStatus(412, 'This video was changed somewhere else.');
+    expect(err).toBeInstanceOf(ConflictError);
+    expect(err.statusCode).toBe(412);
+    expect((err as ConflictError).current).toBeUndefined();
   });
 });

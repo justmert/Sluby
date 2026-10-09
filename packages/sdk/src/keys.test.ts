@@ -20,7 +20,11 @@ const RAW_KEY = {
   is_active: true,
   created_at: '2026-01-01T00:00:00.000Z',
   expires_at: null,
+  prefix: 'sluby_abcdef',
+  last_used_at: '2026-01-03T00:00:00.000Z',
 };
+
+const RAW_LIMITS = { max_keys: 100, max_rate_limit: 10000 };
 
 const MAPPED_KEY = {
   id: 'k1',
@@ -30,6 +34,8 @@ const MAPPED_KEY = {
   isActive: true,
   createdAt: '2026-01-01T00:00:00.000Z',
   expiresAt: null,
+  prefix: 'sluby_abcdef',
+  lastUsedAt: '2026-01-03T00:00:00.000Z',
 };
 
 beforeEach(() => {
@@ -39,13 +45,18 @@ beforeEach(() => {
 describe('KeyManager.list()', () => {
   it('gets the first page without a query and maps it', async () => {
     mockFetch.mockResolvedValueOnce(
-      makeJsonResponse({ data: [RAW_KEY], has_more: true, next_cursor: 'c2' }),
+      makeJsonResponse({ data: [RAW_KEY], has_more: true, next_cursor: 'c2', limits: RAW_LIMITS }),
     );
 
     const page = await new KeyManager(mockFetch).list();
 
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/keys', { signal: undefined });
-    expect(page).toEqual({ data: [MAPPED_KEY], hasMore: true, nextCursor: 'c2' });
+    expect(page).toEqual({
+      data: [MAPPED_KEY],
+      hasMore: true,
+      nextCursor: 'c2',
+      limits: { maxKeys: 100, maxRateLimit: 10000 },
+    });
   });
 
   it('sends limit and cursor and reads the last page', async () => {
@@ -54,6 +65,7 @@ describe('KeyManager.list()', () => {
         data: [{ ...RAW_KEY, expires_at: '2026-01-02T00:00:00.000Z' }],
         has_more: false,
         next_cursor: null,
+        limits: RAW_LIMITS,
       }),
     );
     const controller = new AbortController();
@@ -154,5 +166,30 @@ describe('KeyManager.revoke()', () => {
       method: 'DELETE',
       signal: undefined,
     });
+  });
+});
+
+describe('KeyManager.update()', () => {
+  it('patches the name and maps the key', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ ...RAW_KEY, name: 'deploy bot' }));
+
+    const key = await new KeyManager(mockFetch).update('k 1', { name: 'deploy bot' });
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/keys/k%201', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'deploy bot' }),
+      signal: undefined,
+    });
+    expect(key).toEqual({ ...MAPPED_KEY, name: 'deploy bot' });
+  });
+
+  it('keeps a key from before prefixes as null', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeJsonResponse({ ...RAW_KEY, prefix: null, last_used_at: null }),
+    );
+    const key = await new KeyManager(mockFetch).update('k1', { name: 'x' });
+    expect(key.prefix).toBeNull();
+    expect(key.lastUsedAt).toBeNull();
   });
 });

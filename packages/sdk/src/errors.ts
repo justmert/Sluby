@@ -67,12 +67,23 @@ export class NotFoundError extends SlubyError {
 /**
  * Thrown when the API returns 409 Conflict: the resource is not in a state
  * that allows the request, such as playback of an asset that is still
- * processing or cancelling an upload that already finished.
+ * processing or cancelling an upload that already finished. Also thrown for
+ * 412 Precondition Failed: an `assets.update` with `ifMatch` found the asset
+ * changed since that version; `current` is then the asset as it is now.
  */
 export class ConflictError extends SlubyError {
-  constructor(message: string, responseBody?: string) {
-    super(message, 409, responseBody);
+  /** With a 412 from `assets.update`, the asset as the server has it now. */
+  readonly current?: VideoAsset;
+
+  constructor(
+    message: string,
+    responseBody?: string,
+    statusCode: 409 | 412 = 409,
+    current?: VideoAsset,
+  ) {
+    super(message, statusCode, responseBody);
     this.name = 'ConflictError';
+    this.current = current;
   }
 }
 
@@ -163,7 +174,8 @@ export function errorFromStatus(
     case 410:
       return new NotFoundError(message, responseBody, status);
     case 409:
-      return new ConflictError(message, responseBody);
+    case 412:
+      return new ConflictError(message, responseBody, status);
     case 429:
       return new RateLimitError(message, parseRetryAfter(retryAfter ?? null), responseBody);
     default:

@@ -1,4 +1,10 @@
-import { AbortError, ProcessingFailedError, TimeoutError, readJson } from './errors.js';
+import {
+  AbortError,
+  ConflictError,
+  ProcessingFailedError,
+  TimeoutError,
+  readJson,
+} from './errors.js';
 import type {
   AccessTier,
   AssetStats,
@@ -8,6 +14,7 @@ import type {
   Rendition,
   RequestOptions,
   RetryStage,
+  UsageReport,
   VideoAsset,
   VideoAssetStatus,
 } from './types.js';
@@ -68,25 +75,56 @@ export class AssetManager {
 
   /**
    * Update mutable fields of a video asset.
+   *
+   * Pass `ifMatch` (the asset as you read it, or its ETag) and the edit
+   * applies only if nobody changed the asset since; otherwise it rejects with
+   * a `ConflictError` (status 412) whose `current` is the asset as it is now,
+   * so two editors never silently overwrite each other.
    */
   async update(
     videoAssetId: string,
     data: Partial<Pick<VideoAsset, 'title' | 'description' | 'accessTier'>>,
-    options?: RequestOptions,
+    options?: RequestOptions & { ifMatch?: VideoAsset | string },
   ): Promise<VideoAsset> {
     const payload: Record<string, unknown> = {};
     if (data.title !== undefined) payload.title = data.title;
     if (data.description !== undefined) payload.description = data.description;
     if (data.accessTier !== undefined) payload.access_tier = data.accessTier;
 
-    const res = await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: options?.signal,
-    });
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (options?.ifMatch !== undefined) {
+      headers['If-Match'] =
+        typeof options.ifMatch === 'string' ? options.ifMatch : assetEtag(options.ifMatch);
+    }
+    let res: Response;
+    try {
+      res = await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(payload),
+        signal: options?.signal,
+      });
+    } catch (err) {
+      throw withCurrentAsset(err);
+    }
 
     return mapAsset(await readJson(res));
+  }
+
+  /**
+   * Plays of the account's videos per UTC day for the last `days` days (1 to
+   * 90, default 30), today included. Needs the `read` scope.
+   */
+  async usage(options?: RequestOptions & { days?: number }): Promise<UsageReport> {
+    const query = options?.days != null ? `?days=${encodeURIComponent(options.days)}` : '';
+    const res = await this._fetch(`/api/v1/stats/usage${query}`, { signal: options?.signal });
+    const raw = await readJson<{ days: Array<{ date: string; plays: number }>; total: number }>(
+      res,
+    );
+    return {
+      days: raw.days.map((d) => ({ date: d.date, plays: d.plays })),
+      total: raw.total,
+    };
   }
 
   /**
@@ -118,6 +156,7 @@ export class AssetManager {
       completed_at?: string | null;
       created_at: string;
       logs?: ProcessingJob['logs'] | null;
+      retryable?: boolean;
     }>(res);
     return {
       id: raw.id,
@@ -130,6 +169,7 @@ export class AssetManager {
       completedAt: raw.completed_at ?? null,
       createdAt: raw.created_at,
       logs: raw.logs ?? [],
+      retryable: raw.retryable === true,
     };
   }
 
@@ -264,9 +304,35 @@ function mapAsset(raw: Record<string, unknown>): VideoAsset {
     creatorAddress: raw.creator_address as string,
     segmentCount: raw.segment_count as number,
     totalStorageBytes: raw.total_storage_bytes as number,
+    playCount: (raw.play_count as number | undefined) ?? 0,
+    lastPlayedAt: (raw.last_played_at as string | null | undefined) ?? null,
     createdAt: raw.created_at as string,
     updatedAt: raw.updated_at as string,
   };
+}
+
+/**
+ * The ETag of an asset as read: its `updatedAt` in milliseconds since the
+ * epoch, quoted, which is how the server versions an asset.
+ */
+export function assetEtag(asset: Pick<VideoAsset, 'updatedAt'>): string {
+  const ms = Date.parse(asset.updatedAt);
+  if (!Number.isFinite(ms)) {
+    throw new TypeError(`assetEtag: updatedAt is not a date (${String(asset.updatedAt)})`);
+  }
+  return `"${ms}"`;
+}
+
+// a 412 carries the asset as it is now; hand it to the caller mapped
+function withCurrentAsset(err: unknown): unknown {
+  if (!(err instanceof ConflictError) || err.statusCode !== 412 || !err.responseBody) return err;
+  try {
+    const body = JSON.parse(err.responseBody) as { current?: Record<string, unknown> };
+    if (!body.current) return err;
+    return new ConflictError(err.message, err.responseBody, 412, mapAsset(body.current));
+  } catch {
+    return err;
+  }
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
