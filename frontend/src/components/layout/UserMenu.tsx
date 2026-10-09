@@ -16,15 +16,17 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { GitHubMark } from '@/components/brand/GitHubMark';
-import { apiClient } from '@/lib/api-client';
+import { useQueryClient } from '@tanstack/react-query';
+import { apiClient, statusOf } from '@/lib/api-client';
 import { withLead } from '@/lib/errors';
-import { loadPage } from '@/lib/navigation';
+import { replacePage } from '@/lib/navigation';
 import { useSession } from '@/lib/session';
 import { THEME_OPTIONS, useTheme, type Theme } from '@/lib/theme';
 
 export function UserMenu() {
   const session = useSession();
   const { theme, setTheme } = useTheme();
+  const queryClient = useQueryClient();
   const [signingOut, setSigningOut] = useState(false);
 
   const signOut = async () => {
@@ -32,12 +34,18 @@ export function UserMenu() {
     try {
       await apiClient.post('/auth/logout');
     } catch (err) {
-      // the session is still live, so reloading would sign straight back in
-      setSigningOut(false);
-      toast.error(withLead('Could not sign out', err));
-      return;
+      // a 401 means the session is already gone, which is what was asked for
+      if (statusOf(err) !== 401) {
+        // the session is still live, so reloading would sign straight back in
+        setSigningOut(false);
+        toast.error(withLead('Could not sign out', err));
+        return;
+      }
     }
-    loadPage('/studio');
+    // drop every cached answer now, so nothing private survives in memory,
+    // and replace this entry so Back does not return to the signed-in page
+    queryClient.clear();
+    replacePage('/studio');
   };
 
   return (
