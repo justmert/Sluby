@@ -189,6 +189,21 @@ describe('Webhooks page', () => {
   });
 });
 
+describe('a very long endpoint URL (FLW-02)', () => {
+  it('keeps it to a few lines in the delete dialog, with the whole URL on hover', async () => {
+    const long = `https://example.com/${'x'.repeat(2000)}`;
+    hooks = [hook({ url: long })];
+    render();
+    await screen.findByText(long);
+    const menu = await openMenu(long);
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Delete' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Delete this webhook?' });
+    const url = within(dialog).getByTitle(long);
+    expect(url).toHaveTextContent(long);
+    expect(url).toHaveClass('line-clamp-3');
+  });
+});
+
 describe('adding a webhook', () => {
   it('focuses the URL field, and gives focus back to Add webhook on close (A11Y-03)', async () => {
     render();

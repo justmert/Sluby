@@ -301,8 +301,11 @@ export default function WebhookDetailPage() {
         title="Delete this webhook?"
         description={(h) => (
           <>
-            Events stop going to <span className="font-mono wrap-anywhere">{h.url}</span> right
-            away, and its delivery log is deleted. This cannot be undone.
+            Events stop going to{' '}
+            <span className="line-clamp-3 font-mono break-all" title={h.url}>
+              {h.url}
+            </span>{' '}
+            right away, and its delivery log is deleted. This cannot be undone.
           </>
         )}
         confirmLabel="Delete"
