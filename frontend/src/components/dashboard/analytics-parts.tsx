@@ -1,38 +1,38 @@
-// analytics cards and loading states, shared by the page and by the route
+// metrics cards and loading states, shared by the page and by the route
 // skeleton, so the skeleton shown while the page's code loads is the one the
 // page shows while its data loads
-import { Activity, Clock, Cpu, Gauge, Lock, Play, Upload } from 'lucide-react';
+import { Activity, Gauge, Play } from 'lucide-react';
 import { AnimatedItem, AnimatedList } from '@/components/motion';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { formatBytes, formatDuration } from '@/lib/formatters';
-import type { MetricsSnapshot } from '@/lib/metrics';
-import { cn } from '@/lib/utils';
+import { StatCard } from '@/components/shared/StatCard';
 import {
-  ANALYTICS,
-  LIBRARY_CHART,
-  LIBRARY_COPY,
-  RESPONSES_COPY,
-  SERVER_CHART,
-  THROUGHPUT_COPY,
-} from './dashboard-layout';
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { formatBytes, formatCount, plural } from '@/lib/formatters';
+import { Icons } from '@/lib/icons';
+import { formatSpan, type MetricsSnapshot } from '@/lib/metrics';
+import { cn } from '@/lib/utils';
+import { ANALYTICS, RESPONSES_COPY, SERVER_CHART, THROUGHPUT_COPY } from './dashboard-layout';
 import { lateSkeleton } from './live';
-import { StatCard } from './StatCard';
 
-const seconds = (s: number) => `${s < 10 ? s.toFixed(1) : Math.round(s)} s`;
 const percent = (n: number) => `${Math.round(n)}%`;
-const plural = (n: number, one: string) => `${n.toLocaleString()} ${one}${n === 1 ? '' : 's'}`;
 
-/** A chart card: title, description, then the chart box. */
+/** A chart card: title, description, an optional figure on the right, then the chart. */
 export function ChartCard({
   title,
   description,
+  action,
   className,
   children,
 }: {
   title: string;
   description: string;
+  action?: React.ReactNode;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -41,6 +41,7 @@ export function ChartCard({
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
+        {action && <CardAction className="text-right">{action}</CardAction>}
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
@@ -48,57 +49,51 @@ export function ChartCard({
 }
 
 /** A chart's box while it loads, at the chart's own height. */
-export function ChartLoading({ height }: { height: string }) {
+export function ChartLoading({ height = SERVER_CHART }: { height?: string }) {
   return <Skeleton className={cn(height, 'w-full', lateSkeleton)} />;
 }
 
-export function OperatorsOnlyAlert() {
-  return (
-    <Alert className="mb-4">
-      <Lock />
-      <AlertTitle>Server metrics are for operators</AlertTitle>
-      <AlertDescription>
-        They count every account on this server together, so only operators see them. Your own
-        library is below.
-      </AlertDescription>
-    </Alert>
-  );
-}
+type Stat = React.ComponentProps<typeof StatCard> & { key: string };
 
-export function ServerStats({ m, stagger = false }: { m?: MetricsSnapshot; stagger?: boolean }) {
-  const responses = m ? Object.values(m.delivery.requests).reduce((a, b) => a + b, 0) : 0;
-  const stats: (React.ComponentProps<typeof StatCard> & { key: string })[] = [
+/** The eight server counters; `m` undefined while loading. */
+function serverStats(m?: MetricsSnapshot): Stat[] {
+  const requests = m ? Object.values(m.delivery.requests).reduce((a, b) => a + b, 0) : 0;
+  return [
     {
       key: 'uploads',
       longHint: true,
-      icon: Upload,
+      icon: Icons.upload,
       label: 'Uploads',
       value: m?.uploads.succeeded,
-      hint: m ? `${m.uploads.failed} failed, ${formatBytes(m.uploads.bytes)} received` : null,
+      hint: m
+        ? `${formatCount(m.uploads.failed)} failed, ${formatBytes(m.uploads.bytes)} received`
+        : null,
     },
     {
       key: 'processing',
       longHint: true,
-      icon: Cpu,
-      label: 'Processing',
+      icon: Icons.processing,
+      label: 'Processing time',
       value: m && m.processing.avgSeconds,
-      format: seconds,
+      format: formatSpan,
+      emptyReason: 'No video processed yet',
       hint: m
-        ? `average over ${plural(m.processing.completed, 'job')}, ${
+        ? `Average of ${plural(m.processing.completed, 'job')}, ${
             m.processing.queueDepth === null
-              ? 'queue depth unknown while Redis is down'
-              : `${m.processing.queueDepth} in queue`
+              ? 'queue length unknown (job queue is down)'
+              : `${formatCount(m.processing.queueDepth)} in queue`
           }`
         : null,
     },
     {
       key: 'sia',
       longHint: true,
-      icon: Clock,
-      label: 'Sia upload',
+      icon: Icons.storeOnSia,
+      label: 'Sia upload time',
       value: m && m.sia.avgSeconds,
-      format: seconds,
-      hint: m ? `average over ${plural(m.sia.uploads, 'packed upload')}` : null,
+      format: formatSpan,
+      emptyReason: 'Nothing stored on Sia yet',
+      hint: m ? `Average of ${plural(m.sia.uploads, 'upload')}` : null,
     },
     {
       key: 'playback',
@@ -106,15 +101,17 @@ export function ServerStats({ m, stagger = false }: { m?: MetricsSnapshot; stagg
       icon: Play,
       label: 'Playback URLs',
       value: m && m.playback.public + m.playback.signed + m.playback.sia,
-      hint: m ? `${m.playback.sia} direct from Sia, ${m.playback.signed} signed` : null,
+      hint: m
+        ? `${formatCount(m.playback.sia)} direct from Sia, ${formatCount(m.playback.signed)} signed`
+        : null,
     },
     {
       key: 'served',
       icon: Activity,
-      label: 'Served by gateway',
+      label: 'Streamed by this server',
       value: m?.delivery.bytes,
       format: formatBytes,
-      hint: m ? plural(responses, 'response') : null,
+      hint: m ? plural(requests, 'request') : null,
     },
     {
       key: 'cache',
@@ -122,33 +119,48 @@ export function ServerStats({ m, stagger = false }: { m?: MetricsSnapshot; stagg
       label: 'Cache hit ratio',
       value: m && (m.delivery.cacheHitRatio === null ? null : m.delivery.cacheHitRatio * 100),
       format: percent,
-      hint: m && m.delivery.cacheHitRatio === null ? 'no cache lookups yet' : undefined,
+      emptyReason: 'No lookups yet',
+      hint: m
+        ? m.delivery.cacheHitRatio === null
+          ? 'No lookups yet'
+          : 'Stream cache lookups'
+        : null,
     },
     {
       key: 'uptime',
-      icon: Clock,
+      icon: Icons.uptime,
       label: 'Uptime',
       // both times come from the server, so the browser clock cannot skew it
-      value: m && (m.process.startedAt ? m.takenAt - m.process.startedAt : null),
-      format: formatDuration,
+      value: m && (m.process.startedAt ? (m.takenAt - m.process.startedAt) / 1000 : null),
+      format: formatSpan,
+      hint: m ? 'Since the server last started' : null,
     },
     {
       key: 'memory',
-      icon: Cpu,
+      icon: Icons.memory,
       label: 'Memory',
       value: m && (m.process.residentBytes || null),
       format: formatBytes,
       hint: m
         ? m.process.heapUsedBytes
           ? `${formatBytes(m.process.heapUsedBytes)} heap`
-          : undefined
+          : 'Heap not reported'
         : null,
     },
   ];
+}
+
+export function ServerStats({ m, stagger = false }: { m?: MetricsSnapshot; stagger?: boolean }) {
   return (
-    <AnimatedList as="div" initial={stagger ? 'hidden' : false} className={ANALYTICS.stats}>
-      {stats.map(({ key, ...stat }) => (
-        <AnimatedItem as="div" key={key} layout={false}>
+    <AnimatedList
+      as="div"
+      role="list"
+      aria-label="Server counters"
+      initial={stagger ? 'hidden' : false}
+      className={ANALYTICS.stats}
+    >
+      {serverStats(m).map(({ key, ...stat }) => (
+        <AnimatedItem as="div" role="listitem" key={key} layout={false}>
           <StatCard {...stat} />
         </AnimatedItem>
       ))}
@@ -157,32 +169,23 @@ export function ServerStats({ m, stagger = false }: { m?: MetricsSnapshot; stagg
 }
 
 /**
- * Analytics as it first draws, before any answer: what the route skeleton
+ * Metrics as it first draws, before any answer: what the route skeleton
  * shows while the page's code loads, built from the pieces the page shows
- * while its data loads.
+ * while its data loads. Members never reach the page (OperatorOnly).
  */
-export function AnalyticsLoading({ operator }: { operator: boolean }) {
+export function AnalyticsLoading(_: { operator?: boolean }) {
   return (
     <>
-      {operator ? (
-        <>
-          <ServerStats />
-          <div className={ANALYTICS.charts}>
-            <ChartCard {...THROUGHPUT_COPY}>
-              <ChartLoading height={SERVER_CHART} />
-            </ChartCard>
-            <ChartCard {...RESPONSES_COPY}>
-              <ChartLoading height={SERVER_CHART} />
-            </ChartCard>
-          </div>
-          <p aria-hidden="true" className={cn('h-4', ANALYTICS.updated)} />
-        </>
-      ) : (
-        <OperatorsOnlyAlert />
-      )}
-      <ChartCard {...LIBRARY_COPY} className={ANALYTICS.library}>
-        <ChartLoading height={LIBRARY_CHART} />
-      </ChartCard>
+      <ServerStats />
+      <div className={ANALYTICS.charts}>
+        <ChartCard {...THROUGHPUT_COPY}>
+          <ChartLoading />
+        </ChartCard>
+        <ChartCard {...RESPONSES_COPY}>
+          <ChartLoading />
+        </ChartCard>
+      </div>
+      <p aria-hidden="true" className={cn('h-4', ANALYTICS.updated)} />
     </>
   );
 }

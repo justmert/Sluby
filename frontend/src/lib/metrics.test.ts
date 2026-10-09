@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ratePerSecond, snapshotFromResponse, summarizeMetrics, type PromMetric } from './metrics';
+import {
+  formatSpan,
+  ratePerSecond,
+  snapshotFromResponse,
+  summarizeMetrics,
+  type PromMetric,
+} from './metrics';
 
 // shaped like prom-client's registry.getMetricsAsJSON()
 const metrics: PromMetric[] = [
@@ -125,5 +131,18 @@ describe('snapshotFromResponse', () => {
 
   it('refuses a response without a timestamp', () => {
     expect(() => snapshotFromResponse({ timestamp: '', metrics })).toThrow(/timestamp/);
+  });
+});
+
+describe('formatSpan', () => {
+  it('keeps long spans short and in words, never raw seconds or a clock', () => {
+    expect(formatSpan(4.24)).toBe('4.2 s');
+    expect(formatSpan(42.4)).toBe('42 s');
+    expect(formatSpan(539)).toBe('8 min');
+    expect(formatSpan(3561)).toBe('59 min');
+    expect(formatSpan(3600)).toBe('1 h');
+    expect(formatSpan(2 * 3600 + 5 * 60)).toBe('2 h 5 min');
+    expect(formatSpan(412 * 3600 + 3 * 60)).toBe('17 d 4 h');
+    expect(formatSpan(-1)).toBe('–');
   });
 });

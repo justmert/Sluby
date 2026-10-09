@@ -51,24 +51,24 @@ export const RECONCILIATION_COPY = {
 
 export const DEPLOYMENT_HEADING = 'Deployment, shown to operators';
 
-// analytics, on the same page container
+// metrics, on the same page container
 export const ANALYTICS = {
+  // the counters follow the content width: two across on a phone, four on a desktop
   stats: 'grid grid-cols-2 gap-4 @3xl/page:grid-cols-4',
   charts: 'mt-4 grid gap-4 @3xl/page:grid-cols-2',
   updated: 'mt-3',
-  library: 'mt-4',
 } as const;
 
-// chart boxes keep these heights in every state, so nothing below moves
+// a drawn chart keeps this height in every state; a chart with nothing to
+// draw collapses to the smaller box
 export const SERVER_CHART = 'h-56';
-export const LIBRARY_CHART = 'h-48';
+export const EMPTY_CHART = 'min-h-40';
 
 export const THROUGHPUT_COPY = {
-  title: 'Gateway throughput',
-  description: 'Sampled every 10 seconds while this page is open',
+  title: 'Streaming throughput',
+  description: 'Measured every 10 seconds while this page is open',
 };
 export const RESPONSES_COPY = {
-  title: 'Gateway responses',
-  description: 'By object kind, since the backend started',
+  title: 'Streaming requests',
+  description: 'By file type, since the server started',
 };
-export const LIBRARY_COPY = { title: 'Your library', description: 'Assets by status' };

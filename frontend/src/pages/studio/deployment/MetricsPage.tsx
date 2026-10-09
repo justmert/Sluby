@@ -1,19 +1,11 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from 'recharts';
-import type { VideoAssetStatus } from '@sluby/sdk';
-import { AlertTriangle, type LucideIcon, BarChart3, Film, RotateCcw, Upload } from 'lucide-react';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from 'recharts';
+import { BarChart3 } from 'lucide-react';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
-import {
-  ChartCard,
-  ChartLoading,
-  OperatorsOnlyAlert,
-  ServerStats,
-} from '@/components/dashboard/analytics-parts';
+import { ChartCard, ChartLoading, ServerStats } from '@/components/dashboard/analytics-parts';
 import {
   ANALYTICS,
-  LIBRARY_CHART,
-  LIBRARY_COPY,
+  EMPTY_CHART,
   RESPONSES_COPY,
   SERVER_CHART,
   THROUGHPUT_COPY,
@@ -21,40 +13,26 @@ import {
 import { routeSkeletonWasVisible } from '@/components/dashboard/live';
 import { UpdatedAgo } from '@/components/dashboard/UpdatedAgo';
 import { FadeSwap } from '@/components/motion';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { InlineError } from '@/components/shared/InlineError';
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart';
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
 import { usePlatformMetrics, type RatePoint } from '@/hooks/usePlatformMetrics';
-import { useAssetStats, type AssetStats } from '@/hooks/useStats';
-import { statusOf } from '@/lib/api-client';
-import { formatBytes } from '@/lib/formatters';
+import { formatBytes, formatCount } from '@/lib/formatters';
 import { usePrefersReducedMotion } from '@/lib/motion';
 import type { MetricsSnapshot } from '@/lib/metrics';
-import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
 
-// 24-hour clock with seconds: samples are 10 s apart, and it stays short on a phone
+// the reader's own clock format, with seconds: samples are 10 s apart
 const clock = (t: number) =>
-  new Date(t).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  });
+  new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+const rate = (bytes: number) => `${formatBytes(bytes)}/s`;
 
 /**
  * Short eased chart animation that runs when the values change, never for a
@@ -77,47 +55,20 @@ const rateConfig = {
   bytesPerSecond: { label: 'Throughput', color: 'var(--chart-1)' },
 } satisfies ChartConfig;
 
-const statusConfig = {
-  count: { label: 'Assets', color: 'var(--chart-2)' },
-} satisfies ChartConfig;
-
 const requestConfig = {
-  count: { label: 'Responses', color: 'var(--chart-3)' },
+  count: { label: 'Requests', color: 'var(--chart-3)' },
 } satisfies ChartConfig;
 
-// the same words and colors as the status badges on every other page
-const STATUS_BARS: { status: VideoAssetStatus; label: string; color: string }[] = [
-  { status: 'created', label: 'Created', color: 'var(--muted-foreground)' },
-  { status: 'uploading', label: 'Uploading', color: 'var(--warning)' },
-  { status: 'processing', label: 'Processing', color: 'var(--warning)' },
-  { status: 'ready', label: 'Ready', color: 'var(--success)' },
-  { status: 'failed', label: 'Failed', color: 'var(--destructive)' },
-];
-
-function ChartBox({ className, children }: { className: string; children?: React.ReactNode }) {
-  return <div className={cn('grid w-full place-items-center', className)}>{children}</div>;
+/** A chart with nothing to draw yet: a smaller box, so an empty chart is not the loudest thing. */
+function ChartPending({ children }: { children: React.ReactNode }) {
+  return <div className={cn('grid w-full place-items-center', EMPTY_CHART)}>{children}</div>;
 }
 
-function ChartEmpty({
-  icon: Icon,
-  title,
-  children,
-}: {
-  icon: LucideIcon;
-  title: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <Empty className="border-0 p-0">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Icon />
-        </EmptyMedia>
-        <EmptyTitle>{title}</EmptyTitle>
-        {children}
-      </EmptyHeader>
-    </Empty>
-  );
+function throughputSummary(rates: RatePoint[]) {
+  if (rates.length === 0) return null;
+  const now = rates[rates.length - 1].bytesPerSecond;
+  const peak = Math.max(...rates.map((r) => r.bytesPerSecond));
+  return { now, peak };
 }
 
 function ThroughputChart({ rates }: { rates: RatePoint[] }) {
@@ -127,17 +78,25 @@ function ThroughputChart({ rates }: { rates: RatePoint[] }) {
   // a line needs two rates; one alone is a dot on a made-up scale
   if (rates.length < 2) {
     return (
-      <ChartBox className={SERVER_CHART}>
+      <ChartPending>
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner aria-hidden="true" />
           Collecting samples
         </p>
-      </ChartBox>
+      </ChartPending>
     );
   }
+  const { now, peak } = throughputSummary(rates)!;
+  const minutes = Math.max(1, Math.round((rates[rates.length - 1].at - rates[0].at) / 60_000));
   return (
     <ChartContainer config={rateConfig} className={cn(SERVER_CHART, 'aspect-auto w-full')}>
-      <AreaChart data={rates} margin={{ left: 0, right: 8, top: 8 }}>
+      <AreaChart
+        data={rates}
+        margin={{ left: 0, right: 8, top: 8 }}
+        accessibilityLayer={false}
+        role="img"
+        title={`Streaming throughput, now ${rate(now)}, peak ${rate(peak)} over the last ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`}
+      >
         <CartesianGrid vertical={false} />
         <XAxis
           dataKey="at"
@@ -148,19 +107,19 @@ function ThroughputChart({ rates }: { rates: RatePoint[] }) {
           fontSize={11}
         />
         <YAxis
-          tickFormatter={(v: number) => `${formatBytes(v)}/s`}
+          tickFormatter={rate}
           tickLine={false}
           axisLine={false}
           width={72}
           fontSize={11}
-          // an idle gateway gets a small real scale instead of 0 to 4 bytes
+          // an idle server gets a small real scale instead of 0 to 4 bytes
           domain={[0, (max: number) => Math.max(max, 1000)]}
         />
         <ChartTooltip
           content={
             <ChartTooltipContent
               labelFormatter={(_, p) => clock((p?.[0]?.payload as RatePoint).at)}
-              formatter={(v) => `${formatBytes(Number(v))}/s`}
+              formatter={(v) => rate(Number(v))}
             />
           }
         />
@@ -169,7 +128,8 @@ function ThroughputChart({ rates }: { rates: RatePoint[] }) {
           type="monotone"
           fill="var(--color-bytesPerSecond)"
           stroke="var(--color-bytesPerSecond)"
-          fillOpacity={0.2}
+          strokeWidth={2}
+          fillOpacity={0.15}
           {...motion}
         />
       </AreaChart>
@@ -177,26 +137,36 @@ function ThroughputChart({ rates }: { rates: RatePoint[] }) {
   );
 }
 
-function ResponsesChart({ m }: { m: MetricsSnapshot }) {
+function RequestsChart({ m }: { m: MetricsSnapshot }) {
   const data = [
-    { kind: 'Media ranges', count: m.delivery.requests.media },
-    { kind: 'Manifests', count: m.delivery.requests.manifest },
-    { kind: 'Other objects', count: m.delivery.requests.object },
+    { kind: 'Video segments', count: m.delivery.requests.media },
+    { kind: 'Playlists', count: m.delivery.requests.manifest },
+    { kind: 'Other files', count: m.delivery.requests.object },
   ];
   const motion = useChartMotion(data.map((d) => d.count).join());
   if (data.every((d) => d.count === 0)) {
     return (
-      <ChartBox className={SERVER_CHART}>
-        <ChartEmpty icon={BarChart3} title="No gateway responses yet">
-          <EmptyDescription>Videos played through the gateway show up here.</EmptyDescription>
-        </ChartEmpty>
-      </ChartBox>
+      <ChartPending>
+        <EmptyState
+          icon={BarChart3}
+          title="Nothing streamed yet"
+          description="Requests appear here when videos play through this server."
+          className="py-4"
+        />
+      </ChartPending>
     );
   }
   return (
     <ChartContainer config={requestConfig} className={cn(SERVER_CHART, 'aspect-auto w-full')}>
       {/* sideways bars keep the three names readable on a phone */}
-      <BarChart data={data} layout="vertical" margin={{ left: 0, right: 8 }}>
+      <BarChart
+        data={data}
+        layout="vertical"
+        margin={{ left: 0, right: 48 }}
+        accessibilityLayer={false}
+        role="img"
+        title={`Streaming requests: ${data.map((d) => `${d.kind} ${formatCount(d.count)}`).join(', ')}`}
+      >
         <CartesianGrid horizontal={false} />
         <YAxis
           type="category"
@@ -205,7 +175,7 @@ function ResponsesChart({ m }: { m: MetricsSnapshot }) {
           axisLine={false}
           interval={0}
           fontSize={11}
-          width={88}
+          width={96}
         />
         <XAxis
           type="number"
@@ -215,173 +185,94 @@ function ResponsesChart({ m }: { m: MetricsSnapshot }) {
           fontSize={11}
         />
         <ChartTooltip content={<ChartTooltipContent />} />
-        <Bar dataKey="count" fill="var(--color-count)" radius={4} {...motion} />
-      </BarChart>
-    </ChartContainer>
-  );
-}
-
-function ServerCharts({ m, rates }: { m?: MetricsSnapshot; rates: RatePoint[] }) {
-  return (
-    <div className={ANALYTICS.charts}>
-      <ChartCard {...THROUGHPUT_COPY}>
-        <FadeSwap swapKey={m ? 'ready' : 'loading'}>
-          {m ? <ThroughputChart rates={rates} /> : <ChartLoading height={SERVER_CHART} />}
-        </FadeSwap>
-      </ChartCard>
-      <ChartCard {...RESPONSES_COPY}>
-        <FadeSwap swapKey={m ? 'ready' : 'loading'}>
-          {m ? <ResponsesChart m={m} /> : <ChartLoading height={SERVER_CHART} />}
-        </FadeSwap>
-      </ChartCard>
-    </div>
-  );
-}
-
-function RetryButton({ onRetry, retrying }: { onRetry: () => void; retrying: boolean }) {
-  return (
-    <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
-      {retrying ? <Spinner aria-hidden="true" /> : <RotateCcw />}
-      Try again
-    </Button>
-  );
-}
-
-function ServerSection({ operator }: { operator: boolean }) {
-  const metrics = usePlatformMetrics(operator);
-  const m = metrics.snapshot;
-  // cards stagger in when the page waits for its first reading, not when
-  // it comes back to cached figures
-  const [stagger] = useState(() => m === undefined);
-  const retry = () => void metrics.refetch();
-
-  if (!operator || statusOf(metrics.error) === 403) {
-    return <OperatorsOnlyAlert />;
-  }
-  if (!m && metrics.isError) {
-    return (
-      <Alert variant="destructive" className="mb-4">
-        <AlertTriangle />
-        <AlertTitle>Could not read metrics</AlertTitle>
-        <AlertDescription className="flex flex-col items-start gap-3">
-          <p>{metrics.error.message}</p>
-          <RetryButton onRetry={retry} retrying={metrics.isFetching} />
-        </AlertDescription>
-      </Alert>
-    );
-  }
-  return (
-    <>
-      {metrics.isError && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertTriangle />
-          <AlertTitle>Metrics stopped updating</AlertTitle>
-          <AlertDescription className="flex flex-col items-start gap-3">
-            <p>{metrics.error?.message}. The figures below are from the last good reading.</p>
-            <RetryButton onRetry={retry} retrying={metrics.isFetching} />
-          </AlertDescription>
-        </Alert>
-      )}
-      <ServerStats m={m} stagger={stagger} />
-      <ServerCharts m={m} rates={metrics.rates} />
-      <UpdatedAgo
-        className={ANALYTICS.updated}
-        updatedAt={metrics.dataUpdatedAt}
-        stale={metrics.isError}
-        label="Metrics updated"
-      />
-    </>
-  );
-}
-
-function LibraryChart({ stats }: { stats: AssetStats }) {
-  const motion = useChartMotion(STATUS_BARS.map((b) => stats.by_status[b.status]).join());
-  if (stats.total === 0) {
-    return (
-      <ChartBox className={LIBRARY_CHART}>
-        <ChartEmpty icon={Film} title="No videos yet">
-          <EmptyDescription>Upload a video to see it here by status.</EmptyDescription>
-          <EmptyContent>
-            <Button size="sm" asChild>
-              <Link to="/studio/upload">
-                <Upload />
-                Upload video
-              </Link>
-            </Button>
-          </EmptyContent>
-        </ChartEmpty>
-      </ChartBox>
-    );
-  }
-  const data = STATUS_BARS.map((b) => ({ ...b, count: stats.by_status[b.status] }));
-  return (
-    <ChartContainer config={statusConfig} className={cn(LIBRARY_CHART, 'aspect-auto w-full')}>
-      {/* bars run sideways so the five status names stack down the left and
-          stay readable on a phone, where they ran together along the bottom */}
-      <BarChart data={data} layout="vertical" margin={{ left: 0, right: 8 }}>
-        <CartesianGrid horizontal={false} />
-        <YAxis
-          type="category"
-          dataKey="label"
-          tickLine={false}
-          axisLine={false}
-          interval={0}
-          fontSize={11}
-          width={80}
-        />
-        <XAxis
-          type="number"
-          allowDecimals={false}
-          tickLine={false}
-          axisLine={false}
-          fontSize={11}
-        />
-        <ChartTooltip content={<ChartTooltipContent hideIndicator />} />
-        <Bar dataKey="count" radius={4} {...motion}>
-          {data.map((d) => (
-            <Cell key={d.status} fill={d.color} />
-          ))}
+        <Bar dataKey="count" fill="var(--color-count)" radius={4} {...motion}>
+          {/* the numbers on the bars, so nobody needs the tooltip to read them */}
+          <LabelList
+            dataKey="count"
+            position="right"
+            className="fill-foreground"
+            fontSize={11}
+            formatter={(v: unknown) => formatCount(Number(v))}
+          />
         </Bar>
       </BarChart>
     </ChartContainer>
   );
 }
 
-function LibraryCard() {
-  const stats = useAssetStats();
-  const state = stats.data ? 'ready' : stats.isError ? 'error' : 'loading';
+function ThroughputFigure({ rates }: { rates: RatePoint[] }) {
+  const s = throughputSummary(rates);
+  if (!s) return null;
   return (
-    <ChartCard {...LIBRARY_COPY} className={ANALYTICS.library}>
-      <FadeSwap swapKey={state}>
-        {stats.data ? (
-          <LibraryChart stats={stats.data} />
-        ) : stats.isError ? (
-          <ChartBox className={LIBRARY_CHART}>
-            <div role="alert" className="flex flex-col items-center gap-3 text-center text-sm">
-              <p className="text-destructive">
-                Could not load your library totals: {stats.error.message}
-              </p>
-              <RetryButton onRetry={() => void stats.refetch()} retrying={stats.isFetching} />
-            </div>
-          </ChartBox>
-        ) : (
-          <ChartLoading height={LIBRARY_CHART} />
-        )}
-      </FadeSwap>
-    </ChartCard>
+    <p className="text-xs text-muted-foreground tabular-nums">
+      Now <span className="font-medium text-foreground">{rate(s.now)}</span>, peak {rate(s.peak)}
+    </p>
   );
 }
 
+// what the updated dot watches: the counters, not uptime or memory, which move on every reading
+const countersOf = (m: MetricsSnapshot) =>
+  JSON.stringify([m.uploads, m.processing, m.sia, m.delivery, m.playback]);
+
 export default function MetricsPage() {
-  const { operator } = useSession();
   // taking over from the route skeleton: keep its placeholders on screen
   const [instant] = useState(routeSkeletonWasVisible);
+  const metrics = usePlatformMetrics(true);
+  const m = metrics.snapshot;
+  // cards stagger in when the page waits for its first reading, not when
+  // it comes back to cached figures
+  const [stagger] = useState(() => m === undefined);
+  const retry = () => void metrics.refetch();
+  const failed = !m && metrics.isError;
+
   return (
     <PageContainer>
       <PageHeader title="Metrics" description="Server activity since it last started" />
       <div data-instant-skeletons={instant || undefined}>
-        <ServerSection operator={operator} />
-        <LibraryCard />
+        {failed ? (
+          <InlineError
+            what="server metrics"
+            error={metrics.error}
+            onRetry={retry}
+            retrying={metrics.isFetching}
+          />
+        ) : (
+          <>
+            {metrics.isError && (
+              <InlineError
+                title="Metrics are out of date"
+                error={metrics.error}
+                note="Showing the last figures that loaded."
+                onRetry={retry}
+                retrying={metrics.isFetching}
+                className="mb-4"
+              />
+            )}
+            <ServerStats m={m} stagger={stagger} />
+            <div className={ANALYTICS.charts}>
+              <ChartCard
+                {...THROUGHPUT_COPY}
+                action={m && <ThroughputFigure rates={metrics.rates} />}
+              >
+                <FadeSwap swapKey={m ? 'ready' : 'loading'}>
+                  {m ? <ThroughputChart rates={metrics.rates} /> : <ChartLoading />}
+                </FadeSwap>
+              </ChartCard>
+              <ChartCard {...RESPONSES_COPY}>
+                <FadeSwap swapKey={m ? 'ready' : 'loading'}>
+                  {m ? <RequestsChart m={m} /> : <ChartLoading />}
+                </FadeSwap>
+              </ChartCard>
+            </div>
+            <UpdatedAgo
+              className={ANALYTICS.updated}
+              updatedAt={metrics.dataUpdatedAt}
+              data={m && countersOf(m)}
+              stale={metrics.isError}
+              label="Metrics updated"
+            />
+          </>
+        )}
       </div>
     </PageContainer>
   );
