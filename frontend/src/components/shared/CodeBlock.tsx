@@ -157,7 +157,8 @@ export function CodeBlock({
         />
       </div>
       {samples.map((s) => (
-        <TabsContent key={s.label} value={s.label} className="rounded-t-none">
+        // the code inside is the focus stop; a focusable panel too would be two for one snippet
+        <TabsContent key={s.label} value={s.label} tabIndex={-1} className="rounded-t-none">
           <Pre
             code={s.code}
             language={s.language}

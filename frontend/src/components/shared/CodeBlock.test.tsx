@@ -37,6 +37,21 @@ describe('CodeBlock', () => {
     expect(writeText).toHaveBeenCalledWith('curl -X POST $URL');
   });
 
+  it('is one tab stop after the copy button, the scrolling code, not its panel too', async () => {
+    renderWithMotion(
+      <CodeBlock
+        label="upload snippet"
+        samples={[
+          { label: 'JavaScript', language: 'ts', code: 'await sluby.upload(file)' },
+          { label: 'curl', language: 'bash', code: 'curl -X POST $URL' },
+        ]}
+      />,
+    );
+    screen.getByRole('button', { name: 'Copy upload snippet (JavaScript)' }).focus();
+    await userEvent.tab();
+    expect(document.activeElement?.tagName).toBe('PRE');
+  });
+
   it('shows code without ligatures, so !== and => read as typed', () => {
     renderWithMotion(<CodeBlock code="a !== b => c" language="ts" label="snippet" />);
     expect(screen.getByText(/!==/).closest('pre')!.className).toContain(
