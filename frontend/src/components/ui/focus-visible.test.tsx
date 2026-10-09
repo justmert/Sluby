@@ -71,6 +71,16 @@ describe('forced colors', () => {
   });
 });
 
+describe('forced colors, progress', () => {
+  it('draws a progress bar’s track and fill in system colors, which forced colors would blank', async () => {
+    const block = await forcedBlock();
+    expect(block).toMatch(/\[data-slot='progress'\]\s*\{\s*outline: 1px solid CanvasText;/);
+    expect(block).toMatch(
+      /\[data-slot='progress-indicator'\]\s*\{\s*forced-color-adjust: none;\s*background: Highlight;/,
+    );
+  });
+});
+
 describe('toasts', () => {
   it('ring a focused toast and its action with the app ring, not sonner’s faint shadow', async () => {
     expect(await css()).toMatch(

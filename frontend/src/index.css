@@ -540,6 +540,15 @@
     background: SelectedItem;
     color: SelectedItemText;
   }
+  /* forced colors blanks both the track and the fill of a progress bar */
+  [data-slot='progress'] {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+  [data-slot='progress-indicator'] {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
   [data-sidebar='menu-button'][data-active='true'],
   [aria-current='page'] {
     outline: 1px solid Highlight;
