@@ -543,6 +543,42 @@ describe('AssetDetailPage', () => {
       );
     });
 
+    it('keeps an old upload that another tab of this browser is sending as Uploading', async () => {
+      // another studio tab announces what it sends on the shared channel
+      const otherTab = new BroadcastChannel('sluby-uploads');
+      otherTab.postMessage({
+        type: 'state',
+        tabId: 'other-tab',
+        uploads: [
+          {
+            fingerprint: 'big.mp4-video/mp4-1000-1',
+            uploadId: 'up-1',
+            assetId: 'a1',
+            title: 'Big Buck Bunny',
+            fileName: 'big.mp4',
+            bytesUploaded: 400,
+            bytesTotal: 1000,
+            paused: false,
+          },
+        ],
+      });
+      try {
+        render(
+          asset({
+            status: 'created',
+            created_at: '2026-01-01T00:00:00Z',
+            manifest_object_id: null,
+          }),
+        );
+        expect(await screen.findByRole('heading', { name: 'Uploading' })).toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Upload interrupted' })).toBeNull();
+        expect(screen.queryByText('Interrupted')).toBeNull();
+      } finally {
+        otherTab.postMessage({ type: 'bye', tabId: 'other-tab' });
+        otherTab.close();
+      }
+    });
+
     it('explains a failure plainly, raw text under Details, and retries it', async () => {
       let failed = true;
       const { server } = render(() => asset({ status: failed ? 'failed' : 'processing' }), {

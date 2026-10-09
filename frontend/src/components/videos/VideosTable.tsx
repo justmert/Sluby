@@ -12,7 +12,7 @@ import { RetryProcessingButton } from '@/components/asset/RetryProcessingButton'
 import { AccessBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
-import { isStaleUpload } from '@/hooks/asset-queries';
+import { isStaleUpload, useSendingAssetIds } from '@/hooks/asset-queries';
 import { ROUTES } from '@/lib/constants';
 import {
   NO_VALUE,
@@ -46,7 +46,9 @@ function ProgressLine({ label, percent, checking }: RowProgress) {
 /** The video column: thumbnail, title, and a second line that depends on where the table is. */
 function VideoCell({ asset }: { asset: VideoAsset }) {
   const { progress, progressPending, failure, failurePending } = useRowJob(asset);
-  const stale = isStaleUpload(asset);
+  // an old upload another tab is still sending is not interrupted
+  const sending = useSendingAssetIds();
+  const stale = isStaleUpload(asset) && !sending.has(asset.id);
   const href = ROUTES.video(asset.id);
   return (
     <div className="flex min-w-0 items-start gap-3 font-normal">

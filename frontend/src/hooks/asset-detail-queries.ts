@@ -1,11 +1,9 @@
-import { useRef, useSyncExternalStore } from 'react';
+import { useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ProcessingJob, VideoAsset, VideoAssetStatus } from '@sluby/sdk';
-import { failedForGood } from '@/hooks/asset-queries';
+import { failedForGood, useSendingAssetIds } from '@/hooks/asset-queries';
 import { apiClient } from '@/lib/api-client';
 import { sluby } from '@/lib/sluby';
-import { uploadStore } from '@/lib/studio-upload';
-import { isTransferring } from '@/lib/upload-store';
 
 export interface Rendition {
   name: string;
@@ -145,13 +143,10 @@ export function useProcessingJob(
   });
 }
 
-/** Whether this browser is sending the file of the asset right now. */
+/** Whether this browser, in this tab or another, is sending the file of the asset right now. */
 export function useSendingHere(assetId: string | undefined): boolean {
-  return useSyncExternalStore(uploadStore.subscribe, () =>
-    assetId
-      ? uploadStore.getState().uploads.some((u) => u.assetId === assetId && isTransferring(u))
-      : false,
-  );
+  const sending = useSendingAssetIds();
+  return assetId ? sending.has(assetId) : false;
 }
 
 type VideoPatch = Partial<Pick<VideoAsset, 'title' | 'description' | 'accessTier'>>;

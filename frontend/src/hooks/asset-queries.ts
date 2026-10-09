@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import {
   keepPreviousData,
   useMutation,
@@ -9,7 +9,8 @@ import {
 import type { AccessTier, ListAssetsOptions, PaginatedResponse, VideoAsset } from '@sluby/sdk';
 import { errorText } from '@/lib/errors';
 import { sluby } from '@/lib/sluby';
-import { uploadStore } from '@/lib/studio-upload';
+import { uploadStore, uploadTabs } from '@/lib/studio-upload';
+import { isTransferring } from '@/lib/upload-store';
 
 // a browser that is still sending a file moves its upload along well within
 // this; past it the transfer has stopped (the tab closed, the laptop slept).
@@ -43,6 +44,35 @@ export function isStaleUpload(
     (asset.status === 'created' || asset.status === 'uploading') &&
     now - Date.parse(asset.createdAt) >= STALE_UPLOAD_MS
   );
+}
+
+// ids joined into one string: a snapshot that only changes when the set does
+function sendingSnapshot(): string {
+  const ids = new Set<string>();
+  for (const u of uploadStore.getState().uploads) {
+    if (u.assetId && isTransferring(u)) ids.add(u.assetId);
+  }
+  for (const u of uploadTabs.remote()) if (u.assetId) ids.add(u.assetId);
+  return [...ids].sort().join(' ');
+}
+
+function subscribeSending(onChange: () => void) {
+  const offStore = uploadStore.subscribe(onChange);
+  const offTabs = uploadTabs.subscribe(onChange);
+  return () => {
+    offStore();
+    offTabs();
+  };
+}
+
+/**
+ * The videos whose file this browser is sending right now, from this tab or
+ * another one (the tabs announce their uploads to each other). An old upload
+ * in this set is still arriving, not interrupted.
+ */
+export function useSendingAssetIds(): ReadonlySet<string> {
+  const snapshot = useSyncExternalStore(subscribeSending, sendingSnapshot, () => '');
+  return useMemo(() => new Set(snapshot ? snapshot.split(' ') : []), [snapshot]);
 }
 
 /** Whether an asset is still moving through upload and processing. */

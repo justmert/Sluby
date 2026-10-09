@@ -9,7 +9,7 @@ import { selectRange } from '@/components/shared/select-range';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { isStaleUpload } from '@/hooks/asset-queries';
+import { isStaleUpload, useSendingAssetIds } from '@/hooks/asset-queries';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { useRowJob, videoMeta } from './video-progress';
@@ -33,7 +33,9 @@ function VideoCard({
   onToggle: (shift: boolean) => void;
 }) {
   const { progress, failure } = useRowJob(asset);
-  const stale = isStaleUpload(asset);
+  // an old upload another tab is still sending is not interrupted
+  const sending = useSendingAssetIds();
+  const stale = isStaleUpload(asset) && !sending.has(asset.id);
   const href = ROUTES.video(asset.id);
   const shift = useRef(false);
   return (

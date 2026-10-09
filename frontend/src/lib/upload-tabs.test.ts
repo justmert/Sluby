@@ -5,6 +5,7 @@ import { createUploadTabs, fileFingerprint, HEARTBEAT_MS, type SharedUpload } fr
 const sending = (over: Partial<SharedUpload> = {}): SharedUpload => ({
   fingerprint: 'clip.mp4-video/mp4-100-1',
   uploadId: 'u1',
+  assetId: null,
   title: 'Clip',
   fileName: 'clip.mp4',
   bytesUploaded: 7,
@@ -48,6 +49,13 @@ describe('upload tabs', () => {
 
     a.publish([]);
     expect(b.remote()).toEqual([]);
+  });
+
+  it('tells the other tabs at once which video an upload goes to', () => {
+    const { a, b } = twoTabs();
+    a.publish([sending()]);
+    a.publish([sending({ assetId: 'v1' })]);
+    expect(b.remote()).toEqual([expect.objectContaining({ assetId: 'v1' })]);
   });
 
   it('keeps announcing every heartbeat and drops a tab that went quiet', () => {

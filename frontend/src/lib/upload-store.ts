@@ -408,6 +408,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       sending.push({
         fingerprint: u.fingerprint,
         uploadId: u.uploadId,
+        assetId: u.assetId,
         title: u.title,
         fileName: u.fileName,
         bytesUploaded: u.bytesUploaded,

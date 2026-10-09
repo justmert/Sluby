@@ -17,6 +17,8 @@ const EXPIRE_MS = 3 * HEARTBEAT_MS;
 export interface SharedUpload {
   fingerprint: string;
   uploadId: string | null;
+  /** The video the file goes to, once the server created it. */
+  assetId: string | null;
   title: string;
   fileName: string;
   bytesUploaded: number;
@@ -197,7 +199,9 @@ export function createUploadTabs(opts: UploadTabsOptions = {}): UploadTabs {
 
     publish(uploads) {
       local = uploads;
-      const next = JSON.stringify(uploads.map((u) => [u.fingerprint, u.uploadId, u.paused]));
+      const next = JSON.stringify(
+        uploads.map((u) => [u.fingerprint, u.uploadId, u.assetId, u.paused]),
+      );
       if (next === shape) return;
       // a new, finished or paused upload is news; tell the others at once
       shape = next;

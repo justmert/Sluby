@@ -258,6 +258,7 @@ describe('upload sheet: limits, history and other tabs', () => {
         {
           fingerprint: fileFingerprint(file),
           uploadId: 'up-9',
+          assetId: null,
           title: 'Promo cut',
           fileName: 'promo.mp4',
           bytesUploaded: 7,
