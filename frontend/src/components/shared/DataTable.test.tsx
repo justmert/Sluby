@@ -241,4 +241,27 @@ describe('DataTable', () => {
     expect(cell).toHaveAttribute('data-card-hidden', 'true');
     expect(cell).toHaveClass('hidden', '@3xl/table:table-cell');
   });
+
+  it('names its headers with plain words while it is cards, so none is empty', () => {
+    const Original = window.ResizeObserver;
+    // a table 300px wide: cards
+    window.ResizeObserver = class {
+      constructor(private cb: ResizeObserverCallback) {}
+      observe() {
+        this.cb([{ contentRect: { width: 300 } } as ResizeObserverEntry], this as never);
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      renderWithMotion(<Harness />);
+      const headers = screen.getAllByRole('columnheader');
+      expect(headers[0]).toHaveTextContent('Select');
+      expect(screen.queryByRole('checkbox', { name: 'Select all on this page' })).toBeNull();
+      expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Name/ })).toBeNull();
+    } finally {
+      window.ResizeObserver = Original;
+    }
+  });
 });
