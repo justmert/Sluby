@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jsonFetch, renderPage, reply } from '@/test/render';
@@ -129,6 +129,7 @@ describe('HealthPage', () => {
 
   it('explains a check that only found unused files, inline, and lists them on request', async () => {
     setup();
+    await screen.findByText('Checked 3 minutes ago');
     const check = card('Storage check');
     expect(await within(check).findByText('Needs attention')).toBeInTheDocument();
     expect(
@@ -150,14 +151,16 @@ describe('HealthPage', () => {
     const server = setup({
       'POST /api/v1/reconciliation/run': reply(202, { enqueued: true, already_pending: false }),
     });
-    await userEvent.click(await screen.findByRole('button', { name: 'Check now' }));
+    await screen.findByText('Checked 3 minutes ago');
+    await userEvent.click(screen.getByRole('button', { name: 'Check now' }));
     expect(await screen.findByText('Storage check started')).toBeInTheDocument();
     expect(server.calls.filter((c) => c.method === 'POST')).toHaveLength(1);
   });
 
   it('turns a failed start into a sentence, not a raw message', async () => {
     setup({ 'POST /api/v1/reconciliation/run': reply(500, { error: 'boom' }) });
-    await userEvent.click(await screen.findByRole('button', { name: 'Check now' }));
+    await screen.findByText('Checked 3 minutes ago');
+    await userEvent.click(screen.getByRole('button', { name: 'Check now' }));
     expect(
       await screen.findByText(/^Could not start the storage check\. The server ran into a problem/),
     ).toBeInTheDocument();
@@ -169,6 +172,26 @@ describe('HealthPage', () => {
     expect(cache).toBeInTheDocument();
     expect(screen.getByText('1,204 / 263')).toBeInTheDocument();
     expect(screen.getByText('510 files, 2 playlists')).toBeInTheDocument();
+  });
+
+  it('draws the loading cards first, then the real ones in one step', async () => {
+    let answer: (r: Response) => void = () => {};
+    setup({
+      '/api/v1/reconciliation': () =>
+        new Promise<Response>((r) => {
+          answer = r;
+        }),
+    });
+    await screen.findByText('Not responding', undefined, { timeout: 50 }).catch(() => {});
+    // the status is in, the check is not: still the loading draw
+    expect(screen.queryByText('Not responding')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check now' })).toBeDisabled();
+    await act(async () =>
+      answer(
+        new Response(JSON.stringify(run), { headers: { 'content-type': 'application/json' } }),
+      ),
+    );
+    expect(await screen.findByText('Not responding')).toBeInTheDocument();
   });
 
   it('says when no check has run yet', async () => {

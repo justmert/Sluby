@@ -23,6 +23,15 @@ import { HealthCard } from './parts';
 const TITLE = 'Storage check';
 const DESCRIPTION = "Confirms every video's files are still on Sia";
 
+/** The card as the page first draws it, before the check result is in. */
+export function StorageCheckLoading() {
+  return (
+    <HealthCard title={TITLE} description={DESCRIPTION} action={<CheckNowButton disabled />}>
+      <CheckLoading />
+    </HealthCard>
+  );
+}
+
 /** What the latest run found, in a sentence; the figures above it give the counts. */
 function verdict(run: DeploymentReconciliation): string {
   if (run.missing_count > 0) {
@@ -80,7 +89,7 @@ function IdList({ label, ids }: { label: string; ids: string[] }) {
   );
 }
 
-function CheckLoading() {
+export function CheckLoading() {
   return (
     <div aria-hidden="true" className="flex flex-col gap-4">
       <div className="flex h-5.5 items-center justify-between gap-4">
