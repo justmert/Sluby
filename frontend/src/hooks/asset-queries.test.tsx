@@ -19,7 +19,6 @@ import {
   useDeleteAssets,
   useSetAccess,
   useStaleUploadCount,
-  useUpdateAssetMeta,
 } from './asset-queries';
 
 const assetBody = (overrides: Record<string, unknown> = {}) => ({
@@ -133,22 +132,6 @@ describe('asset hooks', () => {
     await waitFor(() => expect(server.calls).toHaveLength(1));
     await new Promise((r) => setTimeout(r, 3_500));
     expect(server.calls).toHaveLength(1);
-  });
-
-  it('an edit marks every asset list and the stats stale', async () => {
-    const server = jsonFetch({ 'PATCH /api/v1/assets/a1': assetBody({ title: 'New' }) });
-    vi.stubGlobal('fetch', vi.fn(server));
-    const { Wrapper, client } = wrapper();
-    for (const key of [['assets', 'latest', 6], ['assets', 'playable', ''], ['stats']]) {
-      client.setQueryData(key, {});
-    }
-    const { result } = renderHook(() => useUpdateAssetMeta(), { wrapper: Wrapper });
-    await act(() => result.current.mutateAsync({ id: 'a1', data: { title: 'New' } }));
-
-    expect(client.getQueryState(['assets', 'latest', 6])?.isInvalidated).toBe(true);
-    expect(client.getQueryState(['assets', 'playable', ''])?.isInvalidated).toBe(true);
-    expect(client.getQueryState(['stats'])?.isInvalidated).toBe(true);
-    expect(client.getQueryData<VideoAsset>(['assets', 'one', 'a1'])?.title).toBe('New');
   });
 
   it('marks the stats stale when a polled asset finishes processing', async () => {

@@ -232,11 +232,6 @@ function failureBody(
   }
 }
 
-/** The plain reason a run failed: failureInfo's body. */
-export function failureSummary(job: Job | undefined): string {
-  return failureInfo(job).body;
-}
-
 // the retry endpoint names where the new run starts; say it with the stage labels
 const RESTART_LABEL: Record<RetryStage, string> = {
   transcode: STAGE_LABEL.transcode,

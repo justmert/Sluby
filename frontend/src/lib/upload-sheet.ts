@@ -19,17 +19,6 @@ export function takePendingFiles(): File[] {
   return files;
 }
 
-/** The files waiting for the sheet, left in place: for a component's initial state. */
-export function peekPendingFiles(): File[] {
-  return [...pending];
-}
-
-/** Drop these files from the handoff, once a component has taken them through peekPendingFiles. */
-export function discardPendingFiles(files: File[]): void {
-  if (files.length === 0) return;
-  pending = pending.filter((f) => !files.includes(f));
-}
-
 /**
  * Run `listener` when files arrive while the sheet may already be open, such
  * as a second drop. Returns the unsubscribe. The listener calls

@@ -8,7 +8,7 @@ import {
   ValidationError,
 } from '@sluby/sdk';
 import { ApiError, RequestTimeoutError } from './api-client';
-import { describeError, errorText, fieldErrorsOf, isRetryable, withLead } from './errors';
+import { describeError, errorText, fieldErrorsOf, withLead } from './errors';
 
 // what the ui must never show as the headline
 const RAW = /Internal Server Error|HTTP \d{3}|Failed to fetch|<html|Bad Gateway|Unknown API error/i;
@@ -176,13 +176,14 @@ describe('withLead', () => {
   });
 });
 
-describe('isRetryable', () => {
-  it('is true for transient failures and false for answers that will not change', () => {
-    expect(isRetryable(new ApiError(503, 'x'))).toBe(true);
-    expect(isRetryable(new TypeError('Failed to fetch'))).toBe(true);
-    expect(isRetryable(new ApiError(429, 'x'))).toBe(true);
-    expect(isRetryable(new ApiError(404, 'x'))).toBe(false);
-    expect(isRetryable(new ApiError(403, 'x'))).toBe(false);
+describe('describeError actions', () => {
+  it('offers another try for transient failures and none for answers that will not change', () => {
+    const action = (err: unknown) => describeError(err).action;
+    expect(action(new ApiError(503, 'x'))).toBe('retry');
+    expect(action(new TypeError('Failed to fetch'))).toBe('retry');
+    expect(action(new ApiError(429, 'x'))).toBe('wait');
+    expect(['retry', 'wait']).not.toContain(action(new ApiError(404, 'x')));
+    expect(['retry', 'wait']).not.toContain(action(new ApiError(403, 'x')));
   });
 });
 

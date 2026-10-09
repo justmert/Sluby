@@ -254,12 +254,6 @@ export function withLead(lead: string, err: unknown): string {
   return `${head}. ${text}`;
 }
 
-/** True when trying the same request again could work. */
-export function isRetryable(err: unknown): boolean {
-  const { action } = describeError(err);
-  return action === 'retry' || action === 'wait';
-}
-
 /** The `details` a 400 carries, from apiClient or from the sdk's raw response body. */
 function detailsOf(err: unknown): unknown {
   if (err instanceof ApiError) return err.details;

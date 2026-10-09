@@ -10,7 +10,7 @@ import {
   type VideoAsset,
 } from '@sluby/sdk';
 import { fakeUploadClient as fakeClient } from '@/test/fake-uploads';
-import { createUploadStore, summarizeUploads, type UploadStoreOptions } from './upload-store';
+import { createUploadStore, type UploadStoreOptions } from './upload-store';
 
 function job(overrides: Partial<ProcessingJob>): ProcessingJob {
   return {
@@ -587,20 +587,5 @@ describe('upload store: transfer time', () => {
     s.f.current().finish();
     await flush();
     expect(s.one().activeMs).toBe(3500);
-  });
-
-  it('summarises uploads for a compact indicator', async () => {
-    const s = setup();
-    s.store.enqueue(file, { title: 'A' });
-    s.store.enqueue(new File([new Uint8Array(5)], 'z.mp4', { type: 'video/mp4' }), {
-      title: 'Z',
-    });
-    s.f.current().progress(25, 100);
-    expect(summarizeUploads(s.store.getState())).toMatchObject({
-      percent: 25,
-      queued: 1,
-      processing: 0,
-      failed: 0,
-    });
   });
 });

@@ -5,7 +5,6 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UploadSheet } from '@/components/upload/UploadSheet';
 import { useIsWide } from '@/hooks/use-mobile';
-import { Announcer } from './Announcer';
 import { AuthOffBanner } from './AuthOffBanner';
 import { LiveAlerts } from './LiveAlerts';
 import { OfflineBanner } from './OfflineBanner';
@@ -98,7 +97,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         <UploadSheet />
         <LiveAlerts />
-        <Announcer />
       </SidebarProvider>
     </PortalContainerProvider>
   );

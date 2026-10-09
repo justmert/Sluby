@@ -305,34 +305,6 @@ const signature = (job: ProcessingJob) =>
 let keySeq = 0;
 let draftSeq = 0;
 
-/** What a compact progress indicator needs to know about all uploads at once. */
-export interface UploadSummary {
-  /** The upload sending bytes right now (or paused, or finishing), if any. */
-  transferring: UploadState | null;
-  /** Percent of the running transfer's bytes sent, 0 to 100, or null without one. */
-  percent: number | null;
-  /** Uploads whose bytes are in and that the server is still processing. */
-  processing: number;
-  queued: number;
-  failed: number;
-}
-
-export function summarizeUploads(state: UploadsState): UploadSummary {
-  const transferring = state.uploads.find(isTransferring) ?? null;
-  return {
-    transferring,
-    percent:
-      transferring && transferring.bytesTotal > 0
-        ? Math.min(100, (transferring.bytesUploaded / transferring.bytesTotal) * 100)
-        : transferring
-          ? 0
-          : null,
-    processing: state.uploads.filter((u) => u.phase === 'processing').length,
-    queued: state.queued.length,
-    failed: state.uploads.filter((u) => u.phase === 'failed').length,
-  };
-}
-
 function documentVisibility(): Visibility | null {
   if (typeof document === 'undefined') return null;
   return {

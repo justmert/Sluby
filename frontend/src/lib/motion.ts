@@ -114,11 +114,6 @@ export const collapse: Variants = {
   },
 };
 
-export const pageTransition: Variants = {
-  hidden: { opacity: 0, y: 4 },
-  visible: { opacity: 1, y: 0, transition: transition.base },
-};
-
 const reduceQuery = '(prefers-reduced-motion: reduce)';
 
 function subscribe(onChange: () => void) {

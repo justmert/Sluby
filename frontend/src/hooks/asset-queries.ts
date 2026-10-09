@@ -175,7 +175,6 @@ export function useAssetById(id: string | undefined) {
 
 type AssetPage = PaginatedResponse<VideoAsset>;
 type AssetPages = { pages: AssetPage[]; pageParams: unknown[] };
-type AssetMeta = Partial<Pick<VideoAsset, 'title' | 'description' | 'accessTier'>>;
 
 // the queries that hold lists of assets: the library, the dashboard's latest
 // uploads and the player's picker. other ['assets', ...] queries hold one
@@ -219,41 +218,6 @@ type Snapshot = Array<[readonly unknown[], unknown]>;
 
 function snapshotLists(queryClient: ReturnType<typeof useQueryClient>): Snapshot {
   return listQueries(queryClient).map((q) => [q.queryKey, q.state.data]);
-}
-
-/**
- * Save title, description or access tier. The new values show at once on
- * the asset and in every cached list; a failed save puts the old ones back.
- */
-export function useUpdateAssetMeta() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: AssetMeta }) => sluby.assets.update(id, data),
-    onMutate: async ({ id, data }) => {
-      // a poll landing mid-save would put the old values back on screen
-      await queryClient.cancelQueries({ queryKey: ['assets', 'one', id] });
-      const previous = queryClient.getQueryData<VideoAsset>(['assets', 'one', id]);
-      const lists = snapshotLists(queryClient);
-      if (previous) queryClient.setQueryData(['assets', 'one', id], { ...previous, ...data });
-      mapCachedLists(queryClient, (rows) => rows.map((a) => (a.id === id ? { ...a, ...data } : a)));
-      return { previous, lists };
-    },
-    onError: (_err, { id }, context) => {
-      if (context?.previous) queryClient.setQueryData(['assets', 'one', id], context.previous);
-      for (const [key, data] of context?.lists ?? []) queryClient.setQueryData(key, data);
-    },
-    onSuccess: (asset) => {
-      queryClient.setQueryData(['assets', 'one', asset.id], asset);
-    },
-    onSettled: (_asset, _err, { id }) => {
-      // titles and tiers show on every list (library, dashboard, player)
-      void queryClient.invalidateQueries({
-        queryKey: ['assets'],
-        predicate: (q) => !(q.queryKey[1] === 'one' && q.queryKey[2] === id),
-      });
-      void queryClient.invalidateQueries({ queryKey: ['stats'] });
-    },
-  });
 }
 
 /** Restart processing of a failed asset. */

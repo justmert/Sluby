@@ -5,14 +5,12 @@ import type {
   WebhookDelivery as SdkDelivery,
   WebhookEndpoint,
   WebhookEventName,
-  WebhookTestResult as SdkTestResult,
 } from '@sluby/sdk';
 import { sluby } from '@/lib/sluby';
 
 export type WebhookRecord = WebhookEndpoint;
 export type CreatedWebhook = CreatedWebhookEndpoint;
 export type WebhookDelivery = SdkDelivery;
-export type WebhookTestResult = SdkTestResult;
 export type WebhookPatch = UpdateWebhookEndpointInput;
 export type { WebhookEventName };
 
