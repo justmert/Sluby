@@ -116,6 +116,10 @@ describe('AppSidebar signals (D-14)', () => {
     render(true);
     const link = await nav().findByRole('link', { name });
     expect(link.querySelector('[data-tone]')).toHaveAttribute('data-tone', tone);
+    // the text shades clear 3:1 on the sidebar; the warning fill was 1.75:1 in light
+    expect(link.querySelector('[data-tone]')).toHaveClass(
+      tone === 'warning' ? 'bg-warning-foreground' : 'bg-destructive',
+    );
   });
 
   it('shows a neutral dot while health is not known yet', () => {
@@ -123,6 +127,7 @@ describe('AppSidebar signals (D-14)', () => {
     render(true);
     const link = nav().getByRole('link', { name: 'Health, not checked yet' });
     expect(link.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'neutral');
+    expect(link.querySelector('[data-tone]')).toHaveClass('bg-muted-foreground');
   });
 
   it('says it could not check when the status call fails', async () => {

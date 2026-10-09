@@ -4,11 +4,15 @@ import { transition } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import type { NavSignal } from './nav-signals';
 
+// a state indicator needs 3:1 against the sidebar (WCAG 1.4.11): the warning
+// fill measured 1.75:1 in light and the faded neutral 2.5:1, so both use their
+// text shades. measured against the sidebar and the active row's pill, light
+// and dark, the lowest is 4.8:1 (success on the pill, light)
 const DOT_TONE = {
   success: 'bg-success',
-  warning: 'bg-warning',
+  warning: 'bg-warning-foreground',
   danger: 'bg-destructive',
-  neutral: 'bg-muted-foreground/60',
+  neutral: 'bg-muted-foreground',
 } as const;
 
 /**
