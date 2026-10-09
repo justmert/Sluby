@@ -344,6 +344,34 @@ describe('PlaybackIdsCard', () => {
     expect(within(alert).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 
+  it('says the copy failed, not the signing, when only the clipboard refuses', async () => {
+    const writeText = vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
+    Object.assign(navigator, { clipboard: { writeText } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        jsonFetch({
+          '/api/v1/assets/a1/playback-ids': { data: [row(PB_B, 'signed')] },
+          [`/api/v1/playback/${PB_B}/signed`]: {
+            signed_url: '/v1/objects/abc?type=manifest&expires=1791489012&sig=deadbeef',
+            poster_url: null,
+            expires_at: '2026-10-08T19:50:12.000Z',
+          },
+        }),
+      ),
+    );
+    show();
+    await userEvent.click(
+      await screen.findByRole('button', { name: `Copy signed URL for ${PB_B}, valid 1 hour` }),
+    );
+    expect(
+      await screen.findByText(
+        'Could not copy the signed URL. Allow this site to use the clipboard, then try again.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Could not create a signed URL/)).not.toBeInTheDocument();
+  });
+
   it('copies an hour long signed stream url for a signed id', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });

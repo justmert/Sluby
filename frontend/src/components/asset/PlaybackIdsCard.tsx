@@ -169,16 +169,26 @@ function CopySignedButton({ playbackId }: { playbackId: string }) {
   const [busy, setBusy] = useState(false);
   const copy = async () => {
     setBusy(true);
+    let signed: Awaited<ReturnType<typeof signedPlaybackStreamUrl>>;
     try {
-      const { url, expiresAt } = await signedPlaybackStreamUrl(playbackId);
-      await navigator.clipboard.writeText(url);
-      const until = new Date(expiresAt).toLocaleTimeString([], {
+      signed = await signedPlaybackStreamUrl(playbackId);
+    } catch (err) {
+      toastError(withLead('Could not create a signed URL', err));
+      setBusy(false);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(signed.url);
+      const until = new Date(signed.expiresAt).toLocaleTimeString([], {
         hour: 'numeric',
         minute: '2-digit',
       });
       toastSuccess(`Signed URL copied. It works until ${until}`);
-    } catch (err) {
-      toastError(withLead('Could not create a signed URL', err));
+    } catch {
+      // the url was made; only the browser refused the clipboard
+      toastError(
+        'Could not copy the signed URL. Allow this site to use the clipboard, then try again.',
+      );
     } finally {
       setBusy(false);
     }
