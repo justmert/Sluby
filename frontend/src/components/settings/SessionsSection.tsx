@@ -14,7 +14,7 @@ import {
 } from '@/hooks/useSessions';
 import { statusOf } from '@/lib/api-client';
 import { withLead } from '@/lib/errors';
-import { formatDate, formatRelativeTime, formatTimeLeft, NO_VALUE } from '@/lib/formatters';
+import { formatDate, formatRelativeTime, NO_VALUE } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { toastError, toastSuccess } from '@/lib/toast';
 import { browserLabel } from '@/lib/user-agent';
@@ -101,7 +101,9 @@ export function SessionsSection() {
     {
       id: 'expires',
       header: 'Expires',
-      cell: (s) => <span title={formatDate(s.expiresAt)}>{formatTimeLeft(s.expiresAt)}</span>,
+      // "in 6 days" rather than "in 5 days 23 hours": the exact time is in the
+      // tooltip, and the long form pushed Sign out out of the card at 768
+      cell: (s) => <span title={formatDate(s.expiresAt)}>{formatRelativeTime(s.expiresAt)}</span>,
     },
     {
       id: 'action',
