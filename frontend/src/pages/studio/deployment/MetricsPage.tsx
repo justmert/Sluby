@@ -203,7 +203,8 @@ function RequestsChart({ m }: { m: MetricsSnapshot }) {
 }
 
 function ThroughputFigure({ rates }: { rates: RatePoint[] }) {
-  const s = throughputSummary(rates);
+  // with fewer than two rates the chart still says it is collecting samples
+  const s = rates.length >= 2 ? throughputSummary(rates) : null;
   if (!s) return null;
   return (
     <p className="mb-3 text-sm text-muted-foreground tabular-nums">

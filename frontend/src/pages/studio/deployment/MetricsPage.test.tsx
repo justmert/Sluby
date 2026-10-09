@@ -136,6 +136,8 @@ describe('MetricsPage', () => {
     const { container } = render();
     expect(await screen.findByText('Nothing streamed yet')).toBeInTheDocument();
     expect(screen.getByText('Collecting samples')).toBeInTheDocument();
+    // no figure for a line that is not drawn yet
+    expect(screen.queryByText(/^Now/)).not.toBeInTheDocument();
     expect(container.querySelector('.recharts-cartesian-axis')).toBeNull();
     expect(container.querySelectorAll('.min-h-40')).toHaveLength(2);
     expect(container.querySelector('.h-56')).toBeNull();
