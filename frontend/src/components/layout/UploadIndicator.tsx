@@ -1,8 +1,14 @@
+import { useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
-import { Pause } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Pause, Upload } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { UploadTray } from '@/components/upload/UploadTray';
+import { sentPercent, shortStatus } from '@/components/upload/upload-status';
+import { useUploadEvents } from '@/components/upload/useUploadEvents';
 import { scaleIn } from '@/lib/motion';
+import { useSession } from '@/lib/session';
 import { uploadStore } from '@/lib/studio-upload';
 import { useUploadSheet } from '@/lib/upload-sheet';
 import { isTransferring, useUploads, type UploadState, type UploadStore } from '@/lib/upload-store';
@@ -11,26 +17,12 @@ import { cn } from '@/lib/utils';
 const RADIUS = 7;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-const SHORT: Partial<Record<UploadState['phase'], string>> = {
-  paused: 'Paused',
-  finishing: 'Finishing',
-  processing: 'Processing',
-};
-
 const isActive = (u: UploadState) => isTransferring(u) || u.phase === 'processing';
 
 function percentOf(u: UploadState): number {
   if (u.phase === 'processing') return u.job?.progressPercent ?? 0;
   if (u.phase === 'finishing') return 0;
-  if (u.bytesTotal === 0) return 100;
-  return (u.bytesUploaded / u.bytesTotal) * 100;
-}
-
-function describe(u: UploadState, percent: number): string {
-  if (u.phase === 'paused') return `${u.title} is paused at ${percent}%`;
-  if (u.phase === 'finishing') return `${u.title} is finishing the upload`;
-  if (u.phase === 'processing') return `${u.title} is processing, ${percent}%`;
-  return `Uploading ${u.title}, ${percent}%`;
+  return sentPercent(u);
 }
 
 function Ring({ percent, paused }: { percent: number; paused: boolean }) {
@@ -56,8 +48,9 @@ function Ring({ percent, paused }: { percent: number; paused: boolean }) {
           strokeDasharray={CIRCUMFERENCE}
           strokeDashoffset={CIRCUMFERENCE * (1 - shown / 100)}
           className={cn(
-            'transition-[stroke-dashoffset] duration-300 ease-out-soft',
-            paused ? 'stroke-muted-foreground' : 'stroke-primary',
+            // the same easing as every polled bar (MOT-07)
+            'transition-[stroke-dashoffset] duration-(--duration-progress) ease-out-soft',
+            paused ? 'stroke-muted-foreground' : 'stroke-progress',
           )}
         />
       </svg>
@@ -67,60 +60,95 @@ function Ring({ percent, paused }: { percent: number; paused: boolean }) {
 }
 
 /**
- * A compact progress ring in the top bar while uploads transfer or process,
- * so closing the upload sheet does not hide them. Opens the sheet again.
+ * The top bar's upload control (D-08): "Upload video" opens the upload sheet
+ * from any page; while uploads run, a progress ring with a count sits next
+ * to it and opens a tray. It also raises the ready and failed toasts for
+ * uploads started in this browser, wherever the user is.
  */
 export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }) {
+  const session = useSession();
+  const sheet = useUploadSheet();
   const { uploads, queued } = useUploads(store);
+  const region = useUploadEvents(store, session.id);
+  const [trayOpen, setTrayOpen] = useState(false);
   const active = uploads.filter(isActive);
   // the running transfer leads; otherwise the newest upload still processing
   const lead = active.find(isTransferring) ?? active[0];
+  const count = active.length + queued.length;
 
   return (
-    <AnimatePresence initial={false}>
-      {lead && (
-        <m.div key="uploads" variants={scaleIn} initial="hidden" animate="visible" exit="exit">
-          <IndicatorLink lead={lead} count={active.length + queued.length} />
-        </m.div>
-      )}
-    </AnimatePresence>
+    <div className="flex items-center gap-1">
+      {/* phase changes of uploads in this browser, said once */}
+      <span ref={region} className="sr-only" role="status" aria-live="polite" />
+      <AnimatePresence initial={false}>
+        {lead && (
+          <m.div key="ring" variants={scaleIn} initial="hidden" animate="visible" exit="exit">
+            <Popover open={trayOpen} onOpenChange={setTrayOpen}>
+              <PopoverTrigger asChild>
+                <RingButton lead={lead} count={count} />
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80">
+                <UploadTray
+                  uploads={uploads.filter((u) => isActive(u) || u.phase === 'failed')}
+                  queued={queued}
+                  onOpen={() => {
+                    setTrayOpen(false);
+                    sheet.open();
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
+          </m.div>
+        )}
+      </AnimatePresence>
+      <Button
+        variant="outline"
+        size="sm"
+        className="max-md:size-8 max-md:px-0"
+        onClick={() => sheet.open()}
+      >
+        <Upload aria-hidden="true" />
+        <span className="max-md:sr-only">Upload video</span>
+      </Button>
+    </div>
   );
 }
 
-function IndicatorLink({ lead, count }: { lead: UploadState; count: number }) {
-  const sheet = useUploadSheet();
+function RingButton({
+  lead,
+  count,
+  ...props
+}: { lead: UploadState; count: number } & React.ComponentProps<'button'>) {
   const percent = Math.floor(percentOf(lead));
   const paused = lead.phase === 'paused';
-  const detail = describe(lead, percent);
+  const detail = `${lead.title}: ${shortStatus(lead)}`;
   const label =
     count > 1
-      ? `${count} uploads in progress or queued. ${detail}. Open uploads`
-      : `${detail}. Open uploads`;
-
+      ? `${count} uploads in progress. ${detail}. Go to uploads`
+      : `${detail}. Go to uploads`;
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={() => sheet.open()}
-          aria-label={label}
-          className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+    <button
+      type="button"
+      aria-label={label}
+      className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+      {...props}
+    >
+      <Ring percent={percent} paused={paused} />
+      <span className="hidden tabular-nums sm:inline" aria-hidden="true">
+        {paused
+          ? 'Paused'
+          : lead.phase === 'finishing' || (!lead.job && lead.phase === 'processing')
+            ? null
+            : `${percent}%`}
+      </span>
+      {count > 1 && (
+        <span
+          className="rounded-full bg-muted px-1.5 text-xs text-foreground tabular-nums"
+          aria-hidden="true"
         >
-          <Ring percent={percent} paused={paused} />
-          <span className="hidden tabular-nums sm:inline" aria-hidden="true">
-            {SHORT[lead.phase] ?? `${percent}%`}
-          </span>
-          {count > 1 && (
-            <span
-              className="rounded-full bg-muted px-1.5 text-xs text-foreground tabular-nums"
-              aria-hidden="true"
-            >
-              {count}
-            </span>
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{detail}</TooltipContent>
-    </Tooltip>
+          {count}
+        </span>
+      )}
+    </button>
   );
 }

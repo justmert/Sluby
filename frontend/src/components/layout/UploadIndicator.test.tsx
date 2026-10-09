@@ -1,10 +1,15 @@
-import { act, screen } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { SlubyError } from '@sluby/sdk';
+import { findUpload } from '@/lib/upload-history';
 import { createUploadStore } from '@/lib/upload-store';
+import { fileFingerprint } from '@/lib/upload-tabs';
 import { fakeUploadClient } from '@/test/fake-uploads';
 import { renderPage } from '@/test/render';
+import { testSession, WithSession } from '@/test/session';
+import { job } from '@/test/upload-state';
 import { UploadIndicator } from './UploadIndicator';
 
 const file = new File([new Uint8Array(100)], 'clip.mp4', { type: 'video/mp4', lastModified: 1 });
@@ -16,47 +21,53 @@ function Where() {
 
 function setup() {
   const f = fakeUploadClient();
-  const store = createUploadStore(f.client, { unloadTarget: null });
+  const store = createUploadStore(f.client, { unloadTarget: null, onlineTarget: null });
   renderPage(
-    <>
+    <WithSession>
       <UploadIndicator store={store} />
       <Where />
-    </>,
+    </WithSession>,
     { route: '/studio/videos?status=ready' },
   );
   return { f, store };
 }
 
 describe('UploadIndicator', () => {
-  it('stays out of the way with nothing uploading', () => {
+  it('always offers Upload video, which opens the sheet on this page', async () => {
     setup();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Upload video' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos?status=ready&upload=1');
+    expect(screen.queryByRole('button', { name: /go to uploads/i })).not.toBeInTheDocument();
   });
 
-  it('follows a transfer live and opens the upload sheet on this page', async () => {
+  it('follows a transfer with a ring, and opens a tray of uploads', async () => {
     const { f, store } = setup();
     act(() => {
       store.start(file, { title: 'Keynote' });
       f.current().progress(42, 100);
     });
-    const button = screen.getByRole('button', { name: 'Uploading Keynote, 42%. Open uploads' });
-    expect(button).toHaveTextContent('42%');
+    const ring = screen.getByRole('button', { name: 'Keynote: Uploading, 42%. Go to uploads' });
+    expect(ring).toHaveTextContent('42%');
 
     act(() => f.current().progress(80, 100));
-    expect(screen.getByRole('button', { name: /Uploading Keynote, 80%/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Keynote: Uploading, 80%/ })).toBeInTheDocument();
 
-    await userEvent.click(button);
+    await userEvent.click(ring);
+    const tray = await screen.findByRole('dialog');
+    expect(within(tray).getByText('Keynote')).toBeInTheDocument();
+    await userEvent.click(within(tray).getByRole('button', { name: 'Open uploads' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos?status=ready&upload=1');
   });
 
-  it('says when the transfer is paused', async () => {
+  it('says when the transfer is paused, and announces it once', async () => {
     const { f, store } = setup();
     const key = store.start(file, { title: 'Keynote' });
     act(() => f.current().progress(30, 100));
     await act(() => store.pause(key));
     expect(
-      screen.getByRole('button', { name: 'Keynote is paused at 30%. Open uploads' }),
+      screen.getByRole('button', { name: 'Keynote: Paused at 30%. Go to uploads' }),
     ).toHaveTextContent('Paused');
+    expect(screen.getByRole('status')).toHaveTextContent('“Keynote”: Paused');
   });
 
   it('counts files waiting in the queue', () => {
@@ -68,17 +79,52 @@ describe('UploadIndicator', () => {
       f.current().progress(10, 100);
     });
     expect(
-      screen.getByRole('button', { name: /^2 uploads in progress or queued\. Uploading Keynote/ }),
+      screen.getByRole('button', { name: /^2 uploads in progress\. Keynote: Uploading, 10%/ }),
     ).toHaveTextContent('2');
   });
 
-  it('goes away when the upload fails', async () => {
+  it('toasts a failed upload once, wherever the user is', async () => {
     const { f, store } = setup();
     act(() => {
       store.start(file, { title: 'Keynote' });
     });
-    expect(screen.getByRole('button')).toBeInTheDocument();
-    await act(async () => f.current().fail(new Error('gone')));
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    await act(async () => f.current().fail(new SlubyError('Bad request', 400)));
+    expect(screen.queryByRole('button', { name: /go to uploads/i })).not.toBeInTheDocument();
+    expect(await screen.findByText(/^“Keynote” failed\. Bad request\.$/)).toBeInTheDocument();
+  });
+
+  it('toasts a ready video with its embed code, and remembers the file', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const { f, store } = setup();
+    f.processing
+      .mockResolvedValueOnce(job())
+      .mockResolvedValue(job({ status: 'completed', stage: 'completed' }));
+    act(() => {
+      store.start(file, { title: 'Keynote' });
+    });
+    await act(async () => {
+      f.current().resolveAsset('a1');
+      f.current().finish();
+    });
+    expect(findUpload(fileFingerprint(file), testSession.id)).toMatchObject({
+      assetId: 'a1',
+      title: 'Keynote',
+    });
+    expect(
+      await screen.findByText('“Keynote” is ready', {}, { timeout: 4_000 }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Copy embed code' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('a1')));
+  });
+
+  it('says where a resumed upload continued from, once the sdk sent bytes', async () => {
+    const { f, store } = setup();
+    act(() => {
+      store.enqueue(file, { title: 'Keynote', resumeUploadId: 'up-1' });
+    });
+    await act(async () => f.current().resolveUpload('up-1'));
+    act(() => f.current().progress(40, 100));
+    expect(await screen.findByText('Continuing “Keynote” from 40%')).toBeInTheDocument();
   });
 });
