@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -198,7 +198,26 @@ describe('CommandPalette', () => {
     setup();
     await openWithKeys();
     await userEvent.type(await screen.findByRole('combobox'), 'zzzz');
-    expect(await screen.findByText('Nothing matches “zzzz”.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Nothing matches “zzzz”.', { selector: '[cmdk-empty]' }),
+    ).toBeVisible();
+  });
+
+  it('announces the settled result outside the listbox, which holds only options', async () => {
+    setup();
+    await openWithKeys();
+    const dialog = await screen.findByRole('dialog');
+    const region = within(dialog).getByRole('status');
+    expect(screen.getByRole('listbox').contains(region)).toBe(false);
+    await userEvent.type(screen.getByRole('combobox'), 'zzzz');
+    await waitFor(() => expect(region).toHaveTextContent('Nothing matches “zzzz”.'));
+    // a listbox may own only options and groups; the visible message is hidden from it
+    expect(
+      within(screen.getByRole('listbox')).getByText('Nothing matches “zzzz”.'),
+    ).toHaveAttribute('aria-hidden', 'true');
+    await userEvent.clear(screen.getByRole('combobox'));
+    await userEvent.type(screen.getByRole('combobox'), 'sintel');
+    await waitFor(() => expect(region).toHaveTextContent('1 result'));
   });
 });
 

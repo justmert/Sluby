@@ -30,7 +30,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useSignOut } from '@/hooks/useSessions';
 import { LINKS, navItemsFor, ROUTES } from '@/lib/constants';
 import { withLead } from '@/lib/errors';
-import { formatDuration } from '@/lib/formatters';
+import { formatDuration, plural } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { sluby } from '@/lib/sluby';
 import { THEME_OPTIONS, useTheme } from '@/lib/theme';
@@ -105,9 +105,10 @@ function Videos({
 
   return (
     <CommandGroup heading={heading}>
+      {/* the palette's own status region says this; a listbox may own only options */}
       {status && (
         <div
-          role="status"
+          aria-hidden="true"
           className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground"
         >
           {status}
@@ -250,6 +251,18 @@ function PaletteBody({ close }: { close: () => void }) {
   ];
   const value = shown.includes(selected) ? selected : (shown[0] ?? '');
 
+  // said once the search settles, not on every key; the active option is
+  // read out on its own as the arrows move
+  const { search, videos } = found;
+  const settled = term.trim() === search && !videos.isPending && !videos.isPlaceholderData;
+  const announcement = videos.isError
+    ? withLead('Could not search videos', videos.error)
+    : term.trim() && settled
+      ? shown.length === 0
+        ? `Nothing matches “${term.trim()}”.`
+        : plural(shown.length, 'result')
+      : '';
+
   return (
     // filtering is done here: video results come from the server, which also
     // matches descriptions and ids that cmdk's own filter would drop
@@ -266,7 +279,7 @@ function PaletteBody({ close }: { close: () => void }) {
         placeholder="Search videos, pages and actions…"
       />
       <CommandList className="max-h-[min(24rem,calc(100svh-8rem))]">
-        <CommandEmpty>Nothing matches “{term.trim()}”.</CommandEmpty>
+        <CommandEmpty aria-hidden="true">Nothing matches “{term.trim()}”.</CommandEmpty>
         {shownPages.length > 0 && (
           <CommandGroup heading="Pages">
             {shownPages.map((e) => (
@@ -284,6 +297,9 @@ function PaletteBody({ close }: { close: () => void }) {
           </CommandGroup>
         )}
       </CommandList>
+      <p className="sr-only" role="status">
+        {announcement}
+      </p>
       <div
         aria-hidden="true"
         className="hidden items-center gap-3 border-t px-3 py-2 text-xs text-muted-foreground sm:flex"
