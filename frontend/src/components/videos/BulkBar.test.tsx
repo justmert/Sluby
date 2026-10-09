@@ -74,5 +74,6 @@ describe('BulkBar', () => {
     expect(document.documentElement.style.getPropertyValue('--toast-lift')).toBe('4rem');
     unmount();
     expect(document.documentElement.style.getPropertyValue('--toast-lift')).toBe('');
+    expect(document.documentElement.style.scrollPaddingBottom).toBe('');
   });
 });

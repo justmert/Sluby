@@ -1,4 +1,4 @@
-import { useEffect, type Ref } from 'react';
+import { useEffect, useRef } from 'react';
 import * as m from 'motion/react-m';
 import { Globe, Lock } from 'lucide-react';
 import { NumberTicker } from '@/components/motion';
@@ -29,7 +29,6 @@ export interface BulkBarProps {
   onMakePrivate: () => void;
   onDelete: () => void;
   onClear: () => void;
-  ref?: Ref<HTMLDivElement>;
   className?: string;
 }
 
@@ -54,14 +53,24 @@ export function BulkBar({
   onMakePrivate,
   onDelete,
   onClear,
-  ref,
   className,
 }: BulkBarProps) {
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty(LIFT, '4rem');
+    // a control focused by Tab scrolls into view above the bar, not under it
+    // (A11Y-25, WCAG 2.4.11): the page's bottom scroll padding follows the
+    // bar's height, which changes when it wraps on phones
+    const el = ref.current;
+    const observer = new ResizeObserver(() => {
+      if (el) root.style.scrollPaddingBottom = `${el.offsetHeight + 32}px`;
+    });
+    if (el) observer.observe(el);
     return () => {
+      observer.disconnect();
       root.style.removeProperty(LIFT);
+      root.style.removeProperty('scroll-padding-bottom');
     };
   }, []);
 
