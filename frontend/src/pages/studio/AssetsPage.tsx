@@ -672,6 +672,7 @@ export default function AssetsPage() {
       <Checkbox
         checked={allOnPage ? true : someOnPage ? 'indeterminate' : false}
         onCheckedChange={(v) => selectPage(v === true)}
+        disabled={assets.length === 0}
         aria-label="Select all on this page"
       />
       {/* the grid's phone toolbar also holds the sort menu; the box alone is enough there */}
@@ -681,91 +682,94 @@ export default function AssetsPage() {
     </label>
   );
 
-  const results = list.isLoading ? (
-    p.view === 'grid' ? (
-      <GridSkeleton />
+  // the stale-uploads line sits above the results; waiting for its count
+  // (asked at the same time) keeps it from pushing loaded rows down
+  const results =
+    list.isLoading || stale.isPending ? (
+      p.view === 'grid' ? (
+        <GridSkeleton />
+      ) : (
+        <VideosTable
+          assets={undefined}
+          sort={sort}
+          onSortChange={onSort}
+          selected={selected}
+          onSelectedChange={select}
+          actions={actionsFor}
+          staggerIn={false}
+          busy
+          rowsKey="loading"
+        />
+      )
+    ) : waitingForRows ? (
+      <div
+        role="status"
+        className="flex items-center justify-center gap-2 py-16 text-muted-foreground"
+      >
+        <Spinner aria-hidden="true" />
+        Loading the next videos…
+      </div>
+    ) : pastTheEnd ? (
+      <EmptyState
+        variant="section"
+        icon={Icons.video}
+        title="Nothing on this page"
+        description={
+          filtered
+            ? `These filters match ${plural(total, 'video')} on ${plural(pages, 'page')}.`
+            : `Your library has ${plural(total, 'video')} on ${plural(pages, 'page')}.`
+        }
+        action={
+          <Button variant="outline" onClick={() => goToPage(pages)}>
+            Go to page {pages}
+          </Button>
+        }
+      />
+    ) : assets.length === 0 ? (
+      filtered ? (
+        <EmptyState
+          variant="section"
+          icon={Search}
+          title="No matching videos"
+          description="Nothing matches these filters. Try a different search or clear them."
+          action={
+            <Button variant="outline" onClick={clearFilters}>
+              Clear filters
+            </Button>
+          }
+        />
+      ) : (
+        <EmptyState
+          variant="section"
+          icon={Icons.video}
+          title="No videos yet"
+          description="Upload a video and it will be ready to stream in a few minutes."
+          action={uploadButton}
+        />
+      )
+    ) : p.view === 'grid' ? (
+      <VideosGrid
+        key={shownKey}
+        assets={assets}
+        selected={selected}
+        onSelectedChange={select}
+        actions={actionsFor}
+        staggerIn={staggerIn}
+        busy={list.isFetching}
+      />
     ) : (
       <VideosTable
-        assets={undefined}
+        assets={assets}
         sort={sort}
         onSortChange={onSort}
         selected={selected}
         onSelectedChange={select}
         actions={actionsFor}
-        staggerIn={false}
-        busy
-        rowsKey="loading"
+        staggerIn={staggerIn}
+        busy={list.isFetching}
+        rowsKey={shownKey}
       />
-    )
-  ) : waitingForRows ? (
-    <div
-      role="status"
-      className="flex items-center justify-center gap-2 py-16 text-muted-foreground"
-    >
-      <Spinner aria-hidden="true" />
-      Loading the next videos…
-    </div>
-  ) : pastTheEnd ? (
-    <EmptyState
-      variant="section"
-      icon={Icons.video}
-      title="Nothing on this page"
-      description={
-        filtered
-          ? `These filters match ${plural(total, 'video')} on ${plural(pages, 'page')}.`
-          : `Your library has ${plural(total, 'video')} on ${plural(pages, 'page')}.`
-      }
-      action={
-        <Button variant="outline" onClick={() => goToPage(pages)}>
-          Go to page {pages}
-        </Button>
-      }
-    />
-  ) : assets.length === 0 ? (
-    filtered ? (
-      <EmptyState
-        variant="section"
-        icon={Search}
-        title="No matching videos"
-        description="Nothing matches these filters. Try a different search or clear them."
-        action={
-          <Button variant="outline" onClick={clearFilters}>
-            Clear filters
-          </Button>
-        }
-      />
-    ) : (
-      <EmptyState
-        variant="section"
-        icon={Icons.video}
-        title="No videos yet"
-        description="Upload a video and it will be ready to stream in a few minutes."
-        action={uploadButton}
-      />
-    )
-  ) : p.view === 'grid' ? (
-    <VideosGrid
-      key={shownKey}
-      assets={assets}
-      selected={selected}
-      onSelectedChange={select}
-      actions={actionsFor}
-      staggerIn={staggerIn}
-      busy={list.isFetching}
-    />
-  ) : (
-    <VideosTable
-      assets={assets}
-      sort={sort}
-      onSortChange={onSort}
-      selected={selected}
-      onSelectedChange={select}
-      actions={actionsFor}
-      staggerIn={staggerIn}
-      busy={list.isFetching}
-      rowsKey={shownKey}
-    />
-  );
+    );
 
   return (
     <PageContainer className="flex flex-col">
@@ -826,7 +830,8 @@ export default function AssetsPage() {
           </InputGroupAddon>
         </InputGroup>
         <div className="flex flex-1 flex-wrap items-center gap-2">
-          {assets.length > 0 && (
+          {/* there from the first paint, so the toolbar does not rewrap when rows land */}
+          {(!list.data || assets.length > 0) && (
             <div className={cn(p.view === 'table' && 'hidden @max-[calc(40rem+2px)]/page:block')}>
               {selectAllBox}
             </div>

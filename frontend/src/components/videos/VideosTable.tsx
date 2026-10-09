@@ -45,7 +45,7 @@ function ProgressLine({ label, percent, checking }: RowProgress) {
 
 /** The video column: thumbnail, title, and a second line that depends on where the table is. */
 function VideoCell({ asset }: { asset: VideoAsset }) {
-  const { progress, failure } = useRowJob(asset);
+  const { progress, failure, failurePending } = useRowJob(asset);
   const stale = isStaleUpload(asset);
   const href = ROUTES.video(asset.id);
   return (
@@ -71,8 +71,13 @@ function VideoCell({ asset }: { asset: VideoAsset }) {
         </Link>
         {progress ? (
           <ProgressLine {...progress} />
+        ) : failurePending ? (
+          // the reason is on its way; hold the line it will fill
+          <span className="flex min-h-6 items-center">
+            <Skeleton className={cn('h-3 w-40', lateReveal)} />
+          </span>
         ) : failure ? (
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="flex min-h-6 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-xs font-normal text-muted-foreground">{failure.body}</span>
             {failure.action === 'retry' && (
               <RetryProcessingButton asset={asset} named compact variant="outline" size="xs" />

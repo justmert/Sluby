@@ -93,7 +93,8 @@ function VideoCard({
                   ? 'Upload interrupted'
                   : videoMeta(asset)}
           </p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          {/* min-h-6 holds room for a failed video's Retry before its reason loads */}
+          <div className="mt-2 flex min-h-6 flex-wrap items-center gap-2">
             <StatusBadge kind="asset" status={asset.status} />
             {failure?.action === 'retry' && (
               <RetryProcessingButton asset={asset} named compact variant="outline" size="xs" />

@@ -26,6 +26,8 @@ export interface RowJob {
   progress?: RowProgress;
   /** a failed video: why, and whether a retry can help (FLW-21, FLW-22) */
   failure?: FailureInfo;
+  /** a failed video whose reason is still loading; rows hold its line open */
+  failurePending?: boolean;
 }
 
 /**
@@ -48,7 +50,7 @@ export function useRowJob(asset: VideoAsset): RowJob {
   }
   // a failed video whose job is gone (404) still gets the generic reason
   if (failed && (job.data || job.isError)) return { failure: failureInfo(job.data, asset) };
-  return {};
+  return failed ? { failurePending: true } : {};
 }
 
 /** The phone card's facts line: "0:10 · 3.1 MB · 2 hours ago". */
