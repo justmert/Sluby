@@ -10,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { jsonFetch, renderPage } from '@/test/render';
 import { WithSession } from '@/test/session';
 
@@ -53,6 +54,21 @@ describe('where overlays portal', () => {
     await userEvent.keyboard('{Escape}');
     await userEvent.click(screen.getByRole('button', { name: /alice/ }));
     expect(screen.getByRole('main')).toContainElement(await screen.findByRole('menu'));
+    vi.unstubAllGlobals();
+  });
+
+  it('puts a page popover inside the main landmark', async () => {
+    render(
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button>Details</Button>
+        </PopoverTrigger>
+        <PopoverContent aria-label="More details">Inside</PopoverContent>
+      </Popover>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Details' }));
+    const popover = await screen.findByRole('dialog', { name: 'More details' });
+    expect(screen.getByRole('main')).toContainElement(popover);
     vi.unstubAllGlobals();
   });
 

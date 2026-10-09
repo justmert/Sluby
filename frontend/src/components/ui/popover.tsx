@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
+import { usePortalContainer } from '@/components/ui/portal-container';
 import { cn } from '@/lib/utils';
 
 function Popover({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
@@ -14,7 +15,7 @@ function PopoverAnchor({ ...props }: React.ComponentProps<typeof PopoverPrimitiv
   return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />;
 }
 
-// the same overlay surface and menu timing as the dropdown menu
+// the same overlay surface, menu timing and portal (inside main) as the dropdown menu
 function PopoverContent({
   className,
   align = 'center',
@@ -22,7 +23,7 @@ function PopoverContent({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
-    <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Portal container={usePortalContainer()}>
       <PopoverPrimitive.Content
         data-slot="popover-content"
         align={align}
