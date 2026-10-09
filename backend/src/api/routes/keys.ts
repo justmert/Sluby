@@ -193,6 +193,8 @@ export function createKeyRoutes(
       data: page.data.map(formatKey),
       has_more: page.hasMore,
       next_cursor: page.nextCursor,
+      // so a form can check a new key against them before sending it
+      limits: { max_keys: limits.keysPerAccountMax, max_rate_limit: limits.rateLimitMax },
     });
   });
 

@@ -121,6 +121,9 @@ describe('key routes', () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/already has 2 API keys/);
     expect(vi.mocked(deps.createApiKey).mock.calls[0][1]).toBe(2);
+    // the listing tells a form the same limits
+    const list = await request(limited).get('/');
+    expect(list.body.limits).toEqual({ max_keys: 2, max_rate_limit: 500 });
   });
 
   it('lists keys with their expiry', async () => {
@@ -138,6 +141,7 @@ describe('key routes', () => {
     expect(deps.listApiKeys).toHaveBeenCalledWith('github:alice', { limit: 1000 });
     expect(res.body.has_more).toBe(false);
     expect(res.body.next_cursor).toBeNull();
+    expect(res.body.limits).toEqual({ max_keys: 100, max_rate_limit: 10000 });
     expect(res.body.data[0]).toEqual({
       id: 'key-2',
       name: 'ci',

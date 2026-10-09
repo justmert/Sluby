@@ -633,6 +633,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       }
       const all = await call('GET', '/api/v1/keys', 'a');
       check('GET', '/api/v1/keys', all);
+      expect(all.body.limits).toEqual({ max_keys: 100, max_rate_limit: 10000 });
       // 55 plus the three fixture keys of alice
       expect(all.body.data).toHaveLength(58);
       expect(all.body.has_more).toBe(false);

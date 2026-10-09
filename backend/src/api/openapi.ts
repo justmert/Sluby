@@ -774,11 +774,27 @@ export const openapiDocument = {
       },
       ApiKeyList: {
         type: 'object',
-        required: ['data', 'has_more', 'next_cursor'],
+        required: ['data', 'has_more', 'next_cursor', 'limits'],
         properties: {
           data: { type: 'array', items: { $ref: '#/components/schemas/ApiKey' } },
           has_more: { type: 'boolean' },
           next_cursor: { type: ['string', 'null'] },
+          limits: {
+            type: 'object',
+            description: 'This server’s limits on keys, to check a new key against.',
+            required: ['max_keys', 'max_rate_limit'],
+            properties: {
+              max_keys: {
+                type: 'integer',
+                description:
+                  'How many usable keys one account may hold (`API_KEYS_PER_ACCOUNT_MAX`).',
+              },
+              max_rate_limit: {
+                type: 'integer',
+                description: 'The highest `rate_limit` a key may have (`API_KEY_RATE_LIMIT_MAX`).',
+              },
+            },
+          },
         },
       },
       ApiKeyCreated: {
