@@ -348,6 +348,16 @@ describe('AssetDetailPage', () => {
       expect(await screen.findByText('Changes saved')).toBeInTheDocument();
     });
 
+    it('keeps the page heading while the title is being edited', async () => {
+      render();
+      await screen.findByTestId('player');
+      const heading = screen.getByRole('heading', { level: 1 });
+      const name = heading.textContent;
+      await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+      expect(screen.getByRole('textbox', { name: 'Edit title' })).toHaveFocus();
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(name!);
+    });
+
     it('refuses an empty title without a request (CPY-28)', async () => {
       const { server } = render();
       await screen.findByTestId('player');

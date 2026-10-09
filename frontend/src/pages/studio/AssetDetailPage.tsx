@@ -457,6 +457,7 @@ export default function AssetDetailPage() {
                 {shown}
               </h1>
             )}
+            whileEditing={(shown) => <h1 dir="auto">{shown}</h1>}
           />
         }
         meta={<MetaRow asset={a} interrupted={interrupted} />}

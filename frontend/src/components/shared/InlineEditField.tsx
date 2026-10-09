@@ -35,6 +35,11 @@ export interface InlineEditFieldProps {
    * accessible name, which the default (the value is the button) replaces.
    */
   display?: (shown: string) => ReactNode;
+  /**
+   * What stays in the page, visually hidden, while the field is open: the
+   * page title's h1, say, so the page keeps its heading during the edit.
+   */
+  whileEditing?: (shown: string) => ReactNode;
   /** what to show under the field when a save fails; the reader's sentence from errorText by default */
   renderError?: (err: unknown) => ReactNode;
   /** show "{n} of {maxLength}" under the field once the text reaches this length */
@@ -65,6 +70,7 @@ export function InlineEditField({
   className,
   onEditStart,
   display,
+  whileEditing,
   renderError,
   counterFrom,
 }: InlineEditFieldProps) {
@@ -156,6 +162,7 @@ export function InlineEditField({
     };
     return (
       <div data-slot="inline-edit" className={cn('min-w-0', className)}>
+        {whileEditing && <div className="sr-only">{whileEditing(saved ?? value)}</div>}
         {multiline ? (
           <Textarea
             {...shared}
