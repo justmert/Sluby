@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { errorText } from '@/lib/errors';
 import { formatCount } from '@/lib/formatters';
+import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 export interface InlineEditFieldProps {
@@ -202,7 +203,11 @@ export function InlineEditField({
   const shown = saving ?? saved ?? value;
   const busy =
     saving !== null ? (
-      <Spinner className="size-3.5 shrink-0 text-muted-foreground" aria-label={`Saving ${label}`} />
+      // shows only when the save takes a moment, so a quick one does not flash it
+      <Spinner
+        className={cn('size-3.5 shrink-0 text-muted-foreground', lateReveal)}
+        aria-label={`Saving ${label}`}
+      />
     ) : null;
 
   if (display) {
