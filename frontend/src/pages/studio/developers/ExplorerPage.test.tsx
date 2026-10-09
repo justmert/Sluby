@@ -151,6 +151,19 @@ describe('API explorer', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
   });
 
+  it('says a body is not json before sending anything', async () => {
+    render();
+    await userEvent.click(screen.getByRole('combobox', { name: 'Method' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'PATCH' }));
+    const body = screen.getByLabelText('JSON body');
+    await userEvent.type(body, '{{title: "oops"');
+    expect(body).toHaveAccessibleDescription('This is not valid JSON.');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    await userEvent.clear(body);
+    await userEvent.type(body, '{{"title": "fine"}');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+  });
+
   it('gives up after 30 seconds and says so (FLW-18)', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     answers['GET /api/v1/assets?limit=20'] = () => new Promise(() => {});

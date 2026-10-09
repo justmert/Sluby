@@ -43,6 +43,15 @@ const SHOWN_HEADERS = [
 // what a successful write may have changed elsewhere in the studio
 const CHANGED_BY_WRITES = [['webhooks'], ['assets'], ['api-keys'], ['stats']];
 
+function isJson(text: string): boolean {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 interface Answer {
   /** the request this answers, so a later edit never relabels it */
   method: Method;
@@ -82,6 +91,9 @@ export default function ExplorerPage() {
   }, [confirming]);
 
   const problem = pathProblem(path);
+  // caught here, before the confirm for a write, instead of as the server's parse error
+  const bodyProblem =
+    hasBody(method) && body.trim() && !isJson(body) ? 'This is not valid JSON.' : null;
 
   // a new request replaces the one in flight: abort it and ignore its answer
   const cancelInflight = () => {
@@ -274,7 +286,7 @@ export default function ExplorerPage() {
                 </div>
                 <Button
                   type="submit"
-                  disabled={!!problem || sending}
+                  disabled={!!problem || !!bodyProblem || sending}
                   aria-busy={sending || undefined}
                   className="@[16rem]/page:col-span-2 @lg/page:col-span-1 @lg/page:min-w-24"
                 >
@@ -301,7 +313,14 @@ export default function ExplorerPage() {
                     spellCheck={false}
                     className="font-mono text-xs"
                     placeholder="{}"
+                    aria-invalid={bodyProblem ? true : undefined}
+                    aria-describedby={bodyProblem ? 'explorer-body-help' : undefined}
                   />
+                  {bodyProblem && (
+                    <p id="explorer-body-help" className="text-xs text-destructive">
+                      {bodyProblem}
+                    </p>
+                  )}
                 </div>
               )}
               {confirming && (
