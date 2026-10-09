@@ -209,7 +209,7 @@ export function PipelineSteps({
                   {i < last && <Rail filled={state === 'done'} vertical={false} />}
                 </span>
                 {/* a label wider than its quarter (Transcode at 320) breaks inside it */}
-                <span className="pr-2 leading-tight hyphens-auto wrap-break-word max-[22.5rem]:pr-1 max-[22.5rem]:text-xs">
+                <span className="pr-2 leading-tight hyphens-auto wrap-break-word max-[25rem]:pr-0 max-[25rem]:tracking-tight max-[22.5rem]:*:text-xs">
                   {label}
                 </span>
               </>

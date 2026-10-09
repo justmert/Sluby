@@ -12,7 +12,7 @@ describe('PipelineSteps', () => {
     const label = screen.getByText('Transcode').closest('li')!.lastElementChild!;
     expect(label).toHaveClass('hyphens-auto', 'wrap-break-word');
     // where hyphenation is missing it would split mid-word, so the narrowest screens use smaller text
-    expect(label).toHaveClass('max-[22.5rem]:text-xs', 'max-[22.5rem]:pr-1');
+    expect(label).toHaveClass('max-[22.5rem]:*:text-xs', 'max-[25rem]:tracking-tight');
   });
 
   it('names every step with where it stands', () => {
