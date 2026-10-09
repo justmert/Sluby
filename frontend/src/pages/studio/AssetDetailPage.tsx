@@ -631,7 +631,7 @@ export default function AssetDetailPage() {
                   <TabsTrigger value="renditions">Renditions</TabsTrigger>
                 </TabsList>
                 <TabsContent value="playback" className="mt-4">
-                  <PlaybackIdsCard assetId={a.id} />
+                  <PlaybackIdsCard asset={a} />
                 </TabsContent>
                 <TabsContent value="storage" className="mt-4">
                   <FadeSwap swapKey={sia.isLoading ? 'loading' : 'ready'}>

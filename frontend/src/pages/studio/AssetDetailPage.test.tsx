@@ -200,7 +200,7 @@ describe('AssetDetailPage', () => {
     render();
     expect(await screen.findByTestId('player')).toBeInTheDocument();
     expect(playerProps.mock.calls[0][0]).toMatchObject({ assetId: 'a1', signed: true });
-    expect(screen.getByText('Streaming direct from Sia')).toBeInTheDocument();
+    expect(screen.getByText('Streaming from Sia')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('radio', { name: '360p' }));
     expect(setQuality).toHaveBeenLastCalledWith(1);
