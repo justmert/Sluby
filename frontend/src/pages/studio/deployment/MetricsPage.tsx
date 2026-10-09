@@ -187,7 +187,7 @@ function RequestsChart({ m }: { m: MetricsSnapshot }) {
           fontSize={11}
         />
         <ChartTooltip content={<ChartTooltipContent />} />
-        <Bar dataKey="count" fill="var(--color-count)" radius={4} {...motion}>
+        <Bar dataKey="count" fill="var(--color-count)" radius={4} maxBarSize={24} {...motion}>
           {/* the numbers on the bars, so nobody needs the tooltip to read them */}
           <LabelList
             dataKey="count"
