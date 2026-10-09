@@ -127,6 +127,10 @@ function readable(message: string | undefined): message is string {
   if (
     /^(HTTP \d{3}|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout|Failed to fetch|Unknown API error)$/i.test(
       text,
+    ) ||
+    // a bare status phrase says nothing the status did not
+    /^(Bad Request|Unauthorized|Forbidden|Not Found|Method Not Allowed|Conflict|Gone|Precondition Failed|Payload Too Large|Unprocessable Entity|Too Many Requests)\.?$/i.test(
+      text,
     )
   ) {
     return false;
@@ -164,6 +168,15 @@ export function describeError(err: unknown): ErrorInfo {
   const raw = rawMessage(err);
   const status = statusOf(err);
 
+  // an answer that is not json, whatever status came with it
+  if (
+    /malformed JSON|Expected a JSON response|without a signature|no valid timestamp/i.test(
+      raw ?? '',
+    )
+  ) {
+    return { kind: 'server', status, message: UNKNOWN, action: 'retry', detail: raw };
+  }
+
   if (status === undefined) {
     if (isAbort(err))
       return { kind: 'aborted', message: 'The request was canceled.', action: 'none' };
@@ -172,9 +185,6 @@ export function describeError(err: unknown): ErrorInfo {
     // made in the studio (the upload store, a parser): known ones read well
     const mapped = known(raw);
     if (mapped) return { kind: 'unknown', message: mapped, action: 'retry', detail: raw };
-    if (/malformed JSON|without a signature|no valid timestamp/i.test(raw ?? '')) {
-      return { kind: 'server', message: UNKNOWN, action: 'retry', detail: raw };
-    }
     return { kind: 'unknown', message: UNKNOWN, action: 'retry', detail: raw };
   }
 

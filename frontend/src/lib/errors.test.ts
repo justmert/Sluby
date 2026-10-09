@@ -143,6 +143,31 @@ describe('errorText', () => {
     expect(describeError(err).action).toBe('none');
   });
 
+  it.each(['Conflict', 'Not Found', 'Forbidden', 'Bad Request', 'Too Many Requests'])(
+    'does not echo the bare status phrase %s',
+    (phrase) => {
+      for (const status of [400, 403, 404, 409, 418]) {
+        expect(errorText(new ApiError(status, phrase))).not.toContain(phrase);
+      }
+    },
+  );
+
+  it.each([
+    ['the api client', new ApiError(200, 'The server answered with malformed JSON')],
+    [
+      'the sdk',
+      new SlubyError(
+        'Expected a JSON response from http://localhost/api/v1/assets but could not parse it.',
+        200,
+      ),
+    ],
+  ])('says an unreadable answer from %s plainly, whatever its status', (_name, err) => {
+    expect(describeError(err)).toMatchObject({
+      message: 'Something went wrong. Try again in a moment.',
+      action: 'retry',
+    });
+  });
+
   it('keeps a readable validation message as a sentence', () => {
     expect(
       errorText(new ApiError(400, 'title: String must contain at most 200 character(s)')),

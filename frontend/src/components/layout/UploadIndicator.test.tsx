@@ -122,7 +122,12 @@ describe('UploadIndicator', () => {
     });
     await act(async () => f.current().fail(new SlubyError('Bad request', 400)));
     expect(screen.queryByRole('button', { name: /go to uploads/i })).not.toBeInTheDocument();
-    expect(await screen.findByText(/^“Keynote” failed\. Bad request\.$/)).toBeInTheDocument();
+    // a bare status phrase is not echoed; the reader gets the sentence for a 400
+    expect(
+      await screen.findByText(
+        /^“Keynote” failed\. Some details are not valid\. Check them and try again\.$/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it('toasts a ready video with its embed code, and remembers the file', async () => {
@@ -167,7 +172,9 @@ describe('UploadIndicator', () => {
     });
     await act(async () => f.current().fail(new SlubyError('Bad request', 400)));
     await waitFor(() =>
-      expect(screen.getByRole('status')).toHaveTextContent('“Keynote” failed. Bad request.'),
+      expect(screen.getByRole('status')).toHaveTextContent(
+        '“Keynote” failed. Some details are not valid. Check them and try again.',
+      ),
     );
     expect(
       screen.queryByText(/^“Keynote” failed/, { selector: '[data-title]' }),
