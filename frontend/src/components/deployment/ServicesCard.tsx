@@ -24,14 +24,12 @@ function ServiceRow({ label, about, probe }: { label: string; about?: string; pr
           {about && <p className="text-xs text-muted-foreground">{about}</p>}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span
-            className={
-              probe.ok ? 'text-sm text-muted-foreground tabular-nums' : 'text-sm text-destructive'
-            }
-          >
-            {probeText(probe)}
-          </span>
-          <StatusBadge kind="health" status={probeHealth(probe)} />
+          {probe.ok && (
+            <span className="text-sm text-muted-foreground tabular-nums">{probeText(probe)}</span>
+          )}
+          <StatusBadge kind="health" status={probeHealth(probe)}>
+            {probe.ok ? undefined : probeText(probe)}
+          </StatusBadge>
         </div>
       </div>
       {/* the raw error can be a long tls or socket line; it reads under Details, never as the headline */}

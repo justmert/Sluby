@@ -103,7 +103,10 @@ describe('HealthPage', () => {
       'Job queue',
     ]);
     expect(within(rows[0]).getByText('Not responding')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('Down')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('Not responding').closest('[data-tone]')).toHaveAttribute(
+      'data-tone',
+      'danger',
+    );
     expect(within(rows[0]).getByText(tls).closest('details')).not.toHaveAttribute('open');
     expect(within(rows[1]).getByText('2 ms')).toBeInTheDocument();
     expect(screen.getByText(/running for 3 hours 43 minutes/)).toBeInTheDocument();
