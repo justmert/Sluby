@@ -321,12 +321,13 @@ export function CommandPalette() {
         variant="outline"
         size="sm"
         onClick={() => setOpen(true)}
-        aria-label="Search and commands"
+        // named by its visible word, "Search"; below md the word is only for
+        // screen readers, since the button shrinks to its icon
         aria-keyshortcuts={mac ? 'Meta+K' : 'Control+K'}
         className="size-8 justify-start gap-2 p-0 text-muted-foreground max-md:justify-center md:w-44 md:px-2.5 xl:w-60"
       >
         <Search />
-        <span className="hidden flex-1 text-left font-normal md:inline">Search</span>
+        <span className="flex-1 text-left font-normal max-md:sr-only">Search</span>
         {/* the shortcut is exposed through aria-keyshortcuts */}
         <Kbd aria-hidden="true" className="hidden md:inline-flex">
           {mac ? '⌘K' : 'Ctrl K'}
