@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AnimatePresence } from 'motion/react';
+import { AnimatePresence, type TargetAndTransition } from 'motion/react';
 import * as m from 'motion/react-m';
 import { listContainer, listItem, spring } from '@/lib/motion';
 
@@ -54,9 +54,12 @@ interface AnimatedItemProps extends Omit<React.ComponentProps<ListElement>, 'var
 export function AnimatedItem({ as = 'li', layout = 'position', ...props }: AnimatedItemProps) {
   const Comp = itemTags[as] as ListElement;
   return (
+    // exit as a target, not the "exit" label: any variant label makes the item
+    // its own variant root, and it would then never take the list's hidden and
+    // visible, so nothing would stagger or fade in
     <Comp
       variants={listItem}
-      exit="exit"
+      exit={listItem.exit as TargetAndTransition}
       layout={layout === false ? undefined : layout}
       transition={{ layout: spring }}
       {...props}

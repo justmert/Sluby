@@ -43,6 +43,14 @@ describe('AnimatedList', () => {
     });
   });
 
+  it('starts its first items and an item added later from the hidden state', () => {
+    MotionGlobalConfig.skipAnimations = false;
+    const { rerender } = renderWithMotion(<List items={['a']} />);
+    expect(screen.getByText('a').style.opacity).toBe('0');
+    rerender(<List items={['a', 'b']} />);
+    expect(screen.getByText('b').style.opacity).toBe('0');
+  });
+
   it('adds a new item', async () => {
     const { rerender } = renderWithMotion(<List items={['a']} />);
     rerender(<List items={['a', 'b']} />);
