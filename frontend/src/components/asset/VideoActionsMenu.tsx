@@ -34,7 +34,9 @@ export interface VideoActionsMenuProps {
  */
 export function VideoActionsMenu({ asset, onDelete, deleting = false }: VideoActionsMenuProps) {
   return (
-    <DropdownMenu>
+    // not modal: a modal menu hides the page from screen readers while it
+    // stays focusable behind the menu (axe aria-hidden-focus)
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="icon" aria-label="More actions">
           <MoreHorizontal />
