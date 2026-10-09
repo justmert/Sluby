@@ -1,7 +1,7 @@
 import { useLocation, useSearchParams } from 'react-router';
 import { AssetDetailLoading } from '@/components/asset/AssetDetailLoading';
 import { KEY_COLUMNS, WEBHOOK_COLUMNS } from '@/components/developers/columns';
-import { VideoPickerSkeleton } from '@/components/developers/VideoPicker';
+import { VideoPickerSkeleton } from '@/components/developers/VideoPickerSkeleton';
 import { WebhookDetailLoading } from '@/components/developers/WebhookDetailLoading';
 import { SESSION_COLUMNS } from '@/components/settings/columns';
 import { type ColumnFrame, withCells } from '@/components/shared/column-frames';
