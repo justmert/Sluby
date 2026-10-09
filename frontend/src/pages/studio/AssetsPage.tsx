@@ -182,13 +182,17 @@ interface Selection {
 type PendingDelete = { assets: VideoAsset[]; fromBar: boolean };
 type PendingAccess = { assets: VideoAsset[]; tier: AccessTier };
 
+// an upload that never got its file has nothing on Sia (FLW-12)
+const hasFiles = (a: VideoAsset) => a.status !== 'created' && a.status !== 'uploading';
+
 const describeDelete = (d: PendingDelete) => {
   if (d.assets.length > 1) {
-    return 'They are removed from your library now and from Sia in the background. This cannot be undone.';
+    return d.assets.some(hasFiles)
+      ? 'They are removed from your library now and from Sia in the background. This cannot be undone.'
+      : 'They are removed from your library. This cannot be undone.';
   }
   const [a] = d.assets;
-  // an upload that never got its file has nothing on Sia (FLW-12)
-  const onSia = a.status !== 'created' && a.status !== 'uploading';
+  const onSia = hasFiles(a);
   return (
     <>
       “{a.title}” is removed from your library now{onSia && ' and from Sia in the background'}. This

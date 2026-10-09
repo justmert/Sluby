@@ -604,6 +604,20 @@ describe('AssetsPage: selection and bulk actions', () => {
     expect(within(screen.getByRole('toolbar')).getByText(/of 2/)).toBeInTheDocument();
   });
 
+  it('does not mention Sia when none of the selected videos got their file', async () => {
+    library([asset('w1', 'Waiting one', 'created'), asset('w2', 'Waiting two', 'created')]);
+    renderLibrary();
+    await screen.findByText('Waiting one');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Waiting one' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Waiting two' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected videos' });
+    await userEvent.click(within(bar).getByRole('button', { name: 'Delete' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByText('They are removed from your library. This cannot be undone.'),
+    ).toBeInTheDocument();
+  });
+
   it('treats a video that is already gone as deleted', async () => {
     library([asset('gone', 'Already deleted')]);
     renderLibrary();
