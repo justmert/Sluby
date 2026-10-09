@@ -161,7 +161,7 @@ describe('ProcessingCard', () => {
     const reupload = screen.getByRole('button', { name: 'Upload a different file' });
     // at a large default font the label wraps instead of running out of the card (1.4.4),
     // and on phones both actions take the full width instead of two ragged rows
-    expect(reupload).toHaveClass('whitespace-normal', 'h-auto');
+    expect(reupload).toHaveClass('whitespace-normal', 'h-auto', 'pointer-coarse:h-auto');
     expect(reupload.parentElement).toHaveClass('max-sm:flex-col', 'max-sm:items-stretch');
     // the ffmpeg line with the server path only under Details
     expect(screen.getByText('Details')).toBeInTheDocument();

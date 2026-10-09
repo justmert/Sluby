@@ -144,7 +144,7 @@ export function ProcessingCard({
               // wraps at a large text size instead of running out of the card
               <Button
                 variant="outline"
-                className="h-auto min-h-8 whitespace-normal"
+                className="h-auto min-h-8 py-1.5 whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-10"
                 onClick={() => uploadSheet.open()}
               >
                 <Upload />
