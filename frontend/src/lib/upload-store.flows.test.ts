@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { RateLimitError, SlubyError, type ProcessingJob } from '@sluby/sdk';
+import { AuthenticationError, RateLimitError, SlubyError, type ProcessingJob } from '@sluby/sdk';
 import { fakeUploadClient as fakeClient } from '@/test/fake-uploads';
 import { fakeBus, fakeLocks } from '@/test/fake-tabs';
 import { createUploadTabs } from './upload-tabs';
@@ -485,5 +485,36 @@ describe('drafts live in the store, so closing the sheet keeps them', () => {
     s.store.startDrafts();
     expect(s.f.upload.mock.calls[0][1]).toMatchObject({ description: 'A clip' });
     expect(s.store.getState().draftOptions.description).toBe('');
+  });
+});
+
+describe('a 401 carries its reason to the sign-in screen', () => {
+  const revoked = () =>
+    new AuthenticationError(
+      'Session revoked',
+      401,
+      JSON.stringify({ error: 'Session revoked', reason: 'revoked' }),
+    );
+
+  it('hands the 401 of a transfer to onAuthFailure', async () => {
+    const onAuthFailure = vi.fn();
+    const s = setup({ onAuthFailure });
+    s.store.start(file, { title: 'Clip' });
+    const err = revoked();
+    s.f.current().fail(err);
+    await flush();
+    expect(onAuthFailure).toHaveBeenCalledExactlyOnceWith(err);
+  });
+
+  it('hands the 401 of a processing reading to onAuthFailure', async () => {
+    const onAuthFailure = vi.fn();
+    const s = setup({ onAuthFailure });
+    const err = revoked();
+    s.f.processing.mockRejectedValue(err);
+    s.store.start(file, { title: 'Clip' });
+    s.f.current().resolveAsset('a');
+    s.f.current().finish();
+    await flush();
+    expect(onAuthFailure).toHaveBeenCalledExactlyOnceWith(err);
   });
 });

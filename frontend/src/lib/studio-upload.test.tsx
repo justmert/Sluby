@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthGate } from '@/components/AuthGate';
 import { fakeUploadClient } from '@/test/fake-uploads';
 import { createQueryClient } from './query-client';
+import { onUnauthorized } from './session-events';
 import { readUploadLimit, uploadStore } from './studio-upload';
 
 // tus cannot run in jsdom, so the studio's sdk client is the hand-driven fake;
@@ -78,5 +79,25 @@ describe('studio upload store', () => {
       vi.fn(async () => new Response(null, { status: 204 })),
     );
     expect(await readUploadLimit()).toBeNull();
+  });
+
+  it('tells the gate why the session ended when an upload answers 401 with a reason', async () => {
+    const reasons: unknown[] = [];
+    const stop = onUnauthorized((reason) => reasons.push(reason));
+    uploadStore.start(new File([new Uint8Array(10)], 'other.mp4', { type: 'video/mp4' }), {
+      title: 'Other',
+    });
+    await vi.waitFor(() => expect(fake.current!.upload).toHaveBeenCalled());
+    fake
+      .current!.current()
+      .fail(
+        new AuthenticationError(
+          'Session revoked',
+          401,
+          JSON.stringify({ error: 'Session revoked', reason: 'revoked' }),
+        ),
+      );
+    await vi.waitFor(() => expect(reasons).toEqual(['revoked']));
+    stop();
   });
 });

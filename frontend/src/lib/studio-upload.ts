@@ -2,6 +2,7 @@ import { createUploadStore } from './upload-store';
 import { queryClient } from './query-client';
 import { sluby } from './sluby';
 import { createUploadTabs } from './upload-tabs';
+import { sessionEndReasonOf } from '@/lib/session';
 import { reportUnauthorized } from '@/lib/session-events';
 
 /** The largest upload the server takes, from the tus OPTIONS answer; null when it sets none. */
@@ -20,7 +21,8 @@ export const uploadTabs = createUploadTabs();
 
 /** The studio's uploads, shared across pages, the sheet and the top bar. */
 export const uploadStore = createUploadStore(sluby, {
-  onAuthFailure: reportUnauthorized,
+  // the gate says why the session ended when the 401 carried a reason (B-11)
+  onAuthFailure: (err) => reportUnauthorized(sessionEndReasonOf(err)),
   queryClient,
   tabs: uploadTabs,
   readLimit: readUploadLimit,

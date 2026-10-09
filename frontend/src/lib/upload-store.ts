@@ -161,7 +161,7 @@ type Target = Pick<Window, 'addEventListener' | 'removeEventListener'>;
 export interface UploadStoreOptions {
   now?: () => number;
   /** Called once per 401, so the app can send the user back to sign-in. */
-  onAuthFailure?: () => void;
+  onAuthFailure?: (err: unknown) => void;
   /** Where to register the leave-page warning; none outside a browser. */
   unloadTarget?: Target | null;
   /**
@@ -485,11 +485,12 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
     publish();
   };
 
-  const authFailed = (key: string, patch: Partial<UploadState> = {}) => {
+  // the 401 itself goes along, so the sign-in screen can say why the session ended
+  const authFailed = (key: string, err: unknown, patch: Partial<UploadState> = {}) => {
     stopPolling(key);
     releaseClaim(key);
     set(key, { ...patch, authFailed: true, error: SESSION_ENDED, canResume: false, speed: 0 });
-    opts.onAuthFailure?.();
+    opts.onAuthFailure?.(err);
   };
 
   function stopPolling(key: string) {
@@ -558,7 +559,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       if (task.pollGen !== gen) return 'stop';
       const status = statusOf(err);
       if (status === 401) {
-        authFailed(key);
+        authFailed(key, err);
         return 'stop';
       }
       if (status === 404) {
@@ -648,7 +649,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       if (task.pollGen !== gen) return;
       const status = statusOf(err);
       if (status === 401) {
-        authFailed(key);
+        authFailed(key, err);
         return;
       }
       if (status === 404) {
@@ -827,7 +828,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
         // the file is free again: another tab, or a later resume here, may take it
         releaseClaim(key);
         if (statusOf(err) === 401) {
-          authFailed(key, { phase: 'failed', failedDuring: 'upload' });
+          authFailed(key, err, { phase: 'failed', failedDuring: 'upload' });
           return;
         }
         const canResume = !isAbort(err) && retryable(err);
@@ -899,7 +900,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
     try {
       session = await client.uploads.getStatus(uploadId);
     } catch (err) {
-      if (statusOf(err) === 401) authFailed(key);
+      if (statusOf(err) === 401) authFailed(key, err);
       // otherwise the count tus reported stays; resuming asks the server anyway
       return;
     }
@@ -1153,7 +1154,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
         task.attempt = null;
         releaseClaim(key);
         if (statusOf(err) === 401) {
-          authFailed(key, { cleanup: 'failed' });
+          authFailed(key, err, { cleanup: 'failed' });
           return;
         }
         set(key, { cleanup: 'failed', ...cleanupError(err) });
@@ -1187,7 +1188,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       } catch (err) {
         const status = statusOf(err);
         if (status === 401) {
-          authFailed(key, { cleanup: 'failed' });
+          authFailed(key, err, { cleanup: 'failed' });
           return;
         }
         if (status === 409) {
@@ -1231,7 +1232,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       } catch (err) {
         if (tasks.get(key)?.pollGen !== gen) return;
         if (statusOf(err) === 401) {
-          authFailed(key, { phase: 'failed', failedDuring: 'processing' });
+          authFailed(key, err, { phase: 'failed', failedDuring: 'processing' });
           return;
         }
         set(key, { phase: 'failed', failedDuring: 'processing', ...led('Could not retry', err) });
