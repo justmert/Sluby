@@ -296,6 +296,19 @@ describe('Overview page', () => {
       routes['/api/v1/assets'] = assetsRoute({}, []);
     });
 
+    it('does not tick the upload step for videos whose file never came', async () => {
+      routes['/api/v1/stats'] = {
+        ...emptyStats,
+        total: 2,
+        by_status: { ...emptyStats.by_status, created: 2 },
+      };
+      setup();
+      render();
+      await screen.findByRole('list', { name: 'Steps' });
+      expect(within(steps()[1]).getByText(', Not done')).toBeInTheDocument();
+      expect(within(steps()[1]).getByRole('button', { name: 'Upload video' })).toBeInTheDocument();
+    });
+
     it('leads an empty account with the checklist, step 1 read from the real probe', async () => {
       setup();
       render();

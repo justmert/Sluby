@@ -34,7 +34,11 @@ export function siaConnected(status: SystemStatus | undefined, operator: boolean
 export function stepStates(input: GetStartedInput): StepState[] {
   return [
     { id: 'sia', done: siaConnected(input.status, input.operator) },
-    { id: 'upload', done: (input.stats?.total ?? 0) > 0 },
+    // a video still waiting for its file was created, not uploaded
+    {
+      id: 'upload',
+      done: (input.stats?.total ?? 0) - (input.stats?.by_status.created ?? 0) > 0,
+    },
     {
       id: 'play',
       done: (input.usage?.total ?? 0) > 0 || (input.videos ?? []).some((v) => v.playCount > 0),
