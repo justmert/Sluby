@@ -91,4 +91,31 @@ describe('UserMenu', () => {
     await vi.waitFor(() => expect(replacePage).toHaveBeenCalledWith('/studio'));
     expect(screen.queryByText(/Could not sign out/)).not.toBeInTheDocument();
   });
+
+  it('shows sign-in off on its trigger and keeps the theme (D-15, A11Y-39)', async () => {
+    renderMenu({ operator: true, authDisabled: true, provider: 'local', username: 'dev' });
+    const trigger = screen.getByRole('button', { name: 'dev, operator, sign-in off' });
+    expect(trigger).toHaveTextContent('Sign-in off');
+    await userEvent.click(trigger);
+    expect(await screen.findByRole('menuitem', { name: 'Theme' })).toBeInTheDocument();
+  });
+
+  it('links to the API reference and the source, each in a new tab (D-13)', async () => {
+    renderMenu();
+    await userEvent.click(screen.getByRole('button', { name: /alice/ }));
+    const reference = await screen.findByRole('menuitem', { name: 'API reference' });
+    expect(reference).toHaveAttribute('href', '/api/v1/docs');
+    expect(reference).toHaveAttribute('target', '_blank');
+    expect(screen.getByRole('menuitem', { name: 'Source on GitHub' })).toHaveAttribute(
+      'href',
+      'https://github.com/justmert/Sluby',
+    );
+  });
+
+  it('drops its chevron and side padding on a very narrow bar (A11Y-46)', () => {
+    renderMenu();
+    const trigger = screen.getByRole('button', { name: /alice/ });
+    expect(trigger).toHaveClass('max-[24rem]:px-1.5');
+    expect(trigger.querySelector('.lucide-chevron-down')).toHaveClass('max-[24rem]:hidden');
+  });
 });
