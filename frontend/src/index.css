@@ -514,6 +514,30 @@
     :is(button, a, input, [tabindex]) {
     visibility: hidden;
   }
+  /* a row with a checkbox leads with it: top left, centred on the title's
+     first line and under Select all, with the menu still top right */
+  table[data-responsive='container'] > tbody > tr:has(> td[data-cell='select']) {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  table[data-responsive='container'] > tbody > tr:has(> td[data-cell='select']) > td {
+    grid-column: 2;
+  }
+  table[data-responsive='container']
+    > tbody
+    > tr:has(> td[data-cell='select'])
+    > td[data-cell='select'] {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    padding: 0;
+    margin-top: 2px;
+  }
+  table[data-responsive='container']
+    > tbody
+    > tr:has(> td[data-cell='select'])
+    > td[data-cell='actions'] {
+    grid-column: 3;
+  }
 }
 
 /* forced colors (windows high contrast) drops box-shadow rings, and the

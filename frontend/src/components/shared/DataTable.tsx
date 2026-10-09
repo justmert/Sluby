@@ -303,7 +303,8 @@ export function DataTable<T>({
         Array.from({ length: loadingRows }, (_, r) => (
           <TableRow key={r} className="hover:bg-transparent">
             {selectable && (
-              <TableCell className="pl-4">
+              // placed like a row's checkbox, so phone cards keep it where it lands
+              <TableCell className="pl-4" data-cell="select">
                 <Skeleton className={cn('size-4', lateReveal)} />
               </TableCell>
             )}
