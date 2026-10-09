@@ -68,7 +68,30 @@ describe('UploadIndicator', () => {
     expect(
       screen.getByRole('button', { name: 'Keynote: Paused at 30%. Go to uploads' }).parentElement,
     ).toHaveTextContent('Paused');
-    expect(screen.getByRole('status')).toHaveTextContent('“Keynote”: Paused');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('“Keynote”: Paused'));
+  });
+
+  it('says where a burst of phases ends up, not each step of it', async () => {
+    const { f, store } = setup();
+    f.processing.mockResolvedValue(job());
+    const region = screen.getByRole('status');
+    const said: string[] = [];
+    new MutationObserver(() => said.push(region.textContent ?? '')).observe(region, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    act(() => {
+      store.start(file, { title: 'Keynote' });
+    });
+    // a small file: sent, finished and processing within moments
+    await act(async () => {
+      f.current().progress(100, 100);
+      f.current().resolveAsset('a1');
+      f.current().finish();
+    });
+    await waitFor(() => expect(region).toHaveTextContent('“Keynote”: Processing'));
+    expect(said).toEqual(['“Keynote”: Processing']);
   });
 
   it('counts files waiting in the queue', () => {
@@ -136,7 +159,9 @@ describe('UploadIndicator', () => {
       store.start(file, { title: 'Keynote' });
     });
     await act(async () => f.current().fail(new SlubyError('Bad request', 400)));
-    expect(screen.getByRole('status')).toHaveTextContent('“Keynote” failed. Bad request.');
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('“Keynote” failed. Bad request.'),
+    );
     expect(
       screen.queryByText(/^“Keynote” failed/, { selector: '[data-title]' }),
     ).not.toBeInTheDocument();
@@ -158,7 +183,7 @@ describe('UploadIndicator', () => {
       store.start(file, { title: 'Keynote' });
     });
     await act(async () => f.current().fail(new SlubyError('Upload failed: network', 0)));
-    expect(screen.getByRole('status')).toHaveTextContent('“Keynote”: Offline');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('“Keynote”: Offline'));
     expect(screen.queryByText(/failed/)).not.toBeInTheDocument();
   });
 });

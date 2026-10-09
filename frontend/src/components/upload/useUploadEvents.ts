@@ -15,6 +15,10 @@ import {
 
 type Seen = Map<string, { phase: UploadPhase; resumed: boolean }>;
 
+// a small file goes from uploading to processing within a fraction of a
+// second; the region waits this long and then says where each upload ended up
+const SETTLE_MS = 700;
+
 async function copyEmbed(u: UploadState) {
   try {
     await navigator.clipboard.writeText(
@@ -32,8 +36,9 @@ async function copyEmbed(u: UploadState) {
  * with Open video (D-14), "Continuing “Teaser” from 40%" once the sdk
  * really continued (FLW-04), and the file remembered for the duplicate hint
  * (FLW-47). Other phase changes are written to the returned live region,
- * once each; ready and failed are announced by their toasts, or by the
- * region while the sheet is open and the row already shows them.
+ * once they settle, so a burst of phases is said once; ready and failed are
+ * announced by their toasts, or by the region while the sheet is open and
+ * the row already shows them.
  */
 export function useUploadEvents(store: UploadStore, accountId: string) {
   const { uploads } = useUploads(store);
@@ -41,12 +46,15 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
   const sheet = useUploadSheet();
   const seen = useRef<Seen | null>(null);
   const region = useRef<HTMLSpanElement>(null);
+  // what each upload's last change says, until the region says it
+  const pending = useRef(new Map<string, string>());
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const changed = useEffectEvent((list: UploadState[]) => {
     const first = seen.current === null;
     const before: Seen = seen.current ?? new Map();
     const next: Seen = new Map();
-    const said: string[] = [];
+    const said = new Map<string, string>();
     for (const u of list) {
       const was = before.get(u.key);
       next.set(u.key, { phase: u.phase, resumed: u.resumedFrom !== null });
@@ -69,7 +77,8 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
         !u.authFailed &&
         !u.lostConnection
       ) {
-        said.push(
+        said.set(
+          u.key,
           u.phase === 'ready'
             ? `“${u.title}” is ready`
             : `“${u.title}” failed. ${u.error ?? ''}`.trim(),
@@ -83,7 +92,7 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
         if (u.authFailed) continue;
         // a dropped connection continues by itself; a toast would cry wolf
         if (u.lostConnection) {
-          said.push(`“${u.title}”: ${statusSpec('upload', 'offline').label}`);
+          said.set(u.key, `“${u.title}”: ${statusSpec('upload', 'offline').label}`);
           continue;
         }
         const action =
@@ -92,14 +101,21 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
             : { label: 'Open uploads', onClick: () => sheet.open() };
         toastError(`“${u.title}” failed. ${u.error ?? ''}`.trim(), { action });
       } else {
-        said.push(`“${u.title}”: ${statusSpec('upload', u.phase).label}`);
+        said.set(u.key, `“${u.title}”: ${statusSpec('upload', u.phase).label}`);
       }
     }
     seen.current = next;
-    if (said.length > 0 && region.current) region.current.textContent = said.join('. ');
+    if (said.size === 0) return;
+    for (const [key, text] of said) pending.current.set(key, text);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      if (region.current) region.current.textContent = [...pending.current.values()].join('. ');
+      pending.current.clear();
+    }, SETTLE_MS);
   });
 
   useEffect(() => changed(uploads), [uploads]);
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   return region;
 }
