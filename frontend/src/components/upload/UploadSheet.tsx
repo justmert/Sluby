@@ -35,7 +35,7 @@ export function UploadSheet() {
           else if (!sheet?.contains(document.activeElement)) sheet?.focus();
         }}
         onCloseAutoFocus={focus.onCloseAutoFocus}
-        className="gap-0 overflow-y-auto overscroll-contain data-[side=bottom]:h-dvh data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
+        className="gap-0 overflow-y-auto overscroll-contain outline-none data-[side=bottom]:h-dvh data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
       >
         <SheetHeader className="pr-12">
           <SheetTitle>Upload videos</SheetTitle>
