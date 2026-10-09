@@ -133,9 +133,10 @@ export function ProcessingCard({
         actions={
           <>
             {deleteButton}
-            {info.action === 'retry' && <RetryProcessingButton asset={asset} />}
+            {/* outline on an error card: red is already there, a filled warm button would blur into it (VIS-11) */}
+            {info.action === 'retry' && <RetryProcessingButton asset={asset} variant="outline" />}
             {info.action === 'reupload' && (
-              <Button onClick={() => uploadSheet.open()}>
+              <Button variant="outline" onClick={() => uploadSheet.open()}>
                 <Upload />
                 Upload a different file
               </Button>

@@ -203,7 +203,7 @@ export function PlaybackIdsCard({ asset }: { asset: Asset }) {
       id: 'name',
       header: 'Name',
       primary: true,
-      className: 'max-w-64 whitespace-normal',
+      className: 'max-w-64 min-w-36 whitespace-normal',
       cell: (row) =>
         row.name ? (
           // long names wrap to two lines instead of pushing the buttons off screen (A11Y-08)
@@ -225,7 +225,9 @@ export function PlaybackIdsCard({ asset }: { asset: Asset }) {
           </span>
         ) : (
           <span className="inline-flex min-w-0 items-center gap-1">
-            <code className="truncate font-mono text-xs">{row.playbackId}</code>
+            <code className="max-w-28 truncate font-mono text-xs @3xl/page:max-w-40">
+              {row.playbackId}
+            </code>
             <CopyButton
               value={row.playbackId}
               className="size-6"
@@ -249,7 +251,7 @@ export function PlaybackIdsCard({ asset }: { asset: Asset }) {
           <span className="inline-flex min-w-0 flex-wrap items-center gap-1">
             <span className="inline-flex min-w-0 items-center gap-1">
               <code
-                className="max-w-56 truncate font-mono text-xs text-muted-foreground"
+                className="max-w-32 truncate font-mono text-xs text-muted-foreground @3xl/page:max-w-48"
                 title={url}
               >
                 {url.replace(/^https?:\/\//, '')}
@@ -268,7 +270,8 @@ export function PlaybackIdsCard({ asset }: { asset: Asset }) {
     {
       id: 'created',
       header: 'Created',
-      className: 'text-muted-foreground',
+      // gives way first on narrow pages so the row menu stays on screen (A11Y-08)
+      className: 'hidden text-muted-foreground @3xl/page:table-cell',
       cell: (row) => formatDate(row.createdAt),
     },
   ];

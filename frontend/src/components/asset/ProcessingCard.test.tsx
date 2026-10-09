@@ -137,6 +137,11 @@ describe('ProcessingCard', () => {
       .map((b) => b.textContent);
     // secondary first, primary last (VIS-26)
     expect(buttons.slice(-2)).toEqual(['Delete video', 'Retry processing']);
+    // no filled warm button next to the red failure (VIS-11)
+    expect(screen.getByRole('button', { name: 'Retry processing' })).toHaveAttribute(
+      'data-variant',
+      'outline',
+    );
     expect(steps()[2]).toBe('Store on Sia, failed');
   });
 

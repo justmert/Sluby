@@ -97,6 +97,10 @@ describe('PlaybackIdsCard', () => {
     expect(name).toHaveClass('line-clamp-2', 'wrap-anywhere');
     expect(name).toHaveAttribute('dir', 'auto');
     expect(name.closest('td')!.className).toContain('max-w-64');
+    // the created date gives way on narrow pages so the row menu stays reachable
+    expect(screen.getByText(/Oct 1, 2026/).closest('td')!.className).toContain(
+      '@3xl/page:table-cell',
+    );
   });
 
   it('caps a new name at the 100 characters the server takes', async () => {
