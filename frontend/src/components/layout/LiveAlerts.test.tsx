@@ -74,6 +74,17 @@ describe('LiveAlerts', () => {
     expect(screen.queryByText(/not working/)).not.toBeInTheDocument();
   });
 
+  it('says nothing about one bad reading between good ones, as from a slow Sia indexer', async () => {
+    const { answer } = setup();
+    await answer(status('ok'));
+    await answer(status('degraded', { indexer: false }));
+    await answer(status('ok'));
+    await answer(status('degraded', { indexer: false }));
+    await answer(status('ok'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/not working|working again/)).not.toBeInTheDocument();
+  });
+
   it('toasts once when a service stops working, not on every poll, and again when it is back', async () => {
     const { answer } = setup();
     await answer(status('ok'));

@@ -28,9 +28,10 @@ function sentence(names: string[]): string {
 /**
  * Toasts when the server's health changes while the Studio is open: once
  * per change, never per poll, and not for the state found on load (the
- * Health dot shows that). A change counts once two polls in a row agree, so
- * a probe that fails for one poll does not toast (and get read out) twice,
- * down and then back. Shares the shell's status poll.
+ * Health dot shows that). A new verdict has to hold for two readings in a
+ * row: the hosted Sia indexer misses its 5 s probe now and then for one
+ * reading, and that should not toast "not working" and "working again"
+ * every few minutes. Shares the shell's status poll.
  */
 export function LiveAlerts() {
   const status = useSystemStatus({ poll: true });
