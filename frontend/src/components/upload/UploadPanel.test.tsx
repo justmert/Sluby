@@ -7,7 +7,7 @@ import { fakeUploadClient } from '@/test/fake-uploads';
 import { fakeBus, fakeLocks } from '@/test/fake-tabs';
 import { WithSession, testSession } from '@/test/session';
 import { job } from '@/test/upload-state';
-import { recordUpload } from '@/lib/upload-history';
+import { findUpload, recordUpload } from '@/lib/upload-history';
 import { createUploadStore, type UploadStoreOptions } from '@/lib/upload-store';
 import { createUploadTabs, fileFingerprint, type UploadTabs } from '@/lib/upload-tabs';
 import { UploadPanel } from './UploadPanel';
@@ -18,6 +18,26 @@ vi.mock('@/lib/studio-upload', async () => {
   const { fakeUploadClient } = await import('@/test/fake-uploads');
   const { createUploadStore } = await import('@/lib/upload-store');
   return { uploadStore: createUploadStore(fakeUploadClient().client, { unloadTarget: null }) };
+});
+
+// a video as the api sends it
+const oldVideo = (id: string) => ({
+  id,
+  title: 'Teaser',
+  description: '',
+  manifest_object_id: 'm',
+  thumbnail_object_ids: [],
+  duration_ms: 1000,
+  resolution: '1280x720',
+  status: 'ready',
+  access_tier: 'public',
+  creator_address: 'github:dev',
+  segment_count: 1,
+  total_storage_bytes: 1000,
+  play_count: 0,
+  last_played_at: null,
+  created_at: '2026-10-01T00:00:00Z',
+  updated_at: '2026-10-01T00:00:00Z',
 });
 
 const video = (name = 'my_trip-video.mp4', size = 20 * 1024 * 1024, lastModified = 1700000000000) =>
@@ -236,7 +256,7 @@ describe('upload sheet: limits, history and other tabs', () => {
       },
       Date.now() - 2 * 24 * 60 * 60 * 1000,
     );
-    setup();
+    setup({ routes: { '/api/v1/assets/a-old': oldVideo('a-old') } });
     drop(file);
     expect(screen.getByText(/You uploaded this file 2 days ago as/)).toHaveTextContent(
       'You uploaded this file 2 days ago as “Teaser”. Open video',
@@ -245,6 +265,26 @@ describe('upload sheet: limits, history and other tabs', () => {
       'href',
       '/studio/videos/a-old',
     );
+  });
+
+  it('says nothing about an earlier upload whose video was deleted elsewhere since', async () => {
+    const file = video('teaser.mp4');
+    recordUpload(
+      {
+        fingerprint: fileFingerprint(file),
+        title: 'Teaser',
+        assetId: 'a-gone',
+        accountId: testSession.id,
+      },
+      Date.now() - 60_000,
+    );
+    setup({ routes: { '/api/v1/assets/a-gone': reply(404, { error: 'Video asset not found' }) } });
+    drop(file);
+    await waitFor(() =>
+      expect(screen.queryByText(/You uploaded this file/)).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('link', { name: 'Open video' })).not.toBeInTheDocument();
+    expect(findUpload(fileFingerprint(file), testSession.id)).toBeNull();
   });
 
   it('lists what another tab uploads and refuses that file here (FLW-05)', async () => {

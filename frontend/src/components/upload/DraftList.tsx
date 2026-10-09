@@ -1,13 +1,16 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { Link } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { AnimatedItem, AnimatedList } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { statusOf } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import { formatBytes, formatRelativeTime } from '@/lib/formatters';
-import type { UploadRecord } from '@/lib/upload-history';
+import { sluby } from '@/lib/sluby';
+import { forgetUpload, type UploadRecord } from '@/lib/upload-history';
 import { overLimit, type Draft } from '@/lib/upload-store';
 import { cn } from '@/lib/utils';
 import { draftTitleId } from './ids';
@@ -130,18 +133,38 @@ function DraftField({
         </FieldError>
       )}
       {tooLarge && <p className="text-xs text-destructive">{overLimit(d.file.size, limit)}</p>}
-      {before && (
-        <p className="text-xs text-muted-foreground">
-          You uploaded this file {formatRelativeTime(new Date(before.at))} as “
-          <span dir="auto">{before.title}</span>”.{' '}
-          <Link
-            to={ROUTES.video(before.assetId)}
-            className="font-medium text-foreground underline-offset-4 hover:underline"
-          >
-            Open video
-          </Link>
-        </p>
-      )}
+      {before && <EarlierUpload record={before} />}
     </Field>
+  );
+}
+
+/**
+ * "You uploaded this file 2 days ago as …" with a link, unless that video was
+ * deleted since, from another browser or through the api: then the record is
+ * dropped and nothing is said.
+ */
+function EarlierUpload({ record }: { record: UploadRecord }) {
+  const earlier = useQuery({
+    queryKey: ['assets', 'one', record.assetId],
+    queryFn: () => sluby.assets.get(record.assetId),
+    retry: false,
+  });
+  const status = earlier.isError ? statusOf(earlier.error) : undefined;
+  const gone = status === 404 || status === 400;
+  useEffect(() => {
+    if (gone) forgetUpload(record.assetId);
+  }, [gone, record.assetId]);
+  if (gone) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      You uploaded this file {formatRelativeTime(new Date(record.at))} as “
+      <span dir="auto">{record.title}</span>”.{' '}
+      <Link
+        to={ROUTES.video(record.assetId)}
+        className="font-medium text-foreground underline-offset-4 hover:underline"
+      >
+        Open video
+      </Link>
+    </p>
   );
 }

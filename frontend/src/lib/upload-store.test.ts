@@ -11,6 +11,8 @@ import {
 } from '@sluby/sdk';
 import { fakeUploadClient as fakeClient } from '@/test/fake-uploads';
 import { createUploadStore, type UploadStoreOptions } from './upload-store';
+import { findUpload, recordUpload } from './upload-history';
+import { fileFingerprint } from './upload-tabs';
 
 function job(overrides: Partial<ProcessingJob>): ProcessingJob {
   return {
@@ -328,6 +330,21 @@ describe('upload store: processing poll', () => {
 
     await vi.advanceTimersByTimeAsync(2000);
     expect(s.one().job?.stage).toBe('transcode');
+  });
+
+  it('forgets an upload whose video was deleted during processing', async () => {
+    recordUpload({
+      fingerprint: fileFingerprint(file),
+      title: 'Clip',
+      assetId: 'a',
+      accountId: 'acc',
+    });
+    const s = await transferredUpload();
+    s.f.processing.mockRejectedValue(new NotFoundError('No processing job found for this asset'));
+    s.f.get.mockRejectedValue(new NotFoundError('Video asset not found'));
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(s.one()).toMatchObject({ phase: 'failed', assetGone: true });
+    expect(findUpload(fileFingerprint(file), 'acc')).toBeNull();
   });
 
   it('stops and says so when the asset is deleted during processing', async () => {

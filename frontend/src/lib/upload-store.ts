@@ -5,6 +5,7 @@ import { failureInfo, jobStep, type Job } from '@/components/asset/processing';
 import { retryAfterOf } from './api-client';
 import { describeError, errorText } from './errors';
 import { formatBytes } from './formatters';
+import { forgetUpload } from './upload-history';
 import { fileFingerprint, type SharedUpload, type UploadTabs } from './upload-tabs';
 
 // tus chunk size the studio uploads with; the progress strip draws these
@@ -538,6 +539,8 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       }
       if (status === 404) {
         stopPolling(key);
+        // picking the file again should not point at a video that is gone
+        forgetUpload(assetId);
         set(key, {
           phase: 'failed',
           failedDuring: 'processing',
