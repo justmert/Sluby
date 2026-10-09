@@ -1,14 +1,16 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 // real-browser tests for what jsdom cannot show, such as motion's frame loop
 // deciding whether a screen ever appears. the jsdom suite stays in vite.config.ts.
+// tailwind only styles a suite that imports index.css, for layout checks
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       '@': here('./src'),

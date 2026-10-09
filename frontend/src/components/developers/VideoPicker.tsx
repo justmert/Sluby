@@ -11,7 +11,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorDetails } from '@/components/shared/ErrorDetails';
 import { Button } from '@/components/ui/button';
 import { errorText } from '@/lib/errors';
+import { lateReveal } from '@/lib/motion';
 import { useUploadSheet } from '@/lib/upload-sheet';
+import { cn } from '@/lib/utils';
 
 /**
  * Picks the video whose ID the snippets use. Without a ready video the
@@ -34,9 +36,7 @@ export function VideoPicker({
   retrying?: boolean;
 }) {
   const upload = useUploadSheet();
-  if (selected === undefined) {
-    return <Skeleton className="h-9 w-full max-w-sm" />;
-  }
+  if (selected === undefined) return <VideoPickerSkeleton />;
   if (error && !videos) {
     // the snippets still work with the placeholder; the full reason is under Details
     return (
@@ -98,6 +98,19 @@ export function VideoPicker({
       <p id="snippet-video-help" className="text-xs text-muted-foreground">
         Fills its video ID into these snippets
       </p>
+    </div>
+  );
+}
+
+/** The picker's label, field and help line while the videos load, in the same boxes. */
+export function VideoPickerSkeleton() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5" aria-hidden="true">
+      <Skeleton className={cn('my-0.5 h-4 w-10', lateReveal)} />
+      <Skeleton
+        className={cn('h-8 w-full max-w-sm min-w-0 pointer-coarse:h-10 sm:w-72', lateReveal)}
+      />
+      <Skeleton className={cn('my-0.5 h-3 w-56', lateReveal)} />
     </div>
   );
 }
