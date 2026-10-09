@@ -67,9 +67,9 @@ export function StatCard({
   return (
     <Card size="sm" className="h-full">
       <CardHeader>
-        <CardDescription className="flex min-w-0 items-center gap-2">
-          <Icon className="size-4 shrink-0" aria-hidden="true" />
-          <span className="truncate">{label}</span>
+        <CardDescription className="flex min-w-0 items-start gap-2">
+          <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span className="line-clamp-2 min-w-0">{label}</span>
         </CardDescription>
         <CardTitle as="p">
           <FadeSwap swapKey={loading ? 'loading' : 'ready'}>
