@@ -157,8 +157,24 @@ describe('API explorer', () => {
     render();
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
     await act(async () => vi.advanceTimersByTime(30_000));
-    expect(await screen.findByText('No answer after 30 seconds')).toBeInTheDocument();
+    expect(
+      await screen.findByText('No answer to GET /api/v1/assets?limit=20 after 30 seconds'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+  });
+
+  it('does not leave an earlier answer under a request that failed', async () => {
+    let calls = 0;
+    answers['GET /api/v1/assets?limit=20'] = () =>
+      ++calls === 1
+        ? respond({ status: 200, body: { data: [] } })
+        : Promise.reject(new TypeError('Failed to fetch'));
+    render();
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByTestId('explorer-response');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not send GET');
+    expect(screen.queryByTestId('explorer-response')).not.toBeInTheDocument();
   });
 
   it('hands a 401 to the sign-in gate (FLW-18)', async () => {

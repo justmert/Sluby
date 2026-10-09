@@ -161,6 +161,8 @@ export default function ExplorerPage() {
       });
     } catch (err) {
       if (id !== seq.current) return;
+      // the last answer belongs to another request; under this failure it would read as its answer
+      setAnswer(null);
       setFailure({
         ...request,
         timedOut,
@@ -355,7 +357,7 @@ export default function ExplorerPage() {
                 error={failure.error}
                 title={
                   failure.timedOut
-                    ? 'No answer after 30 seconds'
+                    ? `No answer to ${failure.method} ${failure.path} after 30 seconds`
                     : `Could not send ${failure.method} ${failure.path}`
                 }
               />
