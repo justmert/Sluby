@@ -29,7 +29,7 @@ export function ObjectIdBadge({
   copyLabel = 'Copy object ID',
 }: ObjectIdBadgeProps) {
   return (
-    <span className={cn('inline-flex items-center gap-1', className)} title={value}>
+    <span className={cn('inline-flex max-w-full items-center gap-1', className)} title={value}>
       <span className="truncate font-mono">{truncateMiddle(value, truncate)}</span>
       {!hideCopy && <CopyButton value={value} className="size-6" label={copyLabel} />}
     </span>

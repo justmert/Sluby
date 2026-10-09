@@ -44,4 +44,13 @@ describe('AppearanceSection', () => {
     await userEvent.click(screen.getByRole('radio', { name: 'Light' }));
     expect(document.documentElement).toHaveClass('light');
   });
+
+  it('wraps the theme choices at a large text size instead of leaving the card (1.4.4)', () => {
+    renderPage(<AppearanceSection />);
+    expect(screen.getByRole('radiogroup', { name: 'Theme' })).toHaveClass(
+      'flex-wrap',
+      'max-w-full',
+      'data-[variant=segmented]:h-auto',
+    );
+  });
 });

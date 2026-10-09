@@ -142,7 +142,7 @@ export function CodeBlock({
       }}
       className={cn('gap-0 rounded-lg border bg-muted/40', className)}
     >
-      <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-2 py-1.5">
         <TabsList variant="line" className="h-7" aria-label={tabsLabel}>
           {samples.map((s) => (
             <TabsTrigger key={s.label} value={s.label} className="px-2 text-xs">
@@ -154,6 +154,7 @@ export function CodeBlock({
           value={selected?.code ?? ''}
           label={`Copy ${label}${selected ? ` (${selected.label})` : ''}`}
           onCopied={onCopied}
+          className="ml-auto"
         />
       </div>
       {samples.map((s) => (

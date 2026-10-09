@@ -218,7 +218,11 @@ export default function QuickstartPage() {
       </Card>
 
       <div className="mt-6">
-        <Button variant="outline" asChild>
+        <Button
+          variant="outline"
+          className="h-auto min-h-8 py-1.5 whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-10"
+          asChild
+        >
           <Link to={ROUTES.EXPLORER} onPointerEnter={() => preloadPage(ROUTES.EXPLORER)}>
             Try a request in the API explorer
             <ArrowRight />

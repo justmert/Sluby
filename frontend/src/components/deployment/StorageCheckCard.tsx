@@ -72,7 +72,8 @@ function Disclosure({
       <Button
         variant="ghost"
         size="sm"
-        className="-ml-2"
+        // wraps at a large text size instead of running out of the card
+        className="-ml-2 h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9"
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((o) => !o)}
@@ -190,7 +191,7 @@ export function CheckNowButton({
     <Button
       variant="outline"
       size="sm"
-      className="h-auto min-h-7 whitespace-normal"
+      className="h-auto min-h-7 py-1 whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9"
       onClick={onClick}
       disabled={disabled || pending}
     >

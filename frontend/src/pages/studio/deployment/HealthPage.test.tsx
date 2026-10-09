@@ -139,6 +139,8 @@ describe('HealthPage', () => {
     expect(within(check).getByText('Checked 3 minutes ago')).toBeInTheDocument();
     const toggle = within(check).getByRole('button', { name: 'Show unused files on Sia (2)' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // wraps at a large default font instead of running out of the card (1.4.4)
+    expect(toggle).toHaveClass('whitespace-normal', 'pointer-coarse:h-auto');
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     const list = within(check).getByRole('list', { name: 'Unused files on Sia' });
@@ -182,7 +184,12 @@ describe('HealthPage', () => {
     });
     await screen.findByText('Checked 3 minutes ago');
     // wraps at a large default font instead of running out of the card (1.4.4)
-    expect(screen.getByRole('button', { name: 'Check now' })).toHaveClass('whitespace-normal');
+    const checkNow = screen.getByRole('button', { name: 'Check now' });
+    expect(checkNow).toHaveClass('whitespace-normal', 'pointer-coarse:h-auto');
+    // and drops under the title when there is no room beside it
+    expect(checkNow.closest('[data-slot=card-action]')).toHaveClass(
+      '@max-[14rem]/page:col-start-1',
+    );
     await userEvent.click(screen.getByRole('button', { name: 'Check now' }));
     expect(await screen.findByText('Storage check started')).toBeInTheDocument();
     expect(server.calls.filter((c) => c.method === 'POST')).toHaveLength(1);

@@ -212,7 +212,7 @@ export default function ExplorerPage() {
               <div className="grid gap-2">
                 <Label htmlFor="explorer-template">Template</Label>
                 <Select key={templateKey} value={template} onValueChange={load}>
-                  <SelectTrigger id="explorer-template" className="w-full">
+                  <SelectTrigger id="explorer-template" className="w-full min-w-0">
                     <SelectValue placeholder="Start from a template" />
                   </SelectTrigger>
                   <SelectContent>
@@ -232,7 +232,7 @@ export default function ExplorerPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-end gap-2 @lg/page:grid-cols-[7rem_minmax(0,1fr)_auto]">
+              <div className="grid grid-cols-1 items-end gap-2 @[16rem]/page:grid-cols-[7rem_minmax(0,1fr)] @lg/page:grid-cols-[7rem_minmax(0,1fr)_auto]">
                 <div className="grid gap-2">
                   <Label htmlFor="explorer-method">Method</Label>
                   <Select
@@ -274,7 +274,7 @@ export default function ExplorerPage() {
                   type="submit"
                   disabled={!!problem || sending}
                   aria-busy={sending || undefined}
-                  className="col-span-2 @lg/page:col-span-1 @lg/page:min-w-24"
+                  className="@[16rem]/page:col-span-2 @lg/page:col-span-1 @lg/page:min-w-24"
                 >
                   {sending ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <Send />}
                   {sending ? 'Sending…' : 'Send'}

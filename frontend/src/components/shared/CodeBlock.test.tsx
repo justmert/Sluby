@@ -88,4 +88,19 @@ describe('CodeBlock', () => {
     await act(async () => screen.getByRole('button', { name: 'Copy secret' }).click());
     expect(onCopied).toHaveBeenCalledTimes(1);
   });
+
+  it('puts copy under the tabs when large text leaves no room beside them (1.4.4)', () => {
+    renderWithMotion(
+      <CodeBlock
+        label="upload snippet"
+        samples={[
+          { label: 'JavaScript', language: 'ts', code: 'a' },
+          { label: 'curl', language: 'bash', code: 'b' },
+        ]}
+      />,
+    );
+    const copy = screen.getByRole('button', { name: 'Copy upload snippet (JavaScript)' });
+    expect(copy).toHaveClass('ml-auto');
+    expect(copy.parentElement).toHaveClass('flex-wrap');
+  });
 });

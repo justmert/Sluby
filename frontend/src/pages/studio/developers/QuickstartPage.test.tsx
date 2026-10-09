@@ -237,4 +237,12 @@ describe('Quickstart', () => {
     expect(option).toHaveClass('*:[span]:last:min-w-0');
     expect(within(option).getByText(long)).toHaveClass('truncate');
   });
+
+  it('wraps the explorer link at a large text size instead of running off the page (1.4.4)', () => {
+    render();
+    expect(screen.getByRole('link', { name: 'Try a request in the API explorer' })).toHaveClass(
+      'whitespace-normal',
+      'h-auto',
+    );
+  });
 });

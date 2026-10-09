@@ -27,10 +27,15 @@ export function HealthCard({
 }) {
   return (
     <Card className={cn('h-full', className)}>
-      <CardHeader>
+      {/* the action moves under the title only when large text leaves no room beside it */}
+      <CardHeader className="@max-[14rem]/page:has-data-[slot=card-action]:grid-cols-1">
         <CardTitle>{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
-        {action && <CardAction>{action}</CardAction>}
+        {action && (
+          <CardAction className="@max-[14rem]/page:col-start-1 @max-[14rem]/page:row-span-1 @max-[14rem]/page:row-start-auto @max-[14rem]/page:justify-self-start">
+            {action}
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>

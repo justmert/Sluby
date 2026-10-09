@@ -26,12 +26,14 @@ export function AppearanceSection() {
             // radix sends an empty value when the pressed item is pressed again
             onValueChange={(v) => v && setTheme(v as Theme)}
             aria-labelledby="settings-theme"
+            // wraps to a second row at a large text size instead of leaving the card
+            className="max-w-full flex-wrap data-[variant=segmented]:h-auto pointer-coarse:data-[variant=segmented]:h-auto"
           >
             {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
               <ToggleGroupItem
                 key={value}
                 value={value}
-                className="gap-1.5 px-3 data-[state=on]:font-medium data-[state=on]:text-foreground"
+                className="min-h-[26px] gap-1.5 px-2.5 pointer-coarse:min-h-[34px] data-[state=on]:font-medium data-[state=on]:text-foreground"
               >
                 <Icon aria-hidden="true" />
                 {label}
