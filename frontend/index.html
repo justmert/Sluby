@@ -11,7 +11,7 @@
     <script>
       // apply the saved theme before first paint so there is no flash
       (function () {
-        var theme = 'dark';
+        var theme = 'system';
         try {
           var saved = localStorage.getItem('sluby-theme');
           if (saved === 'light' || saved === 'dark' || saved === 'system') theme = saved;

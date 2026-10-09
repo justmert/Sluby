@@ -11,7 +11,7 @@ export type ResolvedTheme = 'light' | 'dark';
 
 export const THEME_STORAGE_KEY = 'sluby-theme';
 export const THEME_VALUES: readonly Theme[] = ['light', 'dark', 'system'];
-export const DEFAULT_THEME: Theme = 'dark';
+export const DEFAULT_THEME: Theme = 'system';
 
 export const THEME_OPTIONS: { value: Theme; label: string; icon: LucideIcon }[] = [
   { value: 'light', label: 'Light', icon: Sun },
