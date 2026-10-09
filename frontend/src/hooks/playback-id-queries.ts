@@ -35,10 +35,11 @@ export async function signedPlaybackStreamUrl(playbackId: string, expiresIn = 36
   return { url: `${playbackStreamUrl(playbackId)}?${query}`, expiresAt };
 }
 
-export function usePlaybackIds(assetId: string) {
+export function usePlaybackIds(assetId: string, enabled = true) {
   return useQuery({
     queryKey: key(assetId),
     queryFn: () => sluby.playbackIds.list(assetId),
+    enabled,
   });
 }
 

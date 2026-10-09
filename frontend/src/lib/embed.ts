@@ -27,6 +27,9 @@ export interface EmbedOptions {
   baseUrl?: string;
 }
 
+/** The API reference the backend serves next to the API. */
+export const API_REFERENCE_URL = '/api/v1/docs';
+
 /** What a reader installs for the react and server samples. */
 export const EMBED_INSTALL = 'npm install @sluby/player @sluby/sdk';
 
