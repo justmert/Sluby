@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { errorText } from '@/lib/errors';
+import { formatCount } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 
 export interface InlineEditFieldProps {
@@ -24,6 +25,14 @@ export interface InlineEditFieldProps {
   emptyText?: ReactNode;
   disabled?: boolean;
   className?: string;
+  /** called when editing starts, e.g. to note the version the edit is based on */
+  onEditStart?: () => void;
+  /** wrap the shown value to up to three lines (`line-clamp-3 wrap-anywhere`) instead of one truncated line */
+  wrap?: boolean;
+  /** what to show under the field when a save fails; the reader's sentence from errorText by default */
+  renderError?: (err: unknown) => ReactNode;
+  /** show "{n} of {maxLength}" under the field once the text reaches this length */
+  counterFrom?: number;
 }
 
 /**
@@ -48,11 +57,15 @@ export function InlineEditField({
   emptyText,
   disabled = false,
   className,
+  onEditStart,
+  wrap = false,
+  renderError,
+  counterFrom,
 }: InlineEditFieldProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReactNode>(null);
   // the value just saved, shown until the new value comes back as a prop
   const [saved, setSaved] = useState<string | null>(null);
   const [lastValue, setLastValue] = useState(value);
@@ -70,6 +83,7 @@ export function InlineEditField({
     setDraft(saved ?? value);
     setError(null);
     setEditing(true);
+    onEditStart?.();
   };
 
   const cancel = () => {
@@ -100,7 +114,7 @@ export function InlineEditField({
     } catch (err) {
       setSaving(null);
       setDraft(next);
-      setError(errorText(err));
+      setError(renderError ? renderError(err) : errorText(err));
       setEditing(true);
     }
   };
@@ -145,10 +159,18 @@ export function InlineEditField({
             }}
           />
         )}
-        {error && (
-          <p id={errorId} role="alert" className="mt-1.5 text-sm text-destructive">
-            {error}
+        {counterFrom !== undefined && maxLength !== undefined && draft.length >= counterFrom && (
+          <p
+            className="mt-1 text-right text-xs text-muted-foreground tabular-nums"
+            aria-live="polite"
+          >
+            {formatCount(draft.length)} of {formatCount(maxLength)}
           </p>
+        )}
+        {error && (
+          <div id={errorId} role="alert" className="mt-1.5 text-sm text-destructive">
+            {error}
+          </div>
         )}
       </div>
     );
@@ -172,7 +194,11 @@ export function InlineEditField({
         dir="auto"
         className={cn(
           'min-w-0',
-          multiline ? 'whitespace-pre-wrap wrap-anywhere' : 'truncate',
+          multiline
+            ? 'whitespace-pre-wrap wrap-anywhere'
+            : wrap
+              ? 'line-clamp-3 wrap-anywhere'
+              : 'truncate',
           !shown && 'text-muted-foreground',
           displayClassName,
         )}

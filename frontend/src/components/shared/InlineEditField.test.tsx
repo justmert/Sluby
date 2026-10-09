@@ -54,4 +54,61 @@ describe('InlineEditField', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('The server ran into a problem');
     expect(screen.getByRole('textbox')).toHaveValue('Kept');
   });
+
+  it('tells the page when editing starts', async () => {
+    const onEditStart = vi.fn();
+    renderWithMotion(
+      <InlineEditField label="title" value="Old" onSave={vi.fn()} onEditStart={onEditStart} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+    expect(onEditStart).toHaveBeenCalledOnce();
+  });
+
+  it('wraps a long value to three lines instead of truncating it when asked', () => {
+    renderWithMotion(<InlineEditField label="title" value="A long title" onSave={vi.fn()} wrap />);
+    const shown = screen.getByText('A long title');
+    expect(shown).toHaveClass('line-clamp-3', 'wrap-anywhere');
+    expect(shown).not.toHaveClass('truncate');
+  });
+
+  it('lets the page render a save error with its own action, keeping the text', async () => {
+    const onSave = vi.fn().mockRejectedValue(new ApiError(412, 'changed'));
+    renderWithMotion(
+      <InlineEditField
+        label="title"
+        value="Old"
+        onSave={onSave}
+        renderError={() => (
+          <>
+            Changed elsewhere. <button type="button">Reload</button>
+          </>
+        )}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+    const input = screen.getByRole('textbox');
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Mine{Enter}');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Changed elsewhere.');
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toHaveValue('Mine');
+  });
+
+  it('counts characters once the text nears the limit', async () => {
+    renderWithMotion(
+      <InlineEditField
+        label="description"
+        value={'x'.repeat(10)}
+        onSave={vi.fn()}
+        multiline
+        maxLength={20}
+        counterFrom={12}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Edit description' }));
+    expect(screen.queryByText(/of 20/)).toBeNull();
+    await userEvent.type(screen.getByRole('textbox'), 'yy');
+    expect(screen.getByText('12 of 20')).toBeInTheDocument();
+  });
 });
