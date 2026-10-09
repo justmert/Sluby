@@ -166,6 +166,9 @@ export const processingJobs = pgTable(
     completedAt: timestamp('completed_at', { withTimezone: true }),
     // automatic and manual retries of the asset's pipeline stages
     retryCount: integer('retry_count').notNull().default(0),
+    // false when the run failed in a way another run cannot fix (a source
+    // file that is not a readable video); set back by a manual retry
+    retryable: boolean('retryable').notNull().default(true),
     logs: jsonb('logs')
       .$type<Array<{ timestamp: string; stage: string; message: string }>>()
       .default([]),

@@ -339,6 +339,7 @@ export const openapiDocument = {
           'completed_at',
           'created_at',
           'logs',
+          'retryable',
         ],
         properties: {
           id: { type: 'string' },
@@ -364,6 +365,13 @@ export const openapiDocument = {
           started_at: { type: ['string', 'null'], format: 'date-time' },
           completed_at: { type: ['string', 'null'], format: 'date-time' },
           created_at: { type: 'string', format: 'date-time' },
+          retryable: {
+            type: 'boolean',
+            description:
+              'Whether POST /retry can start a new run: true only for a failed video whose ' +
+              'failure was not final (a file that is not a readable video is final) and whose ' +
+              'finished transcode or original file is still on the server.',
+          },
           logs: {
             type: 'array',
             items: {

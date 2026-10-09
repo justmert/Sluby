@@ -516,6 +516,37 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(gone.status).toBe(410);
     });
 
+    it('says whether a failed video can be retried', async () => {
+      const [session] = await tdb.sql`
+        insert into upload_sessions (video_asset_id, upload_url, file_path, file_size, status)
+        values (${assetAFailed.id}, 'u', ${path.join(uploadDir, 'gone.mp4')}, 10, 'completed')
+        returning id`;
+      const [job] = await tdb.sql`
+        insert into processing_jobs (video_asset_id, upload_session_id, status, error_message)
+        values (${assetAFailed.id}, ${session.id}, 'failed', 'ffprobe exited with code 1')
+        returning id`;
+      const retryable = async () => {
+        const res = await call('GET', `/api/v1/assets/${assetAFailed.id}/processing`, 'a');
+        check('GET', '/api/v1/assets/{id}/processing', res);
+        expect(res.status).toBe(200);
+        return res.body.retryable;
+      };
+      // no finished transcode and the original file is gone
+      expect(await retryable()).toBe(false);
+      writeFileSync(path.join(uploadDir, 'gone.mp4'), 'bytes');
+      expect(await retryable()).toBe(true);
+      // a final failure (a file that is not a readable video)
+      await tdb.sql`update processing_jobs set retryable = false where id = ${job.id}`;
+      expect(await retryable()).toBe(false);
+      const byB = await call('GET', `/api/v1/assets/${assetAFailed.id}/processing`, 'b');
+      expect(byB.status).toBe(404);
+      // a manual retry starts a new run, which may be retried again
+      await tdb.sql`update processing_jobs set retryable = true where id = ${job.id}`;
+      const retried = await call('POST', `/api/v1/assets/${assetAFailed.id}/retry`, 'a');
+      expect(retried.status).toBe(200);
+      expect(await retryable()).toBe(false);
+    });
+
     it('retries a failed asset whose transcode output is on disk', async () => {
       // a master FFmpeg left behind on a failure is not a finished transcode
       const unfinished = path.join(outputDir, assetAFailed.id, 'run-1');

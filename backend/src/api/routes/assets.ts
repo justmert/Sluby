@@ -60,6 +60,8 @@ export interface ProcessingJobRecord {
   completedAt: Date | null;
   createdAt: Date;
   logs: Array<{ timestamp: string; stage: string; message: string }> | null;
+  /** Whether POST /retry can start a new run of this failed video. */
+  retryable: boolean;
 }
 
 export interface AssetRouteDeps {
@@ -324,6 +326,7 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
       completed_at: job.completedAt?.toISOString() ?? null,
       created_at: job.createdAt.toISOString(),
       logs: job.logs ?? [],
+      retryable: job.retryable,
     });
   });
 

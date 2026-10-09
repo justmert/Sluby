@@ -25,7 +25,7 @@ import {
 import { createErrorHandler, notFoundHandler } from './api/middleware/error-handler.js';
 import { loggableUrl } from './api/log-url.js';
 import { buildDeleteAsset } from './deletion/service.js';
-import { buildRetryAsset } from './queue/retry.js';
+import { buildRetryAsset, buildRetrySourceCheck } from './queue/retry.js';
 import type { TranscodeJobData, UploadSegmentsJobData } from './queue/bull-config.js';
 
 import {
@@ -482,6 +482,12 @@ function toKeyRecord(k: ApiKey) {
   };
 }
 
+const retrySourceCheck = buildRetrySourceCheck({
+  getUploadSession: (videoAssetId) => getCompletedUploadSessionForAsset(videoAssetId),
+  findCompletedOutput: (videoAssetId) =>
+    findCompletedOutput(env.TRANSCODE_OUTPUT_DIR, videoAssetId),
+});
+
 export function buildApiDeps(
   ctx: AppContext,
   sessionManager: SessionManager,
@@ -613,7 +619,15 @@ export function buildApiDeps(
       // processing record cannot be read across tenants.
       const asset = await getVideoAssetById(videoAssetId, owner);
       if (!asset) return undefined;
-      return getProcessingJobByVideoAssetId(videoAssetId);
+      const job = await getProcessingJobByVideoAssetId(videoAssetId);
+      if (!job) return undefined;
+      // only a failed video can be retried, and only when the failure was not
+      // final and there is still something to start the new run from
+      const retryable =
+        asset.status === 'failed' &&
+        job.retryable &&
+        (await retrySourceCheck(videoAssetId)).available;
+      return { ...job, retryable };
     },
 
     retryAsset: buildRetryAsset({

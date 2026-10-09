@@ -14,6 +14,7 @@ import {
   type RenditionName,
   type SourceVideo,
 } from './ffmpeg-args.js';
+import { UnreadableSourceError } from './source-errors.js';
 
 export interface TranscodeResult {
   masterPlaylistPath: string;
@@ -295,7 +296,7 @@ export function parseProbeOutput(json: string): ProbedSource {
   const streams = info.streams ?? [];
   // cover art in mp4 and mkv is a video stream too
   const video = streams.find((s) => s.codec_type === 'video' && s.disposition?.attached_pic !== 1);
-  if (!video) throw new Error('No video stream found');
+  if (!video) throw new UnreadableSourceError('No video stream found');
   if (!(video.width! > 0) || !(video.height! > 0)) {
     throw new Error('The video stream has no frame size');
   }
@@ -334,11 +335,22 @@ export function parseProbeOutput(json: string): ProbedSource {
 }
 
 export async function probeSource(inputPath: string): Promise<ProbedSource> {
-  const json = await runFfmpegTool('ffprobe', buildProbeArgs(inputPath), {
-    label: 'ffprobe',
-    timeoutMs: PROBE_TIMEOUT_MS,
-    captureStdout: 8 * 1024 * 1024,
-  });
+  let json: string;
+  try {
+    json = await runFfmpegTool('ffprobe', buildProbeArgs(inputPath), {
+      label: 'ffprobe',
+      timeoutMs: PROBE_TIMEOUT_MS,
+      captureStdout: 8 * 1024 * 1024,
+    });
+  } catch (err) {
+    // ffprobe's own words for bytes that are no media file it knows; a
+    // timeout or a crash stays an ordinary, retried failure
+    const message = (err as Error).message;
+    if (/Invalid data found when processing input/.test(message)) {
+      throw new UnreadableSourceError(message, { cause: err });
+    }
+    throw err;
+  }
   return parseProbeOutput(json);
 }
 

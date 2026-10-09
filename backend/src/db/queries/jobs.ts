@@ -49,6 +49,7 @@ export async function updateProcessingJobStatus(
     status: ProcessingJob['status'];
     progressPercent?: number;
     errorMessage?: string | null;
+    retryable?: boolean;
   },
 ): Promise<ProcessingJob | undefined> {
   const now = new Date();
@@ -62,6 +63,9 @@ export async function updateProcessingJobStatus(
   }
   if (data.errorMessage !== undefined) {
     updateData.errorMessage = data.errorMessage;
+  }
+  if (data.retryable !== undefined) {
+    updateData.retryable = data.retryable;
   }
   if (data.status === 'processing') {
     updateData.startedAt = sql`coalesce(${processingJobs.startedAt}, ${now.toISOString()}::timestamptz)`;
@@ -102,6 +106,7 @@ export async function restartProcessingJob(id: string): Promise<void> {
     .set({
       status: 'queued',
       errorMessage: null,
+      retryable: true,
       startedAt: null,
       completedAt: null,
       retryCount: sql`${processingJobs.retryCount} + 1`,

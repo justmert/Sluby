@@ -32,6 +32,27 @@ export interface RetryAssetDeps {
 export type RetryStage = 'upload-segments' | 'transcode';
 
 /**
+ * Whether a retry has something to start from: a finished transcode on disk,
+ * or the uploaded file to transcode again. The same test the retry makes.
+ */
+export function buildRetrySourceCheck(
+  deps: Pick<RetryAssetDeps, 'getUploadSession' | 'findCompletedOutput' | 'sourceExists'>,
+) {
+  const sourceExists = deps.sourceExists ?? existsSync;
+  return async (id: string) => {
+    const [session, completed] = await Promise.all([
+      deps.getUploadSession(id),
+      deps.findCompletedOutput(id),
+    ]);
+    return {
+      session,
+      completed,
+      available: completed !== null || (!!session?.filePath && sourceExists(session.filePath)),
+    };
+  };
+}
+
+/**
  * Build the `retryAsset` handler behind POST /assets/:id/retry. A transcode
  * that finished (its run directory holds the completion marker) is not redone:
  * the retry resumes at the Sia upload. Otherwise the source upload is
@@ -39,18 +60,15 @@ export type RetryStage = 'upload-segments' | 'transcode';
  */
 export function buildRetryAsset(deps: RetryAssetDeps) {
   const now = deps.now ?? Date.now;
-  const sourceExists = deps.sourceExists ?? existsSync;
+  const checkSource = buildRetrySourceCheck(deps);
 
   return async (id: string, owner?: string): Promise<{ stage: RetryStage }> => {
     const asset = await deps.getAsset(id, owner);
     if (!asset) throw new AppError(404, 'Video asset not found');
     if (asset.status !== 'failed') throw new AppError(400, 'Asset is not in failed state');
 
-    const [session, completed] = await Promise.all([
-      deps.getUploadSession(id),
-      deps.findCompletedOutput(id),
-    ]);
-    if (!completed && (!session?.filePath || !sourceExists(session.filePath))) {
+    const { session, completed, available } = await checkSource(id);
+    if (!available) {
       throw new AppError(410, 'Source file not found, please re-upload the video');
     }
 

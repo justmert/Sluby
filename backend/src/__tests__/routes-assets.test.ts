@@ -386,6 +386,7 @@ describe('asset routes', () => {
           { timestamp: 't1', stage: 'transcode', message: 'Transcode complete' },
           { timestamp: 't2', stage: 'upload', message: 'Uploading segments to Sia' },
         ],
+        retryable: false,
       });
 
       const res = await request(createApp()).get('/asset-1/processing');
@@ -396,6 +397,7 @@ describe('asset routes', () => {
         stage: 'upload',
         progress_percent: 72,
         retry_count: 0,
+        retryable: false,
       });
       expect(deps.getProcessingJob).toHaveBeenCalledWith('asset-1', '0xabc123');
     });
@@ -403,6 +405,15 @@ describe('asset routes', () => {
 });
 
 describe('processingStage', () => {
+  it('reports upload, not transcode, once the transcode handed off to the Sia uploader', () => {
+    expect(
+      processingStage('processing', [
+        { stage: 'transcode' },
+        { stage: 'upload' }, // Waiting for the Sia uploader
+      ]),
+    ).toBe('upload');
+  });
+
   it('prefers terminal job states and defaults to queued', () => {
     expect(processingStage('completed', [{ stage: 'upload' }])).toBe('completed');
     expect(processingStage('failed', [{ stage: 'transcode' }])).toBe('failed');
