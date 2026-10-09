@@ -106,8 +106,9 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        // sticks to the bottom of a dialog that scrolls, so Save stays reachable
-        'sticky -bottom-4 -mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-[color-mix(in_oklab,var(--muted)_50%,var(--popover))] p-4 sm:flex-row sm:justify-end',
+        // sticks to the bottom of a dialog that scrolls, so Save stays reachable;
+        // not on very short screens (400% zoom), where it would cover the field in focus
+        '-bottom-4 -mx-4 -mb-4 flex [@media(min-height:30rem)]:sticky flex-col-reverse gap-2 rounded-b-xl border-t bg-[color-mix(in_oklab,var(--muted)_50%,var(--popover))] p-4 sm:flex-row sm:justify-end',
         className,
       )}
       {...props}
