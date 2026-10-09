@@ -9,7 +9,7 @@ export function ErrorDetails({ detail, className }: { detail?: string; className
   if (!detail) return null;
   return (
     <details data-slot="error-details" className={cn('group/details text-xs', className)}>
-      <summary className="inline-flex cursor-pointer items-center gap-1 rounded-sm text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
+      <summary className="inline-flex cursor-pointer items-center gap-1 rounded-sm text-muted-foreground pointer-coarse:-my-3 pointer-coarse:py-3 select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
         <ChevronRight
           aria-hidden="true"
           className="size-3.5 transition-transform duration-150 group-open/details:rotate-90"

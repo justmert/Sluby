@@ -94,6 +94,13 @@ describe('UploadIndicator', () => {
     expect(said).toEqual(['“Keynote”: Processing']);
   });
 
+  it('keeps the phone icon button at the touch size of every other icon button (A11Y-47)', () => {
+    setup();
+    expect(screen.getByRole('button', { name: 'Upload video' })).toHaveClass(
+      'max-md:pointer-coarse:size-10',
+    );
+  });
+
   it('counts files waiting in the queue', () => {
     const { f, store } = setup();
     const other = new File([new Uint8Array(50)], 'b.mp4', { type: 'video/mp4', lastModified: 2 });

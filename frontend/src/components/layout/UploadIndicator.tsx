@@ -104,7 +104,7 @@ export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }
       <Button
         variant="outline"
         size="sm"
-        className="max-md:size-8 max-md:px-0"
+        className="max-md:size-8 max-md:px-0 max-md:pointer-coarse:size-10"
         onClick={() => sheet.open()}
       >
         <Upload aria-hidden="true" />
