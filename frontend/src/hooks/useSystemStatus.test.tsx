@@ -34,6 +34,17 @@ describe('useSystemStatus', () => {
     expect(server.calls).toHaveLength(1);
   });
 
+  it('does not ask again when a polling page mounts right after the shell asked', async () => {
+    const { server, wrapper } = setup();
+    const shell = renderHook(() => useSystemStatus({ poll: true }), { wrapper });
+    await waitFor(() => expect(shell.result.current.data).toEqual(status));
+    // the overview or health page opens a moment later with its own poll
+    const page = renderHook(() => useSystemStatus({ poll: true }), { wrapper });
+    expect(page.result.current.data).toEqual(status);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(server.calls).toHaveLength(1);
+  });
+
   it('polls every 20 seconds only when asked to', () => {
     const { client, wrapper } = setup();
     renderHook(() => useSystemStatus({ poll: true }), { wrapper });

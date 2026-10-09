@@ -25,7 +25,9 @@ export function useSystemStatus({ poll = false }: { poll?: boolean } = {}) {
     queryKey: SYSTEM_STATUS_KEY,
     queryFn: ({ signal }) => apiClient.get<SystemStatus>('/system/status', { signal }),
     refetchInterval: poll ? SYSTEM_STATUS_POLL_MS : false,
-    staleTime: poll ? 0 : Infinity,
+    // a page that polls too, opening just after the shell asked, reads the
+    // same answer instead of asking again
+    staleTime: poll ? SYSTEM_STATUS_POLL_MS / 2 : Infinity,
   });
 }
 
