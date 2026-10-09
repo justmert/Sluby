@@ -76,6 +76,14 @@ describe('AuthGate', () => {
     expect(screen.queryByText(/session ended/i)).not.toBeInTheDocument();
   });
 
+  it('sets the product name in the page title style, not an off-scale size', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
+    renderGate();
+    const name = await screen.findByRole('heading', { level: 1, name: 'Sluby Studio' });
+    expect(name).toHaveClass('text-title');
+    expect(name).not.toHaveClass('text-3xl');
+  });
+
   it('says the server is unreachable on a 502 and retries without signing in', async () => {
     const fetchMock = vi
       .fn()

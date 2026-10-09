@@ -113,7 +113,7 @@ function Screen({ children, contentKey }: { children: ReactNode; contentKey: str
       <main className="flex w-full max-w-sm flex-col items-center gap-8 px-6 text-center">
         <div className="flex flex-col items-center gap-3">
           <Logo className="size-11" />
-          <h1 className="text-3xl font-semibold">Sluby Studio</h1>
+          <h1 className="font-heading text-title">Sluby Studio</h1>
           <p className="text-sm text-muted-foreground">Self-hosted video, stored on Sia</p>
         </div>
         {/* the brand stays put while what is below it changes. the old and new
