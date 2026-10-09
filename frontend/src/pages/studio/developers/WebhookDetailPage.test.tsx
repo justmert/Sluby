@@ -165,6 +165,11 @@ describe('webhook page', () => {
     expect(shown).toHaveTextContent('export SLUBY_WEBHOOK_SECRET=whsec_Fresh');
     // the dialog title and the toast
     expect(await screen.findAllByText('Signing secret rotated')).toHaveLength(2);
+    // focus goes back to the menu that opened it, not to the page (A11Y-03)
+    await userEvent.click(within(shown).getByRole('button', { name: 'I copied it' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'More actions for this webhook' })).toHaveFocus(),
+    );
   });
 
   it('deletes and goes back to the list', async () => {

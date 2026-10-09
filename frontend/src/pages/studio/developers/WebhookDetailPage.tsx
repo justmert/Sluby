@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { MoreHorizontal } from 'lucide-react';
 import { DeliveriesTable } from '@/components/developers/DeliveriesTable';
@@ -139,6 +139,13 @@ export default function WebhookDetailPage() {
   const remove = useDeleteWebhook();
   const [confirm, setConfirm] = useState<'rotate' | 'delete' | null>(null);
   const [revealed, setRevealed] = useState<RevealedSecret | null>(null);
+  // the dialogs open from the overflow menu, whose item is gone once they
+  // close, so focus goes back to the menu's button
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const backToMenu = (e: Event) => {
+    e.preventDefault();
+    moreRef.current?.focus();
+  };
   const hook = query.data;
 
   if (!hook) {
@@ -212,7 +219,12 @@ export default function WebhookDetailPage() {
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" aria-label="More actions for this webhook">
+                <Button
+                  ref={moreRef}
+                  variant="outline"
+                  size="icon"
+                  aria-label="More actions for this webhook"
+                >
                   <MoreHorizontal />
                 </Button>
               </DropdownMenuTrigger>
@@ -265,6 +277,7 @@ export default function WebhookDetailPage() {
         confirmLabel="Rotate secret"
         pendingLabel="Rotating…"
         errorTitle="Could not rotate the signing secret"
+        onCloseAutoFocus={backToMenu}
         onConfirm={async (h) => {
           const { secret } = await rotate.mutateAsync(h.id);
           rotate.reset();
@@ -291,7 +304,11 @@ export default function WebhookDetailPage() {
           void navigate(ROUTES.WEBHOOKS, { replace: true });
         }}
       />
-      <SecretRevealDialog secret={revealed} onClose={() => setRevealed(null)} />
+      <SecretRevealDialog
+        secret={revealed}
+        onClose={() => setRevealed(null)}
+        onCloseAutoFocus={backToMenu}
+      />
     </PageContainer>
   );
 }
