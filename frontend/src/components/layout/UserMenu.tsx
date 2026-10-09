@@ -30,7 +30,8 @@ export function UserMenu() {
   return (
     // not modal: a modal menu aria-hides the rest of the page around its
     // trigger, links and buttons included, which screen readers then see as
-    // hidden but focusable. Escape and a click outside still close it
+    // hidden but focusable. Escape and a click outside still close it. its
+    // content stays in the top bar, inside the banner landmark
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         {/* below 24rem (a phone, or a 32px default font) it drops its chevron
@@ -64,7 +65,7 @@ export function UserMenu() {
           <ChevronDown className="size-3 text-muted-foreground max-[24rem]:hidden" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-56" portal={false}>
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           {session.authDisabled
             ? 'Sign-in is off on this server'

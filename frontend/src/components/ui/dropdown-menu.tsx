@@ -25,10 +25,19 @@ function DropdownMenuContent({
   className,
   align = 'start',
   sideOffset = 4,
+  portal = true,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
+  /**
+   * false renders the menu where it is written instead of at the end of the
+   * body, so a menu that is not modal stays inside its landmark (the top
+   * bar's banner) for screen readers
+   */
+  portal?: boolean;
+}) {
+  const Wrap = portal ? DropdownMenuPrimitive.Portal : React.Fragment;
   return (
-    <DropdownMenuPrimitive.Portal>
+    <Wrap>
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
@@ -39,7 +48,7 @@ function DropdownMenuContent({
         )}
         {...props}
       />
-    </DropdownMenuPrimitive.Portal>
+    </Wrap>
   );
 }
 
