@@ -1,8 +1,19 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Film, KeyRound, Search, Upload, Webhook, type LucideIcon } from 'lucide-react';
+import {
+  FileText,
+  Film,
+  KeyRound,
+  Link2,
+  LogOut,
+  Search,
+  Upload,
+  Webhook,
+  type LucideIcon,
+} from 'lucide-react';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
+import { AccessBadge } from '@/components/shared/StatusBadge';
 import { Kbd } from '@/components/ui/kbd';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,12 +27,14 @@ import {
 } from '@/components/ui/command';
 import { Spinner } from '@/components/ui/spinner';
 import { useDebounce } from '@/hooks/useDebounce';
-import { navItemsFor, ROUTES } from '@/lib/constants';
+import { useSignOut } from '@/hooks/useSessions';
+import { LINKS, navItemsFor, ROUTES } from '@/lib/constants';
 import { withLead } from '@/lib/errors';
 import { formatDuration } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { sluby } from '@/lib/sluby';
 import { THEME_OPTIONS, useTheme } from '@/lib/theme';
+import { toastError, toastSuccess } from '@/lib/toast';
 import { useUploadSheet } from '@/lib/upload-sheet';
 
 const isMac = () => /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
@@ -108,12 +121,15 @@ function Videos({
           className={typing ? 'opacity-60' : undefined}
         >
           <Film className="text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">{asset.title || 'Untitled'}</span>
+          <span dir="auto" className="min-w-0 flex-1 truncate">
+            {asset.title || 'Untitled'}
+          </span>
           {asset.durationMs ? (
             <span className="text-xs text-muted-foreground tabular-nums">
               {formatDuration(asset.durationMs)}
             </span>
           ) : null}
+          <AccessBadge access={asset.accessTier} />
           <AssetStatusBadge status={asset.status} />
         </CommandItem>
       ))}
@@ -125,9 +141,10 @@ function PaletteBody({ close }: { close: () => void }) {
   const [term, setTerm] = useState('');
   const found = usePaletteVideos(term);
   const navigate = useNavigate();
-  const { operator } = useSession();
+  const { operator, authDisabled } = useSession();
   const { theme, setTheme } = useTheme();
   const uploadSheet = useUploadSheet();
+  const { signOut } = useSignOut();
 
   const open = (path: string) => {
     close();
@@ -166,6 +183,31 @@ function PaletteBody({ close }: { close: () => void }) {
       keywords: 'new create events developers',
       run: () => open(`${ROUTES.WEBHOOKS}?create=webhook`),
     },
+    {
+      id: 'action-base-url',
+      label: 'Copy API base URL',
+      icon: Link2,
+      keywords: 'origin server address endpoint sdk baseurl',
+      run: () => {
+        close();
+        const url = window.location.origin;
+        navigator.clipboard.writeText(url).then(
+          () => toastSuccess('API base URL copied'),
+          // the clipboard needs a secure context and permission; say so
+          () => toastError(`Could not copy the API base URL. It is ${url}`),
+        );
+      },
+    },
+    {
+      id: 'action-reference',
+      label: 'Open API reference',
+      icon: FileText,
+      keywords: 'docs documentation openapi rest endpoints',
+      run: () => {
+        close();
+        window.open(LINKS.API_REFERENCE, '_blank', 'noopener,noreferrer');
+      },
+    },
     ...THEME_OPTIONS.map(({ value, label, icon }) => ({
       id: `theme-${value}`,
       label: `Use ${label.toLowerCase()} theme`,
@@ -177,6 +219,21 @@ function PaletteBody({ close }: { close: () => void }) {
         close();
       },
     })),
+    // with sign-in off nobody is signed in, so there is nothing to sign out of
+    ...(authDisabled
+      ? []
+      : [
+          {
+            id: 'action-sign-out',
+            label: 'Sign out',
+            icon: LogOut,
+            keywords: 'log out logout leave session',
+            run: () => {
+              close();
+              signOut().catch((err: unknown) => toastError(withLead('Could not sign out', err)));
+            },
+          },
+        ]),
   ];
 
   const shownPages = pages.filter((e) => matches(term, e));

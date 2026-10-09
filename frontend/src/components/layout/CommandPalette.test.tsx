@@ -4,8 +4,11 @@ import { useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jsonFetch, type RecordedCall } from '@/test/render';
 import { renderPage } from '@/test/render';
+import { replacePage } from '@/lib/navigation';
 import { WithSession } from '@/test/session';
 import { CommandPalette } from './CommandPalette';
+
+vi.mock('@/lib/navigation', () => ({ loadPage: vi.fn(), replacePage: vi.fn() }));
 
 function asset(id: string, title: string, status = 'ready') {
   return {
@@ -33,8 +36,9 @@ function Where() {
   return <p data-testid="where">{pathname + search}</p>;
 }
 
-function setup(operator = false) {
+function setup(operator = false, authDisabled = false) {
   const server = jsonFetch({
+    'POST /api/v1/auth/logout': { success: true },
     '/api/v1/assets': ({ query }: RecordedCall) => {
       const q = (query.get('search') ?? '').toLowerCase();
       const data = library.filter((a) => a.title.toLowerCase().includes(q) || a.id === q);
@@ -43,7 +47,7 @@ function setup(operator = false) {
   });
   vi.stubGlobal('fetch', vi.fn(server));
   renderPage(
-    <WithSession operator={operator}>
+    <WithSession operator={operator} authDisabled={authDisabled}>
       <CommandPalette />
       <Where />
     </WithSession>,
@@ -194,5 +198,65 @@ describe('CommandPalette', () => {
     await openWithKeys();
     await userEvent.type(await screen.findByRole('combobox'), 'zzzz');
     expect(await screen.findByText('Nothing matches “zzzz”.')).toBeInTheDocument();
+  });
+});
+
+describe('CommandPalette actions (FLW-58)', () => {
+  const run = async (name: string) => {
+    await openWithKeys();
+    await userEvent.click(await screen.findByRole('option', { name }));
+  };
+
+  it('copies the API base URL', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    setup();
+    await run('Copy API base URL');
+    expect(writeText).toHaveBeenCalledWith(window.location.origin);
+    expect(await screen.findByText('API base URL copied')).toBeInTheDocument();
+  });
+
+  it('says so, with the address, when the clipboard refuses', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    setup();
+    await run('Copy API base URL');
+    expect(
+      await screen.findByText(`Could not copy the API base URL. It is ${window.location.origin}`),
+    ).toBeInTheDocument();
+  });
+
+  it('opens the API reference in a new tab', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    setup();
+    await run('Open API reference');
+    expect(open).toHaveBeenCalledWith('/api/v1/docs', '_blank', 'noopener,noreferrer');
+    open.mockRestore();
+  });
+
+  it('signs out the way the user menu does', async () => {
+    vi.mocked(replacePage).mockClear();
+    const server = setup();
+    await run('Sign out');
+    await waitFor(() => expect(replacePage).toHaveBeenCalledWith('/studio'));
+    expect(server.calls.some((c) => c.method === 'POST' && c.path === '/api/v1/auth/logout')).toBe(
+      true,
+    );
+  });
+
+  it('has no sign out when sign-in is off', async () => {
+    setup(true, true);
+    await openWithKeys();
+    await screen.findByRole('option', { name: 'Copy API base URL' });
+    expect(screen.queryByRole('option', { name: 'Sign out' })).not.toBeInTheDocument();
+  });
+
+  it('marks private videos in the results (VIS-10)', async () => {
+    library.push({ ...asset('a3', 'Board meeting'), access_tier: 'private' });
+    setup();
+    await openWithKeys();
+    const row = await screen.findByRole('option', { name: /Board meeting/ });
+    expect(row).toHaveTextContent('Private');
+    library.pop();
   });
 });
