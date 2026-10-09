@@ -38,6 +38,8 @@ describe('the studio query client', () => {
     expect(await attempts(new ApiError(429, 'Too many', undefined, 2))).toBe(2);
     expect(await attempts(new RateLimitError('Too many', 5))).toBe(2);
     expect(await attempts(new ApiError(429, 'Too many', undefined, 120))).toBe(1);
+    // a wait people would sit through in front of skeletons is said instead
+    expect(await attempts(new ApiError(429, 'Too many', undefined, 30))).toBe(1);
   });
 
   it('waits as long as the server asked before a retry', () => {

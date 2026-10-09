@@ -9,13 +9,16 @@ function onError(err: unknown) {
 }
 
 // a 4xx answer will not change on a second try; a 5xx or a network error
-// might. a 429 is worth one more try once the server's wait is over. a
-// timeout is not retried: a second 15 s wait would put the timeout message
-// at 31 s, twice the budget people were promised
+// might. a 429 is worth one quiet retry after a short wait; a longer one is
+// shown, since the page would sit on its skeletons for all of it. a timeout
+// is not retried: a second 15 s wait would put the timeout message at 31 s,
+// twice the budget people were promised
+const QUIET_RATE_WAIT_S = 5;
+
 export function retry(failureCount: number, err: unknown): boolean {
   if (isTimeout(err)) return false;
   const status = statusOf(err);
-  if (status === 429) return failureCount < 1 && (retryAfterOf(err) ?? 0) <= 30;
+  if (status === 429) return failureCount < 1 && (retryAfterOf(err) ?? 0) <= QUIET_RATE_WAIT_S;
   if (status !== undefined && status >= 400 && status < 500) return false;
   return failureCount < 1;
 }
