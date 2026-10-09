@@ -58,8 +58,10 @@ export const highlight: Transition = { duration: 1.4, delay: 0.3, ease: easeOut 
  * quick answer never flashes one. below a `data-instant-skeletons` element it
  * shows at once, for a page taking over from a route skeleton already on screen.
  */
-export const lateReveal =
-  'animate-in fade-in-0 fill-mode-backwards delay-150 duration-200 transition-none in-data-instant-skeletons:animate-none';
+const instantReveal = 'in-data-instant-skeletons:animate-none';
+export const lateReveal = `animate-in fade-in-0 fill-mode-backwards delay-150 duration-200 transition-none ${instantReveal}`;
+/** finds the elements drawn with lateReveal */
+export const lateRevealSelector = `.${CSS.escape(instantReveal)}`;
 
 // every variant set uses the same three labels, so a parent can drive its
 // children with initial="hidden" animate="visible" exit="exit"

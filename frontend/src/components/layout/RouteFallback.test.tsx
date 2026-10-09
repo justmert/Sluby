@@ -1,5 +1,7 @@
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { routeSkeletonWasVisible } from '@/components/dashboard/live';
 import { renderPage } from '@/test/render';
 import { WithSession } from '@/test/session';
 import { HealthLoading } from '@/components/deployment/HealthLoading';
@@ -15,7 +17,24 @@ const shapeAt = (route: string, operator = false) => {
   return container.querySelector('[data-slot="route-fallback"]')!;
 };
 
+afterEach(() => vi.useRealTimers());
+
 describe('RouteFallback', () => {
+  it('tells every page it takes over from a skeleton on screen, not only the dashboards', () => {
+    vi.useFakeTimers();
+    for (const route of ['/studio/videos', '/studio/developers/keys', '/studio/settings']) {
+      const { unmount } = renderPage(
+        <WithSession>
+          <RouteFallback />
+        </WithSession>,
+        { route },
+      );
+      act(() => vi.advanceTimersByTime(150));
+      expect(routeSkeletonWasVisible()).toBe(true);
+      unmount();
+    }
+  });
+
   it('says a page is loading', () => {
     renderPage(
       <WithSession>

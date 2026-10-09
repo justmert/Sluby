@@ -40,7 +40,6 @@ const card = 'rounded-xl';
 // the pages show while their data loads
 function Dashboard() {
   const { operator } = useSession();
-  useRouteSkeletonVisibility();
   return (
     <>
       <Header action />
@@ -134,7 +133,6 @@ function Health() {
 
 function Analytics() {
   const { operator } = useSession();
-  useRouteSkeletonVisibility();
   return (
     <>
       <Header />
@@ -185,6 +183,8 @@ const SKELETONS: Array<[RegExp, () => React.ReactNode, string?]> = [
  */
 export function RouteFallback() {
   const { pathname } = useLocation();
+  // every page draws its own placeholders where these were (PageContainer)
+  useRouteSkeletonVisibility();
   const [, Shape, width] = SKELETONS.find(([pattern]) => pattern.test(pathname)) ?? [];
   return (
     <div data-slot="route-fallback" aria-busy="true" className={lateReveal}>

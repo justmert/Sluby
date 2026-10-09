@@ -23,6 +23,9 @@
  *
  * PageHeader and SectionHeader: see components/shared/PageHeader.tsx.
  */
+import { useEffect, useRef, useState } from 'react';
+import { routeSkeletonWasVisible } from '@/components/dashboard/live';
+import { lateRevealSelector } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 interface PageContainerProps {
@@ -31,9 +34,30 @@ interface PageContainerProps {
 }
 
 export function PageContainer({ children, className }: PageContainerProps) {
+  // a page taking over from a route skeleton people already see draws its
+  // own placeholders at once; their usual 150 ms wait would blink them out.
+  // once those are gone, skeletons that show later (a refetch, a tab) wait
+  // again, so a quick answer never flashes one
+  const [instant, setInstant] = useState(routeSkeletonWasVisible);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!instant || !el) return;
+    const settle = () => {
+      if (el.querySelector(lateRevealSelector)) return false;
+      setInstant(false);
+      return true;
+    };
+    if (settle()) return;
+    const observer = new MutationObserver(() => settle() && observer.disconnect());
+    observer.observe(el, { childList: true, subtree: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, [instant]);
   return (
     <div
+      ref={ref}
       data-slot="page-container"
+      data-instant-skeletons={instant || undefined}
       className={cn(
         '@container/page mx-auto w-full max-w-7xl px-4 py-6 sm:px-8 sm:py-8',
         className,
