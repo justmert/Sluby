@@ -4021,7 +4021,7 @@
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "description": "The key was already rotated; rotate its replacement instead.",
+            "description": "The key was already rotated. Rotate its replacement instead.",
             "content": {
               "application/json": {
                 "schema": {

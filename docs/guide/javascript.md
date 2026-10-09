@@ -255,7 +255,7 @@ Upload with `accessTier: 'private'` and the gateway answers `403 This object req
 
 ## Handle errors
 
-REST calls throw typed errors that extend `SlubyError` (with `statusCode` and `responseBody`): `AuthenticationError` for 401, `PermissionError` for 403 (a key without the scope the call needs), `NotFoundError` for 404 and 410, `ValidationError` for 400 and 422, `ConflictError` for 409 (for example an asset that is not ready to play), `RateLimitError` for 429 (with `retryAfter` in seconds), and `SlubyError` itself for anything else. `TimeoutError` (a request past `timeoutMs`, or `waitForReady` running out of time), `AbortError` (an `AbortSignal` fired) and `ProcessingFailedError` have `statusCode` 0.
+REST calls throw typed errors that extend `SlubyError` (with `statusCode` and `responseBody`): `AuthenticationError` for 401, `PermissionError` for 403 (a key without the scope the call needs), `NotFoundError` for 404 and 410, `ValidationError` for 400 and 422, `ConflictError` for 409 (for example an asset that is not ready to play) and 412 (an `assets.update` with `ifMatch` found the asset changed; its `current` is the asset as it is now), `RateLimitError` for 429 (with `retryAfter` in seconds), and `SlubyError` itself for anything else. `TimeoutError` (a request past `timeoutMs`, or `waitForReady` running out of time), `AbortError` (an `AbortSignal` fired) and `ProcessingFailedError` have `statusCode` 0.
 
 ```js
 export function describeError(err) {
@@ -431,7 +431,10 @@ const next = page.nextCursor
   : null;
 const created = await client.keys.create({ name: 'ci', scopes: ['upload', 'read'] });
 // created.key is the secret, returned only here
+// page.limits says how many keys an account may hold and the highest rate limit
+await client.keys.update(created.id, { name: 'ci runner' });
 const rotated = await client.keys.rotate(created.id, { gracePeriodSeconds: 3600 });
+// rotated.prefix and, once used, rotated.lastUsedAt tell keys apart in a list
 await client.keys.revoke(rotated.id);
 
 // webhook endpoints
@@ -442,6 +445,14 @@ const endpoint = await client.webhookEndpoints.create({
 // endpoint.secret is returned only here; verify deliveries with client.webhooks.verifyRequest
 const outcome = await client.webhookEndpoints.test(endpoint.id);
 const attempts = await client.webhookEndpoints.deliveries(endpoint.id, { limit: 20 });
+// each attempt carries the payload that was sent; send a failed one again
+// once the receiver is fixed (same event id, so the receiver can drop repeats)
+await client.webhookEndpoints.redeliver(endpoint.id, attempts[0].id);
+// pause and resume, or move the endpoint and change its events
+await client.webhookEndpoints.update(endpoint.id, { isActive: false });
+await client.webhookEndpoints.update(endpoint.id, { isActive: true, events: ['asset.ready'] });
+const { secret } = await client.webhookEndpoints.rotateSecret(endpoint.id);
+const health = await client.webhookEndpoints.get(endpoint.id); // lastDeliveryAt, lastDeliveryOk
 await client.webhookEndpoints.delete(endpoint.id);
 
 // playback ids (listing needs read)
@@ -449,9 +460,22 @@ const pb = await client.playbackIds.create(assetId, { policy: 'signed', name: 'e
 const ids = await client.playbackIds.list(assetId);
 await client.playbackIds.delete(pb.playbackId);
 
-// library totals for the account (read)
+// library totals and plays per day for the account (read)
 const stats = await client.assets.stats();
+const usage = await client.assets.usage({ days: 30 }); // { days: [{ date, plays }], total }
+
+// edit without overwriting someone else's change: pass the asset as read
+const asset = await client.assets.get(assetId);
+try {
+  await client.assets.update(assetId, { title: 'New title' }, { ifMatch: asset });
+} catch (err) {
+  if (err instanceof ConflictError && err.statusCode === 412) {
+    // err.current is the asset as it is now; merge and update again with it
+  } else throw err;
+}
 ```
+
+Assets carry `playCount` and `lastPlayedAt`, and `assets.processing(id)` says whether a failed video is `retryable`. A browser signed in to the Studio (a client without `apiKey`) can list its sessions with `client.sessions.list()`, each with `lastSeenAt`, and sign them out with `revoke(id)` or `revokeAll()`.
 
 `keys.rotate` on a key that was already rotated rejects with a `ConflictError`; rotate its replacement. An id from another account rejects with a `NotFoundError`, the same as one that does not exist.
 

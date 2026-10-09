@@ -1910,7 +1910,7 @@ export const openapiDocument = {
           '201': jsonResponse('ApiKeyRotated', 'The replacement key, with its secret shown once.'),
           '400': errorWith('A malformed id or grace period.'),
           '404': ref('NotFound'),
-          '409': errorWith('The key was already rotated; rotate its replacement instead.'),
+          '409': errorWith('The key was already rotated. Rotate its replacement instead.'),
           ...authFailures,
         },
       },
