@@ -594,6 +594,12 @@ body:has([data-sonner-toast]) main {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+/* alt+t focuses the toast list itself, which is 0 px tall; ring the toast in
+   front so the keyboard can see where it is */
+[data-sonner-toaster]:focus-visible [data-sonner-toast][data-front='true'] {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
 [data-sonner-toaster] [data-sonner-toast] {
   transition-duration: 200ms, 200ms, 200ms, 150ms;
   transition-timing-function: var(--ease-out-soft);

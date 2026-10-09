@@ -121,6 +121,11 @@ describe('toasts', () => {
       /\[data-sonner-toaster\] \[data-sonner-toast\]:focus-visible,\s*\[data-sonner-toaster\] \[data-sonner-toast\]\[data-styled\] \[data-button\]:focus-visible\s*\{\s*box-shadow: none;\s*outline: 2px solid var\(--ring\);/,
     );
   });
+  it('ring the front toast when alt+t focuses the 0 px tall toast list', async () => {
+    expect(await css()).toMatch(
+      /\[data-sonner-toaster\]:focus-visible \[data-sonner-toast\]\[data-front='true'\]\s*\{\s*outline: 2px solid var\(--ring\);/,
+    );
+  });
 });
 
 describe('forced colors, focus', () => {
