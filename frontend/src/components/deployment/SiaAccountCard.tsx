@@ -59,7 +59,7 @@ export function SiaAccountCard({ status }: { status?: DeploymentStatus }) {
           {account ? (account.ready ? 'Ready' : 'Not ready yet') : null}
         </DescriptionItem>
         <DescriptionItem label="Network">{network}</DescriptionItem>
-        <DescriptionItem label="Sia indexer" mono copy={url}>
+        <DescriptionItem label="Sia indexer" mono copy={url} copyLabel="Copy Sia indexer URL">
           {url}
         </DescriptionItem>
       </DescriptionList>

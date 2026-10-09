@@ -40,6 +40,8 @@ export interface DescriptionItemProps {
   mono?: boolean;
   /** adds a copy button that copies this text */
   copy?: string;
+  /** the copy button's name when the label's case must stay, e.g. "Copy Sia indexer URL" */
+  copyLabel?: string;
   /** a short explanation next to the label, in a tooltip */
   hint?: string;
   className?: string;
@@ -50,6 +52,7 @@ export function DescriptionItem({
   children,
   mono,
   copy,
+  copyLabel,
   hint,
   className,
 }: DescriptionItemProps) {
@@ -95,7 +98,10 @@ export function DescriptionItem({
         {copy && (
           <CopyButton
             value={copy}
-            label={`Copy ${typeof label === 'string' ? label.charAt(0).toLowerCase() + label.slice(1) : 'value'}`}
+            label={
+              copyLabel ??
+              `Copy ${typeof label === 'string' ? label.charAt(0).toLowerCase() + label.slice(1) : 'value'}`
+            }
             className="-my-1 size-6 shrink-0"
           />
         )}

@@ -4,6 +4,24 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { DescriptionItem, DescriptionList } from './DescriptionList';
 
 describe('DescriptionList', () => {
+  it('names the copy button with copyLabel when the label must keep its case', () => {
+    render(
+      <TooltipProvider>
+        <DescriptionList>
+          <DescriptionItem
+            label="Sia indexer"
+            mono
+            copy="https://sia.storage"
+            copyLabel="Copy Sia indexer URL"
+          >
+            https://sia.storage
+          </DescriptionItem>
+        </DescriptionList>
+      </TooltipProvider>,
+    );
+    expect(screen.getByRole('button', { name: 'Copy Sia indexer URL' })).toBeInTheDocument();
+  });
+
   it('pairs labels and values and shows an en dash for an empty value', () => {
     render(
       <TooltipProvider>
