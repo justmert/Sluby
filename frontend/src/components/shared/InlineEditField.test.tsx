@@ -64,11 +64,34 @@ describe('InlineEditField', () => {
     expect(onEditStart).toHaveBeenCalledOnce();
   });
 
-  it('wraps a long value to three lines instead of truncating it when asked', () => {
-    renderWithMotion(<InlineEditField label="title" value="A long title" onSave={vi.fn()} wrap />);
-    const shown = screen.getByText('A long title');
-    expect(shown).toHaveClass('line-clamp-3', 'wrap-anywhere');
-    expect(shown).not.toHaveClass('truncate');
+  it('lets the page render the value, with its own edit button, so a heading keeps its name', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    renderWithMotion(
+      <InlineEditField
+        label="title"
+        value="Product walkthrough"
+        onSave={onSave}
+        display={(shown) => <h1>{shown}</h1>}
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Product walkthrough' }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Edit title' }), ' 2{Enter}');
+    expect(onSave).toHaveBeenCalledWith('Product walkthrough 2');
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Product walkthrough 2'),
+    );
+    // back on the control that opened the field
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit title' })).toHaveFocus());
+  });
+
+  it('returns focus to the value after Escape', async () => {
+    renderWithMotion(<InlineEditField label="title" value="Old" onSave={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Edit title' })).toHaveFocus();
   });
 
   it('lets the page render a save error with its own action, keeping the text', async () => {

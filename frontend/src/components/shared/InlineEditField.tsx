@@ -1,5 +1,6 @@
-import { useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Pencil } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
@@ -27,8 +28,12 @@ export interface InlineEditFieldProps {
   className?: string;
   /** called when editing starts, e.g. to note the version the edit is based on */
   onEditStart?: () => void;
-  /** wrap the shown value to up to three lines (`line-clamp-3 wrap-anywhere`) instead of one truncated line */
-  wrap?: boolean;
+  /**
+   * Render the value yourself (inside an h1, say) and get a separate pencil
+   * button named "Edit {label}" beside it. The value then keeps its own
+   * accessible name, which the default (the value is the button) replaces.
+   */
+  display?: (shown: string) => ReactNode;
   /** what to show under the field when a save fails; the reader's sentence from errorText by default */
   renderError?: (err: unknown) => ReactNode;
   /** show "{n} of {maxLength}" under the field once the text reaches this length */
@@ -58,7 +63,7 @@ export function InlineEditField({
   disabled = false,
   className,
   onEditStart,
-  wrap = false,
+  display,
   renderError,
   counterFrom,
 }: InlineEditFieldProps) {
@@ -76,6 +81,16 @@ export function InlineEditField({
   const errorId = useId();
   // set while the escape key cancels, so the blur that follows does not save
   const cancelled = useRef(false);
+  // after Enter or Escape, focus goes back to the control that opened the field
+  const trigger = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    // with `display` the button only comes back once the save has settled
+    if (!editing && refocus.current && trigger.current) {
+      refocus.current = false;
+      trigger.current.focus();
+    }
+  }, [editing, saving]);
 
   const start = () => {
     if (disabled || saving !== null) return;
@@ -88,6 +103,7 @@ export function InlineEditField({
 
   const cancel = () => {
     cancelled.current = true;
+    refocus.current = true;
     setEditing(false);
     setError(null);
   };
@@ -142,6 +158,7 @@ export function InlineEditField({
               if (e.key === 'Escape') cancel();
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
+                refocus.current = true;
                 void commit();
               }
             }}
@@ -154,6 +171,7 @@ export function InlineEditField({
               if (e.key === 'Escape') cancel();
               if (e.key === 'Enter') {
                 e.preventDefault();
+                refocus.current = true;
                 void commit();
               }
             }}
@@ -177,8 +195,42 @@ export function InlineEditField({
   }
 
   const shown = saving ?? saved ?? value;
+  const busy =
+    saving !== null ? (
+      <Spinner className="size-3.5 shrink-0 text-muted-foreground" aria-label={`Saving ${label}`} />
+    ) : null;
+
+  if (display) {
+    return (
+      <div
+        data-slot="inline-edit"
+        aria-busy={saving !== null || undefined}
+        className={cn('flex max-w-full min-w-0 items-start gap-1', className)}
+      >
+        <div className="min-w-0">{display(shown)}</div>
+        {busy ? (
+          <span className="flex size-8 shrink-0 items-center justify-center">{busy}</span>
+        ) : (
+          <Button
+            ref={trigger}
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={start}
+            disabled={disabled}
+            aria-label={`Edit ${label}`}
+            className="shrink-0 text-muted-foreground"
+          >
+            <Pencil aria-hidden="true" />
+          </Button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <button
+      ref={trigger}
       type="button"
       data-slot="inline-edit"
       onClick={start}
@@ -194,23 +246,14 @@ export function InlineEditField({
         dir="auto"
         className={cn(
           'min-w-0',
-          multiline
-            ? 'whitespace-pre-wrap wrap-anywhere'
-            : wrap
-              ? 'line-clamp-3 wrap-anywhere'
-              : 'truncate',
+          multiline ? 'whitespace-pre-wrap wrap-anywhere' : 'truncate',
           !shown && 'text-muted-foreground',
           displayClassName,
         )}
       >
         {shown || emptyText || placeholder || `Add ${label}`}
       </span>
-      {saving !== null ? (
-        <Spinner
-          className="size-3.5 shrink-0 text-muted-foreground"
-          aria-label={`Saving ${label}`}
-        />
-      ) : (
+      {busy ?? (
         <Pencil
           aria-hidden="true"
           className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/inline-edit:opacity-100 group-focus-visible/inline-edit:opacity-100 pointer-coarse:opacity-100"
