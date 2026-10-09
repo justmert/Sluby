@@ -6,6 +6,7 @@ import { jsonFetch, reply } from '@/test/render';
 import {
   DELIVERIES_POLL_MS,
   useCreateWebhook,
+  useDeleteWebhook,
   useUpdateWebhook,
   useWebhook,
   useWebhooks,
@@ -84,5 +85,17 @@ describe('useWebhooks hooks', () => {
 
   it('polls deliveries every 10 seconds', () => {
     expect(DELIVERIES_POLL_MS).toBe(10_000);
+  });
+});
+
+describe('deleting a webhook that is already gone', () => {
+  it('counts a 404 as deleted', async () => {
+    const { client, wrapper } = setup({
+      '/api/v1/webhooks': { data: [hook] },
+      'DELETE /api/v1/webhooks/w1': reply(404, { error: 'Webhook endpoint not found' }),
+    });
+    client.setQueryData(['webhooks'], { data: [hook] });
+    const { result } = renderHook(() => useDeleteWebhook(), { wrapper });
+    await expect(result.current.mutateAsync('w1')).resolves.toBeUndefined();
   });
 });

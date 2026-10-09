@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { ApiKey, ApiKeyPage, ApiKeyScope, CreatedApiKey, RotatedApiKey } from '@sluby/sdk';
+import { statusOf } from '@/lib/api-client';
 import { sluby } from '@/lib/sluby';
 
 export type KeyScope = ApiKeyScope;
@@ -111,7 +112,14 @@ export function useRenameApiKey() {
 export function useRevokeApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => sluby.keys.revoke(id),
+    mutationFn: async (id: string) => {
+      try {
+        await sluby.keys.revoke(id);
+      } catch (err) {
+        // revoked already, in another tab or by the api: what was asked is done
+        if (statusOf(err) !== 404) throw err;
+      }
+    },
     onSuccess: (_res, id) => editKeys(qc, (rows) => rows.filter((r) => r.id !== id)),
     onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
   });

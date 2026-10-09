@@ -6,6 +6,7 @@ import type {
   WebhookEndpoint,
   WebhookEventName,
 } from '@sluby/sdk';
+import { statusOf } from '@/lib/api-client';
 import { sluby } from '@/lib/sluby';
 
 export type WebhookRecord = WebhookEndpoint;
@@ -114,7 +115,14 @@ export function useRedeliver(webhookId: string) {
 export function useDeleteWebhook() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => sluby.webhookEndpoints.delete(id),
+    mutationFn: async (id: string) => {
+      try {
+        await sluby.webhookEndpoints.delete(id);
+      } catch (err) {
+        // deleted already, in another tab or by the api: what was asked is done
+        if (statusOf(err) !== 404) throw err;
+      }
+    },
     onSuccess: (_res, id) => {
       editHooks(qc, (rows) => rows.filter((r) => r.id !== id));
       qc.removeQueries({ queryKey: oneKey(id) });

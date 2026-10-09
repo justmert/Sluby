@@ -2,8 +2,8 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { jsonFetch } from '@/test/render';
-import { useApiKeys, useCreateApiKey } from './useApiKeys';
+import { jsonFetch, reply } from '@/test/render';
+import { useApiKeys, useCreateApiKey, useRevokeApiKey } from './useApiKeys';
 
 const key = (id: string) => ({
   id,
@@ -80,5 +80,16 @@ describe('useApiKeys', () => {
     const rows = client.getQueryData<{ data: Array<Record<string, unknown>> }>(['api-keys'])!.data;
     expect(rows[0]).toMatchObject({ id: 'k2', prefix: 'sluby_x' });
     expect(JSON.stringify(rows)).not.toContain('"key"');
+  });
+});
+
+describe('revoking a key that is already gone', () => {
+  it('counts a 404 as revoked', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(jsonFetch({ 'DELETE /api/v1/keys/k1': reply(404, { error: 'API key not found' }) })),
+    );
+    const { result } = renderHook(() => useRevokeApiKey(), { wrapper });
+    await expect(result.current.mutateAsync('k1')).resolves.toBeUndefined();
   });
 });
