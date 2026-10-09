@@ -14,12 +14,24 @@ import type { StatusTone } from '@/components/shared/status';
  */
 export type Job = ProcessingJob & { retryable?: boolean };
 
-/** The four steps a video goes through, as the pipeline diagram names them. */
+/** The four steps a video goes through, as the processing steps name and explain them. */
 export const PIPELINE_STEPS = [
-  { key: 'upload', label: 'Upload' },
-  { key: 'transcode', label: 'Transcode' },
-  { key: 'store', label: 'Store on Sia' },
-  { key: 'publish', label: 'Publish' },
+  {
+    key: 'upload',
+    label: 'Upload',
+    detail: 'The file is sent to this server and resumes if interrupted',
+  },
+  {
+    key: 'transcode',
+    label: 'Transcode',
+    detail: 'Converted into several qualities for streaming',
+  },
+  {
+    key: 'store',
+    label: 'Store on Sia',
+    detail: 'Video, playlists and thumbnails are stored on Sia',
+  },
+  { key: 'publish', label: 'Publish', detail: 'The video becomes playable' },
 ] as const;
 
 export type PipelineStep = (typeof PIPELINE_STEPS)[number]['key'];
