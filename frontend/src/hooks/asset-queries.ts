@@ -65,6 +65,9 @@ function subscribeSending(onChange: () => void) {
   };
 }
 
+/** Whether this browser sends the asset's file right now, outside React. */
+const sendingInBrowser = (assetId: string) => sendingSnapshot().split(' ').includes(assetId);
+
 /**
  * The videos whose file this browser is sending right now, from this tab or
  * another one (the tabs announce their uploads to each other). An old upload
@@ -159,8 +162,13 @@ export function useAssetById(id: string | undefined) {
       return asset;
     },
     enabled: !!id,
-    refetchInterval: (query) =>
-      !failedForGood(query) && query.state.data && isInFlight(query.state.data) ? 3_000 : false,
+    // an old upload is still read while another tab sends its file, so the
+    // page moves on when that tab finishes
+    refetchInterval: (query) => {
+      const asset = query.state.data;
+      if (failedForGood(query) || !asset) return false;
+      return isInFlight(asset) || sendingInBrowser(asset.id) ? 3_000 : false;
+    },
   });
 }
 
