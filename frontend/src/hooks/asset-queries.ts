@@ -240,6 +240,18 @@ export function useRetryProcessing() {
   });
 }
 
+// how many edits or deletes run at once; enough to finish 500 in seconds
+// without queueing hundreds of requests in the browser
+const BULK_CONCURRENCY = 4;
+
+async function eachLimited<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 export interface DeleteFailure {
   id: string;
   error: string;
@@ -253,7 +265,18 @@ export function useDeleteAssets() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (ids: string[]): Promise<DeleteFailure[]> => {
-      const results = await Promise.allSettled(ids.map((id) => sluby.assets.delete(id)));
+      // a few at a time: "select all results" can hand over 500 ids
+      const results: PromiseSettledResult<void>[] = new Array(ids.length);
+      await eachLimited(
+        ids.map((id, i) => [id, i] as const),
+        BULK_CONCURRENCY,
+        async ([id, i]) => {
+          results[i] = await sluby.assets.delete(id).then(
+            (value) => ({ status: 'fulfilled', value }),
+            (reason: unknown) => ({ status: 'rejected', reason }),
+          );
+        },
+      );
       // allSettled never rejects, so a 401 has to be rethrown for the query
       // client to end the session (FLW-13) instead of becoming a row failure
       const signedOut = results.find(
@@ -415,18 +438,6 @@ export async function fetchAllMatching(
 export interface AccessFailure {
   id: string;
   error: unknown;
-}
-
-// how many edits run at once; enough to finish 500 in seconds without
-// tripping the per-key rate limit
-const BULK_CONCURRENCY = 4;
-
-async function eachLimited<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) await fn(items[next++]);
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
 /**

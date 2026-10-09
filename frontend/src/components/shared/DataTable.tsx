@@ -111,6 +111,12 @@ export interface DataTableProps<T> {
    */
   animateRows?: boolean;
   staggerIn?: boolean;
+  /**
+   * Names the set of rows: a new search, sort or page. A new key swaps the
+   * rows in place with no motion (the header and its focus stay), while rows
+   * leaving under the same key animate out.
+   */
+  rowsKey?: string;
   className?: string;
 }
 
@@ -228,6 +234,7 @@ export function DataTable<T>({
   busy = false,
   animateRows = false,
   staggerIn = false,
+  rowsKey = '',
   className,
 }: DataTableProps<T>) {
   const selectable = selected !== undefined && onSelectedChange !== undefined;
@@ -260,8 +267,14 @@ export function DataTable<T>({
   const colClass = (c: DataTableColumn<T>) => c.hideBelow && BREAKPOINT[c.hideBelow];
   // rows present at mount stay put unless asked to stagger in; later ones
   // (a poll that brings a new row) fade in
-  const [mountedIds] = useState(() => new Set(ids));
-  const initialFor = (id: string) => (staggerIn || !mountedIds.has(id) ? undefined : false);
+  // the rows each set started with stay still; rows a later poll adds fade
+  // in. the first set may stagger in when the page asks
+  const [first] = useState(rowsKey);
+  const [mounted, setMounted] = useState({ key: rowsKey, ids: new Set(ids) });
+  const current = mounted.key === rowsKey ? mounted : { key: rowsKey, ids: new Set(ids) };
+  if (current !== mounted) setMounted(current);
+  const initialFor = (id: string) =>
+    (staggerIn && rowsKey === first) || !current.ids.has(id) ? undefined : false;
   const Body = animateRows ? AnimatedList : TableBody;
 
   return (
@@ -329,6 +342,7 @@ export function DataTable<T>({
               </TableRow>
             </TableHeader>
             <Body
+              key={rowsKey}
               {...(animateRows
                 ? {
                     as: 'tbody' as const,

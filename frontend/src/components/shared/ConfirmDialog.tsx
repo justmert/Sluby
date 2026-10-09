@@ -49,6 +49,12 @@ export interface ConfirmDialogProps<T> {
   onConfirm: (item: T) => unknown;
   /** the lead sentence of a failure: "Could not delete the video" */
   errorTitle?: string;
+  /**
+   * Where focus goes once the dialog has closed. By default it returns to
+   * the control that opened it; call preventDefault and focus something else
+   * when that control is gone, such as a bulk bar a delete cleared.
+   */
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 const resolve = <T, R>(value: ForItem<T, R>, item: T): R =>
@@ -82,6 +88,7 @@ export function ConfirmDialog<T>({
   typedConfirmation,
   onConfirm,
   errorTitle,
+  onCloseAutoFocus,
 }: ConfirmDialogProps<T>) {
   const open = item !== null && item !== undefined && item !== false;
   const shown = useFrozen(item, open);
@@ -139,7 +146,7 @@ export function ConfirmDialog<T>({
         if (!next && !pending) onClose();
       }}
     >
-      <AlertDialogContent data-slot="confirm-dialog">
+      <AlertDialogContent data-slot="confirm-dialog" onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>{has ? resolve(title, subject) : null}</AlertDialogTitle>
           <AlertDialogDescription>

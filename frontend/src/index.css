@@ -259,6 +259,7 @@
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --animate-shimmer: shimmer 2s linear infinite;
   --animate-status-pulse: status-pulse 1.6s ease-in-out infinite;
+  --animate-stripes: stripes 1.2s linear infinite;
 
   /* the shimmer is a fixed-width stripe that travels a fixed distance, so
      every skeleton sweeps at the same speed whatever its width */
@@ -271,6 +272,14 @@
   @keyframes status-pulse {
     50% {
       opacity: 0.4;
+    }
+  }
+
+  /* the processing tile's diagonal stripes slide by one period, so the loop
+     has no seam (28.28px is the 20px stripe pair along the diagonal) */
+  @keyframes stripes {
+    to {
+      background-position: 28.28px 0;
     }
   }
 }
@@ -463,8 +472,11 @@
     color: var(--muted-foreground);
     font-size: var(--text-xs);
   }
+  /* the title block spans the menu's row and the checkbox's, so the
+     checkbox sits under the menu however tall the title block grows */
   table[data-responsive='container'] > tbody > tr > td[data-cell='primary'] {
     font-weight: 500;
+    grid-row: 1 / span 2;
   }
   table[data-responsive='container'] > tbody > tr > td[data-cell='actions'] {
     grid-column: 2;

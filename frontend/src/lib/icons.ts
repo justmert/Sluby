@@ -3,11 +3,14 @@ import {
   CircleAlert,
   Clapperboard,
   CloudUpload,
+  Code,
   Cog,
   Copy,
   Film,
   KeyRound,
+  Link2,
   MemoryStick,
+  Play,
   RefreshCw,
   RotateCcw,
   RotateCw,
@@ -38,6 +41,12 @@ export const Icons = {
   open: ArrowUpRight,
   copy: Copy,
   delete: Trash2,
+  /** watch a video in place, without leaving the page */
+  preview: Play,
+  /** copy code that plays a video on another site */
+  embed: Code,
+  /** copy a url, such as a stream URL */
+  link: Link2,
   /** retry a failed thing */
   retry: RotateCcw,
   /** rotate a key */
