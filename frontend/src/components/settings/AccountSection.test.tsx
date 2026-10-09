@@ -27,7 +27,9 @@ const valueOf = (label: string) => screen.getByText(label, { selector: 'dt' }).n
 describe('AccountSection', () => {
   it('names the account, how it signed in and an operator role with what it means (CPY-23)', () => {
     setup({ operator: true });
-    expect(valueOf('Account')).toHaveTextContent('alice');
+    // the section is already called Account; the row names what it shows
+    expect(screen.queryByText('Account', { selector: 'dt' })).not.toBeInTheDocument();
+    expect(valueOf('Username')).toHaveTextContent('alice');
     expect(valueOf('Signed in with')).toHaveTextContent('GitHub');
     expect(valueOf('Role')).toHaveTextContent('OperatorCan see server status, storage and metrics');
   });

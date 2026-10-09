@@ -23,7 +23,7 @@ export function AccountSection() {
       <Card>
         <CardContent>
           <DescriptionList>
-            <DescriptionItem label="Account">
+            <DescriptionItem label="Username">
               <span className="inline-flex min-w-0 items-center gap-1.5">
                 {session.provider === 'github' && (
                   <GitHubMark className="size-3.5 shrink-0" aria-hidden="true" />
