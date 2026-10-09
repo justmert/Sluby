@@ -67,8 +67,7 @@ export function usePlatformMetrics(enabled: boolean) {
         const snap = snapshotFromResponse(await apiClient.get<MetricsResponse>('/metrics'));
         failures.current = 0;
         const prev = qc.getQueryData<MetricsHistory>(KEY)?.samples ?? [];
-        const samples =
-          prev.at(-1)?.takenAt === snap.takenAt ? prev : [...prev, snap].slice(-KEEP);
+        const samples = prev.at(-1)?.takenAt === snap.takenAt ? prev : [...prev, snap].slice(-KEEP);
         return { latest: snap, samples };
       } catch (err) {
         failures.current += 1;

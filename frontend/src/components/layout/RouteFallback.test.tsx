@@ -31,15 +31,15 @@ describe('RouteFallback', () => {
   });
 
   it('draws the dashboard and analytics with the pages own loading pieces', () => {
-    // 4 library stats, latest uploads and status; operators also get the deployment cards
-    const tenant = shapeAt('/studio');
-    expect(tenant.querySelectorAll('[data-slot="stat-value"]')).toHaveLength(4);
-    expect(tenant).toHaveTextContent('Latest uploads');
-    expect(tenant).toHaveTextContent('Service status');
-    expect(tenant).not.toHaveTextContent('Storage usage');
-    const operator = shapeAt('/studio', true);
-    expect(operator).toHaveTextContent('Storage usage');
-    expect(operator).toHaveTextContent('Reconciliation');
+    // 4 stats, recent videos and status, for members and operators alike (the
+    // operator cards live on Health)
+    for (const operator of [false, true]) {
+      const overview = shapeAt('/studio', operator);
+      expect(overview.querySelectorAll('[data-slot="stat-value"]')).toHaveLength(4);
+      expect(overview).toHaveTextContent('Recent videos');
+      expect(overview).toHaveTextContent('Status');
+      expect(overview).not.toHaveTextContent('Sia account');
+    }
     // metrics: 8 server stats and the two 224px chart boxes (operators only reach it)
     const metrics = shapeAt('/studio/deployment/metrics', true);
     expect(metrics.querySelectorAll('[data-slot="stat-value"]')).toHaveLength(8);
