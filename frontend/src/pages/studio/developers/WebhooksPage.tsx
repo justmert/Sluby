@@ -25,6 +25,8 @@ import {
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DataTable } from '@/components/shared/DataTable';
+import { withCells } from '@/components/shared/column-frames';
+import { WEBHOOK_COLUMNS } from '@/components/developers/columns';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -89,52 +91,33 @@ export default function WebhooksPage() {
         onRetry={() => hooks.refetch()}
         retrying={hooks.isFetching}
         what="webhooks"
-        columns={[
-          {
-            id: 'url',
-            header: 'Endpoint URL',
-            primary: true,
-            className: 'max-w-96 min-w-48 whitespace-normal',
-            cell: (w) => (
-              <Link
-                to={ROUTES.webhook(w.id)}
-                className="rounded-sm font-mono text-xs font-normal wrap-anywhere hover:underline focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-              >
-                {w.url}
-              </Link>
-            ),
-          },
-          {
-            id: 'events',
-            header: 'Events',
-            className: 'whitespace-nowrap',
-            cell: (w) => (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    tabIndex={0}
-                    className="rounded-sm underline decoration-dotted underline-offset-4 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-                  >
-                    {plural(w.events.length, 'event')}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <span className="font-mono">{w.events.join(', ')}</span>
-                </TooltipContent>
-              </Tooltip>
-            ),
-          },
-          {
-            id: 'last',
-            header: 'Last delivery',
-            cell: (w) => <LastDelivery hook={w} />,
-          },
-          {
-            id: 'status',
-            header: 'Status',
-            cell: (w) => <StatusBadge kind="webhook" status={w.isActive ? 'active' : 'inactive'} />,
-          },
-        ]}
+        columns={withCells<WebhookRecord>(WEBHOOK_COLUMNS, {
+          url: (w) => (
+            <Link
+              to={ROUTES.webhook(w.id)}
+              className="rounded-sm font-mono text-xs font-normal wrap-anywhere hover:underline focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              {w.url}
+            </Link>
+          ),
+          events: (w) => (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  tabIndex={0}
+                  className="rounded-sm underline decoration-dotted underline-offset-4 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  {plural(w.events.length, 'event')}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <span className="font-mono">{w.events.join(', ')}</span>
+              </TooltipContent>
+            </Tooltip>
+          ),
+          last: (w) => <LastDelivery hook={w} />,
+          status: (w) => <StatusBadge kind="webhook" status={w.isActive ? 'active' : 'inactive'} />,
+        })}
         rowActions={(w) => [
           {
             label: 'Send test',

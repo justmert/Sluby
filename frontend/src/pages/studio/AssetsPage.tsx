@@ -15,7 +15,6 @@ import type { SortState } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { PageState } from '@/components/shared/PageState';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Kbd } from '@/components/ui/kbd';
@@ -26,11 +25,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { BulkBar } from '@/components/videos/BulkBar';
 import { FilterPopover } from '@/components/videos/FilterPopover';
+import { libraryView, rememberView } from '@/components/videos/library-view';
+import { VideosGridSkeleton } from '@/components/videos/VideosGridSkeleton';
 import {
   ACCESS_FILTERS,
   ALL,
@@ -66,7 +66,6 @@ import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 24;
 
-type View = 'table' | 'grid';
 type Order = 'asc' | 'desc';
 
 const STATUS_VALUES = new Set<string>(STATUS_FILTERS.map((s) => s.value));
@@ -86,27 +85,6 @@ const GRID_SORTS = [
   { value: 'size:desc', label: 'Largest first' },
   { value: 'size:asc', label: 'Smallest first' },
 ];
-
-const VIEW_KEY = 'sluby:videos-view';
-
-function storedView(): View | null {
-  try {
-    const v = localStorage.getItem(VIEW_KEY);
-    return v === 'grid' || v === 'table' ? v : null;
-  } catch (err) {
-    // storage off (a private window, a policy): the url still carries the view
-    console.warn('Could not read the remembered library view', err);
-    return null;
-  }
-}
-
-function rememberView(view: View) {
-  try {
-    localStorage.setItem(VIEW_KEY, view);
-  } catch (err) {
-    console.warn('Could not remember the library view', err);
-  }
-}
 
 /**
  * Library state lives in the url so a filtered view can be shared, reloaded
@@ -137,8 +115,7 @@ function useLibraryParams() {
   const page = Number(read('page', (v) => /^[1-9]\d{0,5}$/.test(v)) ?? 1);
   // "list" is what the view was called before the table became the default
   const viewParam = read('view', (v) => v === 'table' || v === 'grid' || v === 'list');
-  const view: View =
-    viewParam === 'grid' ? 'grid' : viewParam ? 'table' : (storedView() ?? 'table');
+  const view = libraryView(viewParam);
   const preview = params.get('preview');
 
   const badKey = bad.join(',');
@@ -188,32 +165,6 @@ function useLibraryParams() {
     preview,
     update,
   };
-}
-
-// skeletons match the real card boxes, and only fade in once loading has
-// taken 150ms, so a fast answer never flashes them
-function GridSkeleton() {
-  return (
-    <div
-      className="grid grid-cols-1 gap-4 @xl/page:grid-cols-2 @4xl/page:grid-cols-3 @6xl/page:grid-cols-4"
-      aria-hidden="true"
-    >
-      {Array.from({ length: 8 }, (_, i) => (
-        <Card key={i} className="gap-0 overflow-hidden py-0" data-testid="asset-card-skeleton">
-          <Skeleton className={cn('aspect-video w-full rounded-none', lateReveal)} />
-          <div className="p-3">
-            <div className="flex h-5 items-center">
-              <Skeleton className={cn('h-3.5 w-3/4', lateReveal)} />
-            </div>
-            <div className="mt-0.5 flex h-4 items-center">
-              <Skeleton className={cn('h-3 w-1/2', lateReveal)} />
-            </div>
-            <Skeleton className={cn('mt-2 h-5 w-16 rounded-full', lateReveal)} />
-          </div>
-        </Card>
-      ))}
-    </div>
-  );
 }
 
 interface Selection {
@@ -713,7 +664,7 @@ export default function AssetsPage() {
   const results =
     list.isLoading || stale.isPending ? (
       p.view === 'grid' ? (
-        <GridSkeleton />
+        <VideosGridSkeleton />
       ) : (
         <VideosTable
           assets={undefined}

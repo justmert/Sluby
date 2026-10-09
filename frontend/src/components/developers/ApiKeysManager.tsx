@@ -2,7 +2,8 @@ import { useRef, useState, type ReactNode } from 'react';
 import { KeyRound, Pencil, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
-import { DataTable, type DataTableColumn } from '@/components/shared/DataTable';
+import { DataTable } from '@/components/shared/DataTable';
+import { withCells } from '@/components/shared/column-frames';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { InlineEditField } from '@/components/shared/InlineEditField';
 import { StatusBadge } from '@/components/shared/StatusBadge';
@@ -27,6 +28,7 @@ import {
 } from '@/lib/formatters';
 import { Icons } from '@/lib/icons';
 import { toastSuccess } from '@/lib/toast';
+import { KEY_COLUMNS } from './columns';
 import { useCreateParam } from './create-param';
 import { CreateKeyDialog } from './CreateKeyDialog';
 import { emptyKeyForm, KEY_NAME_MAX, type KeyForm } from './forms';
@@ -93,96 +95,65 @@ export function ApiKeysManager() {
     setCreating(true);
   };
 
-  const columns: DataTableColumn<ApiKeyRecord>[] = [
-    {
-      id: 'name',
-      header: 'Name',
-      primary: true,
-      className: 'max-w-64 min-w-36 whitespace-normal',
-      cell: (k) => (
-        <InlineEditField
-          label={`name of ${k.name}`}
-          className="w-full min-w-40"
-          value={k.name}
-          maxLength={KEY_NAME_MAX}
-          requiredMessage="Enter a name."
-          displayClassName="whitespace-normal wrap-anywhere"
-          onSave={async (name) => {
-            await rename.mutateAsync({ id: k.id, name });
-            toastSuccess('Key renamed');
-          }}
-        />
+  const columns = withCells<ApiKeyRecord>(KEY_COLUMNS, {
+    name: (k) => (
+      <InlineEditField
+        label={`name of ${k.name}`}
+        className="w-full min-w-40"
+        value={k.name}
+        maxLength={KEY_NAME_MAX}
+        requiredMessage="Enter a name."
+        displayClassName="whitespace-normal wrap-anywhere"
+        onSave={async (name) => {
+          await rename.mutateAsync({ id: k.id, name });
+          toastSuccess('Key renamed');
+        }}
+      />
+    ),
+    key: (k) =>
+      k.prefix ? (
+        <span className="font-mono text-xs">{k.prefix}…</span>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              className="rounded-sm text-muted-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+              aria-label="Not recorded. Created before key prefixes were recorded"
+            >
+              {NO_VALUE}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Created before key prefixes were recorded</TooltipContent>
+        </Tooltip>
       ),
-    },
-    {
-      id: 'key',
-      header: 'Key',
-      cell: (k) =>
-        k.prefix ? (
-          <span className="font-mono text-xs">{k.prefix}…</span>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                tabIndex={0}
-                className="rounded-sm text-muted-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-                aria-label="Not recorded. Created before key prefixes were recorded"
-              >
-                {NO_VALUE}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Created before key prefixes were recorded</TooltipContent>
-          </Tooltip>
-        ),
-    },
-    {
-      id: 'scopes',
-      header: 'Scopes',
-      // shown from lg: at tablet width the table keeps name, key, last use and status
-      className: 'max-lg:hidden!',
-      cell: (k) => (
-        <span className="flex flex-wrap gap-1">
-          {k.scopes.map((s) => (
-            <Badge key={s} variant="code">
-              {s}
-            </Badge>
-          ))}
-        </span>
+    scopes: (k) => (
+      <span className="flex flex-wrap gap-1">
+        {k.scopes.map((s) => (
+          <Badge key={s} variant="code">
+            {s}
+          </Badge>
+        ))}
+      </span>
+    ),
+    'last-used': (k) =>
+      k.lastUsedAt === null ? (
+        <span className="text-muted-foreground">Never</span>
+      ) : (
+        <time dateTime={k.lastUsedAt} title={formatDate(k.lastUsedAt)}>
+          {formatRelativeTime(k.lastUsedAt)}
+        </time>
       ),
-    },
-    {
-      id: 'last-used',
-      header: 'Last used',
-      className: 'max-sm:hidden! whitespace-nowrap',
-      cell: (k) =>
-        k.lastUsedAt === null ? (
-          <span className="text-muted-foreground">Never</span>
-        ) : (
-          <time dateTime={k.lastUsedAt} title={formatDate(k.lastUsedAt)}>
-            {formatRelativeTime(k.lastUsedAt)}
-          </time>
-        ),
-    },
-    {
-      id: 'created',
-      header: 'Created',
-      className: 'max-xl:hidden! whitespace-nowrap text-muted-foreground',
-      cell: (k) => <time dateTime={k.createdAt}>{formatDate(k.createdAt)}</time>,
-    },
-    {
-      id: 'status',
-      header: 'Status',
-      className: 'whitespace-nowrap',
-      cell: (k) =>
-        isReplaced(k) ? (
-          <StatusBadge kind="key" status="replaced">
-            Replaced · Stops {formatTimeLeft(k.expiresAt!)}
-          </StatusBadge>
-        ) : (
-          <StatusBadge kind="key" status="active" />
-        ),
-    },
-  ];
+    created: (k) => <time dateTime={k.createdAt}>{formatDate(k.createdAt)}</time>,
+    status: (k) =>
+      isReplaced(k) ? (
+        <StatusBadge kind="key" status="replaced">
+          Replaced · Stops {formatTimeLeft(k.expiresAt!)}
+        </StatusBadge>
+      ) : (
+        <StatusBadge kind="key" status="active" />
+      ),
+  });
 
   const createButton = (
     <Button

@@ -16,6 +16,7 @@ import { embedSamples, needsSigning } from '@/lib/embed';
 import { plural } from '@/lib/formatters';
 import { preloadPage } from '@/lib/page-chunks';
 import { buildSnippets, VIDEO_ID_PLACEHOLDER } from '@/lib/snippets';
+import { KeyNote } from './KeyNote';
 
 interface Tab {
   id: string;
@@ -190,14 +191,7 @@ export default function QuickstartPage() {
                 retrying={ready.list.isFetching}
                 onChange={setPickedId}
               />
-              <p className="text-xs text-muted-foreground">
-                Create an API key on the{' '}
-                <Link to={ROUTES.API_KEYS} className="underline underline-offset-4">
-                  API keys page
-                </Link>{' '}
-                and set it as <code className="font-mono">SLUBY_API_KEY</code> on your server. Never
-                put a key in browser code. A video is called an asset in the API.
-              </p>
+              <KeyNote />
             </div>
             {tabs.map((t) => (
               <TabsContent key={t.id} value={t.id} className="flex min-w-0 flex-col gap-3">

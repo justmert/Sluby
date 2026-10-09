@@ -15,6 +15,7 @@ import {
   webhookSecret,
 } from '@/components/developers/webhook-actions';
 import { PageContainer, PageHeader, SectionHeader } from '@/components/layout/PageContainer';
+import { WebhookDetailLoading } from '@/components/developers/WebhookDetailLoading';
 import { CodeBlock } from '@/components/shared/CodeBlock';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DescriptionItem, DescriptionList } from '@/components/shared/DescriptionList';
@@ -30,7 +31,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import {
   useDeleteWebhook,
@@ -123,10 +123,7 @@ function Loading() {
   return (
     <PageContainer>
       <h1 className="sr-only">Loading webhook</h1>
-      <Skeleton className="mb-2 h-8 w-72 max-w-full" />
-      <Skeleton className="mb-6 h-5 w-96 max-w-full" />
-      <Skeleton className="h-28 rounded-xl" />
-      <Skeleton className="mt-10 h-64 rounded-xl" />
+      <WebhookDetailLoading />
     </PageContainer>
   );
 }

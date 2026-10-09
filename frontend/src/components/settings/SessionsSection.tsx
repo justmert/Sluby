@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { LogOut, Monitor, Smartphone } from 'lucide-react';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
-import { DataTable, type DataTableColumn } from '@/components/shared/DataTable';
+import { DataTable } from '@/components/shared/DataTable';
+import { withCells } from '@/components/shared/column-frames';
 import { SectionHeader } from '@/components/shared/PageHeader';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import { formatDate, formatRelativeTime, NO_VALUE } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { toastError, toastSuccess } from '@/lib/toast';
 import { browserLabel } from '@/lib/user-agent';
+import { SESSION_COLUMNS } from './columns';
 
 const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -79,59 +81,36 @@ export function SessionsSection() {
     }
   };
 
-  const columns: DataTableColumn<StudioSession>[] = [
-    {
-      id: 'browser',
-      header: 'Browser',
-      primary: true,
-      cell: (s) => <BrowserCell session={s} />,
+  const columns = withCells<StudioSession>(SESSION_COLUMNS, {
+    browser: (s) => <BrowserCell session={s} />,
+    created: (s) => <span title={formatRelativeTime(s.createdAt)}>{formatDate(s.createdAt)}</span>,
+    seen: (s) => (
+      <span title={s.lastSeenAt ? formatDate(s.lastSeenAt) : undefined}>{lastActive(s)}</span>
+    ),
+    // "in 6 days" rather than "in 5 days 23 hours": the exact time is in the
+    // tooltip, and the long form pushed Sign out out of the card at 768
+    expires: (s) => <span title={formatDate(s.expiresAt)}>{formatRelativeTime(s.expiresAt)}</span>,
+    action: (s) => {
+      // this browser signs out from Account above, which also leaves the page
+      if (s.current) return null;
+      const pending = revoke.isPending && revoke.variables === s.id;
+      const { label } = browserLabel(s.userAgent);
+      return (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          disabled={pending}
+          aria-label={`Sign out ${label}`}
+          data-sign-out={s.id}
+          onClick={() => void signOutOther(s)}
+        >
+          {pending ? <Spinner aria-hidden="true" /> : <LogOut aria-hidden="true" />}
+          Sign out
+        </Button>
+      );
     },
-    {
-      id: 'created',
-      header: 'Signed in',
-      cell: (s) => <span title={formatRelativeTime(s.createdAt)}>{formatDate(s.createdAt)}</span>,
-    },
-    {
-      id: 'seen',
-      header: 'Last active',
-      cell: (s) => (
-        <span title={s.lastSeenAt ? formatDate(s.lastSeenAt) : undefined}>{lastActive(s)}</span>
-      ),
-    },
-    {
-      id: 'expires',
-      header: 'Expires',
-      // "in 6 days" rather than "in 5 days 23 hours": the exact time is in the
-      // tooltip, and the long form pushed Sign out out of the card at 768
-      cell: (s) => <span title={formatDate(s.expiresAt)}>{formatRelativeTime(s.expiresAt)}</span>,
-    },
-    {
-      id: 'action',
-      header: <span className="sr-only">Actions</span>,
-      label: '',
-      align: 'right',
-      cell: (s) => {
-        // this browser signs out from Account above, which also leaves the page
-        if (s.current) return null;
-        const pending = revoke.isPending && revoke.variables === s.id;
-        const { label } = browserLabel(s.userAgent);
-        return (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            disabled={pending}
-            aria-label={`Sign out ${label}`}
-            data-sign-out={s.id}
-            onClick={() => void signOutOther(s)}
-          >
-            {pending ? <Spinner aria-hidden="true" /> : <LogOut aria-hidden="true" />}
-            Sign out
-          </Button>
-        );
-      },
-    },
-  ];
+  });
 
   const others = rows?.filter((s) => !s.current).length ?? 0;
 

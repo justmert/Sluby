@@ -32,7 +32,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Skeleton } from '@/components/ui/skeleton';
+import { AssetDetailLoading } from '@/components/asset/AssetDetailLoading';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -78,27 +78,11 @@ function DetailSkeleton() {
       <span className="sr-only" role="status">
         Loading video details
       </span>
-      <div
-        aria-hidden="true"
-        className="animate-in fill-mode-backwards delay-150 duration-200 fade-in transition-none"
-      >
-        <div className="mb-6 flex flex-col gap-3">
-          <Skeleton className="h-8 w-80 max-w-full" />
-          <div className="flex h-5 items-center gap-2">
-            <Skeleton className="h-5 w-16 rounded-full" />
-            <Skeleton className="h-3.5 w-56" />
-          </div>
-        </div>
-        <div className="grid gap-6 @5xl/page:grid-cols-[minmax(0,1fr)_24rem]">
-          <Skeleton className="aspect-video w-full rounded-xl" />
-          <Skeleton className="h-72 w-full rounded-xl" />
-        </div>
-      </div>
+      <AssetDetailLoading />
     </div>
   );
 }
 
-/** "Ready · 0:10 · 1920 × 1080 · 3.1 MB on Sia · 128 plays · Created 2 hours ago" */
 function MetaRow({ asset, interrupted }: { asset: VideoAsset; interrupted: boolean }) {
   const parts: ReactNode[] = [];
   if (asset.durationMs) parts.push(formatDuration(asset.durationMs));
