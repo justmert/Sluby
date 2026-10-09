@@ -96,7 +96,7 @@ function takeSignInFailure(): SignInFailure | null {
 }
 
 function githubLoginUrl() {
-  const next = window.location.pathname + window.location.search;
+  const next = window.location.pathname + window.location.search + window.location.hash;
   return `/api/v1/auth/github/login?${new URLSearchParams({ next })}`;
 }
 

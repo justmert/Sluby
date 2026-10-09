@@ -453,6 +453,16 @@ describe('AuthGate sign-in failures (B-12)', () => {
     );
   });
 
+  it('keeps the hash of the page in the sign-in next', async () => {
+    window.history.replaceState(null, '', '/studio/videos/a1?panel=share#embed');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
+    renderGate();
+    await userEvent.click(await screen.findByRole('button', { name: /sign in with github/i }));
+    expect(loadPage).toHaveBeenCalledWith(
+      `/api/v1/auth/github/login?${new URLSearchParams({ next: '/studio/videos/a1?panel=share#embed' })}`,
+    );
+  });
+
   it('drops the failure when the session is fine after all', async () => {
     window.history.replaceState(null, '', '/studio?signin_error=expired_handshake');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(me)));
