@@ -64,7 +64,7 @@ export function UpdatedAgo({
         data-slot="updated-dot"
         data-stale={stale || undefined}
         className={cn(
-          'size-1.5 shrink-0 rounded-full bg-success transition-colors duration-200 data-stale:bg-warning',
+          'size-1.5 shrink-0 rounded-full bg-success transition-colors duration-200 data-stale:bg-warning-foreground',
           seen.changes > 0 &&
             'animate-in duration-300 ease-out-soft fade-in-30 zoom-in-0 transition-none',
         )}

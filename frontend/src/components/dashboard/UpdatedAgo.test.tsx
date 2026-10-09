@@ -27,6 +27,15 @@ describe('UpdatedAgo', () => {
     ).toBeInTheDocument();
   });
 
+  it('draws a stale dot that stands out from the page (3:1), not the light warning fill', () => {
+    const { container } = render(
+      <UpdatedAgo updatedAt={Date.now() - 12_000} data={{}} stale label="Totals updated" />,
+    );
+    expect(container.querySelector('[data-slot=updated-dot]')).toHaveClass(
+      'data-stale:bg-warning-foreground',
+    );
+  });
+
   it('holds its line before the first answer', () => {
     const { container } = render(<UpdatedAgo updatedAt={0} />);
     expect(container.querySelector('p')).toHaveClass('h-4');
