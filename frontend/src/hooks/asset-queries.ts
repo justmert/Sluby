@@ -6,13 +6,7 @@ import {
   useQueryClient,
   type Query,
 } from '@tanstack/react-query';
-import type {
-  AccessTier,
-  ListAssetsOptions,
-  PaginatedResponse,
-  RequestOptions,
-  VideoAsset,
-} from '@sluby/sdk';
+import type { AccessTier, ListAssetsOptions, PaginatedResponse, VideoAsset } from '@sluby/sdk';
 import { errorText } from '@/lib/errors';
 import { sluby } from '@/lib/sluby';
 import { uploadStore } from '@/lib/studio-upload';
@@ -461,11 +455,8 @@ export function useSetAccess() {
       let signedOut: unknown;
       await eachLimited(assets, BULK_CONCURRENCY, async (asset) => {
         if (signedOut) return;
-        // the sdk sends If-Match once it knows ifMatch (B-13); typed through a
-        // variable so this builds against the sdk before and after that
-        const options: RequestOptions & { ifMatch?: VideoAsset } = { ifMatch: asset };
         try {
-          await sluby.assets.update(asset.id, { accessTier }, options);
+          await sluby.assets.update(asset.id, { accessTier }, { ifMatch: asset });
         } catch (err) {
           if (errorStatus(err) === 401) signedOut = err;
           else failures.push({ id: asset.id, error: err });

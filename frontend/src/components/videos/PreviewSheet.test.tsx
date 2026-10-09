@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VideoAsset } from '@sluby/sdk';
-import { renderPage } from '@/test/render';
+import { jsonFetch, renderPage } from '@/test/render';
 import { video } from './test-assets';
 import { PreviewSheet } from './PreviewSheet';
 
@@ -45,12 +45,28 @@ function Harness() {
   );
 }
 
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      jsonFetch({
+        '/api/v1/assets/a/playback-ids': { data: [] },
+        '/api/v1/assets/b/playback-ids': { data: [] },
+        '/api/v1/assets/c/playback-ids': { data: [] },
+      }),
+    ),
+  );
+});
+afterEach(() => vi.unstubAllGlobals());
+
 describe('PreviewSheet', () => {
   it('plays the video, signs a private one, and links to its page', async () => {
     renderPage(<Harness />);
     await userEvent.click(screen.getByText('Second'));
     const sheet = await screen.findByRole('dialog', { name: 'Second' });
     expect(within(sheet).getByTestId('player')).toHaveAttribute('data-signed', 'true');
+    // a private video's embed starts with the server code that signs it
+    expect(await within(sheet).findByRole('tab', { name: 'Server' })).toBeInTheDocument();
     expect(within(sheet).getByText('Private')).toBeInTheDocument();
     expect(within(sheet).getByRole('link', { name: 'Open video' })).toHaveAttribute(
       'href',
@@ -72,7 +88,7 @@ describe('PreviewSheet', () => {
     );
     await userEvent.keyboard('{ArrowRight}');
     expect(await screen.findByRole('dialog', { name: 'Second' })).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('Previewing “Second”');
+    expect(screen.getByText('Previewing “Second”')).toHaveAttribute('role', 'status');
     await userEvent.click(screen.getByRole('button', { name: 'Next video' }));
     expect(await screen.findByRole('dialog', { name: 'Third' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Next video' })).toHaveAttribute(

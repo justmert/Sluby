@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { VideoAsset } from '@sluby/sdk';
 import { AssetPlayer } from '@/components/asset/AssetPlayer';
+import { EmbedPanel } from '@/components/asset/EmbedPanel';
 import { AccessBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
@@ -96,6 +97,7 @@ export function PreviewSheet({ asset, onClose, previous, next, onStep }: Preview
                 assetId={shown.id}
                 signed={shown.accessTier === 'private'}
               />
+              <EmbedPanel asset={shown} compact />
             </div>
             <SheetFooter className="flex-row flex-wrap items-center justify-between gap-2 border-t">
               <div className="flex items-center gap-1">

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { VideoAsset } from '@sluby/sdk';
 import { AssetThumbnail } from '@/components/asset/AssetThumbnail';
+import { RetryProcessingButton } from '@/components/asset/RetryProcessingButton';
 import { AnimatedItem, AnimatedList } from '@/components/motion';
 import type { RowAction } from '@/components/shared/DataTable';
 import { selectRange } from '@/components/shared/select-range';
@@ -11,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { isStaleUpload } from '@/hooks/asset-queries';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
-import { useRowProgress, videoMeta } from './video-progress';
+import { useRowJob, videoMeta } from './video-progress';
 import { VideoRowMenu } from './VideoRowMenu';
 
 const GRID =
@@ -31,7 +32,7 @@ function VideoCard({
   actions: RowAction[];
   onToggle: (shift: boolean) => void;
 }) {
-  const progress = useRowProgress(asset);
+  const { progress, failure } = useRowJob(asset);
   const stale = isStaleUpload(asset);
   const href = ROUTES.video(asset.id);
   const shift = useRef(false);
@@ -86,12 +87,17 @@ function VideoCard({
           <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
             {progress?.checking
               ? 'Checking again in a few seconds'
-              : stale
-                ? 'Upload interrupted'
-                : videoMeta(asset)}
+              : failure
+                ? failure.body
+                : stale
+                  ? 'Upload interrupted'
+                  : videoMeta(asset)}
           </p>
-          <div className="mt-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <StatusBadge kind="asset" status={asset.status} />
+            {failure?.action === 'retry' && (
+              <RetryProcessingButton asset={asset} named compact variant="outline" size="xs" />
+            )}
           </div>
         </div>
         <VideoRowMenu actions={actions} title={asset.title} />

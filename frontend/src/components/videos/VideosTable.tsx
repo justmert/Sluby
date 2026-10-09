@@ -8,6 +8,7 @@ import {
   type RowAction,
   type SortState,
 } from '@/components/shared/DataTable';
+import { RetryProcessingButton } from '@/components/asset/RetryProcessingButton';
 import { AccessBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -24,15 +25,11 @@ import {
 } from '@/lib/formatters';
 import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
-import { playsOf, useRowProgress, videoMeta } from './video-progress';
+import { useRowJob, videoMeta, type RowProgress } from './video-progress';
 
 const muted = (text: string) => <span className="text-muted-foreground">{text}</span>;
 
-function ProgressLine({
-  label,
-  percent,
-  checking,
-}: NonNullable<ReturnType<typeof useRowProgress>>) {
+function ProgressLine({ label, percent, checking }: RowProgress) {
   return (
     <span className="flex min-w-0 flex-col gap-1">
       <span className="text-xs font-normal text-muted-foreground tabular-nums">
@@ -48,7 +45,7 @@ function ProgressLine({
 
 /** The video column: thumbnail, title, and a second line that depends on where the table is. */
 function VideoCell({ asset }: { asset: VideoAsset }) {
-  const progress = useRowProgress(asset);
+  const { progress, failure } = useRowJob(asset);
   const stale = isStaleUpload(asset);
   const href = ROUTES.video(asset.id);
   return (
@@ -74,6 +71,13 @@ function VideoCell({ asset }: { asset: VideoAsset }) {
         </Link>
         {progress ? (
           <ProgressLine {...progress} />
+        ) : failure ? (
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-xs font-normal text-muted-foreground">{failure.body}</span>
+            {failure.action === 'retry' && (
+              <RetryProcessingButton asset={asset} named compact variant="outline" size="xs" />
+            )}
+          </span>
         ) : stale ? (
           <span className="text-xs text-muted-foreground">Upload interrupted</span>
         ) : (
@@ -160,10 +164,7 @@ const COLUMNS: DataTableColumn<VideoAsset>[] = [
     width: 'w-18',
     hideBelow: '5xl',
     hideInCards: true,
-    cell: (a) => {
-      const n = playsOf(a);
-      return n === undefined ? muted(NO_VALUE) : formatCount(n);
-    },
+    cell: (a) => formatCount(a.playCount),
   },
   {
     id: 'created',

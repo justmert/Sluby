@@ -1,5 +1,10 @@
 import type { VideoAsset } from '@sluby/sdk';
-import { jobSummary, processingView } from '@/components/asset/processing';
+import {
+  failureInfo,
+  jobSummary,
+  processingView,
+  type FailureInfo,
+} from '@/components/asset/processing';
 import { useProcessingJob } from '@/hooks/asset-detail-queries';
 import { formatBytes, formatDuration, formatRelativeTime } from '@/lib/formatters';
 
@@ -16,16 +21,34 @@ export interface RowProgress {
   checking: boolean;
 }
 
-/** Where a processing video is, polled while it is on screen; undefined for any other status. */
-export function useRowProgress(asset: VideoAsset): RowProgress | undefined {
+export interface RowJob {
+  /** a processing video: where it is, polled while it is on screen */
+  progress?: RowProgress;
+  /** a failed video: why, and whether a retry can help (FLW-21, FLW-22) */
+  failure?: FailureInfo;
+}
+
+/**
+ * The processing job behind a row, for the two statuses that have something
+ * to say: processing (stage and percent) and failed (the reason). A failed
+ * job is read once; it does not change by asking again.
+ */
+export function useRowJob(asset: VideoAsset): RowJob {
   const processing = asset.status === 'processing';
-  const job = useProcessingJob(asset.id, asset.status, processing, ROW_POLL_MS);
-  if (!processing || !job.data) return undefined;
-  return {
-    label: jobSummary(job.data),
-    percent: processingView(job.data).percent,
-    checking: job.isError,
-  };
+  const failed = asset.status === 'failed';
+  const job = useProcessingJob(asset.id, asset.status, processing || failed, ROW_POLL_MS);
+  if (processing && job.data) {
+    return {
+      progress: {
+        label: jobSummary(job.data),
+        percent: processingView(job.data).percent,
+        checking: job.isError,
+      },
+    };
+  }
+  // a failed video whose job is gone (404) still gets the generic reason
+  if (failed && (job.data || job.isError)) return { failure: failureInfo(job.data, asset) };
+  return {};
 }
 
 /** The phone card's facts line: "0:10 · 3.1 MB · 2 hours ago". */
@@ -37,14 +60,4 @@ export function videoMeta(asset: VideoAsset): string {
   ]
     .filter(Boolean)
     .join(' · ');
-}
-
-/**
- * All-time plays (B-09). The sdk adds `playCount` with the backend items;
- * until a server sends it the column shows an en dash instead of a 0 that
- * would claim nobody watched.
- */
-export function playsOf(asset: VideoAsset): number | undefined {
-  const n = (asset as Partial<{ playCount: number }>).playCount;
-  return typeof n === 'number' ? n : undefined;
 }

@@ -31,7 +31,7 @@ describe('VideosTable', () => {
     renderPage(
       <Harness
         assets={[
-          video('a1', 'Walkthrough', { playCount: 128 } as Partial<VideoAsset>),
+          video('a1', 'Walkthrough', { playCount: 128 }),
           video('p1', 'Secret', { accessTier: 'private', durationMs: null, totalStorageBytes: 0 }),
         ]}
       />,
@@ -50,12 +50,12 @@ describe('VideosTable', () => {
     expect(within(secret).getAllByText('Private').length).toBeGreaterThan(0);
   });
 
-  it('shows an en dash for plays until the server counts them', () => {
-    renderPage(<Harness assets={[video('a1', 'Walkthrough')]} />);
+  it('shows the plays the server counted, zero included', () => {
+    renderPage(<Harness assets={[video('a1', 'Walkthrough', { playCount: 0 })]} />);
     const plays = screen.getByRole('columnheader', { name: 'Plays' });
     const index = [...plays.parentElement!.children].indexOf(plays);
     const cell = screen.getByRole('link', { name: 'Walkthrough' }).closest('tr')!.children[index];
-    expect(cell).toHaveTextContent('–');
+    expect(cell).toHaveTextContent(/^0$/);
   });
 
   it('drops columns by its own width and leaves facts the cards repeat out of them', () => {

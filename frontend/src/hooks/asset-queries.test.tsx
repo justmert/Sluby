@@ -451,7 +451,11 @@ describe('useSetAccess', () => {
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
       ),
     });
-    const asset = { id: 'a1', accessTier: 'public' } as VideoAsset;
+    const asset = {
+      id: 'a1',
+      accessTier: 'public',
+      updatedAt: '2026-10-01T00:00:00Z',
+    } as VideoAsset;
     await act(() =>
       result.current.mutateAsync({ assets: [asset], accessTier: 'private' }).catch(() => {}),
     );

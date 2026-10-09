@@ -15,6 +15,8 @@ export function video(id: string, title: string, over: Partial<VideoAsset> = {})
     creatorAddress: 'github:dev',
     segmentCount: 1,
     totalStorageBytes: 3_100_000,
+    playCount: 0,
+    lastPlayedAt: null,
     createdAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
     updatedAt: '2026-10-01T00:00:00Z',
     ...over,

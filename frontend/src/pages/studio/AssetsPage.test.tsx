@@ -44,6 +44,32 @@ const many = (n: number) =>
     asset(`id-${String(i).padStart(3, '0')}`, `Item ${String(i).padStart(3, '0')}`),
   );
 
+const failedJob = {
+  id: 'job',
+  status: 'failed',
+  stage: 'transcode',
+  progress_percent: 30,
+  retry_count: 1,
+  error_message: 'ffmpeg exited with code 1',
+  started_at: OLD,
+  completed_at: OLD,
+  created_at: OLD,
+  logs: [],
+  retryable: true,
+};
+
+/** Answers the per-video calls rows and the preview make: the job and the playback IDs. */
+const perVideo =
+  (base: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) =>
+  async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), window.location.origin).pathname;
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+    if (/^\/api\/v1\/assets\/[^/]+\/processing$/.test(path)) return json(failedJob);
+    if (/^\/api\/v1\/assets\/[^/]+\/playback-ids$/.test(path)) return json({ data: [] });
+    return base(input, init);
+  };
+
 const stats = (rows: Row[]) => {
   const by = { created: 0, uploading: 0, processing: 0, ready: 0, failed: 0 };
   for (const r of rows) by[r.status as keyof typeof by]++;
@@ -111,7 +137,7 @@ function library(all: Row[] = [bunny, sintel, failedOne], { deleteDelay = 0 } = 
     }
     return server(input, init);
   };
-  vi.stubGlobal('fetch', vi.fn(routed));
+  vi.stubGlobal('fetch', vi.fn(perVideo(routed)));
   return server;
 }
 
@@ -656,25 +682,27 @@ describe('AssetsPage: selection and bulk actions', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
-        jsonFetch({
-          // the server has not processed the deletes yet, so every poll still lists them
-          '/api/v1/assets': {
-            data: [bunny, sintel, failedOne],
-            total: 3,
-            page: 1,
-            limit: 24,
-            next_cursor: null,
-          },
-          '/api/v1/stats': stats([bunny, sintel, failedOne]),
-          'DELETE /api/v1/assets/a1': async () => {
-            await held;
-            return { success: true };
-          },
-          'DELETE /api/v1/assets/f1': async () => {
-            await held;
-            return { success: true };
-          },
-        }),
+        perVideo(
+          jsonFetch({
+            // the server has not processed the deletes yet, so every poll still lists them
+            '/api/v1/assets': {
+              data: [bunny, sintel, failedOne],
+              total: 3,
+              page: 1,
+              limit: 24,
+              next_cursor: null,
+            },
+            '/api/v1/stats': stats([bunny, sintel, failedOne]),
+            'DELETE /api/v1/assets/a1': async () => {
+              await held;
+              return { success: true };
+            },
+            'DELETE /api/v1/assets/f1': async () => {
+              await held;
+              return { success: true };
+            },
+          }),
+        ),
       ),
     );
     const { client } = renderLibrary();
