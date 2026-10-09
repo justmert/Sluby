@@ -20,6 +20,7 @@ function Opener() {
       >
         drop
       </button>
+      <button onClick={() => sheet.open()}>open</button>
     </>
   );
 }
@@ -72,5 +73,18 @@ describe('UploadSheet', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos?view=grid');
+  });
+
+  it('starts on choose files', async () => {
+    renderAt('/studio');
+    const opener = screen.getByText('open');
+    opener.focus();
+    await userEvent.keyboard('{Enter}');
+    await screen.findByRole('dialog', { name: 'Upload videos' });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /drop videos here, or choose files/i }),
+      ).toHaveFocus(),
+    );
   });
 });

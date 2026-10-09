@@ -137,6 +137,15 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
     void store.loadLimit();
   }, [store]);
 
+  // the sheet just opened and holds focus itself: start on its first action
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const dialog = root.current?.closest('[role=dialog]');
+    if (dialog && document.activeElement === dialog) {
+      dialog.querySelector<HTMLElement>('[data-upload-choose]')?.focus();
+    }
+  }, []);
+
   const unfinished = useQuery({
     queryKey: ['uploads', 'unfinished'],
     queryFn: findUnfinishedUploads,
@@ -255,7 +264,7 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
   const descriptionLength = draftOptions.description.length;
 
   return (
-    <div className="@container/sheet flex flex-col gap-8">
+    <div ref={root} className="@container/sheet flex flex-col gap-8">
       <section aria-label="Add videos" className="flex flex-col gap-4">
         <DropZone
           onFiles={choose}

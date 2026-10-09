@@ -25,14 +25,14 @@ export function UploadSheet() {
         aria-describedby={undefined}
         onOpenAutoFocus={(e) => {
           focus.onOpenAutoFocus(e);
-          // start on the sheet's first action rather than its close button
-          const choose = (e.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>(
-            '[data-upload-choose]',
-          );
-          if (choose) {
-            e.preventDefault();
-            choose.focus();
-          }
+          // the panel loads after the sheet opens; hold focus on the sheet
+          // until it can move to "choose files" (UploadPanel)
+          e.preventDefault();
+          const sheet = e.currentTarget as HTMLElement | null;
+          // already loaded: go straight there; dropped files move focus on to a title
+          const choose = sheet?.querySelector<HTMLElement>('[data-upload-choose]');
+          if (choose && !sheet?.contains(document.activeElement)) choose.focus();
+          else if (!sheet?.contains(document.activeElement)) sheet?.focus();
         }}
         onCloseAutoFocus={focus.onCloseAutoFocus}
         className="gap-0 overflow-y-auto overscroll-contain data-[side=bottom]:h-dvh data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
