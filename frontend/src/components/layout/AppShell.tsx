@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
+import { PortalContainerProvider } from '@/components/ui/portal-container';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UploadSheet } from '@/components/upload/UploadSheet';
@@ -45,6 +46,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const [open, setOpen] = useSidebarOpen();
   const title = routeTitle(useRouteCrumbs());
+  // menus, selects and tooltips portal into the main landmark (ui/portal-container)
+  const [overlayRoot, setOverlayRoot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     document.title = title;
@@ -71,26 +74,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   return (
-    <SidebarProvider open={open} onOpenChange={setOpen}>
-      <SkipLink />
-      <AppSidebar />
-      {/* a div rather than the ui SidebarInset, which is a <main>: the page
+    <PortalContainerProvider container={overlayRoot}>
+      <SidebarProvider open={open} onOpenChange={setOpen}>
+        <SkipLink />
+        <AppSidebar />
+        {/* a div rather than the ui SidebarInset, which is a <main>: the page
           area below is the one main landmark, and the top bar stays a banner.
           min-w-0 lets this flex child shrink below a wide table, so the table
           scrolls in its card instead of the whole page scrolling sideways */}
-      <div
-        data-slot="sidebar-inset"
-        className="relative flex w-full min-w-0 flex-1 flex-col bg-background"
-      >
-        <TopBar />
-        <AuthOffBanner />
-        <main id={MAIN_ID} tabIndex={-1} className="min-w-0 flex-1 overflow-x-clip outline-none">
-          <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>
-        </main>
-      </div>
-      <UploadSheet />
-      <LiveAlerts />
-      <Announcer />
-    </SidebarProvider>
+        <div
+          data-slot="sidebar-inset"
+          className="relative flex w-full min-w-0 flex-1 flex-col bg-background"
+        >
+          <TopBar />
+          <AuthOffBanner />
+          <main id={MAIN_ID} tabIndex={-1} className="min-w-0 flex-1 overflow-x-clip outline-none">
+            <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>
+            {/* outside the page, so a route change never unmounts an open menu's host */}
+            <div ref={setOverlayRoot} data-slot="overlay-root" />
+          </main>
+        </div>
+        <UploadSheet />
+        <LiveAlerts />
+        <Announcer />
+      </SidebarProvider>
+    </PortalContainerProvider>
   );
 }

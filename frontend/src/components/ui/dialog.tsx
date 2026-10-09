@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import { PortalContainerProvider } from '@/components/ui/portal-container';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 
 import { Button } from '@/components/ui/button';
@@ -51,32 +52,35 @@ function DialogContent({
   showCloseButton?: boolean;
 }) {
   const focus = useReturnFocus(onOpenAutoFocus, onCloseAutoFocus);
+  // what opens inside goes to body after this dialog, not into the page behind it
   return (
-    <DialogPortal>
-      <DialogOverlay />
-      <DialogPrimitive.Content
-        data-slot="dialog-content"
-        className={cn(
-          // anchored near the top rather than centred: a dialog that grows (an
-          // error, a validation message) extends downward instead of jumping
-          // both edges. the height cap keeps long forms scrollable.
-          'fixed top-[max(1.5rem,12vh)] left-1/2 z-50 grid max-h-[calc(100dvh-max(1.5rem,12vh)-1.5rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 gap-4 overflow-y-auto rounded-xl border bg-popover p-4 text-sm text-popover-foreground shadow-lg transition-none duration-200 ease-out-soft outline-none sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-closed:duration-150',
-          className,
-        )}
-        {...focus}
-        {...props}
-      >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close data-slot="dialog-close" asChild>
-            <Button variant="ghost" className="absolute top-2 right-2" size="icon-sm">
-              <XIcon />
-              <span className="sr-only">Close</span>
-            </Button>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
-    </DialogPortal>
+    <PortalContainerProvider container={null}>
+      <DialogPortal>
+        <DialogOverlay />
+        <DialogPrimitive.Content
+          data-slot="dialog-content"
+          className={cn(
+            // anchored near the top rather than centred: a dialog that grows (an
+            // error, a validation message) extends downward instead of jumping
+            // both edges. the height cap keeps long forms scrollable.
+            'fixed top-[max(1.5rem,12vh)] left-1/2 z-50 grid max-h-[calc(100dvh-max(1.5rem,12vh)-1.5rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 gap-4 overflow-y-auto rounded-xl border bg-popover p-4 text-sm text-popover-foreground shadow-lg transition-none duration-200 ease-out-soft outline-none sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-closed:duration-150',
+            className,
+          )}
+          {...focus}
+          {...props}
+        >
+          {children}
+          {showCloseButton && (
+            <DialogPrimitive.Close data-slot="dialog-close" asChild>
+              <Button variant="ghost" className="absolute top-2 right-2" size="icon-sm">
+                <XIcon />
+                <span className="sr-only">Close</span>
+              </Button>
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Content>
+      </DialogPortal>
+    </PortalContainerProvider>
   );
 }
 

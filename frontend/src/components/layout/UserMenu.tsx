@@ -28,11 +28,7 @@ export function UserMenu() {
   const { signOut, signingOut } = useSignOut();
 
   return (
-    // not modal: a modal menu aria-hides the rest of the page around its
-    // trigger, links and buttons included, which screen readers then see as
-    // hidden but focusable. Escape and a click outside still close it. its
-    // content stays in the top bar, inside the banner landmark
-    <DropdownMenu modal={false}>
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         {/* below 24rem (a phone, or a 32px default font) it drops its chevron
             and side padding so the top bar still fits (A11Y-46) */}
@@ -65,7 +61,7 @@ export function UserMenu() {
           <ChevronDown className="size-3 text-muted-foreground max-[24rem]:hidden" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56" portal={false}>
+      <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           {session.authDisabled
             ? 'Sign-in is off on this server'

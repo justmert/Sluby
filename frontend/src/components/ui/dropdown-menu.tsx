@@ -2,11 +2,19 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import { usePortalContainer } from '@/components/ui/portal-container';
 import { DropdownMenu as DropdownMenuPrimitive } from 'radix-ui';
 import { CheckIcon, ChevronRightIcon } from 'lucide-react';
 
-function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
+// not modal by default: a modal menu aria-hides the page around it, links
+// and buttons included, which screen readers see as hidden but focusable
+// (axe aria-hidden-focus). Escape, a click outside and arrow keys work the
+// same; a page that needs the old behavior can pass modal
+function DropdownMenu({
+  modal = false,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
+  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" modal={modal} {...props} />;
 }
 
 function DropdownMenuPortal({
@@ -35,20 +43,23 @@ function DropdownMenuContent({
    */
   portal?: boolean;
 }) {
-  const Wrap = portal ? DropdownMenuPrimitive.Portal : React.Fragment;
-  return (
-    <Wrap>
-      <DropdownMenuPrimitive.Content
-        data-slot="dropdown-menu-content"
-        sideOffset={sideOffset}
-        align={align}
-        className={cn(
-          'z-50 max-h-(--radix-dropdown-menu-content-available-height) w-(--radix-dropdown-menu-trigger-width) min-w-32 origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground border shadow-lg transition-none duration-150 ease-out-soft data-closed:duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:overflow-hidden data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
-          className,
-        )}
-        {...props}
-      />
-    </Wrap>
+  const container = usePortalContainer();
+  const content = (
+    <DropdownMenuPrimitive.Content
+      data-slot="dropdown-menu-content"
+      sideOffset={sideOffset}
+      align={align}
+      className={cn(
+        'z-50 max-h-(--radix-dropdown-menu-content-available-height) w-(--radix-dropdown-menu-trigger-width) min-w-32 origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground border shadow-lg transition-none duration-150 ease-out-soft data-closed:duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:overflow-hidden data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+        className,
+      )}
+      {...props}
+    />
+  );
+  return portal ? (
+    <DropdownMenuPrimitive.Portal container={container}>{content}</DropdownMenuPrimitive.Portal>
+  ) : (
+    content
   );
 }
 
