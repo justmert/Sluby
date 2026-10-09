@@ -133,13 +133,13 @@ export function SessionsSection() {
             Where you are signed in as <span dir="auto">{session.username}</span>.
           </>
         }
+        // always there, so the header does not grow when the list lands;
+        // it signs this browser out too, so it works with no others listed
         action={
-          rows && rows.length > 0 ? (
-            <Button variant="outline" size="sm" onClick={() => setConfirmAll(true)}>
-              <LogOut aria-hidden="true" />
-              Sign out everywhere
-            </Button>
-          ) : undefined
+          <Button variant="outline" size="sm" onClick={() => setConfirmAll(true)}>
+            <LogOut aria-hidden="true" />
+            Sign out everywhere
+          </Button>
         }
       />
       <DataTable
