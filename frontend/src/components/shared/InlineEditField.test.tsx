@@ -116,6 +116,10 @@ describe('InlineEditField', () => {
     expect(alert).toHaveTextContent('Changed elsewhere.');
     expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
     expect(screen.getByRole('textbox')).toHaveValue('Mine');
+    // pressing the error's own button is not leaving the field, so nothing saves again
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('textbox')).toHaveValue('Mine');
   });
 
   it('counts characters once the text nears the limit', async () => {

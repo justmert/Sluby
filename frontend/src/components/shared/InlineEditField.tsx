@@ -146,7 +146,12 @@ export function InlineEditField({
       autoFocus: true,
       onFocus: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) =>
         e.currentTarget.select(),
-      onBlur: () => void commit(),
+      onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        // focus moving to something inside the field, like a Reload button in
+        // its error, is not leaving it
+        if (e.relatedTarget && e.currentTarget.parentElement?.contains(e.relatedTarget)) return;
+        void commit();
+      },
     };
     return (
       <div data-slot="inline-edit" className={cn('min-w-0', className)}>

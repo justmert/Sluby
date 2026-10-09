@@ -1,448 +1,230 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import {
-  AlertTriangle,
-  ArrowLeft,
-  ChevronDown,
-  FileQuestion,
-  Lock,
-  Pencil,
-  RotateCcw,
-  Trash2,
-} from 'lucide-react';
-import { toast } from 'sonner';
-import type { AccessTier, RetryStage, VideoAsset } from '@sluby/sdk';
-import { PageContainer } from '@/components/layout/PageContainer';
-import { PageState } from '@/components/layout/PageState';
+import { useQueryClient } from '@tanstack/react-query';
+import * as m from 'motion/react-m';
+import { FileQuestion, Share2 } from 'lucide-react';
+import { ConflictError, type AccessTier, type VideoAsset } from '@sluby/sdk';
+import { AccessControl } from '@/components/asset/AccessControl';
+import { ActivityTimeline } from '@/components/asset/ActivityTimeline';
 import { AssetPlayer } from '@/components/asset/AssetPlayer';
-import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
+import { EmbedPanel } from '@/components/asset/EmbedPanel';
 import { PlaybackIdsCard } from '@/components/asset/PlaybackIdsCard';
-import { ProcessingSteps } from '@/components/asset/ProcessingSteps';
-import { failureSummary, jobSummary } from '@/components/asset/processing';
+import { ProcessingCard } from '@/components/asset/ProcessingCard';
+import { isInterrupted } from '@/components/asset/processing';
+import { RenditionsTable } from '@/components/asset/RenditionsTable';
 import { SiaStorageBreakdown } from '@/components/asset/SiaStorageBreakdown';
-import { Collapse, FadeSwap } from '@/components/motion';
+import { VideoActionsMenu } from '@/components/asset/VideoActionsMenu';
+import { PageContainer } from '@/components/layout/PageContainer';
+import { FadeSwap } from '@/components/motion';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { CopyField } from '@/components/shared/CopyField';
+import { DescriptionItem, DescriptionList } from '@/components/shared/DescriptionList';
+import { InlineEditField } from '@/components/shared/InlineEditField';
 import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/shared/PageHeader';
+import { PageState } from '@/components/shared/PageState';
+import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
-import { Progress } from '@/components/ui/progress';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ResponsiveCell, ResponsiveTable } from '@/components/ui/responsive-table';
-import { Spinner } from '@/components/ui/spinner';
-import { TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   useAssetRenditions,
   useAssetSiaInfo,
   useProcessingJob,
+  useSendingHere,
+  useUpdateVideo,
 } from '@/hooks/asset-detail-queries';
+import { errorStatus, useAssetById, useDeleteAssets, useForgetAsset } from '@/hooks/asset-queries';
+import { usePlaybackIds } from '@/hooks/playback-id-queries';
+import { useMediaQuery } from '@/hooks/use-mobile';
+import { ROUTES } from '@/lib/constants';
+import { errorText } from '@/lib/errors';
 import {
-  useAssetById,
-  useDeleteAssets,
-  useForgetAsset,
-  useRetryProcessing,
-  useUpdateAssetMeta,
-} from '@/hooks/asset-queries';
-import { useFrozen } from '@/hooks/useFrozen';
-import { formatBitrate, formatBytes, formatDate, formatDuration } from '@/lib/formatters';
+  formatBytes,
+  formatDate,
+  formatDuration,
+  formatRelativeTime,
+  formatResolution,
+  plural,
+} from '@/lib/formatters';
+import { highlight } from '@/lib/motion';
+import { toastError, toastSuccess } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 
-interface Draft {
-  title: string;
-  description: string;
-  accessTier: AccessTier;
-}
+const TITLE_MAX = 200;
+const DESCRIPTION_MAX = 5000;
 
-/**
- * Edits title, description and access. Saving closes it at once: the page
- * shows the new values while the save runs and puts the old ones back if it
- * fails, with a toast that reopens the form on what was typed.
- */
-function EditDialog({
-  draft,
-  open,
-  onOpenChange,
-  onSave,
-}: {
-  draft: Draft;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (draft: Draft) => void;
-}) {
-  const [title, setTitle] = useState(draft.title);
-  const [description, setDescription] = useState(draft.description);
-  const [accessTier, setAccessTier] = useState<AccessTier>(draft.accessTier);
-  const [titleError, setTitleError] = useState<string | null>(null);
+const LOWER_TABS = ['playback', 'storage', 'renditions', 'activity'] as const;
+type LowerTab = (typeof LOWER_TABS)[number];
+const SIDE_TABS = ['share', 'details'] as const;
+type SideTab = (typeof SIDE_TABS)[number];
 
-  const save = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = title.trim();
-    if (!trimmed) {
-      setTitleError('Enter a title.');
-      return;
-    }
-    onSave({ title: trimmed, description: description.trim(), accessTier });
-  };
+const pick = <T extends string>(value: string | null, from: readonly T[]): T | undefined =>
+  from.includes(value as T) ? (value as T) : undefined;
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form onSubmit={save} className="flex flex-col gap-4">
-          <DialogHeader>
-            <DialogTitle>Edit asset</DialogTitle>
-            <DialogDescription>
-              Changes apply to the API at once and to every player within a minute. Viewers playing
-              direct from Sia keep the links they already have until those expire.
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            <Field data-invalid={titleError ? true : undefined}>
-              <FieldLabel htmlFor="edit-title">Title</FieldLabel>
-              <Input
-                id="edit-title"
-                value={title}
-                onChange={(e) => {
-                  setTitle(e.target.value);
-                  setTitleError(null);
-                }}
-                required
-                maxLength={200}
-                aria-invalid={titleError ? true : undefined}
-                aria-describedby={titleError ? 'edit-title-error' : undefined}
-              />
-              {titleError && <FieldError id="edit-title-error">{titleError}</FieldError>}
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="edit-description">Description</FieldLabel>
-              <Textarea
-                id="edit-description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="edit-access">Access</FieldLabel>
-              <Select value={accessTier} onValueChange={(v) => setAccessTier(v as AccessTier)}>
-                <SelectTrigger id="edit-access" className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="public">Public</SelectItem>
-                  <SelectItem value="private">Private</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-          </FieldGroup>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit">Save</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-const RETRY_STAGE_LABEL: Record<RetryStage, string> = {
-  transcode: 'the transcode',
-  'upload-segments': 'the Sia upload',
-};
-
-function ProcessingCard({ asset }: { asset: VideoAsset }) {
-  const job = useProcessingJob(asset.id, asset.status, true);
-  const retryProcessing = useRetryProcessing();
-  const [showDetails, setShowDetails] = useState(false);
-  // the job is the fresher signal: it moves first when a retry starts
-  const failed = job.data ? job.data.status === 'failed' : asset.status === 'failed';
-
-  const retry = async () => {
-    try {
-      const { stage } = await retryProcessing.mutateAsync(asset.id);
-      toast.success(`Processing restarted from ${RETRY_STAGE_LABEL[stage]}`);
-    } catch (err) {
-      toast.error(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{failed ? 'Processing failed' : 'Processing'}</CardTitle>
-        <CardDescription>
-          {failed
-            ? failureSummary(job.data)
-            : job.data
-              ? jobSummary(job.data)
-              : asset.status === 'uploading' || asset.status === 'created'
-                ? 'Waiting for the upload to finish'
-                : 'Waiting for the queue'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {job.data && !failed && (
-          <Progress value={job.data.progressPercent} aria-label="Processing progress" />
-        )}
-        <ProcessingSteps job={job.data} failed={failed} />
-        {failed && (
-          <Alert variant="destructive">
-            <AlertTriangle />
-            <AlertTitle>The pipeline stopped</AlertTitle>
-            <AlertDescription>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-sm text-current underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring"
-                aria-expanded={showDetails}
-                aria-controls="failure-details"
-                onClick={() => setShowDetails((v) => !v)}
-              >
-                Details
-                <ChevronDown
-                  className={cn(
-                    'size-3.5 transition-transform duration-200',
-                    showDetails && 'rotate-180',
-                  )}
-                  aria-hidden="true"
-                />
-              </button>
-              <Collapse open={showDetails} id="failure-details" className="pt-2">
-                <p className="font-mono text-xs break-words">
-                  {job.data?.errorMessage ?? 'No error message was recorded.'}
-                </p>
-              </Collapse>
-            </AlertDescription>
-          </Alert>
-        )}
-        {job.data && job.data.logs.length > 0 && (
-          <div className="max-h-48 overflow-y-auto rounded-lg bg-muted/50 p-3 font-mono text-xs">
-            {job.data.logs.map((line, i) => (
-              <div key={i} className="flex gap-3">
-                <span className="shrink-0 text-muted-foreground">
-                  {new Date(line.timestamp).toLocaleTimeString()}
-                </span>
-                <span className="shrink-0 text-primary">{line.stage}</span>
-                <span className="min-w-0 break-words">{line.message}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {failed && (
-          <Button
-            className="self-start"
-            onClick={() => void retry()}
-            disabled={retryProcessing.isPending}
-          >
-            {retryProcessing.isPending ? <Spinner aria-hidden="true" /> : <RotateCcw />}
-            Retry processing
-          </Button>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function RenditionsCard({ assetId }: { assetId: string }) {
-  const renditions = useAssetRenditions(assetId, true);
-  const rows = renditions.data?.data ?? [];
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Renditions</CardTitle>
-        <CardDescription>
-          The adaptive ladder the transcoder produced, capped at the source resolution
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="px-0">
-        {renditions.isLoading ? (
-          <div className="flex flex-col gap-2 px-4">
-            {Array.from({ length: 3 }, (_, i) => (
-              <Skeleton key={i} className="h-9 w-full" />
-            ))}
-          </div>
-        ) : renditions.isError ? (
-          <p className="px-4 text-sm text-destructive">{renditions.error.message}</p>
-        ) : rows.length === 0 ? (
-          <p className="px-4 text-sm text-muted-foreground">
-            No rendition records for this asset. Assets stored before renditions were recorded only
-            list their objects in the Sia breakdown.
-          </p>
-        ) : (
-          <ResponsiveTable className="max-sm:px-4">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-4">Rendition</TableHead>
-                <TableHead>Resolution</TableHead>
-                <TableHead className="text-right">Video bitrate</TableHead>
-                <TableHead className="text-right">Segments</TableHead>
-                <TableHead className="text-right">Size</TableHead>
-                <TableHead>Playlist object</TableHead>
-                <TableHead className="pr-4">Media object</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.name}>
-                  <ResponsiveCell cell="primary" className="pl-4 font-medium">
-                    {r.name}
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Resolution" className="tabular-nums">
-                    {r.width && r.height ? `${r.width}x${r.height}` : '-'}
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Video bitrate" className="text-right tabular-nums">
-                    {r.video_bitrate_kbps ? formatBitrate(r.video_bitrate_kbps * 1000) : '-'}
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Segments" className="text-right tabular-nums">
-                    {r.segment_count}
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Size" className="text-right tabular-nums">
-                    {formatBytes(r.byte_size)}
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Playlist object">
-                    <ObjectIdBadge value={r.playlist_object_id} truncate={6} />
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Media object" className="pr-4">
-                    <ObjectIdBadge value={r.data_object_id} truncate={6} />
-                  </ResponsiveCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </ResponsiveTable>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function DetailsCard({ asset }: { asset: VideoAsset }) {
-  const rows: Array<[string, React.ReactNode]> = [
-    ['Asset ID', <ObjectIdBadge key="id" value={asset.id} truncate={8} />],
-    ['Status', <AssetStatusBadge key="s" status={asset.status} />],
-    ['Access', asset.accessTier === 'private' ? 'Private (signed URLs)' : 'Public'],
-    ['Duration', asset.durationMs ? formatDuration(asset.durationMs) : '-'],
-    ['Source resolution', asset.resolution || '-'],
-    ['Stored on Sia', asset.totalStorageBytes > 0 ? formatBytes(asset.totalStorageBytes) : '-'],
-    [
-      'Master playlist',
-      asset.manifestObjectId ? (
-        <ObjectIdBadge key="m" value={asset.manifestObjectId} truncate={6} />
-      ) : (
-        '-'
-      ),
-    ],
-    ['Created', formatDate(asset.createdAt)],
-    ['Updated', formatDate(asset.updatedAt)],
-  ];
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Details</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2.5">
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between gap-4 text-sm">
-            <span className="text-muted-foreground">{label}</span>
-            <span className="min-w-0 truncate text-right">{value}</span>
-          </div>
-        ))}
-        {asset.description && (
-          <p className="mt-2 border-t pt-3 text-sm whitespace-pre-wrap text-muted-foreground">
-            {asset.description}
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-const TABS = ['playback', 'storage', 'renditions'] as const;
-type Tab = (typeof TABS)[number];
-
-function BackLink() {
-  return (
-    <Button variant="ghost" size="sm" className="mb-3 -ml-2" asChild>
-      <Link to="/studio/videos">
-        <ArrowLeft />
-        Assets
-      </Link>
-    </Button>
-  );
-}
-
-/** The page's own boxes, so the content lands without moving anything. */
+/** The page's own boxes, so the content lands without moving anything (A11Y-37). */
 function DetailSkeleton() {
   return (
-    <div
-      data-testid="asset-detail-skeleton"
-      aria-hidden="true"
-      className="animate-in duration-200 fill-mode-backwards fade-in delay-150"
-    >
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex h-8 items-center">
-            <Skeleton className="h-6 w-64 max-w-full" />
-          </div>
-          <div className="mt-2 flex h-5 items-center gap-2">
+    <div data-testid="asset-detail-skeleton">
+      <h1 className="sr-only">Loading video</h1>
+      <span className="sr-only" role="status">
+        Loading video details
+      </span>
+      <div
+        aria-hidden="true"
+        className="animate-in fill-mode-backwards delay-150 duration-200 fade-in transition-none"
+      >
+        <div className="mb-6 flex flex-col gap-3">
+          <Skeleton className="h-8 w-80 max-w-full" />
+          <div className="flex h-5 items-center gap-2">
             <Skeleton className="h-5 w-16 rounded-full" />
-            <Skeleton className="h-3.5 w-24" />
+            <Skeleton className="h-3.5 w-56" />
           </div>
         </div>
-        <div className="flex shrink-0 gap-2">
-          <Skeleton className="h-9 w-20" />
-          <Skeleton className="h-9 w-24" />
+        <div className="grid gap-6 @5xl/page:grid-cols-[minmax(0,1fr)_24rem]">
+          <Skeleton className="aspect-video w-full rounded-xl" />
+          <Skeleton className="h-72 w-full rounded-xl" />
         </div>
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardContent className="flex flex-col gap-3">
-            <Skeleton className="aspect-video w-full" />
-            <Skeleton className="h-8 w-48" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Details</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2.5">
-            {Array.from({ length: 9 }, (_, i) => (
-              <div key={i} className="flex h-5 items-center justify-between gap-4">
-                <Skeleton className="h-3.5 w-20" />
-                <Skeleton className="h-3.5 w-24" />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+    </div>
+  );
+}
+
+/** "Ready · 0:10 · 1920 × 1080 · 3.1 MB on Sia · 128 plays · Created 2 hours ago" */
+function MetaRow({ asset, interrupted }: { asset: VideoAsset; interrupted: boolean }) {
+  const parts: ReactNode[] = [];
+  if (asset.durationMs) parts.push(formatDuration(asset.durationMs));
+  if (asset.resolution) parts.push(formatResolution(asset.resolution));
+  if (asset.status === 'ready' && asset.totalStorageBytes > 0) {
+    parts.push(`${formatBytes(asset.totalStorageBytes)} on Sia`);
+  }
+  if (asset.status === 'ready') {
+    parts.push(
+      <Tooltip key="plays">
+        <TooltipTrigger asChild>
+          <span
+            tabIndex={0}
+            className="rounded-sm underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring"
+          >
+            {plural(asset.playCount, 'play')}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>Counted each time a player loads the video</TooltipContent>
+      </Tooltip>,
+    );
+  }
+  parts.push(`Created ${formatRelativeTime(asset.createdAt)}`);
+  return (
+    <>
+      <StatusBadge
+        kind="asset"
+        status={interrupted ? 'interrupted' : asset.status}
+        busy="spinner"
+        live
+      />
+      {parts.map((part, i) => (
+        <span key={i} className="inline-flex items-center gap-2">
+          <span aria-hidden="true">·</span>
+          {part}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** A description that shows six lines and opens the rest on request (FLW-42). */
+function DescriptionValue({ text }: { text: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [open, setOpen] = useState(false);
+  const [clamped, setClamped] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setClamped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [text, open]);
+  if (!text) return <p className="text-muted-foreground">No description</p>;
+  return (
+    <div>
+      <p
+        ref={ref}
+        id="video-description"
+        dir="auto"
+        className={cn('whitespace-pre-wrap wrap-anywhere', !open && 'line-clamp-6')}
+      >
+        {text}
+      </p>
+      {(clamped || open) && (
+        <Button
+          variant="link"
+          size="sm"
+          className="h-auto px-0"
+          aria-expanded={open}
+          aria-controls="video-description"
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? 'Show less' : 'Show more'}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+interface EditProps {
+  asset: VideoAsset;
+  /** saves one field, based on the version the edit started from */
+  save: (patch: Partial<Pick<VideoAsset, 'title' | 'description'>>) => Promise<unknown>;
+  onEditStart: () => void;
+  renderError: (err: unknown) => ReactNode;
+}
+
+function DetailsPanel({ asset, save, onEditStart, renderError }: EditProps) {
+  return (
+    <div className="flex flex-col gap-4">
+      <DescriptionList>
+        <DescriptionItem label="Video ID">
+          <CopyField label="video ID" value={asset.id} truncate={8} />
+        </DescriptionItem>
+        <DescriptionItem label="Main playlist file">
+          {asset.manifestObjectId && (
+            <ObjectIdBadge
+              value={asset.manifestObjectId}
+              truncate={6}
+              copyLabel="Copy main playlist file ID"
+            />
+          )}
+        </DescriptionItem>
+        <DescriptionItem label="Source resolution">
+          {asset.resolution && formatResolution(asset.resolution)}
+        </DescriptionItem>
+        <DescriptionItem label="Created">{formatDate(asset.createdAt)}</DescriptionItem>
+        <DescriptionItem label="Updated">{formatDate(asset.updatedAt)}</DescriptionItem>
+      </DescriptionList>
+      <div>
+        <h3 className="mb-1 text-sm text-muted-foreground">Description</h3>
+        <InlineEditField
+          label="description"
+          value={asset.description}
+          multiline
+          maxLength={DESCRIPTION_MAX}
+          counterFrom={4500}
+          placeholder="Add a description"
+          onEditStart={onEditStart}
+          renderError={renderError}
+          onSave={(description) => save({ description })}
+          display={(shown) => <DescriptionValue text={shown} />}
+        />
       </div>
     </div>
   );
@@ -451,248 +233,385 @@ function DetailSkeleton() {
 export default function AssetDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const asset = useAssetById(id);
-  const ready = asset.data?.status === 'ready';
+  const a = asset.data;
+  const ready = a?.status === 'ready';
+  const sendingHere = useSendingHere(id);
+  const interrupted = a ? isInterrupted(a, sendingHere) : false;
+  const job = useProcessingJob(
+    id,
+    a?.status,
+    !!a && (a.status === 'processing' || a.status === 'failed' || ready),
+  );
   const sia = useAssetSiaInfo(id, ready);
+  const playbackIds = usePlaybackIds(id ?? '', ready);
+  const renditions = useAssetRenditions(id, ready);
+  const update = useUpdateVideo();
   const deleteAssets = useDeleteAssets();
-  const update = useUpdateAssetMeta();
   const forgetAsset = useForgetAsset();
-  const [edit, setEdit] = useState<{ draft: Draft; seq: number } | null>(null);
-  const editShown = useFrozen(edit, edit !== null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const deleted = useRef<string | null>(null);
-  const tabParam = params.get('tab');
-  const tab: Tab = TABS.includes(tabParam as Tab) ? (tabParam as Tab) : 'playback';
+  const wide = useMediaQuery('(min-width: 640px)');
+  const [shareOpen, setShareOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<VideoAsset | null>(null);
+  const deletedHere = useRef<string | null>(null);
+  // the version an inline edit started from, sent as If-Match (FLW-06)
+  const editBase = useRef<VideoAsset | null>(null);
+
+  // a video that was ready by the time we watched it play gets the highlight once
+  const [justReady, setJustReady] = useState(false);
+  const lastStatus = useRef(a?.status);
+  useEffect(() => {
+    if (lastStatus.current && lastStatus.current !== 'ready' && a?.status === 'ready') {
+      setJustReady(true);
+    }
+    lastStatus.current = a?.status;
+  }, [a?.status]);
 
   // drop the deleted asset's queries once this page no longer watches them;
   // removing a watched query makes it fetch again and answer 404
   useEffect(
     () => () => {
-      if (deleted.current) forgetAsset(deleted.current);
+      if (deletedHere.current) forgetAsset(deletedHere.current);
     },
     [forgetAsset],
   );
 
-  if (asset.isError || (!asset.isLoading && !asset.data)) {
-    const notFound = (asset.error as { statusCode?: number } | null)?.statusCode === 404;
+  // deleted in another tab or browser while open: say so, then show not found (FLW-44)
+  const goneStatus = errorStatus(asset.error);
+  const gone = !!a && asset.isError && (goneStatus === 404 || goneStatus === 400);
+  useEffect(() => {
+    if (!gone || !id || deletedHere.current === id) return;
+    toastError('This video was deleted in another tab or browser.');
+    queryClient.removeQueries({ queryKey: ['assets', 'one', id], exact: true });
+  }, [gone, id, queryClient]);
+
+  if (!a || gone) {
+    if (asset.isError || gone) {
+      const status = errorStatus(asset.error);
+      // a malformed id answers 400; both mean there is no such video (FLW-34)
+      const notFound = status === 404 || status === 400;
+      return (
+        <PageContainer>
+          {notFound ? (
+            <PageState
+              icon={FileQuestion}
+              title="Video not found"
+              description="Check the link. It may have been deleted, or it belongs to another account."
+              actions={
+                <Button asChild>
+                  <Link to={ROUTES.VIDEOS}>Back to videos</Link>
+                </Button>
+              }
+            />
+          ) : (
+            <PageState
+              title="Could not load this video"
+              error={asset.error}
+              onRetry={() => void asset.refetch()}
+              retrying={asset.isFetching}
+              actions={
+                <Button variant="outline" asChild>
+                  <Link to={ROUTES.VIDEOS}>Back to videos</Link>
+                </Button>
+              }
+            />
+          )}
+        </PageContainer>
+      );
+    }
     return (
       <PageContainer>
-        <PageState
-          icon={notFound ? FileQuestion : AlertTriangle}
-          tone={notFound ? 'default' : 'error'}
-          title={notFound ? 'Asset not found' : 'Could not load this asset'}
-          description={
-            notFound
-              ? 'It may have been deleted, or it belongs to another account.'
-              : 'The server did not return this asset. Try again, or go back to the library.'
-          }
-          detail={notFound ? undefined : asset.error?.message}
-          actions={
-            <>
-              {!notFound && (
-                <Button variant="outline" onClick={() => void asset.refetch()}>
-                  Try again
-                </Button>
-              )}
-              <Button asChild>
-                <Link to="/studio/videos">Back to videos</Link>
-              </Button>
-            </>
-          }
-        />
+        <DetailSkeleton />
       </PageContainer>
     );
   }
 
-  const a = asset.data;
-
-  const openEdit = (draft: Draft) => setEdit((e) => ({ draft, seq: (e?.seq ?? 0) + 1 }));
-
-  const saveEdit = (draft: Draft) => {
-    if (!a) return;
-    setEdit(null);
-    update.mutate(
-      { id: a.id, data: draft },
-      {
-        onSuccess: () => toast.success('Asset updated'),
-        onError: (err) =>
-          toast.error(`Could not save: ${err instanceof Error ? err.message : String(err)}`, {
-            action: { label: 'Edit again', onClick: () => openEdit(draft) },
-          }),
+  const side: SideTab = pick(params.get('panel'), SIDE_TABS) ?? (ready ? 'share' : 'details');
+  const lower: LowerTab = ready ? (pick(params.get('tab'), LOWER_TABS) ?? 'playback') : 'activity';
+  const setParam = (name: string, value: string | null) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value === null) next.delete(name);
+        else next.set(name, value);
+        return next;
       },
+      { replace: true },
     );
+
+  const reload = (err: unknown) => {
+    const current = err instanceof ConflictError ? err.current : undefined;
+    if (current) {
+      queryClient.setQueryData(['assets', 'one', current.id], current);
+      editBase.current = current;
+    } else {
+      void asset.refetch().then((r) => {
+        if (r.data) editBase.current = r.data;
+      });
+    }
   };
 
-  const remove = async () => {
-    if (!a) return;
-    const failures = await deleteAssets.mutateAsync([a.id]);
+  const renderError = (err: unknown): ReactNode =>
+    err instanceof ConflictError && err.statusCode === 412 ? (
+      <>
+        This video was changed somewhere else. Reload it to see the latest, then edit again.{' '}
+        <Button variant="link" size="sm" className="h-auto px-0" onClick={() => reload(err)}>
+          Reload
+        </Button>
+      </>
+    ) : (
+      errorText(err)
+    );
+
+  const save = async (patch: Partial<Pick<VideoAsset, 'title' | 'description'>>) => {
+    await update.mutateAsync({ base: editBase.current ?? a, patch });
+    editBase.current = null;
+    toastSuccess('Changes saved');
+  };
+
+  const setAccess = async (accessTier: AccessTier) => {
+    await update.mutateAsync({ base: a, patch: { accessTier } });
+    toastSuccess(accessTier === 'private' ? 'The video is private now' : 'The video is public now');
+  };
+
+  const remove = async (video: VideoAsset) => {
+    const failures = await deleteAssets.mutateAsync([video.id]);
     if (failures.length > 0) {
-      setConfirmDelete(false);
-      toast.error(`Could not delete: ${failures[0].error}`);
+      // the failure is already the reader's sentence (useDeleteAssets)
+      toastError(`Could not delete the video. ${failures[0].error}`);
       return;
     }
-    deleted.current = a.id;
-    toast.success('Deleting the asset and unpinning it from Sia');
-    navigate('/studio/videos');
+    deletedHere.current = video.id;
+    toastSuccess('Video deleted');
+    navigate(ROUTES.VIDEOS);
+  };
+
+  const editProps = {
+    asset: a,
+    save,
+    onEditStart: () => {
+      editBase.current = a;
+    },
+    renderError,
   };
 
   const objectCount = sia.data?.totals.object_count;
+  const share = <EmbedPanel asset={a} playbackIds={playbackIds.data} />;
+
+  const player = (
+    <FadeSwap swapKey={ready ? 'player' : 'processing'}>
+      {ready ? (
+        <m.div
+          className="rounded-xl"
+          initial={false}
+          animate={
+            justReady
+              ? { boxShadow: ['0 0 0 3px var(--ring)', '0 0 0 3px transparent'] }
+              : undefined
+          }
+          transition={highlight}
+          onAnimationComplete={() => setJustReady(false)}
+        >
+          <AssetPlayer
+            key={a.id}
+            assetId={a.id}
+            signed={a.accessTier === 'private'}
+            title={a.title}
+          />
+        </m.div>
+      ) : (
+        <ProcessingCard
+          asset={a}
+          job={job.data}
+          jobError={job.isError && errorStatus(job.error) !== 404}
+          checking={job.isFetching}
+          onCheckAgain={() => void job.refetch()}
+          interrupted={interrupted}
+          onDelete={() => setConfirmDelete(a)}
+        />
+      )}
+    </FadeSwap>
+  );
 
   return (
     <PageContainer>
-      <BackLink />
-      <FadeSwap swapKey={a ? 'asset' : 'loading'}>
-        {!a ? (
-          <DetailSkeleton />
-        ) : (
-          <>
-            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <h1 className="truncate text-2xl font-semibold tracking-tight" title={a.title}>
-                    {a.title}
-                  </h1>
-                  {update.isPending && (
-                    <Spinner className="shrink-0 text-muted-foreground" aria-label="Saving" />
-                  )}
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                  <AssetStatusBadge status={a.status} live />
-                  {a.accessTier === 'private' && (
-                    <Badge variant="outline" className="animate-in duration-150 fade-in">
-                      <Lock />
-                      Private
-                    </Badge>
-                  )}
-                  {!!a.durationMs && <span>{formatDuration(a.durationMs)}</span>}
-                  {a.resolution && <span>{a.resolution}</span>}
-                </div>
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    openEdit({
-                      title: a.title,
-                      description: a.description,
-                      accessTier: a.accessTier,
-                    })
-                  }
-                >
-                  <Pencil />
-                  Edit
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={deleteAssets.isPending}
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  {deleteAssets.isPending ? <Spinner aria-hidden="true" /> : <Trash2 />}
-                  {deleteAssets.isPending ? 'Deleting...' : 'Delete'}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-3">
-              <FadeSwap swapKey={ready ? 'player' : 'processing'} className="lg:col-span-2">
-                {ready ? (
-                  <Card>
-                    <CardContent>
-                      <AssetPlayer assetId={a.id} signed={a.accessTier === 'private'} />
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <ProcessingCard asset={a} />
-                )}
-              </FadeSwap>
-              <DetailsCard asset={a} />
-            </div>
-
-            <Collapse open={ready}>
-              <Tabs
-                value={tab}
-                onValueChange={(v) =>
-                  setParams(
-                    (prev) => {
-                      const next = new URLSearchParams(prev);
-                      if (v === 'playback') next.delete('tab');
-                      else next.set('tab', v);
-                      return next;
-                    },
-                    { replace: true },
-                  )
-                }
-                className="mt-6"
-              >
-                <TabsList className="max-w-full overflow-x-auto">
-                  <TabsTrigger value="playback">Playback IDs</TabsTrigger>
-                  <TabsTrigger value="storage">Sia storage</TabsTrigger>
-                  <TabsTrigger value="renditions">Renditions</TabsTrigger>
-                </TabsList>
-                <TabsContent value="playback" className="mt-4">
-                  <PlaybackIdsCard asset={a} />
-                </TabsContent>
-                <TabsContent value="storage" className="mt-4">
-                  <FadeSwap swapKey={sia.isLoading ? 'loading' : 'ready'}>
-                    <SiaStorageBreakdown
-                      info={sia.data}
-                      isLoading={sia.isLoading}
-                      error={sia.error}
-                      onRetry={sia.refetch}
-                      retrying={sia.isFetching}
-                    />
-                  </FadeSwap>
-                </TabsContent>
-                <TabsContent value="renditions" className="mt-4">
-                  <RenditionsCard assetId={a.id} />
-                </TabsContent>
-              </Tabs>
-            </Collapse>
-
-            {editShown && (
-              <EditDialog
-                key={editShown.seq}
-                draft={editShown.draft}
-                open={edit !== null}
-                onOpenChange={(o) => !o && setEdit(null)}
-                onSave={saveEdit}
-              />
+      <PageHeader
+        title={a.title}
+        heading={
+          <InlineEditField
+            label="title"
+            value={a.title}
+            requiredMessage="Enter a title."
+            maxLength={TITLE_MAX}
+            onEditStart={editProps.onEditStart}
+            renderError={renderError}
+            onSave={(title) => save({ title })}
+            display={(shown) => (
+              <h1 dir="auto" className="line-clamp-3 font-heading text-title wrap-anywhere">
+                {shown}
+              </h1>
             )}
+          />
+        }
+        meta={<MetaRow asset={a} interrupted={interrupted} />}
+        secondaryActions={
+          <>
+            <AccessControl value={a.accessTier} onChange={setAccess} />
+            <VideoActionsMenu
+              asset={a}
+              onDelete={() => setConfirmDelete(a)}
+              deleting={deleteAssets.isPending}
+            />
+          </>
+        }
+      />
 
-            <AlertDialog
-              open={confirmDelete}
-              onOpenChange={(o) => !deleteAssets.isPending && setConfirmDelete(o)}
-            >
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete {a.title}?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    The asset disappears now and its{' '}
-                    {objectCount !== undefined ? `${objectCount.toLocaleString()} ` : ''}Sia objects
-                    are unpinned in the background. This cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={deleteAssets.isPending}>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    variant="destructive"
-                    disabled={deleteAssets.isPending}
-                    onClick={(e) => {
-                      // stay open, busy, until the delete has an answer
-                      e.preventDefault();
-                      void remove();
-                    }}
-                  >
-                    {deleteAssets.isPending && <Spinner aria-hidden="true" />}
-                    {deleteAssets.isPending ? 'Deleting...' : 'Delete'}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+      <div className="grid items-start gap-6 @5xl/page:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="flex min-w-0 flex-col gap-3">
+          {player}
+          {!wide && ready && (
+            <Button variant="outline" className="self-start" onClick={() => setShareOpen(true)}>
+              <Share2 />
+              Share
+            </Button>
+          )}
+        </div>
+
+        {wide ? (
+          <Tabs
+            value={side}
+            onValueChange={(v) => setParam('panel', v)}
+            className="min-w-0 rounded-xl border bg-card p-4 shadow-xs dark:shadow-none"
+          >
+            <TabsList aria-label="Share and details">
+              <TabsTrigger value="share">Share</TabsTrigger>
+              <TabsTrigger value="details">Details</TabsTrigger>
+            </TabsList>
+            <TabsContent value="share" className="mt-2">
+              <h2 className="sr-only">Share</h2>
+              {share}
+            </TabsContent>
+            <TabsContent value="details" className="mt-2">
+              <h2 className="sr-only">Details</h2>
+              <DetailsPanel {...editProps} />
+            </TabsContent>
+          </Tabs>
+        ) : (
+          <section
+            aria-labelledby="details-heading"
+            className="rounded-xl border bg-card p-4 shadow-xs dark:shadow-none"
+          >
+            <h2 id="details-heading" className="mb-2 font-heading text-heading">
+              Details
+            </h2>
+            <DetailsPanel {...editProps} />
+          </section>
+        )}
+      </div>
+
+      <Tabs
+        value={lower}
+        onValueChange={(v) => setParam('tab', v === 'playback' ? null : v)}
+        className="mt-10"
+      >
+        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+          <TabsList aria-label="Video sections">
+            {ready && (
+              <>
+                <TabsTrigger value="playback">
+                  Playback IDs
+                  {playbackIds.data && (
+                    <span className="text-muted-foreground tabular-nums">
+                      ({playbackIds.data.length})
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="storage">Storage on Sia</TabsTrigger>
+                <TabsTrigger value="renditions">
+                  Renditions
+                  {renditions.data && (
+                    <span className="text-muted-foreground tabular-nums">
+                      ({renditions.data.data.length})
+                    </span>
+                  )}
+                </TabsTrigger>
+              </>
+            )}
+            <TabsTrigger value="activity">Activity</TabsTrigger>
+          </TabsList>
+        </div>
+        {ready && (
+          <>
+            <TabsContent value="playback" className="mt-4">
+              <PlaybackIdsCard asset={a} />
+            </TabsContent>
+            <TabsContent value="storage" className="mt-4">
+              <FadeSwap swapKey={sia.isLoading ? 'loading' : 'ready'}>
+                <SiaStorageBreakdown
+                  info={sia.data}
+                  isLoading={sia.isLoading}
+                  error={sia.error}
+                  onRetry={sia.refetch}
+                  retrying={sia.isFetching}
+                />
+              </FadeSwap>
+            </TabsContent>
+            <TabsContent value="renditions" className="mt-4">
+              <RenditionsTable assetId={a.id} />
+            </TabsContent>
           </>
         )}
-      </FadeSwap>
+        <TabsContent value="activity" className="mt-4">
+          <ActivityTimeline
+            job={job.data}
+            isLoading={job.isLoading}
+            error={a.status === 'created' || a.status === 'uploading' ? null : job.error}
+            onRetry={job.refetch}
+            retrying={job.isFetching}
+          />
+        </TabsContent>
+      </Tabs>
+
+      {!wide && (
+        <Sheet open={shareOpen && ready} onOpenChange={setShareOpen}>
+          <SheetContent side="bottom" className="max-h-[90dvh] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>Share</SheetTitle>
+              <SheetDescription>Embed code for this video</SheetDescription>
+            </SheetHeader>
+            <div className="px-4 pb-6">{share}</div>
+          </SheetContent>
+        </Sheet>
+      )}
+
+      <ConfirmDialog
+        item={confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        title="Delete this video?"
+        description={(v) =>
+          v.status === 'ready' ? (
+            <>
+              <span dir="auto">“{v.title}”</span> is removed from your library now and{' '}
+              {objectCount === undefined
+                ? 'its files are'
+                : objectCount === 1
+                  ? 'its 1 file is'
+                  : `its ${plural(objectCount, 'file')} are`}{' '}
+              removed from Sia in the background. This cannot be undone.
+            </>
+          ) : (
+            <>
+              <span dir="auto">“{v.title}”</span> is removed from your library now. This cannot be
+              undone.
+            </>
+          )
+        }
+        confirmLabel="Delete"
+        pendingLabel="Deleting…"
+        errorTitle="Could not delete the video"
+        onConfirm={remove}
+      />
     </PageContainer>
   );
 }
