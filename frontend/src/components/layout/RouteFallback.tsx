@@ -1,6 +1,7 @@
 import { useLocation } from 'react-router';
 import { AnalyticsLoading } from '@/components/dashboard/analytics-parts';
 import { DashboardLoading } from '@/components/dashboard/dashboard-parts';
+import { HealthLoading } from '@/components/deployment/HealthLoading';
 import { useRouteSkeletonVisibility } from '@/components/dashboard/live';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/session';
@@ -10,13 +11,23 @@ import { PageContainer } from './PageContainer';
 // shaped like each page's first screen, so the page lands where the skeleton
 // was instead of pushing everything down. the grids repeat the pages' own.
 
-function Header({ action = false, back = false }: { action?: boolean; back?: boolean }) {
+function Header({
+  action = false,
+  back = false,
+  meta = false,
+}: {
+  action?: boolean;
+  back?: boolean;
+  /** a status badge under the description, as Health has */
+  meta?: boolean;
+}) {
   return (
     <div className="mb-6 flex flex-col gap-4 @xl/page:flex-row @xl/page:items-end @xl/page:justify-between">
       <div className="flex flex-col gap-2">
         {back && <Skeleton className="mb-2 h-4 w-16" />}
         <Skeleton className="h-8 w-44" />
         <Skeleton className="h-4 w-72 max-w-full" />
+        {meta && <Skeleton className="h-5.5 w-28 rounded-full" />}
       </div>
       {action && <Skeleton className="h-8 w-28" />}
     </div>
@@ -111,15 +122,12 @@ function Explorer() {
   );
 }
 
+// the page's own first draw (P1), so the cards land where the skeleton was
 function Health() {
   return (
     <>
-      <Header />
-      <Skeleton className={`h-[260px] ${card}`} />
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Skeleton className={`h-[220px] ${card}`} />
-        <Skeleton className={`h-[220px] ${card}`} />
-      </div>
+      <Header meta />
+      <HealthLoading />
     </>
   );
 }

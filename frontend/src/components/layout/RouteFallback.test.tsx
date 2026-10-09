@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { renderPage } from '@/test/render';
 import { WithSession } from '@/test/session';
+import { HealthLoading } from '@/components/deployment/HealthLoading';
 import { RouteFallback } from './RouteFallback';
 
 const shapeAt = (route: string, operator = false) => {
@@ -77,5 +78,21 @@ describe('RouteFallback', () => {
       { route: '/studio/settings' },
     );
     expect(view.container.querySelectorAll('.rounded-xl')).toHaveLength(2);
+  });
+
+  it('draws Health with the page’s own first draw, under a header with its status badge', () => {
+    const fallback = shapeAt('/studio/deployment', true);
+    const { container } = renderPage(
+      <WithSession operator>
+        <HealthLoading />
+      </WithSession>,
+    );
+    // the same cards with the same text (generated ids differ between renders)
+    expect(fallback.textContent).toContain(container.textContent);
+    expect(fallback.querySelectorAll('[data-slot="card"]')).toHaveLength(
+      container.querySelectorAll('[data-slot="card"]').length,
+    );
+    expect(container.querySelectorAll('[data-slot="card"]').length).toBeGreaterThan(0);
+    expect(fallback.querySelector('.rounded-full.w-28')).not.toBeNull();
   });
 });
