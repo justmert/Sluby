@@ -874,4 +874,58 @@ describe('Overview page', () => {
     );
     expect(await screen.findByText('7', readable)).toBeInTheDocument();
   });
+
+  describe('with an answer that decides the layout coming slowly', () => {
+    const failingHook = {
+      data: [
+        {
+          id: 'w1',
+          url: 'https://example.com/hooks/sluby',
+          events: ['video.ready'],
+          is_active: true,
+          created_at: minutesAgo(60),
+          last_delivery_at: minutesAgo(5),
+          last_delivery_ok: false,
+        },
+      ],
+    };
+    let answer: (r: Response) => void;
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      setup({
+        '/api/v1/webhooks': () =>
+          new Promise<Response>((r) => {
+            answer = r;
+          }),
+      });
+    });
+    afterEach(() => vi.useRealTimers());
+    const hooks = () =>
+      act(async () =>
+        answer(
+          new Response(JSON.stringify(failingHook), {
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      );
+
+    it('keeps its first draw for it, so Needs attention is there from the start instead of pushing the totals down', async () => {
+      render();
+      await waitFor(() => expect(server.calls.some((c) => c.path === '/api/v1/stats')).toBe(true));
+      // 8 s: a slow server, well past the old 1.5 s wait
+      await act(async () => vi.advanceTimersByTime(8_000));
+      expect(screen.queryByText('7', readable)).not.toBeInTheDocument();
+      await hooks();
+      expect(await screen.findByText('7', readable)).toBeInTheDocument();
+      expect(screen.getByRole('list', { name: 'Needs attention' })).toBeInTheDocument();
+    });
+
+    it('draws what it has once the wait is over, rather than holding the page for good', async () => {
+      render();
+      await waitFor(() => expect(server.calls.some((c) => c.path === '/api/v1/stats')).toBe(true));
+      await act(async () => vi.advanceTimersByTime(10_000));
+      expect(await screen.findByText('7', readable)).toBeInTheDocument();
+      expect(screen.queryByRole('list', { name: 'Needs attention' })).not.toBeInTheDocument();
+    });
+  });
 });

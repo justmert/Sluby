@@ -45,8 +45,11 @@ import { useUploadSheet } from '@/lib/upload-sheet';
 const RECENT_FETCH = 20;
 
 // how long the page holds its first draw for the answers that decide its
-// layout (checklist, needs attention); a slower answer fills its card later
-const FIRST_DRAW_WAIT_MS = 1_500;
+// layout (checklist, needs attention). the skeleton already says the page is
+// loading, so waiting for them is calmer than drawing early and letting a
+// late Needs attention push the totals down. past this, a slow server gets
+// what has loaded, and a later answer fills its card in
+const FIRST_DRAW_WAIT_MS = 10_000;
 
 // a finished checklist stays on screen this long, so the last tick is seen
 const DONE_LINGER_MS = 1_500;
