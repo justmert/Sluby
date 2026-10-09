@@ -545,6 +545,8 @@ describe('webhook routes', () => {
           error: null,
           attempt: 2,
           createdAt: new Date('2026-10-01T00:00:10Z'),
+          payload: { id: 'evt_2', event: 'asset.ready' },
+          manual: true,
         },
         {
           id: 'd1',
@@ -554,6 +556,8 @@ describe('webhook routes', () => {
           error: 'timed out',
           attempt: 1,
           createdAt: new Date('2026-10-01T00:00:00Z'),
+          payload: { id: 'evt_2', event: 'asset.ready' },
+          manual: false,
         },
       ]);
       const res = await request(createApp()).get('/wh-1/deliveries').query({ limit: 10 });
@@ -569,6 +573,8 @@ describe('webhook routes', () => {
           error: null,
           attempt: 2,
           created_at: '2026-10-01T00:00:10.000Z',
+          payload: { id: 'evt_2', event: 'asset.ready' },
+          manual: true,
         },
         {
           id: 'd1',
@@ -579,6 +585,8 @@ describe('webhook routes', () => {
           error: 'timed out',
           attempt: 1,
           created_at: '2026-10-01T00:00:00.000Z',
+          payload: { id: 'evt_2', event: 'asset.ready' },
+          manual: false,
         },
       ]);
     });

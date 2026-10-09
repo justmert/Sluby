@@ -826,6 +826,16 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         );
         expect(afterResend.body.data).toHaveLength(2);
         expect(afterResend.body.data[0].event_id).toBe(first.event_id);
+        expect(afterResend.body.data.map((d: { manual: boolean }) => d.manual)).toEqual([
+          true,
+          false,
+        ]);
+        expect(afterResend.body.data[0].payload).toEqual(first.payload);
+        expect(first.payload).toMatchObject({
+          id: first.event_id,
+          event: 'webhook.test',
+          data: { webhook_id: created.body.id },
+        });
         const unknownDelivery = await call(
           'POST',
           `/api/v1/webhooks/${created.body.id}/deliveries/${created.body.id}/redeliver`,

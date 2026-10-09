@@ -865,6 +865,8 @@ export function buildApiDeps(
         error: d.error,
         attempt: d.retryCount + 1,
         createdAt: d.createdAt,
+        payload: d.payload,
+        manual: d.manual,
       }));
     },
 

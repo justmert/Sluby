@@ -2001,7 +2001,8 @@ export const openapiDocument = {
         summary: "The endpoint's latest delivery attempts, newest first.",
         description:
           'One entry per attempt: id, event_id, event, status_code, delivered, error, attempt ' +
-          '(1 for the first try) and created_at. Response bodies are never stored.',
+          '(1 for the first try), created_at, the payload that was sent, and manual (true for a ' +
+          'resend). Response bodies are never stored. Attempts are kept for 30 days.',
         'x-required-scope': 'manage',
         parameters: [
           idParam('id', 'Endpoint id.'),
@@ -2031,6 +2032,8 @@ export const openapiDocument = {
                       'error',
                       'attempt',
                       'created_at',
+                      'payload',
+                      'manual',
                     ],
                     properties: {
                       id: { type: 'string' },
@@ -2041,6 +2044,15 @@ export const openapiDocument = {
                       error: nullable('string'),
                       attempt: { type: 'integer', minimum: 1 },
                       created_at: { type: 'string', format: 'date-time' },
+                      payload: {
+                        type: 'object',
+                        description:
+                          'The JSON body that was sent: `{ id, event, timestamp, data }`.',
+                      },
+                      manual: {
+                        type: 'boolean',
+                        description: 'True for an attempt of a resend someone asked for.',
+                      },
                     },
                   },
                 },

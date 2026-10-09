@@ -90,6 +90,9 @@ export interface WebhookRouteDeps {
     error: string | null;
     attempt: number;
     createdAt: Date;
+    /** The JSON body that was sent. */
+    payload: Record<string, unknown>;
+    manual: boolean;
   }> | null>;
 }
 
@@ -312,8 +315,8 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
   /**
    * GET /api/v1/webhooks/:id/deliveries
    * The endpoint's latest delivery attempts, newest first: the event, the
-   * receiver's status code and, for a failure, why. Response bodies are
-   * never stored.
+   * payload that was sent, the receiver's status code and, for a failure,
+   * why. Response bodies are never stored.
    */
   router.get('/:id/deliveries', requireScope('manage'), async (req: Request, res: Response) => {
     const raw = req.query.limit;
@@ -337,6 +340,8 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
         error: d.error,
         attempt: d.attempt,
         created_at: d.createdAt.toISOString(),
+        payload: d.payload,
+        manual: d.manual,
       })),
     });
   });
