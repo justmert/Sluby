@@ -486,7 +486,10 @@ export default function AssetsPage() {
         (e.target as Element | null)?.closest?.('[role="menu"], [role="listbox"], [role="dialog"]')
       )
         return;
+      // the bar leaves with the selection; focus in it would fall to the page's start
+      const inBar = (e.target as Element | null)?.closest?.('[role="toolbar"]');
       clearSelection();
+      if (inBar) focusSelectAll();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);

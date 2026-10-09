@@ -782,6 +782,20 @@ describe('AssetsPage: selection and bulk actions', () => {
     );
   });
 
+  it('keeps focus on the page when Escape lets go of a selection from inside the bar', async () => {
+    library();
+    renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Sintel' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected videos' });
+    within(bar)
+      .getByRole('button', { name: /Make private/ })
+      .focus();
+    await userEvent.keyboard('{Escape}');
+    expect(status()).toHaveTextContent('Selection cleared');
+    expect(document.activeElement).toHaveAccessibleName('Select all on this page');
+  });
+
   it('puts the bulk bar right after the filters in the tab order (A11Y-15)', async () => {
     library();
     renderLibrary();
