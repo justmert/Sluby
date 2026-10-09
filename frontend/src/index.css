@@ -521,6 +521,25 @@
     outline: 2px solid CanvasText !important;
     outline-offset: 2px !important;
   }
+  /* outline-hidden is a transparent outline, which forced colors paints on
+     every item at rest; it stays for focus only */
+  .outline-hidden:not(:focus-visible) {
+    outline-style: none;
+  }
+  /* the option the arrows are on in a menu, select or the palette */
+  [data-highlighted],
+  [cmdk-item][data-selected='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  /* a selected tab or pressed toggle is marked by its background alone */
+  [data-slot='tabs-trigger'][data-state='active'],
+  [data-slot='toggle-group-item'][data-state='on'],
+  [data-slot='toggle'][data-state='on'] {
+    forced-color-adjust: none;
+    background: SelectedItem;
+    color: SelectedItemText;
+  }
   [data-sidebar='menu-button'][data-active='true'],
   [aria-current='page'] {
     outline: 1px solid Highlight;
@@ -540,6 +559,14 @@
 /* sonner animates toasts for 400 ms but unmounts a dismissed one after
    200 ms, which cut the exit off halfway. 200 ms keeps enter and exit on the
    base duration and lets the exit finish before the unmount. */
+/* sonner rings a focused toast and its action with a faint shadow (1 to 2.8:1);
+   they get the app's ring like every other control */
+[data-sonner-toaster] [data-sonner-toast]:focus-visible,
+[data-sonner-toaster] [data-sonner-toast][data-styled] [data-button]:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
 [data-sonner-toaster] [data-sonner-toast] {
   transition-duration: 200ms, 200ms, 200ms, 150ms;
   transition-timing-function: var(--ease-out-soft);

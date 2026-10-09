@@ -37,7 +37,49 @@ describe('focusable surfaces show a focus ring', () => {
   });
 });
 
+const css = async () => {
+  const { readFileSync } = await import('node:fs');
+  const path = await import('node:path');
+  return readFileSync(path.resolve(__dirname, '../../index.css'), 'utf8');
+};
+const forcedBlock = async () =>
+  /@media \(forced-colors: active\)\s*\{([\s\S]*?)\n\}/.exec(await css())![1];
+
 describe('forced colors', () => {
+  it('drops the resting transparent outline that forced colors would paint on every item', async () => {
+    expect(await forcedBlock()).toMatch(
+      /\.outline-hidden:not\(:focus-visible\)\s*\{\s*outline-style: none;/,
+    );
+  });
+
+  it('marks the highlighted menu, select and palette option', async () => {
+    const block = await forcedBlock();
+    expect(block).toMatch(
+      /\[data-highlighted\],\s*\[cmdk-item\]\[data-selected='true'\]\s*\{\s*outline: 2px solid Highlight;/,
+    );
+  });
+
+  it('keeps the selected tab and the pressed toggle visible without their backgrounds', async () => {
+    const block = await forcedBlock();
+    for (const sel of [
+      "[data-slot='tabs-trigger'][data-state='active']",
+      "[data-slot='toggle-group-item'][data-state='on']",
+      "[data-slot='toggle'][data-state='on']",
+    ])
+      expect(block).toContain(sel);
+    expect(block).toMatch(/background: SelectedItem;\s*color: SelectedItemText;/);
+  });
+});
+
+describe('toasts', () => {
+  it('ring a focused toast and its action with the app ring, not sonner’s faint shadow', async () => {
+    expect(await css()).toMatch(
+      /\[data-sonner-toaster\] \[data-sonner-toast\]:focus-visible,\s*\[data-sonner-toaster\] \[data-sonner-toast\]\[data-styled\] \[data-button\]:focus-visible\s*\{\s*box-shadow: none;\s*outline: 2px solid var\(--ring\);/,
+    );
+  });
+});
+
+describe('forced colors, focus', () => {
   it('gives every focused element a system outline in forced colors mode', async () => {
     const { readFileSync } = await import('node:fs');
     const path = await import('node:path');
