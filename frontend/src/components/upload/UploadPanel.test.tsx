@@ -307,6 +307,8 @@ describe('upload sheet: rows', () => {
         status: 'failed',
         stage: 'failed',
         errorMessage: 'ffprobe exited with code 1: /app/uploads/x: Invalid data found',
+        // B-15: the server says retrying cannot help
+        retryable: false,
       }),
     );
     await startUpload();

@@ -3,7 +3,11 @@ import { Link } from 'react-router';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
 import { ChevronDown, Pause, Play, RotateCcw, X } from 'lucide-react';
+import { EmbedPanel } from '@/components/asset/EmbedPanel';
+import { PipelineSteps } from '@/components/asset/PipelineSteps';
+import { uploadSteps } from '@/components/asset/pipeline-states';
 import { failureInfo, stageLabel } from '@/components/asset/processing';
+import { RetryProcessingButton } from '@/components/asset/RetryProcessingButton';
 import { Collapse } from '@/components/motion';
 import { CopyButton } from '@/components/shared/CopyButton';
 import { ErrorDetails } from '@/components/shared/ErrorDetails';
@@ -18,7 +22,6 @@ import { highlight } from '@/lib/motion';
 import { CHUNK_SIZE, isTransferring, type UploadState, type UploadStore } from '@/lib/upload-store';
 import { cn } from '@/lib/utils';
 import { ChunkStrip } from './ChunkStrip';
-import { PipelineSteps } from './PipelineSteps';
 import { rowTitleId } from './ids';
 import { statusLine } from './upload-status';
 
@@ -109,7 +112,7 @@ export interface UploadRowProps {
 export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps) {
   const id = useId();
   const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState<'pause' | 'retry' | 'cleanup' | null>(null);
+  const [pending, setPending] = useState<'pause' | 'cleanup' | null>(null);
   const status = statusLine(s);
   const assetLink = s.assetId && !s.assetGone && s.cleanup !== 'done' ? s.assetId : null;
   const dismissable = !isTransferring(s) && s.cleanup !== 'pending';
@@ -121,7 +124,7 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
   const showChunks = isTransferring(s) && Math.ceil(s.bytesTotal / CHUNK_SIZE) > 1;
   const hasDetails = s.phase !== 'cancelled' || !!detail;
 
-  const run = async (kind: 'pause' | 'retry' | 'cleanup', action: () => Promise<void>) => {
+  const run = async (kind: 'pause' | 'cleanup', action: () => Promise<void>) => {
     setPending(kind);
     try {
       await action();
@@ -191,15 +194,13 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
   if (info && !s.assetGone && !s.authFailed) {
     if (info.action === 'retry') {
       actions.push(
-        <Button
+        <RetryProcessingButton
           key="retry"
           size="sm"
-          disabled={pending === 'retry'}
-          onClick={() => void run('retry', () => store.retryProcessing(s.key))}
-        >
-          {pending === 'retry' ? <ButtonSpinner /> : <RotateCcw />}
-          Retry processing
-        </Button>,
+          asset={{ id: s.assetId!, title: s.title }}
+          // through the store, so this row follows the new run; the row shows how it went
+          onRetry={() => store.retryProcessing(s.key)}
+        />,
       );
     } else if (info.action === 'reupload') {
       actions.push(
@@ -337,10 +338,13 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
       )}
 
       <Collapse open={open} id={`${id}-details`} className="flex flex-col gap-4 pt-2">
-        <div>
-          <h4 className="mb-2 text-xs font-medium text-muted-foreground">Processing steps</h4>
-          <PipelineSteps state={s} compact />
-        </div>
+        {s.phase === 'ready' && assetLink && (
+          <EmbedPanel
+            asset={{ id: assetLink, accessTier: s.accessTier, status: 'ready' }}
+            compact
+          />
+        )}
+        <PipelineSteps steps={uploadSteps(s)} orientation="vertical" size="sm" />
         {showChunks && (
           <ChunkStrip
             bytesUploaded={s.bytesUploaded}

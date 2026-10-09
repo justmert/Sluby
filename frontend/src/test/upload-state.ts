@@ -14,6 +14,7 @@ export function job(overrides: Partial<ProcessingJob> = {}): ProcessingJob {
     completedAt: null,
     createdAt: '2026-10-02T00:00:00Z',
     logs: [],
+    retryable: true,
     ...overrides,
   };
 }
