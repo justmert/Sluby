@@ -293,10 +293,52 @@ export function DataTable<T>({
   if (current !== mounted) setMounted(current);
   const initialFor = (id: string) =>
     (staggerIn && rowsKey === first) || !current.ids.has(id) ? undefined : false;
-  // the skeleton stays out of the rows' presence: inside it, its rows lingered
-  // a commit after the data came and the first rows slid up from under them
-  const animated = animateRows && !loading;
-  const Body = animated ? AnimatedList : TableBody;
+  const Body = animateRows ? AnimatedList : TableBody;
+  // the skeleton and the empty row stay out of the rows' presence, in a tbody
+  // of their own: inside it they lingered a commit after the first rows came,
+  // and those rows slid up from under them
+  const placeholder = (
+    <>
+      {loading &&
+        Array.from({ length: loadingRows }, (_, r) => (
+          <TableRow key={r} className="hover:bg-transparent">
+            {selectable && (
+              <TableCell className="pl-4">
+                <Skeleton className={cn('size-4', lateReveal)} />
+              </TableCell>
+            )}
+            {columns.map((c, i) => (
+              <TableCell
+                key={c.id}
+                data-card-hidden={c.hideInCards || undefined}
+                className={cn(i === 0 && !selectable && 'pl-4', colClass(c))}
+              >
+                {c.skeleton ?? (
+                  <Skeleton
+                    className={cn(
+                      'h-4',
+                      c.primary ? 'w-40' : 'w-16',
+                      c.align === 'right' && 'ml-auto',
+                      lateReveal,
+                    )}
+                  />
+                )}
+              </TableCell>
+            ))}
+            {rowActions && <TableCell className="pr-4" />}
+          </TableRow>
+        ))}
+      {rows?.length === 0 && (
+        <TableRow className="hover:bg-transparent">
+          <TableCell colSpan={span} className="p-0 whitespace-normal">
+            {empty ?? (
+              <p className="py-8 text-center text-sm text-muted-foreground">Nothing here yet.</p>
+            )}
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
 
   return (
     <div data-slot="data-table" className={cn('flex flex-col gap-3', className)}>
@@ -375,7 +417,7 @@ export function DataTable<T>({
             </TableHeader>
             <Body
               key={rowsKey}
-              {...(animated
+              {...(animateRows
                 ? {
                     as: 'tbody' as const,
                     'data-slot': 'table-body',
@@ -383,46 +425,7 @@ export function DataTable<T>({
                   }
                 : {})}
             >
-              {loading &&
-                Array.from({ length: loadingRows }, (_, r) => (
-                  <TableRow key={r} className="hover:bg-transparent">
-                    {selectable && (
-                      <TableCell className="pl-4">
-                        <Skeleton className={cn('size-4', lateReveal)} />
-                      </TableCell>
-                    )}
-                    {columns.map((c, i) => (
-                      <TableCell
-                        key={c.id}
-                        data-card-hidden={c.hideInCards || undefined}
-                        className={cn(i === 0 && !selectable && 'pl-4', colClass(c))}
-                      >
-                        {c.skeleton ?? (
-                          <Skeleton
-                            className={cn(
-                              'h-4',
-                              c.primary ? 'w-40' : 'w-16',
-                              c.align === 'right' && 'ml-auto',
-                              lateReveal,
-                            )}
-                          />
-                        )}
-                      </TableCell>
-                    ))}
-                    {rowActions && <TableCell className="pr-4" />}
-                  </TableRow>
-                ))}
-              {rows?.length === 0 && (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={span} className="p-0 whitespace-normal">
-                    {empty ?? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">
-                        Nothing here yet.
-                      </p>
-                    )}
-                  </TableCell>
-                </TableRow>
-              )}
+              {!animateRows && placeholder}
               {rows?.map((row) => {
                 const id = getRowId(row);
                 const label = getRowLabel(row);
@@ -463,7 +466,7 @@ export function DataTable<T>({
                     )}
                   </>
                 );
-                return animated ? (
+                return animateRows ? (
                   <AnimatedItem
                     key={getRowKey?.(row) ?? id}
                     data-row-id={id}
@@ -490,6 +493,7 @@ export function DataTable<T>({
                 );
               })}
             </Body>
+            {animateRows && (loading || rows?.length === 0) && <TableBody>{placeholder}</TableBody>}
           </ResponsiveTable>
         </div>
       )}

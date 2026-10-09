@@ -20,6 +20,7 @@ const columns: DataTableColumn<Row>[] = [
 ];
 
 function Table({ rows }: { rows: Row[] | undefined }) {
+  // an empty state with a real height, like the playback IDs one
   return (
     <MotionProvider>
       <DataTable
@@ -29,10 +30,22 @@ function Table({ rows }: { rows: Row[] | undefined }) {
         getRowId={(r) => r.id}
         getRowLabel={(r) => r.name}
         loadingRows={3}
+        empty={<div style={{ height: 200 }}>No keys yet</div>}
         animateRows
       />
     </MotionProvider>
   );
+}
+
+async function mostLift() {
+  let most = 0;
+  const end = performance.now() + 800;
+  while (performance.now() < end) {
+    await new Promise((r) => requestAnimationFrame(r));
+    for (const tr of document.querySelectorAll('tbody tr[data-row-id]'))
+      most = Math.max(most, lift(tr));
+  }
+  return most;
 }
 
 const lift = (el: Element) => {
@@ -64,6 +77,14 @@ describe('DataTable rows arriving after the skeleton, in a real browser', () => 
     }
     // the fade lifts a row by 6 px at most (listItem)
     expect(most).toBeLessThanOrEqual(6.5);
+    view.unmount();
+  });
+
+  it('puts the first row in place of the empty state instead of sliding it up from under it', async () => {
+    const view = render(<Table rows={[]} />);
+    await new Promise((r) => setTimeout(r, 100));
+    view.rerender(<Table rows={[{ id: 'a', name: 'Alpha' }]} />);
+    expect(await mostLift()).toBeLessThanOrEqual(6.5);
     view.unmount();
   });
 });
