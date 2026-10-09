@@ -45,6 +45,16 @@ describe('AssetPlayer', () => {
     expect(screen.getByLabelText('Product walkthrough')).toBeInTheDocument();
   });
 
+  it('rings the whole player when the video has keyboard focus, which its clipped box would hide', () => {
+    renderPage(<AssetPlayer assetId="a1" signed={false} title="Product walkthrough" />);
+    const frame = screen.getByLabelText('Product walkthrough').parentElement!;
+    expect(frame).toHaveClass(
+      'overflow-hidden',
+      'has-[video:focus-visible]:outline-2',
+      'has-[video:focus-visible]:outline-ring',
+    );
+  });
+
   it('plays a private video signed, renewing an hour at a time', () => {
     renderPage(<AssetPlayer assetId="a1" signed title="x" />);
     expect(last.props).toMatchObject({ signed: true, expiresIn: 3600 });

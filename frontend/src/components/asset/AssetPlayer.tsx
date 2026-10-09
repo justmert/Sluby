@@ -47,7 +47,8 @@ export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded-lg bg-black">
+      {/* the frame clips the video's own focus ring, so the frame draws one */}
+      <div className="overflow-hidden rounded-lg bg-black outline-offset-2 has-[video:focus-visible]:outline-2 has-[video:focus-visible]:outline-ring [&_video]:outline-none">
         <SlubyPlayer
           ref={player}
           client={sluby}
