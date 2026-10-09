@@ -40,6 +40,7 @@ describe('webhook routes', () => {
     deps = {
       createWebhook: vi.fn().mockResolvedValue({ id: 'wh-1' }),
       listWebhooks: vi.fn().mockResolvedValue([]),
+      getWebhook: vi.fn().mockResolvedValue(null),
       deleteWebhook: vi.fn().mockResolvedValue(undefined),
       // the real check, with no operator exemptions and a resolver that knows
       // a few test names, so registration is judged exactly as in production
@@ -224,6 +225,8 @@ describe('webhook routes', () => {
           events: ['upload.completed'],
           isActive: true,
           createdAt: new Date('2025-01-01T00:00:00Z'),
+          lastDeliveryAt: new Date('2025-01-03T00:00:00Z'),
+          lastDeliveryOk: false,
         },
         {
           id: 'wh-2',
@@ -231,6 +234,8 @@ describe('webhook routes', () => {
           events: ['asset.ready', 'asset.errored'],
           isActive: false,
           createdAt: new Date('2025-01-02T00:00:00Z'),
+          lastDeliveryAt: null,
+          lastDeliveryOk: null,
         },
       ]);
 
@@ -244,6 +249,13 @@ describe('webhook routes', () => {
         events: ['upload.completed'],
         is_active: true,
         created_at: '2025-01-01T00:00:00.000Z',
+        last_delivery_at: '2025-01-03T00:00:00.000Z',
+        last_delivery_ok: false,
+      });
+      expect(res.body.data[1]).toMatchObject({
+        is_active: false,
+        last_delivery_at: null,
+        last_delivery_ok: null,
       });
     });
 
@@ -287,6 +299,29 @@ describe('webhook routes', () => {
 
       expect(res.status).toBe(403);
       expect(deps.listWebhooks).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /:id', () => {
+    it("answers one of the caller's endpoints", async () => {
+      vi.mocked(deps.getWebhook).mockResolvedValue({
+        id: 'wh-1',
+        url: 'https://example.com/hook',
+        events: ['asset.ready'],
+        isActive: true,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+        lastDeliveryAt: new Date('2025-01-02T00:00:00Z'),
+        lastDeliveryOk: true,
+      });
+      const res = await request(createApp()).get('/wh-1');
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ id: 'wh-1', last_delivery_ok: true });
+      expect(deps.getWebhook).toHaveBeenCalledWith('wh-1', '0xabc123');
+    });
+
+    it("answers 404 for an endpoint that is not the caller's", async () => {
+      const res = await request(createApp()).get('/wh-9');
+      expect(res.status).toBe(404);
     });
   });
 

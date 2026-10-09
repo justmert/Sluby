@@ -823,13 +823,33 @@ export const openapiDocument = {
       },
       Webhook: {
         type: 'object',
-        required: ['id', 'url', 'events', 'is_active', 'created_at'],
+        required: [
+          'id',
+          'url',
+          'events',
+          'is_active',
+          'created_at',
+          'last_delivery_at',
+          'last_delivery_ok',
+        ],
         properties: {
           id: { type: 'string', format: 'uuid' },
           url: { type: 'string' },
           events: { type: 'array', items: { type: 'string' } },
-          is_active: { type: 'boolean' },
+          is_active: {
+            type: 'boolean',
+            description: 'False while the endpoint is paused: no events are sent to it.',
+          },
           created_at: { type: 'string', format: 'date-time' },
+          last_delivery_at: nullable('string', {
+            format: 'date-time',
+            description: 'When the newest delivery attempt was made; null before the first.',
+          }),
+          last_delivery_ok: nullable('boolean', {
+            description:
+              'Whether the newest attempt got a 2xx answer; null before the first. Attempts are ' +
+              'kept for 30 days.',
+          }),
         },
       },
       WebhookList: {
@@ -1905,7 +1925,9 @@ export const openapiDocument = {
       get: {
         tags: ['Webhooks'],
         summary: 'List webhook endpoints.',
-        description: 'Needs `manage`, like creating them: receiver URLs often carry credentials.',
+        description:
+          'Every endpoint of the account, paused ones included, newest first. Needs `manage`, ' +
+          'like creating them: receiver URLs often carry credentials.',
         'x-required-scope': 'manage',
         responses: {
           '200': jsonResponse('WebhookList', 'Endpoints.'),
@@ -2004,6 +2026,18 @@ export const openapiDocument = {
       },
     },
     '/api/v1/webhooks/{id}': {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'Get a webhook endpoint.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Endpoint id.')],
+        responses: {
+          '200': jsonResponse('Webhook', 'The endpoint.'),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
+      },
       delete: {
         tags: ['Webhooks'],
         summary: 'Delete a webhook endpoint.',

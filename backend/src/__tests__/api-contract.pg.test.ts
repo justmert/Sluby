@@ -739,6 +739,10 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         const list = await call('GET', '/api/v1/webhooks', 'a');
         check('GET', '/api/v1/webhooks', list);
         expect(list.body.data).toHaveLength(1);
+        expect(list.body.data[0]).toMatchObject({ last_delivery_at: null, last_delivery_ok: null });
+        const oneByB = await call('GET', `/api/v1/webhooks/${created.body.id}`, 'b');
+        check('GET', '/api/v1/webhooks/{id}', oneByB);
+        expect(oneByB.status).toBe(404);
 
         const testedByB = await call('POST', `/api/v1/webhooks/${created.body.id}/test`, 'b');
         check('POST', '/api/v1/webhooks/{id}/test', testedByB);
@@ -748,6 +752,11 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         expect(tested.status).toBe(200);
         expect(tested.body).toMatchObject({ delivered: true, status_code: 204 });
         expect(hits).toEqual(['webhook.test']);
+        const one = await call('GET', `/api/v1/webhooks/${created.body.id}`, 'a');
+        check('GET', '/api/v1/webhooks/{id}', one);
+        expect(one.status).toBe(200);
+        expect(one.body).toMatchObject({ id: created.body.id, last_delivery_ok: true });
+        expect(Date.parse(one.body.last_delivery_at)).toBeGreaterThan(Date.now() - 60_000);
 
         const deliveriesByB = await call(
           'GET',
@@ -780,6 +789,9 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         const listP = await call('GET', '/api/v1/webhooks', 'platform');
         check('GET', '/api/v1/webhooks', listP);
         expect(listP.body.data.map((w: { id: string }) => w.id)).toEqual([other.body.id]);
+        const oneByP = await call('GET', `/api/v1/webhooks/${other.body.id}`, 'platform');
+        check('GET', '/api/v1/webhooks/{id}', oneByP);
+        expect(oneByP.status).toBe(200);
         const testedByP = await call('POST', `/api/v1/webhooks/${other.body.id}/test`, 'platform');
         check('POST', '/api/v1/webhooks/{id}/test', testedByP);
         expect(testedByP.status).toBe(200);

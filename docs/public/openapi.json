@@ -1439,7 +1439,9 @@
           "url",
           "events",
           "is_active",
-          "created_at"
+          "created_at",
+          "last_delivery_at",
+          "last_delivery_ok"
         ],
         "properties": {
           "id": {
@@ -1456,11 +1458,27 @@
             }
           },
           "is_active": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "False while the endpoint is paused: no events are sent to it."
           },
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "last_delivery_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the newest delivery attempt was made; null before the first."
+          },
+          "last_delivery_ok": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the newest attempt got a 2xx answer; null before the first. Attempts are kept for 30 days."
           }
         }
       },
@@ -4129,7 +4147,7 @@
           "Webhooks"
         ],
         "summary": "List webhook endpoints.",
-        "description": "Needs `manage`, like creating them: receiver URLs often carry credentials.",
+        "description": "Every endpoint of the account, paused ones included, newest first. Needs `manage`, like creating them: receiver URLs often carry credentials.",
         "x-required-scope": "manage",
         "responses": {
           "200": {
@@ -4351,6 +4369,58 @@
       }
     },
     "/api/v1/webhooks/{id}": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Get a webhook endpoint.",
+        "x-required-scope": "manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Endpoint id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The endpoint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Webhook"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, such as a malformed id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Webhooks"

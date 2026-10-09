@@ -65,10 +65,12 @@ import {
 } from './db/queries/api-keys.js';
 import { createKeyUseRecorder } from './api/auth/key-usage.js';
 import type { ApiKey, VideoAsset } from './db/schema.js';
+import type { WebhookEndpointWithHealth } from './db/queries/webhooks.js';
 import {
   createWebhookEndpoint,
   createWebhookDelivery,
   getWebhookEndpointForOwner,
+  getWebhookEndpointWithHealth,
   listWebhookDeliveries,
   listWebhookEndpointsByOwner,
   deleteWebhookEndpoint,
@@ -436,6 +438,18 @@ function toAssetRecord(asset: VideoAsset) {
   };
 }
 
+function toWebhookRecord(ep: WebhookEndpointWithHealth) {
+  return {
+    id: ep.id,
+    url: ep.url,
+    events: ep.events,
+    isActive: ep.isActive,
+    createdAt: ep.createdAt,
+    lastDeliveryAt: ep.lastDeliveryAt,
+    lastDeliveryOk: ep.lastDeliveryOk,
+  };
+}
+
 function toKeyRecord(k: ApiKey) {
   return {
     id: k.id,
@@ -753,13 +767,12 @@ export function buildApiDeps(
 
     listWebhooks: async (creatorAddress) => {
       const endpoints = await listWebhookEndpointsByOwner(creatorAddress);
-      return endpoints.map((ep) => ({
-        id: ep.id,
-        url: ep.url,
-        events: ep.events,
-        isActive: ep.isActive,
-        createdAt: ep.createdAt,
-      }));
+      return endpoints.map(toWebhookRecord);
+    },
+
+    getWebhook: async (id, creatorAddress) => {
+      const endpoint = await getWebhookEndpointWithHealth(id, creatorAddress);
+      return endpoint ? toWebhookRecord(endpoint) : null;
     },
 
     deleteWebhook: async (id, creatorAddress) => {

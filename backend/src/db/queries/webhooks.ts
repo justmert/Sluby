@@ -26,22 +26,78 @@ export async function getWebhookEndpointById(id: string): Promise<WebhookEndpoin
   });
 }
 
+/** An endpoint with how its newest delivery attempt went. */
+export interface WebhookEndpointWithHealth extends WebhookEndpoint {
+  /** When the newest attempt was made; null before the first. */
+  lastDeliveryAt: Date | null;
+  /** Whether the newest attempt was delivered; null before the first. */
+  lastDeliveryOk: boolean | null;
+}
+
+// the newest delivery row of each endpoint, read through the
+// (webhook_endpoint_id, created_at) index one row per endpoint
+function selectWithHealth() {
+  const last = db
+    .select({
+      createdAt: webhookDeliveries.createdAt,
+      deliveredAt: webhookDeliveries.deliveredAt,
+    })
+    .from(webhookDeliveries)
+    .where(eq(webhookDeliveries.webhookEndpointId, webhookEndpoints.id))
+    .orderBy(desc(webhookDeliveries.createdAt))
+    .limit(1)
+    .as('last_delivery');
+  return db
+    .select({
+      endpoint: webhookEndpoints,
+      lastDeliveryAt: last.createdAt,
+      lastDeliveredAt: last.deliveredAt,
+    })
+    .from(webhookEndpoints)
+    .leftJoinLateral(last, sql`true`);
+}
+
+function withHealth(row: {
+  endpoint: WebhookEndpoint;
+  lastDeliveryAt: Date | null;
+  lastDeliveredAt: Date | null;
+}): WebhookEndpointWithHealth {
+  return {
+    ...row.endpoint,
+    lastDeliveryAt: row.lastDeliveryAt,
+    lastDeliveryOk: row.lastDeliveryAt === null ? null : row.lastDeliveredAt !== null,
+  };
+}
+
 /**
- * List an account's webhook endpoints. `creatorAddress` undefined lists every
- * account's (the platform identity, see ownerFilter).
+ * List an account's webhook endpoints, paused ones included, newest first.
+ * `creatorAddress` undefined lists every account's (the platform identity,
+ * see ownerFilter).
  */
 export async function listWebhookEndpointsByOwner(
   creatorAddress: string | undefined,
-): Promise<WebhookEndpoint[]> {
-  const conditions = [eq(webhookEndpoints.isActive, true)];
-  if (creatorAddress !== undefined) {
-    conditions.push(eq(webhookEndpoints.creatorAddress, creatorAddress));
-  }
+): Promise<WebhookEndpointWithHealth[]> {
+  const rows = await selectWithHealth()
+    .where(
+      creatorAddress !== undefined
+        ? eq(webhookEndpoints.creatorAddress, creatorAddress)
+        : undefined,
+    )
+    .orderBy(desc(webhookEndpoints.createdAt), desc(webhookEndpoints.id));
+  return rows.map(withHealth);
+}
 
-  return db.query.webhookEndpoints.findMany({
-    where: and(...conditions),
-    orderBy: [desc(webhookEndpoints.createdAt)],
-  });
+/** One endpoint of an account with its delivery health, or undefined when it is not theirs. */
+export async function getWebhookEndpointWithHealth(
+  id: string,
+  creatorAddress: string | undefined,
+): Promise<WebhookEndpointWithHealth | undefined> {
+  const [row] = await selectWithHealth().where(
+    creatorAddress !== undefined
+      ? and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.creatorAddress, creatorAddress))
+      : eq(webhookEndpoints.id, id),
+  );
+  return row && withHealth(row);
 }
 
 /**

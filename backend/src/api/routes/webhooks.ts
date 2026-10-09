@@ -4,6 +4,31 @@ import { AppError } from '../middleware/error-handler.js';
 import { ownerFilter } from '../ownership.js';
 import { randomBytes } from 'node:crypto';
 
+/** An endpoint as the routes answer it. */
+export interface WebhookRecord {
+  id: string;
+  url: string;
+  events: string[];
+  isActive: boolean;
+  createdAt: Date;
+  /** When the newest delivery attempt was made; null before the first. */
+  lastDeliveryAt: Date | null;
+  /** Whether that attempt was delivered; null before the first. */
+  lastDeliveryOk: boolean | null;
+}
+
+function formatWebhook(w: WebhookRecord) {
+  return {
+    id: w.id,
+    url: w.url,
+    events: w.events,
+    is_active: w.isActive,
+    created_at: w.createdAt.toISOString(),
+    last_delivery_at: w.lastDeliveryAt ? w.lastDeliveryAt.toISOString() : null,
+    last_delivery_ok: w.lastDeliveryOk,
+  };
+}
+
 export interface WebhookRouteDeps {
   createWebhook: (data: {
     creatorAddress: string;
@@ -17,15 +42,9 @@ export interface WebhookRouteDeps {
    * The owner arguments below come from ownerFilter: undefined (the platform
    * identity) means every account.
    */
-  listWebhooks: (owner: string | undefined) => Promise<
-    Array<{
-      id: string;
-      url: string;
-      events: string[];
-      isActive: boolean;
-      createdAt: Date;
-    }>
-  >;
+  listWebhooks: (owner: string | undefined) => Promise<WebhookRecord[]>;
+  /** One endpoint, or null when it is not the account's. */
+  getWebhook: (id: string, owner: string | undefined) => Promise<WebhookRecord | null>;
   /** Deletes only if the endpoint belongs to the account; false when it does not. */
   deleteWebhook: (id: string, owner: string | undefined) => Promise<boolean>;
   /**
@@ -118,15 +137,20 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
   router.get('/', requireScope('manage'), async (req: Request, res: Response) => {
     const webhooks = await deps.listWebhooks(ownerFilter(req.apiKey!.creatorAddress));
 
-    res.json({
-      data: webhooks.map((w) => ({
-        id: w.id,
-        url: w.url,
-        events: w.events,
-        is_active: w.isActive,
-        created_at: w.createdAt.toISOString(),
-      })),
-    });
+    res.json({ data: webhooks.map(formatWebhook) });
+  });
+
+  /**
+   * GET /api/v1/webhooks/:id
+   * One endpoint, with how its newest delivery went.
+   */
+  router.get('/:id', requireScope('manage'), async (req: Request, res: Response) => {
+    const webhook = await deps.getWebhook(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
+    if (!webhook) throw new AppError(404, 'Webhook endpoint not found');
+    res.json(formatWebhook(webhook));
   });
 
   /**
