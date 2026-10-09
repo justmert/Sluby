@@ -28,7 +28,10 @@ export function UserMenu() {
   const { signOut, signingOut } = useSignOut();
 
   return (
-    <DropdownMenu>
+    // not modal: a modal menu aria-hides the rest of the page around its
+    // trigger, links and buttons included, which screen readers then see as
+    // hidden but focusable. Escape and a click outside still close it
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         {/* below 24rem (a phone, or a 32px default font) it drops its chevron
             and side padding so the top bar still fits (A11Y-46) */}
