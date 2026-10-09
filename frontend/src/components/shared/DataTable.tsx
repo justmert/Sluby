@@ -17,7 +17,6 @@ import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { InlineError } from './InlineError';
 import { selectRange } from './select-range';
-import { mainLandmark } from './main-landmark';
 
 export type SortDirection = 'asc' | 'desc';
 export interface SortState {
@@ -170,7 +169,7 @@ function RowMenu({ actions, label }: { actions: RowAction[]; label: string }) {
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent container={mainLandmark()} align="end" className="w-auto min-w-44">
+      <DropdownMenuContent align="end" className="w-auto min-w-44">
         {normal.map((a) => (
           <DropdownMenuItem key={a.label} onSelect={a.onSelect} disabled={a.disabled}>
             <a.icon aria-hidden="true" />

@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ACCESS_FILTERS, ALL, STATUS_FILTERS } from './filters';
-import { mainLandmark } from '@/components/shared/main-landmark';
 
 export interface FilterPopoverProps {
   status: VideoAssetStatus | undefined;
@@ -59,7 +58,7 @@ export function FilterPopover({
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent container={mainLandmark()} align="start" className="w-56">
+      <DropdownMenuContent align="start" className="w-56">
         <DropdownMenuLabel>Status</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={status ?? ALL}

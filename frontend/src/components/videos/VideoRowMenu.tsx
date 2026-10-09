@@ -8,8 +8,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { cn } from '@/lib/utils';
-import { mainLandmark } from '@/components/shared/main-landmark';
 
 /**
  * A video's actions as a menu, for the grid cards; the table draws the same
@@ -36,13 +34,13 @@ export function VideoRowMenu({
         <Button
           variant="ghost"
           size="icon-sm"
-          className={cn('pointer-coarse:size-10', className)}
+          className={className}
           aria-label={`Actions for ${title}`}
         >
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent container={mainLandmark()} align="end" className="w-auto min-w-44">
+      <DropdownMenuContent align="end" className="w-auto min-w-44">
         {normal.map((a) => (
           <DropdownMenuItem key={a.label} onSelect={a.onSelect} disabled={a.disabled}>
             <a.icon aria-hidden="true" />
