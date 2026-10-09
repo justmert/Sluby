@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ProcessingJob, VideoAsset, VideoAssetStatus } from '@sluby/sdk';
-import { failedForGood, useSendingAssetIds } from '@/hooks/asset-queries';
+import { errorStatus, failedForGood, useSendingAssetIds } from '@/hooks/asset-queries';
 import { apiClient } from '@/lib/api-client';
 import { sluby } from '@/lib/sluby';
 
@@ -162,6 +162,12 @@ export function useUpdateVideo() {
   return useMutation({
     mutationFn: ({ base, patch }: { base: VideoAsset; patch: VideoPatch }) =>
       sluby.assets.update(base.id, patch, { ifMatch: base }),
+    onError: (err, { base }) => {
+      // deleted somewhere else: read it again, so the page says so (FLW-44)
+      if (errorStatus(err) === 404) {
+        void queryClient.invalidateQueries({ queryKey: ['assets', 'one', base.id], exact: true });
+      }
+    },
     onSuccess: (asset) => {
       queryClient.setQueryData(['assets', 'one', asset.id], asset);
       // titles and access show on every list (library, overview, palette)

@@ -561,6 +561,29 @@ describe('AssetDetailPage', () => {
     });
   });
 
+  describe('a save that finds the video gone', () => {
+    it('says it was deleted somewhere else and shows not found (FLW-44)', async () => {
+      let alive = true;
+      render(undefined, {
+        '/api/v1/assets/a1': () =>
+          alive ? asset() : reply(404, { error: 'Video asset not found' }),
+        'PATCH /api/v1/assets/a1': () => {
+          alive = false;
+          return reply(404, { error: 'Video asset not found' });
+        },
+      });
+      await screen.findByTestId('player');
+      await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'Edit title' }), 'New{Enter}');
+      expect(
+        await screen.findByText('This video was deleted in another tab or browser'),
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Video not found' }),
+      ).toBeInTheDocument();
+    });
+  });
+
   describe('before the video is ready', () => {
     it('shows the running step and percent, opens on Details and Activity', async () => {
       render(asset({ status: 'processing', manifest_object_id: null }), {
