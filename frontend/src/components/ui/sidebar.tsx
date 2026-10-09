@@ -29,6 +29,30 @@ type SidebarContextProps = {
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
 
+// keys held right now. a sheet opened with Enter gets that key's keypress
+// and keyup too; focus moved into it at once lands on a link that the same
+// Enter then follows, closing the sheet it just opened
+const heldKeys = new Set<string>();
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', (e) => heldKeys.add(e.key), true);
+  window.addEventListener('keyup', (e) => heldKeys.delete(e.key), true);
+  window.addEventListener('blur', () => heldKeys.clear());
+}
+
+/** Run `fn` now, or once every key held now is released. */
+function afterKeysReleased(fn: () => void) {
+  if (heldKeys.size === 0) {
+    fn();
+    return;
+  }
+  const onUp = () => {
+    if (heldKeys.size > 0) return;
+    window.removeEventListener('keyup', onUp);
+    fn();
+  };
+  window.addEventListener('keyup', onUp);
+}
+
 function useSidebar() {
   const context = React.useContext(SidebarContext);
   if (!context) {
@@ -192,8 +216,19 @@ function Sidebar({
           // the title says what it is; radix warns without a description
           // unless it is told there is none
           aria-describedby={undefined}
-          onOpenAutoFocus={() => {
+          onOpenAutoFocus={(e) => {
             opener.current = document.activeElement as HTMLElement | null;
+            // start on the current page's link rather than the sheet itself,
+            // and only after the key that opened it is up (A11Y-41)
+            e.preventDefault();
+            const sheet = e.currentTarget as HTMLElement;
+            afterKeysReleased(() => {
+              if (!sheet.isConnected) return;
+              const target =
+                sheet.querySelector<HTMLElement>('[data-sidebar=menu-button][data-active=true]') ??
+                sheet.querySelector<HTMLElement>('a[href], button:not([disabled])');
+              (target ?? sheet).focus();
+            });
           }}
           onCloseAutoFocus={(e) => {
             const el = opener.current;
@@ -462,7 +497,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<'li'>) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  'peer/menu-button group/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-open:hover:bg-sidebar-accent data-open:hover:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:font-medium data-active:text-sidebar-accent-foreground [&_svg]:size-4 [&_svg]:shrink-0 [&>span:last-child]:truncate',
+  'peer/menu-button group/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:min-h-0 group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-open:hover:bg-sidebar-accent data-open:hover:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:font-medium data-active:text-sidebar-accent-foreground [&_svg]:size-4 [&_svg]:shrink-0 [&>span:last-child]:truncate',
   {
     variants: {
       variant: {
@@ -471,9 +506,11 @@ const sidebarMenuButtonVariants = cva(
           'bg-background shadow-[0_0_0_1px_var(--sidebar-border)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_var(--sidebar-accent)]',
       },
       size: {
-        default: 'h-8 text-sm',
-        sm: 'h-7 text-xs',
-        lg: 'h-12 text-sm group-data-[collapsible=icon]:p-0!',
+        // min heights, so text grown by the reader's spacing settings is not
+        // clipped (A11Y-45); 44px for a finger (A11Y-47)
+        default: 'min-h-8 text-sm pointer-coarse:min-h-11',
+        sm: 'min-h-7 py-1 text-xs pointer-coarse:min-h-10',
+        lg: 'min-h-12 p-2 text-sm group-data-[collapsible=icon]:p-0!',
       },
     },
     defaultVariants: {
@@ -498,6 +535,11 @@ function SidebarMenuButton({
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const Comp = asChild ? Slot.Root : 'button';
   const { isMobile, state } = useSidebar();
+  // the tooltip only says what the rail's icons mean. hidden is not enough
+  // anywhere else: a hidden tooltip still opens on focus and takes the first
+  // Escape, so the phone sheet needed two presses to close
+  const [tooltipOpen, setTooltipOpen] = React.useState(false);
+  const tooltipShown = state === 'collapsed' && !isMobile;
 
   const button = (
     <Comp
@@ -521,14 +563,9 @@ function SidebarMenuButton({
   }
 
   return (
-    <Tooltip>
+    <Tooltip open={tooltipShown && tooltipOpen} onOpenChange={setTooltipOpen}>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent
-        side="right"
-        align="center"
-        hidden={state !== 'collapsed' || isMobile}
-        {...tooltip}
-      />
+      <TooltipContent side="right" align="center" hidden={!tooltipShown} {...tooltip} />
     </Tooltip>
   );
 }

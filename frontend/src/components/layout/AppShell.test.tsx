@@ -64,6 +64,8 @@ describe('AppShell', () => {
     await userEvent.keyboard('{Enter}');
     const sheet = await screen.findByRole('dialog', { name: 'Navigation' });
     expect(within(sheet).getByRole('link', { name: 'Videos' })).toBeInTheDocument();
+    // one Escape closes it, with focus on the current page's link (A11Y-41)
+    expect(within(sheet).getByRole('link', { name: 'Overview' })).toHaveFocus();
     await userEvent.keyboard('{Escape}');
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(toggle).toHaveFocus();
