@@ -157,7 +157,7 @@ describe('API explorer', () => {
     render();
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
     await act(async () => vi.advanceTimersByTime(30_000));
-    expect(await screen.findByText('No answer after 30 seconds.')).toBeInTheDocument();
+    expect(await screen.findByText('No answer after 30 seconds')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
   });
 

@@ -355,7 +355,7 @@ export default function ExplorerPage() {
                 error={failure.error}
                 title={
                   failure.timedOut
-                    ? 'No answer after 30 seconds.'
+                    ? 'No answer after 30 seconds'
                     : `Could not send ${failure.method} ${failure.path}`
                 }
               />
