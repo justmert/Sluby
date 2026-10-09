@@ -19,6 +19,23 @@ function isChunkLoadError(error: Error): boolean {
 
 const RELOADED_AT_KEY = 'sluby-chunk-reload-at';
 
+// firefox rejects the dynamic imports in flight once the page starts to
+// unload, with the same message as a missing chunk; reloading then would
+// replace the navigation the user just started. a leave that was called off
+// (a "leave site?" prompt) counts for a few seconds only.
+const LEAVING_MS = 5_000;
+let leavingSince = 0;
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    leavingSince = Date.now();
+  });
+  // back from the back/forward cache: the page is alive again
+  window.addEventListener('pageshow', () => {
+    leavingSince = 0;
+  });
+}
+const leaving = () => Date.now() - leavingSince < LEAVING_MS;
+
 /**
  * A redeploy replaces the hashed chunks, so a tab opened before it fails to
  * load the next page; reloading picks up the new build. Only once a minute,
@@ -64,6 +81,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       window.addEventListener('online', this.retryOnline, { once: true });
       return;
     }
+    if (leaving()) return;
     reloadForNewBuild();
   }
 
