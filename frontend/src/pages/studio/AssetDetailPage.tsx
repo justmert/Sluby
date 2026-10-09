@@ -6,7 +6,7 @@ import { FileQuestion, Share2 } from 'lucide-react';
 import { ConflictError, type AccessTier, type VideoAsset } from '@sluby/sdk';
 import { AccessControl } from '@/components/asset/AccessControl';
 import { ActivityTimeline } from '@/components/asset/ActivityTimeline';
-import { AssetPlayer } from '@/components/asset/AssetPlayer';
+import { LazyAssetPlayer } from '@/components/asset/LazyAssetPlayer';
 import { EmbedPanel } from '@/components/asset/EmbedPanel';
 import { PlaybackIdsCard } from '@/components/asset/PlaybackIdsCard';
 import { ProcessingCard } from '@/components/asset/ProcessingCard';
@@ -417,7 +417,7 @@ export default function AssetDetailPage() {
           transition={highlight}
           onAnimationComplete={() => setJustReady(false)}
         >
-          <AssetPlayer
+          <LazyAssetPlayer
             key={a.id}
             assetId={a.id}
             signed={a.accessTier === 'private'}

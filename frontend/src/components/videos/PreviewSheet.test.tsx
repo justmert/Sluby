@@ -77,14 +77,14 @@ describe('PreviewSheet', () => {
     renderPage(<Harness />);
     await userEvent.click(screen.getByText('Third'));
     const sheet = await screen.findByRole('dialog', { name: 'Third' });
-    expect(within(sheet).getByTestId('player')).toHaveAccessibleName('Third');
+    expect(await within(sheet).findByTestId('player')).toHaveAccessibleName('Third');
   });
 
   it('plays the video, signs a private one, and links to its page', async () => {
     renderPage(<Harness />);
     await userEvent.click(screen.getByText('Second'));
     const sheet = await screen.findByRole('dialog', { name: 'Second' });
-    expect(within(sheet).getByTestId('player')).toHaveAttribute('data-signed', 'true');
+    expect(await within(sheet).findByTestId('player')).toHaveAttribute('data-signed', 'true');
     // a private video's embed starts with the server code that signs it
     expect(await within(sheet).findByRole('tab', { name: 'Server' })).toBeInTheDocument();
     expect(within(sheet).getByText('Private')).toBeInTheDocument();

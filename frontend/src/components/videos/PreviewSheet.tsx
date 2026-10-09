@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { VideoAsset } from '@sluby/sdk';
-import { AssetPlayer } from '@/components/asset/AssetPlayer';
+import { LazyAssetPlayer } from '@/components/asset/LazyAssetPlayer';
 import { EmbedPanel } from '@/components/asset/EmbedPanel';
 import { AccessBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -92,7 +92,7 @@ export function PreviewSheet({ asset, onClose, previous, next, onStep }: Preview
             </SheetHeader>
             <div className="flex flex-col gap-4 px-4 pb-4">
               {/* keyed, so stepping to another video starts a fresh player */}
-              <AssetPlayer
+              <LazyAssetPlayer
                 key={shown.id}
                 assetId={shown.id}
                 signed={shown.accessTier === 'private'}

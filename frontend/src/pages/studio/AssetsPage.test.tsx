@@ -941,7 +941,7 @@ describe('AssetsPage: row menu and preview', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Actions for Big Buck Bunny' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Preview' }));
     const sheet = await screen.findByRole('dialog', { name: 'Big Buck Bunny' });
-    expect(within(sheet).getByTestId('player')).toHaveAttribute('data-asset', 'a1');
+    expect(await within(sheet).findByTestId('player')).toHaveAttribute('data-asset', 'a1');
     expect(within(sheet).getByRole('link', { name: 'Open video' })).toHaveAttribute(
       'href',
       '/studio/videos/a1',
