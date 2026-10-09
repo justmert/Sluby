@@ -225,6 +225,22 @@ describe('deliverWebhook', () => {
     );
   });
 
+  it('signs a retry with the secret the endpoint has at that moment', async () => {
+    const { deps, endpoints } = setup(receiver.url);
+    respond = (n) => (n < 2 ? [500, ''] : [200, '']);
+
+    await expect(deliverWebhook(deps, job, 0)).rejects.toThrow();
+    // the secret is rotated while the retry waits in the queue
+    endpoints.set('ep-1', { ...endpoints.get('ep-1')!, secret: 'whsec_rotated' });
+    await expect(deliverWebhook(deps, job, 1)).resolves.toBe('delivered');
+
+    const retry = receiver.requests[1];
+    const timestamp = retry.headers['x-sluby-timestamp'] as string;
+    const v1 = retry.headers['x-sluby-signature-v1'] as string;
+    expect(verifySignature(`${timestamp}.${job.body}`, v1, 'whsec_rotated')).toBe(true);
+    expect(verifySignature(`${timestamp}.${job.body}`, v1, 'whsec_test')).toBe(false);
+  });
+
   it('omits the delivery header for a job queued by an older version', async () => {
     const { deps } = setup(receiver.url);
     await deliverWebhook(deps, { ...job, deliveryId: undefined }, 0);

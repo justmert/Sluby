@@ -41,6 +41,7 @@ describe('webhook routes', () => {
       createWebhook: vi.fn().mockResolvedValue({ id: 'wh-1' }),
       listWebhooks: vi.fn().mockResolvedValue([]),
       getWebhook: vi.fn().mockResolvedValue(null),
+      rotateWebhookSecret: vi.fn().mockResolvedValue(true),
       updateWebhook: vi.fn(async (id, _owner, patch) => ({
         id,
         url: patch.url ?? 'https://example.com/hook',
@@ -375,6 +376,22 @@ describe('webhook routes', () => {
     it("answers 404 for an endpoint that is not the caller's", async () => {
       vi.mocked(deps.updateWebhook).mockResolvedValue(null);
       const res = await request(createApp()).patch('/wh-9').send({ is_active: false });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /:id/rotate-secret', () => {
+    it('stores a new secret and shows it once', async () => {
+      const res = await request(createApp()).post('/wh-1/rotate-secret');
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe('wh-1');
+      expect(res.body.secret).toMatch(/^[0-9a-f]{64}$/);
+      expect(deps.rotateWebhookSecret).toHaveBeenCalledWith('wh-1', '0xabc123', res.body.secret);
+    });
+
+    it("answers 404 for an endpoint that is not the caller's", async () => {
+      vi.mocked(deps.rotateWebhookSecret).mockResolvedValue(false);
+      const res = await request(createApp()).post('/wh-9/rotate-secret');
       expect(res.status).toBe(404);
     });
   });

@@ -72,6 +72,7 @@ import {
   getWebhookEndpointForOwner,
   getWebhookEndpointWithHealth,
   updateWebhookEndpoint,
+  setWebhookSecret,
   listWebhookDeliveries,
   listWebhookEndpointsByOwner,
   deleteWebhookEndpoint,
@@ -782,6 +783,9 @@ export function buildApiDeps(
       const endpoint = await getWebhookEndpointWithHealth(updated.id, undefined);
       return endpoint ? toWebhookRecord(endpoint) : null;
     },
+
+    rotateWebhookSecret: async (id, creatorAddress, secret) =>
+      Boolean(await setWebhookSecret(id, creatorAddress, secret)),
 
     deleteWebhook: async (id, creatorAddress) => {
       const deleted = await deleteWebhookEndpoint(id, creatorAddress);

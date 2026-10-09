@@ -144,6 +144,14 @@ export async function updateWebhookEndpoint(
   creatorAddress: string | undefined,
   patch: Partial<Pick<NewWebhookEndpoint, 'url' | 'events' | 'isActive'>>,
 ): Promise<WebhookEndpoint | undefined> {
+  return updateWebhookEndpointRow(id, creatorAddress, patch);
+}
+
+async function updateWebhookEndpointRow(
+  id: string,
+  creatorAddress: string | undefined,
+  patch: Partial<Pick<NewWebhookEndpoint, 'url' | 'events' | 'isActive' | 'secret'>>,
+): Promise<WebhookEndpoint | undefined> {
   const [updated] = await db
     .update(webhookEndpoints)
     .set(patch)
@@ -154,6 +162,19 @@ export async function updateWebhookEndpoint(
     )
     .returning();
   return updated;
+}
+
+/**
+ * Replace an endpoint's signing secret. Deliveries read the secret when they
+ * are sent, so queued retries are signed with the new one and the old one
+ * stops at once. Undefined when the endpoint is not the account's.
+ */
+export async function setWebhookSecret(
+  id: string,
+  creatorAddress: string | undefined,
+  secret: string,
+): Promise<WebhookEndpoint | undefined> {
+  return updateWebhookEndpointRow(id, creatorAddress, { secret });
 }
 
 /**

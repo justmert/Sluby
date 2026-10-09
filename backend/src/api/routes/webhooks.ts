@@ -51,6 +51,8 @@ export interface WebhookRouteDeps {
     owner: string | undefined,
     patch: { url?: string; events?: string[]; isActive?: boolean },
   ) => Promise<WebhookRecord | null>;
+  /** Stores a new signing secret; false when the endpoint is not the account's. */
+  rotateWebhookSecret: (id: string, owner: string | undefined, secret: string) => Promise<boolean>;
   /** Deletes only if the endpoint belongs to the account; false when it does not. */
   deleteWebhook: (id: string, owner: string | undefined) => Promise<boolean>;
   /**
@@ -88,6 +90,8 @@ export const WEBHOOK_EVENTS = [
   'asset.ready',
   'asset.errored',
 ];
+
+const newSigningSecret = () => randomBytes(32).toString('hex');
 
 /** Longest receiver URL accepted, well past any real one. */
 export const WEBHOOK_URL_MAX = 2048;
@@ -130,7 +134,7 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
 
     checkEvents(events);
 
-    const secret = randomBytes(32).toString('hex');
+    const secret = newSigningSecret();
 
     const caller = req.apiKey!;
     const webhook = await deps.createWebhook({
@@ -217,6 +221,23 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
     );
     if (!updated) throw new AppError(404, 'Webhook endpoint not found');
     res.json(formatWebhook(updated));
+  });
+
+  /**
+   * POST /api/v1/webhooks/:id/rotate-secret
+   * Replace the signing secret, for one that leaked. The old secret stops
+   * at once, retries already queued included; the new one is shown only here.
+   */
+  router.post('/:id/rotate-secret', requireScope('manage'), async (req: Request, res: Response) => {
+    const id = String(req.params.id);
+    const secret = newSigningSecret();
+    const rotated = await deps.rotateWebhookSecret(
+      id,
+      ownerFilter(req.apiKey!.creatorAddress),
+      secret,
+    );
+    if (!rotated) throw new AppError(404, 'Webhook endpoint not found');
+    res.json({ id, secret });
   });
 
   /**

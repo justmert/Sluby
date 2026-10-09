@@ -1967,6 +1967,34 @@ export const openapiDocument = {
         },
       },
     },
+    '/api/v1/webhooks/{id}/rotate-secret': {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Replace the signing secret of a webhook endpoint.',
+        description:
+          'For a secret that leaked. The old secret stops at once: every request from now on, ' +
+          'retries of earlier events included, is signed with the new one, which is returned ' +
+          'only here.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Endpoint id.')],
+        responses: {
+          '200': jsonSchemaResponse(
+            {
+              type: 'object',
+              required: ['id', 'secret'],
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                secret: { type: 'string', description: 'The new signing secret, shown once.' },
+              },
+            },
+            'The new secret.',
+          ),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
+      },
+    },
     '/api/v1/webhooks/{id}/deliveries': {
       get: {
         tags: ['Webhooks'],

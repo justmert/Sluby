@@ -770,6 +770,25 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         expect(deliveries.status).toBe(200);
         expect(deliveries.body.data).toHaveLength(1);
 
+        const rotateByB = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/rotate-secret`,
+          'b',
+        );
+        check('POST', '/api/v1/webhooks/{id}/rotate-secret', rotateByB);
+        expect(rotateByB.status).toBe(404);
+        const rotated = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/rotate-secret`,
+          'a',
+        );
+        check('POST', '/api/v1/webhooks/{id}/rotate-secret', rotated);
+        expect(rotated.status).toBe(200);
+        expect(rotated.body.secret).not.toBe(created.body.secret);
+        const [stored] =
+          await tdb.sql`select secret from webhook_endpoints where id = ${created.body.id}`;
+        expect(stored.secret).toBe(rotated.body.secret);
+
         const pauseByB = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'b', {
           is_active: false,
         });
@@ -836,6 +855,13 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         });
         check('PATCH', '/api/v1/webhooks/{id}', pausedByP);
         expect(pausedByP.status).toBe(200);
+        const rotatedByP = await call(
+          'POST',
+          `/api/v1/webhooks/${other.body.id}/rotate-secret`,
+          'platform',
+        );
+        check('POST', '/api/v1/webhooks/{id}/rotate-secret', rotatedByP);
+        expect(rotatedByP.status).toBe(200);
         const byBAgain = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'b');
         expect(byBAgain.status).toBe(404);
         const byP = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'platform');
