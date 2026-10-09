@@ -49,4 +49,12 @@ describe('CopyButton', () => {
     await act(async () => screen.getByRole('button').click());
     expect(onCopied).toHaveBeenCalledTimes(1);
   });
+
+  it('shows its own text before copying, and Copied after', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    render(<CopyButton value="abc" label="Copy embed code" text="Copy embed code" withText />);
+    expect(screen.getByRole('button')).toHaveTextContent('Copy embed code');
+    await act(async () => screen.getByRole('button').click());
+    expect(screen.getByRole('button')).toHaveTextContent('Copied');
+  });
 });

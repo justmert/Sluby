@@ -49,6 +49,8 @@ export const STATUS = {
   },
   /** an upload in this browser (upload-store phases) */
   upload: {
+    /** waiting in this tab's queue for the running upload to finish */
+    queued: spec('Waiting', 'neutral', Clock),
     uploading: spec('Uploading', 'progress', undefined, true),
     paused: spec('Paused', 'neutral', CirclePause),
     finishing: spec('Finishing', 'progress', undefined, true),

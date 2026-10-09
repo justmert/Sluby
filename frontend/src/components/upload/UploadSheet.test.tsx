@@ -25,7 +25,16 @@ function Opener() {
 }
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn(jsonFetch({ '/api/v1/assets': { data: [], total: 0 } })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      jsonFetch({
+        '/api/v1/assets': { data: [], total: 0 },
+        'OPTIONS /api/v1/uploads': () =>
+          new Response(null, { status: 204, headers: { 'Tus-Max-Size': '10737418240' } }),
+      }),
+    ),
+  );
 });
 afterEach(() => vi.unstubAllGlobals());
 

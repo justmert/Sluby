@@ -5,7 +5,7 @@ import { createUploadTabs } from './upload-tabs';
 import { reportUnauthorized } from '@/lib/session-events';
 
 /** The largest upload the server takes, from the tus OPTIONS answer; null when it sets none. */
-async function readUploadLimit(): Promise<number | null> {
+export async function readUploadLimit(): Promise<number | null> {
   const res = await fetch('/api/v1/uploads', {
     method: 'OPTIONS',
     headers: { 'Tus-Resumable': '1.0.0' },
@@ -15,10 +15,13 @@ async function readUploadLimit(): Promise<number | null> {
   return Number.isFinite(max) && max > 0 ? max : null;
 }
 
+/** What the other studio tabs in this browser are uploading. */
+export const uploadTabs = createUploadTabs();
+
 /** The studio's uploads, shared across pages, the sheet and the top bar. */
 export const uploadStore = createUploadStore(sluby, {
   onAuthFailure: reportUnauthorized,
   queryClient,
-  tabs: createUploadTabs(),
+  tabs: uploadTabs,
   readLimit: readUploadLimit,
 });

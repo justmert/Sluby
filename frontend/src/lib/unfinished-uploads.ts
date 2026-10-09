@@ -61,48 +61,75 @@ function metadataAssetId(header: string | null): string | null {
 }
 
 /**
- * Unfinished uploads tus remembers, checked against the server. Entries the
- * server no longer has, or has in full, are removed, the same way the sdk
- * treats them when it looks for an upload to resume.
+ * Ask the server about one stored upload: the upload as it stands now, or
+ * null when the server no longer has it or has all of it (the stored entry
+ * is removed then, the same way the sdk treats it when it looks for an
+ * upload to resume).
  */
+async function check(storageKey: string, entry: StoredEntry): Promise<UnfinishedUpload | null> {
+  if (!entry?.uploadUrl || !entry.metadata) return null;
+  const res = await fetch(entry.uploadUrl, {
+    method: 'HEAD',
+    headers: { 'Tus-Resumable': '1.0.0' },
+  });
+  if (res.status >= 400 && res.status < 500 && res.status !== 401 && res.status !== 429) {
+    localStorage.removeItem(storageKey);
+    return null;
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, `Could not check an unfinished upload (HTTP ${res.status})`);
+  }
+  const offset = Number(res.headers.get('Upload-Offset'));
+  const length = Number(res.headers.get('Upload-Length'));
+  if (Number.isFinite(offset) && Number.isFinite(length) && offset >= length) {
+    localStorage.removeItem(storageKey);
+    return null;
+  }
+  const m = entry.metadata;
+  return {
+    storageKey,
+    uploadUrl: entry.uploadUrl,
+    uploadId: uploadIdFromUrl(entry.uploadUrl),
+    fileName: m.filename ?? 'video',
+    fileType: m.filetype ?? '',
+    size: entry.size ?? length,
+    title: m.title ?? '',
+    description: m.description ?? '',
+    accessTier: m.accessTier === 'private' ? 'private' : 'public',
+    createdAt: entry.creationTime ?? null,
+    offset: Number.isFinite(offset) ? offset : 0,
+    assetId: metadataAssetId(res.headers.get('Upload-Metadata')),
+  };
+}
+
+/** Unfinished uploads tus remembers, checked against the server. */
 export async function findUnfinishedUploads(): Promise<UnfinishedUpload[]> {
   const found: UnfinishedUpload[] = [];
   for (const { storageKey, entry } of storedEntries()) {
-    if (!entry?.uploadUrl || !entry.metadata) continue;
-    const res = await fetch(entry.uploadUrl, {
-      method: 'HEAD',
-      headers: { 'Tus-Resumable': '1.0.0' },
-    });
-    if (res.status >= 400 && res.status < 500 && res.status !== 401 && res.status !== 429) {
-      localStorage.removeItem(storageKey);
-      continue;
-    }
-    if (!res.ok) {
-      throw new ApiError(res.status, `Could not check an unfinished upload (HTTP ${res.status})`);
-    }
-    const offset = Number(res.headers.get('Upload-Offset'));
-    const length = Number(res.headers.get('Upload-Length'));
-    if (Number.isFinite(offset) && Number.isFinite(length) && offset >= length) {
-      localStorage.removeItem(storageKey);
-      continue;
-    }
-    const m = entry.metadata;
-    found.push({
-      storageKey,
-      uploadUrl: entry.uploadUrl,
-      uploadId: uploadIdFromUrl(entry.uploadUrl),
-      fileName: m.filename ?? 'video',
-      fileType: m.filetype ?? '',
-      size: entry.size ?? length,
-      title: m.title ?? '',
-      description: m.description ?? '',
-      accessTier: m.accessTier === 'private' ? 'private' : 'public',
-      createdAt: entry.creationTime ?? null,
-      offset: Number.isFinite(offset) ? offset : 0,
-      assetId: metadataAssetId(res.headers.get('Upload-Metadata')),
-    });
+    const upload = await check(storageKey, entry);
+    if (upload) found.push(upload);
   }
   return found;
+}
+
+/**
+ * Ask the server again right before resuming (FLW-04): the list may be
+ * minutes old, and resuming an upload the server dropped would start a new
+ * one under the old title. Null when it is gone or complete.
+ */
+export async function recheckUnfinishedUpload(
+  upload: UnfinishedUpload,
+): Promise<UnfinishedUpload | null> {
+  const raw = localStorage.getItem(upload.storageKey);
+  if (!raw) return null;
+  let entry: StoredEntry;
+  try {
+    entry = JSON.parse(raw);
+  } catch {
+    localStorage.removeItem(upload.storageKey);
+    return null;
+  }
+  return check(upload.storageKey, entry);
 }
 
 /**

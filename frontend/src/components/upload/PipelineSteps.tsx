@@ -4,7 +4,16 @@ import { Circle, Minus, Pause, X } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import type { UploadState } from '@/lib/upload-store';
 import { duration, easeOut, scaleIn } from '@/lib/motion';
-import { PIPELINE_STEPS, stepStates, type StepState } from './pipeline-steps';
+import { PIPELINE_STEPS as STEP_NAMES } from '@/components/asset/processing';
+import { stepStates, type StepState } from './pipeline-steps';
+
+// the D-30 step names from processing.ts, each with one line on what happens (CPY-05)
+const PIPELINE_STEPS = [
+  { ...STEP_NAMES[0], detail: 'The file is sent to this server and resumes if interrupted' },
+  { ...STEP_NAMES[1], detail: 'Converted into several qualities for streaming' },
+  { ...STEP_NAMES[2], detail: 'Video, playlists and thumbnails are stored on Sia' },
+  { ...STEP_NAMES[3], detail: 'The video becomes playable' },
+] as const;
 import { cn } from '@/lib/utils';
 
 /** A check that draws itself in when a step completes. */
@@ -44,12 +53,6 @@ function StepIcon({ state }: { state: StepState }) {
   }
 }
 
-const NOTE: Partial<Record<StepState, string>> = {
-  paused: 'paused',
-  cancelled: 'cancelled',
-  failed: 'failed',
-};
-
 export function PipelineSteps({
   state,
   compact = false,
@@ -59,13 +62,11 @@ export function PipelineSteps({
   compact?: boolean;
 }) {
   const steps = stepStates(state);
-  const queued = state.phase === 'processing' && (!state.job || state.job.stage === 'queued');
 
   return (
     <ol className={cn('flex flex-col', compact ? 'gap-3' : 'gap-4')}>
       {PIPELINE_STEPS.map((step, i) => {
         const s = steps[i];
-        const note = s === 'active' && i === 1 && queued ? 'queued' : NOTE[s];
         return (
           <li key={step.key} className="relative flex items-start gap-3" data-state={s}>
             {/* the rail between steps fills in as the work moves past it */}
@@ -118,9 +119,6 @@ export function PipelineSteps({
                 )}
               >
                 {step.label}
-                {note && (
-                  <span className="ml-2 text-xs font-normal text-muted-foreground">{note}</span>
-                )}
               </p>
               {!compact && <p className="text-xs text-muted-foreground">{step.detail}</p>}
             </div>

@@ -382,6 +382,28 @@ describe('FLW-26: one poller per video, slower when nothing changes, none while 
   });
 });
 
+describe('processing percent', () => {
+  it('never moves backwards within one attempt, and starts over on a retry', async () => {
+    const s = setup();
+    s.f.processing
+      .mockResolvedValueOnce(job({ stage: 'upload', progressPercent: 70 }))
+      .mockResolvedValueOnce(job({ stage: 'upload', progressPercent: 65 }))
+      .mockResolvedValueOnce(
+        job({ status: 'retrying', stage: 'upload', progressPercent: 60, retryCount: 1 }),
+      )
+      .mockResolvedValue(job({ stage: 'upload', progressPercent: 62, retryCount: 1 }));
+    s.store.start(file, { title: 'Clip' });
+    s.f.current().resolveAsset('a');
+    s.f.current().finish();
+    await flush();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(s.one().job?.progressPercent).toBe(70);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(s.one().job?.progressPercent).toBe(62);
+  });
+});
+
 describe('FLW-45: the server upload limit', () => {
   it('reads the limit once and refuses a larger file before any request', async () => {
     const readLimit = vi.fn().mockResolvedValue(60);

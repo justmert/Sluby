@@ -12,6 +12,8 @@ export interface CopyButtonProps {
   label?: string;
   /** Show "Copy" next to the icon, for places where copying is the main action. */
   withText?: boolean;
+  /** The visible text before copying, with `withText`, such as "Copy embed code". */
+  text?: string;
   variant?: 'ghost' | 'outline' | 'default';
   /** called once the value is on the clipboard, e.g. to let a secret dialog close */
   onCopied?: () => void;
@@ -27,6 +29,7 @@ export function CopyButton({
   className,
   label = 'Copy to clipboard',
   withText = false,
+  text,
   variant = 'ghost',
   onCopied,
 }: CopyButtonProps) {
@@ -83,7 +86,7 @@ export function CopyButton({
         </span>
         {withText && (
           <span aria-hidden="true" className="tabular-nums">
-            {TEXT[state]}
+            {state === 'idle' && text ? text : TEXT[state]}
           </span>
         )}
       </Button>

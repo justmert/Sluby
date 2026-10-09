@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jsonFetch, reply } from '@/test/render';
-import { findUnfinishedUploads, isSameFile } from './unfinished-uploads';
+import { findUnfinishedUploads, isSameFile, recheckUnfinishedUpload } from './unfinished-uploads';
 
 const entry = (url: string, title = 'Clip') =>
   JSON.stringify({
@@ -65,5 +65,24 @@ describe('isSameFile', () => {
     expect(isSameFile(upload, file(1700000000000))).toBe(true);
     expect(isSameFile(upload, file(1700000000001))).toBe(false);
     expect(isSameFile(upload, file(1700000000000, 'other.mp4'))).toBe(false);
+  });
+});
+
+describe('recheckUnfinishedUpload', () => {
+  it('reads the offset again, and drops an upload the server no longer has', async () => {
+    localStorage.setItem(key(1), entry('http://localhost:3000/api/v1/uploads/open'));
+    vi.stubGlobal('fetch', vi.fn(head(250)));
+    const [u] = await findUnfinishedUploads();
+    vi.stubGlobal('fetch', vi.fn(head(400)));
+    expect(await recheckUnfinishedUpload(u)).toMatchObject({ offset: 400 });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    expect(await recheckUnfinishedUpload(u)).toBeNull();
+    expect(localStorage.getItem(key(1))).toBeNull();
+    // gone from storage too: nothing to ask
+    expect(await recheckUnfinishedUpload(u)).toBeNull();
   });
 });

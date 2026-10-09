@@ -134,6 +134,8 @@ export interface UploadsState {
   draftOptions: DraftOptions;
   /** The largest file the server takes, in bytes (tus Tus-Max-Size), once read. */
   limit: number | null;
+  /** Why some picked files were not added, until the next pick or upload. */
+  pickNotice: string | null;
   /**
    * Bumps whenever an upload changed what the asset lists show (an asset was
    * created, became ready, failed or was removed), so cached lists can refetch.
@@ -279,6 +281,23 @@ function led(lead: string, err: unknown): Pick<UploadState, 'error' | 'errorDeta
   };
 }
 
+/**
+ * The new reading, never with a lower percent than the last one of the same
+ * attempt: the worker's progress writes can land out of order. A retry starts
+ * over, so it may go down then.
+ */
+function steady(last: Job | null, next: Job): Job {
+  if (
+    !last ||
+    last.retryCount !== next.retryCount ||
+    next.status !== 'processing' ||
+    next.progressPercent >= last.progressPercent
+  ) {
+    return next;
+  }
+  return { ...next, progressPercent: last.progressPercent };
+}
+
 /** What changed on a job between two readings, for the adaptive poll. */
 const signature = (job: ProcessingJob) =>
   `${job.status}|${job.stage}|${job.progressPercent}|${job.retryCount}|${job.logs.length}`;
@@ -350,6 +369,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
     drafts: [],
     draftOptions: { description: '', accessTier: 'public' },
     limit: null,
+    pickNotice: null,
     assetVersion: 0,
   };
   const tasks = new Map<string, Task>();
@@ -596,7 +616,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
     }
     let waitMs = 0;
     try {
-      const job = await readJob(assetId);
+      const job = steady(get(key)?.job ?? null, await readJob(assetId));
       if (task.pollGen !== gen) return;
       task.jobWaitSince = null;
       const sig = signature(job);
@@ -1276,6 +1296,12 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
 
     clearDrafts() {
       state = { ...state, drafts: [], draftOptions: { ...state.draftOptions, description: '' } };
+      emit();
+    },
+
+    setPickNotice(pickNotice: string | null) {
+      if (state.pickNotice === pickNotice) return;
+      state = { ...state, pickNotice };
       emit();
     },
 

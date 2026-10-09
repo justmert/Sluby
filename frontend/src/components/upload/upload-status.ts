@@ -1,0 +1,137 @@
+import { processingView } from '@/components/asset/processing';
+import { formatBytes, formatUptime } from '@/lib/formatters';
+import type { UploadState } from '@/lib/upload-store';
+
+/*
+ * one status line per upload row (copy.md P5): the badge already names the
+ * phase, so the line only says what is new, such as
+ * "45% · 5.4 of 12 MB · about 30 seconds left".
+ */
+
+// speed over the first moments of a transfer swings too much to promise a time
+const TIME_LEFT_AFTER_MS = 3_000;
+
+/** A rough time left: precise seconds would only flicker. */
+export function timeLeft(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 10) return 'a few seconds left';
+  if (s < 60) return `about ${Math.max(10, Math.round(s / 5) * 5)} seconds left`;
+  return `about ${formatUptime(Math.round(s / 60) * 60_000)} left`;
+}
+
+/** How long sending took: "12 seconds", "3 minutes". */
+export function timeSpent(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return `${s} second${s === 1 ? '' : 's'}`;
+  return formatUptime(ms);
+}
+
+/** The percent of the file sent, 0 to 100. */
+export function sentPercent(u: Pick<UploadState, 'bytesUploaded' | 'bytesTotal'>): number {
+  if (u.bytesTotal <= 0) return 100;
+  return Math.min(100, (u.bytesUploaded / u.bytesTotal) * 100);
+}
+
+/** "5.4 of 12 MB": one unit when both share it, otherwise both spelled out. */
+export function sentOf(sent: number, total: number): string {
+  const a = formatBytes(sent);
+  const b = formatBytes(total);
+  const unitA = a.split(' ')[1];
+  const unitB = b.split(' ')[1];
+  return unitA === unitB ? `${a.split(' ')[0]} of ${b}` : `${a} of ${b}`;
+}
+
+export interface StatusLine {
+  /** the line itself */
+  text: string;
+  /** a muted second line, such as the Sia wait or "Checking again in a few seconds." */
+  detail: string | null;
+  /** red for a failure, muted otherwise */
+  tone: 'muted' | 'danger';
+  /** 0 to 100 for a bar, null for no bar, 'waiting' for a bar with no number yet */
+  bar: number | 'waiting' | null;
+}
+
+const line = (text: string, more: Partial<StatusLine> = {}): StatusLine => ({
+  text,
+  detail: null,
+  tone: 'muted',
+  bar: null,
+  ...more,
+});
+
+export function statusLine(u: UploadState): StatusLine {
+  switch (u.phase) {
+    case 'uploading': {
+      const percent = sentPercent(u);
+      const parts = [`${Math.floor(percent)}%`, sentOf(u.bytesUploaded, u.bytesTotal)];
+      if (u.speed > 0 && u.activeMs >= TIME_LEFT_AFTER_MS) {
+        parts.push(timeLeft(((u.bytesTotal - u.bytesUploaded) / u.speed) * 1000));
+      }
+      return line(parts.join(' · '), { bar: percent });
+    }
+    case 'paused': {
+      const percent = sentPercent(u);
+      return line(`${Math.floor(percent)}% · ${sentOf(u.bytesUploaded, u.bytesTotal)} sent`, {
+        bar: percent,
+      });
+    }
+    case 'finishing':
+      return line('File sent. Waiting for the server to confirm.', { bar: 'waiting' });
+    case 'processing': {
+      const checking = u.checking ? 'Checking again in a few seconds.' : null;
+      if (u.pollStopped && u.error) return line(u.error, { tone: 'danger' });
+      if (!u.job) return line('Waiting to start', { bar: 'waiting', detail: checking });
+      const view = processingView(u.job);
+      const attempt = u.attempt ? ` (attempt ${u.attempt.n} of ${u.attempt.of})` : '';
+      const text =
+        view.percent !== null && view.busy && u.job.status !== 'retrying'
+          ? `${view.label}, ${view.percent}%`
+          : `${view.label}${attempt}`;
+      return line(text, {
+        detail: checking ?? view.detail,
+        bar: view.percent ?? 'waiting',
+      });
+    }
+    case 'ready':
+      return line(
+        u.activeMs > 0
+          ? `Uploaded ${formatBytes(u.bytesTotal)} in ${timeSpent(u.activeMs)}`
+          : `Uploaded ${formatBytes(u.bytesTotal)}`,
+      );
+    case 'failed':
+      return line(u.error ?? 'The upload failed.', { tone: 'danger' });
+    case 'cancelled':
+      if (u.cleanup === 'pending') return line('Canceling…');
+      if (u.cleanup === 'failed') {
+        return line(u.error ?? 'The server did not confirm it removed the partial file.', {
+          tone: 'danger',
+        });
+      }
+      return line(
+        u.cleanup === 'nothing'
+          ? 'Upload canceled before it reached the server.'
+          : 'Upload canceled. Nothing was kept.',
+      );
+  }
+}
+
+/** The short form for the top bar tray and the accessible name of its button. */
+export function shortStatus(u: UploadState): string {
+  switch (u.phase) {
+    case 'uploading':
+      return `Uploading, ${Math.floor(sentPercent(u))}%`;
+    case 'paused':
+      return `Paused at ${Math.floor(sentPercent(u))}%`;
+    case 'finishing':
+      return 'Finishing the upload';
+    case 'processing':
+      return u.job ? statusLine(u).text : 'Waiting to start';
+    case 'ready':
+      return 'Ready';
+    case 'failed':
+      return 'Failed';
+    case 'cancelled':
+      return 'Canceled';
+  }
+}

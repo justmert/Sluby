@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthGate } from '@/components/AuthGate';
 import { fakeUploadClient } from '@/test/fake-uploads';
 import { createQueryClient } from './query-client';
-import { uploadStore } from './studio-upload';
+import { readUploadLimit, uploadStore } from './studio-upload';
 
 // tus cannot run in jsdom, so the studio's sdk client is the hand-driven fake;
 // the store, the session events and the gate are the real ones
@@ -61,5 +61,22 @@ describe('studio upload store', () => {
     expect(screen.getByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
     expect(screen.queryByText('studio')).not.toBeInTheDocument();
     expect(uploadStore.getState().uploads[0]).toMatchObject({ authFailed: true });
+  });
+
+  it('reads the upload limit from the tus OPTIONS answer', async () => {
+    const fetchStub = vi.fn(
+      async () => new Response(null, { status: 204, headers: { 'Tus-Max-Size': '10737418240' } }),
+    );
+    vi.stubGlobal('fetch', fetchStub);
+    expect(await readUploadLimit()).toBe(10_737_418_240);
+    expect(fetchStub).toHaveBeenCalledWith(
+      '/api/v1/uploads',
+      expect.objectContaining({ method: 'OPTIONS' }),
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 204 })),
+    );
+    expect(await readUploadLimit()).toBeNull();
   });
 });
