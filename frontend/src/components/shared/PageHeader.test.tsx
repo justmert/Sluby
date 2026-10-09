@@ -22,6 +22,11 @@ describe('PageHeader', () => {
     expect(names).toEqual(['Cancel', 'Save']);
   });
 
+  it('lets a right-to-left title set its own direction', () => {
+    render(<PageHeader title="مقطع فيديو طويل" />);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveAttribute('dir', 'auto');
+  });
+
   it('gives a long string title a tooltip with the full text', () => {
     render(<PageHeader title="A very long video title" />);
     expect(screen.getByRole('heading', { level: 1 })).toHaveAttribute(

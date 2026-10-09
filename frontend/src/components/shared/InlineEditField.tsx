@@ -169,9 +169,10 @@ export function InlineEditField({
       )}
     >
       <span
+        dir="auto"
         className={cn(
           'min-w-0',
-          multiline ? 'whitespace-pre-wrap' : 'truncate',
+          multiline ? 'whitespace-pre-wrap wrap-anywhere' : 'truncate',
           !shown && 'text-muted-foreground',
           displayClassName,
         )}

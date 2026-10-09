@@ -53,7 +53,9 @@ export function PageHeader({
     >
       <div className="min-w-0 flex-1">
         {breadcrumbs && <div className="mb-2 text-sm text-muted-foreground">{breadcrumbs}</div>}
+        {/* dir=auto: a right-to-left video title truncates at its end, not its start */}
         <h1
+          dir="auto"
           className="truncate font-heading text-title"
           title={typeof title === 'string' ? title : undefined}
         >

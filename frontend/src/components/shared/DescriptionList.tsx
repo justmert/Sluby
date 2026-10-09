@@ -86,7 +86,10 @@ export function DescriptionItem({
           empty && 'text-muted-foreground',
         )}
       >
-        <span className={cn('min-w-0', mono ? 'break-all' : 'break-words')}>
+        <span
+          dir={mono ? undefined : 'auto'}
+          className={cn('min-w-0', mono ? 'break-all' : 'wrap-anywhere')}
+        >
           {empty ? NO_VALUE : children}
         </span>
         {copy && (
