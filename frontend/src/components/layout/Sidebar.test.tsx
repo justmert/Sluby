@@ -82,6 +82,14 @@ describe('AppSidebar', () => {
     );
   });
 
+  it('draws the Operator mark at the same weight as the top bar Sign-in off mark', () => {
+    render(true);
+    const group = nav().getByRole('group', { name: 'Deployment, operators only' });
+    const mark = within(group).getByText('Operator');
+    expect(mark).toHaveClass('text-kbd');
+    expect(mark).not.toHaveClass('font-normal');
+  });
+
   it('marks only the page itself current, and a detail page under its list', () => {
     render(true, '/studio/developers/keys');
     expect(nav().getByRole('link', { name: 'API keys' })).toHaveAttribute('aria-current', 'page');

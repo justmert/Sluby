@@ -79,7 +79,7 @@ export function AppSidebar() {
                           <Badge
                             variant="outline"
                             aria-hidden="true"
-                            className="h-4 px-1.5 text-kbd font-normal"
+                            className="h-4 px-1.5 text-kbd"
                           >
                             Operator
                           </Badge>
