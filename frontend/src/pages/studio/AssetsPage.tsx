@@ -948,22 +948,6 @@ export default function AssetsPage() {
         )}
       </AnimatePresence>
 
-      {(stale.data ?? 0) > 0 && p.status !== 'created' && (
-        <p className="mb-3 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
-          {stale.data === 1
-            ? '1 upload never started.'
-            : `${formatCount(stale.data!)} uploads never started.`}
-          <Button
-            variant="link"
-            size="sm"
-            className="h-auto px-0"
-            onClick={() => go({ status: 'created', tier: null, q: null })}
-          >
-            Show them
-          </Button>
-        </p>
-      )}
-
       <div
         ref={resultsRef}
         className={cn(
@@ -980,6 +964,22 @@ export default function AssetsPage() {
           openPreview(asset);
         }}
       >
+        {/* inside the results box, so its arrival does not move the box (CLS) */}
+        {!list.isLoading && (stale.data ?? 0) > 0 && p.status !== 'created' && (
+          <p className="mb-3 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+            {stale.data === 1
+              ? '1 upload never started.'
+              : `${formatCount(stale.data!)} uploads never started.`}
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto px-0"
+              onClick={() => go({ status: 'created', tier: null, q: null })}
+            >
+              Show them
+            </Button>
+          </p>
+        )}
         {results}
       </div>
 

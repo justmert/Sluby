@@ -28,6 +28,8 @@ export interface RowJob {
   failure?: FailureInfo;
   /** a failed video whose reason is still loading; rows hold its line open */
   failurePending?: boolean;
+  /** a processing video whose stage is still loading; rows hold its line open */
+  progressPending?: boolean;
 }
 
 /**
@@ -50,6 +52,7 @@ export function useRowJob(asset: VideoAsset): RowJob {
   }
   // a failed video whose job is gone (404) still gets the generic reason
   if (failed && (job.data || job.isError)) return { failure: failureInfo(job.data, asset) };
+  if (processing) return { progressPending: true };
   return failed ? { failurePending: true } : {};
 }
 

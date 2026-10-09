@@ -45,7 +45,7 @@ function ProgressLine({ label, percent, checking }: RowProgress) {
 
 /** The video column: thumbnail, title, and a second line that depends on where the table is. */
 function VideoCell({ asset }: { asset: VideoAsset }) {
-  const { progress, failure, failurePending } = useRowJob(asset);
+  const { progress, progressPending, failure, failurePending } = useRowJob(asset);
   const stale = isStaleUpload(asset);
   const href = ROUTES.video(asset.id);
   return (
@@ -71,6 +71,14 @@ function VideoCell({ asset }: { asset: VideoAsset }) {
         </Link>
         {progress ? (
           <ProgressLine {...progress} />
+        ) : progressPending ? (
+          // the stage line and bar, held open until the job answers
+          <span className="flex flex-col gap-1" aria-hidden="true">
+            <span className="flex h-4 items-center">
+              <Skeleton className={cn('h-3 w-32', lateReveal)} />
+            </span>
+            <span className="h-0.5 max-w-48 rounded-full bg-muted" />
+          </span>
         ) : failurePending ? (
           // the reason is on its way; hold the line it will fill
           <span className="flex min-h-6 items-center">
