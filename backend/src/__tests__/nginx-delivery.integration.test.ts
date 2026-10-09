@@ -495,12 +495,26 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       }
     });
 
-    it('answers 404 for missing files and unknown paths, not the app', async () => {
-      for (const path of ['/studio/assets/nope.js', '/assets/nope.js', '/metrics', '/nope']) {
+    it('answers a plain 404 for missing files, not the app', async () => {
+      for (const path of ['/studio/assets/nope.js', '/assets/nope.js', '/nope.js']) {
         const r = await fetchThroughNginx(base, path);
         expect(r.status, path).toBe(404);
         expect(r.buf.toString(), path).not.toContain('<div id="root">');
       }
+    });
+
+    it('answers unknown paths with a 404 that is the studio, so its not-found page shows', async () => {
+      for (const path of ['/nope', '/metrics', '/some/deep/path']) {
+        const r = await rawGet(base + path);
+        expect(r.status, path).toBe(404);
+        expect(r.body.toString(), path).toContain('<div id="root">');
+        // the same headers as the app itself
+        expect(headerValues(r.raw, 'content-security-policy'), path).toHaveLength(1);
+        expect(headerValues(r.raw, 'cache-control'), path).toEqual(['no-store']);
+        expect(headerValues(r.raw, 'x-frame-options'), path).toEqual(['DENY']);
+      }
+      // the favicon at the root still loads
+      expect((await fetchThroughNginx(base, '/favicon.svg')).status).toBe(200);
     });
 
     it('sends the security headers once each on the app, with a csp that matches the theme script', async () => {
@@ -514,7 +528,8 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
         expect(headerValues(r.raw, 'x-content-type-options')).toEqual(['nosniff']);
         expect(headerValues(r.raw, 'x-frame-options')).toEqual(['DENY']);
         expect(headerValues(r.raw, 'referrer-policy')).toEqual(['strict-origin-when-cross-origin']);
-        expect(headerValues(r.raw, 'cache-control')).toEqual(['no-cache']);
+        // no-store keeps the signed-in studio out of the back/forward cache
+        expect(headerValues(r.raw, 'cache-control')).toEqual(['no-store']);
         const csp = headerValues(r.raw, 'content-security-policy');
         expect(csp).toHaveLength(1);
         expect(csp[0]).toContain(`'sha256-${hash}'`);
