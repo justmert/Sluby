@@ -171,7 +171,7 @@ Each API key has its own limit in requests per minute, set when the key is creat
 | `X-RateLimit-Remaining` | Requests left in the current window. |
 | `X-RateLimit-Reset`     | Seconds until the window resets.     |
 
-Over the limit, the server answers `429` with a `Retry-After` header in seconds and a body like `{ "error": "Rate limit exceeded", "retry_after": 37 }`. The body also still carries the older `retryAfter` spelling, which goes away in the next release. `@sluby/sdk` raises this as a `RateLimitError` with `retryAfter` set from the header.
+Over the limit, the server answers `429` with a `Retry-After` header in seconds and a body like `{ "error": "Too many requests. Try again in a few seconds.", "retry_after": 37 }`. The body also still carries the older `retryAfter` spelling, which goes away in the next release. `@sluby/sdk` raises this as a `RateLimitError` with `retryAfter` set from the header.
 
 Calls under `/api/v1` that carry no valid key or session (the OpenAPI document, the reference page, sign-in, and any call whose authentication fails) are counted per client address instead, 600 a minute by default (`API_IP_RATE_LIMIT`). Calls that authenticate are not counted there. Counters live in the backend process's memory, so they reset when the backend restarts. In front of the backend, the web proxy also limits each client address on the delivery routes under `/v1` and on sign-in; see [configuration](/guide/configuration#web-proxy).
 

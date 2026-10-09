@@ -594,7 +594,9 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       expect(statuses.slice(4)).toEqual([429, 429]);
       expect(last!.headers.get('retry-after')).toBe('1');
       expect(last!.headers.get('access-control-allow-origin')).toBe('*');
-      expect(JSON.parse(last!.buf.toString())).toEqual({ error: 'Too many requests' });
+      expect(JSON.parse(last!.buf.toString())).toEqual({
+        error: 'Too many requests. Try again in a few seconds.',
+      });
 
       const neighbour = await fetchThroughNginx(limited, '/v1/objects/master?limit=1', {
         'X-Forwarded-For': '203.0.113.2',

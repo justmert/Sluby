@@ -218,6 +218,6 @@ describe.skipIf(!hasTestRedis)('webhook queue (redis)', () => {
     expect(recorded.map((r) => r.retryCount)).toEqual([0, 1, 2, 3]);
     const job = await onlyJob();
     expect(job.attemptsMade).toBe(4);
-    expect(job.failedReason).toBe('Webhook delivery failed: the receiver answered 500');
+    expect(job.failedReason).toBe('Webhook delivery failed: Your endpoint answered 500');
   }, 20_000);
 });

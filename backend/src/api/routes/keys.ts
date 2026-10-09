@@ -164,7 +164,8 @@ export function createKeyRoutes(
     if (!created) {
       throw new AppError(
         409,
-        `This account already has ${limits.keysPerAccountMax} API keys; delete one first`,
+        `This account already has ${limits.keysPerAccountMax} API keys, the most allowed. ` +
+          'Revoke one you no longer use, then try again.',
       );
     }
 
@@ -228,7 +229,7 @@ export function createKeyRoutes(
       throw new AppError(404, 'API key not found');
     }
     if (result.status === 'already_rotated') {
-      throw new AppError(409, 'API key was already rotated; rotate its replacement instead');
+      throw new AppError(409, 'This key was already rotated. Rotate its replacement instead.');
     }
 
     res.status(201).json({

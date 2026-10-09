@@ -852,7 +852,7 @@ export function buildApiDeps(
 
     vetWebhookUrl: async (url) => {
       try {
-        await vetUrl(url, webhookEgressPolicy(), AbortSignal.timeout(10_000));
+        await vetUrl(url, webhookEgressPolicy(), AbortSignal.timeout(10_000), 10_000);
         return null;
       } catch (err) {
         if (err instanceof EgressError) return err.message;

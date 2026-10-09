@@ -127,7 +127,7 @@ describe('deliverWebhook', () => {
     expect(recorded).toEqual([
       expect.objectContaining({
         statusCode: 503,
-        error: 'the receiver answered 503',
+        error: 'Your endpoint answered 503',
         deliveredAt: null,
       }),
     ]);
@@ -152,7 +152,7 @@ describe('deliverWebhook', () => {
       expect.objectContaining({
         statusCode: null,
         retryCount: 1,
-        error: 'connection failed (ECONNREFUSED)',
+        error: 'Could not connect (ECONNREFUSED)',
       }),
     ]);
   });
@@ -168,7 +168,9 @@ describe('deliverWebhook', () => {
       expect(err).toBeInstanceOf(WebhookDeliveryError);
       expect(Date.now() - started).toBeGreaterThanOrEqual(290);
       expect(Date.now() - started).toBeLessThan(3000);
-      expect(recorded).toEqual([expect.objectContaining({ statusCode: null, error: 'timed out' })]);
+      expect(recorded).toEqual([
+        expect.objectContaining({ statusCode: null, error: 'No response within 0.3 seconds' }),
+      ]);
     } finally {
       await hung.close();
     }
@@ -181,7 +183,8 @@ describe('deliverWebhook', () => {
     expect(recorded).toEqual([
       expect.objectContaining({
         statusCode: null,
-        error: '127.0.0.1 resolves to an address webhooks may not reach: loopback (127.0.0.0/8)',
+        error:
+          'Webhooks can only reach public addresses, and 127.0.0.1 points to this machine. To allow it, add the network to WEBHOOK_ALLOWED_NETWORKS on the server.',
       }),
     ]);
   });

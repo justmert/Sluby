@@ -39,7 +39,7 @@ export function createApiKeyMiddleware(deps: ApiKeyMiddlewareDeps) {
       next();
     } catch (err) {
       logger.error({ err }, 'Authentication check failed');
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Internal Server Error' });
     }
   };
 }

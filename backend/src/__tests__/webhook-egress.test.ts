@@ -251,7 +251,7 @@ describe('postToReceiver against local servers', () => {
     expect(outcome).toEqual({
       delivered: false,
       statusCode: 307,
-      error: 'the receiver answered 307; redirects are not followed',
+      error: 'Your endpoint answered 307. Redirects are not followed.',
     });
     expect(outside.hits).toEqual(['POST /']);
     expect(internal.hits).toEqual([]);
@@ -337,5 +337,57 @@ describe('vetUrl', () => {
     expect((await refusal(vetUrl('http://hooks.internal/', policy('10.21.0.1')))).kind).toBe(
       'blocked',
     );
+  });
+});
+
+describe('refusal wording', () => {
+  const policy = {
+    allowedNetworks: [],
+    resolve: async (host: string) => {
+      if (host === 'nowhere.example') throw new Error('ENOTFOUND');
+      return [{ address: '10.1.2.3', family: 4 as const }];
+    },
+  };
+  const why = (url: string) =>
+    vetUrl(url, policy).then(
+      () => null,
+      (err: Error) => err.message,
+    );
+  const allow = 'To allow it, add the network to WEBHOOK_ALLOWED_NETWORKS on the server.';
+
+  it.each([
+    ['not a url', 'Enter a full URL, such as https://example.com/sluby-hook.'],
+    ['ftp://example.com/hook', 'The URL must start with https:// or http://.'],
+    ['https://nowhere.example/hook', 'nowhere.example could not be found. Check the address.'],
+    [
+      'http://127.0.0.1/hook',
+      `Webhooks can only reach public addresses, and 127.0.0.1 points to this machine. ${allow}`,
+    ],
+    [
+      'http://[::1]/hook',
+      `Webhooks can only reach public addresses, and ::1 points to this machine. ${allow}`,
+    ],
+    [
+      'http://internal.example/hook',
+      `Webhooks can only reach public addresses, and internal.example points to a private network. ${allow}`,
+    ],
+    [
+      'http://169.254.169.254/latest',
+      `Webhooks can only reach public addresses, and 169.254.169.254 points to a private network. ${allow}`,
+    ],
+    [
+      'http://192.0.2.1/hook',
+      `Webhooks can only reach public addresses, and 192.0.2.1 points to a reserved address. ${allow}`,
+    ],
+  ])('explains %s', async (url, message) => {
+    expect(await why(url)).toBe(message);
+  });
+
+  it('keeps the technical reason out of the message, for the server log', async () => {
+    const err = (await vetUrl('http://internal.example/hook', policy).catch(
+      (e: unknown) => e,
+    )) as EgressError;
+    expect(err.detail).toBe('private (10.0.0.0/8)');
+    expect(err.message).not.toContain('10.1.2.3');
   });
 });

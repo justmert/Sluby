@@ -236,7 +236,7 @@ describe('api-key middleware', () => {
       await middleware(req, res as any, next);
 
       expect(res._status).toBe(500);
-      expect(res._json).toEqual({ error: 'Internal server error' });
+      expect(res._json).toEqual({ error: 'Internal Server Error' });
       expect(next).not.toHaveBeenCalled();
       // the mocked logger, so this also proves the mock is the one in use
       expect(logger.error).toHaveBeenCalledWith(

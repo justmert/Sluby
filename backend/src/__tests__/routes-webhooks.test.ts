@@ -366,7 +366,7 @@ describe('webhook routes', () => {
       [{ is_active: 'no' }, /is_active must be true or false/],
       [{ url: 42 }, /URL is required/],
       [{ url: `https://example.com/${'a'.repeat(2048)}` }, /longer than 2,048 characters/],
-      [{ url: 'http://localhost/hook' }, /URL refused/],
+      [{ url: 'http://127.0.0.1/hook' }, /points to this machine/],
     ])('rejects %j', async (body, message) => {
       const res = await request(createApp()).patch('/wh-1').send(body);
       expect(res.status).toBe(400);
@@ -497,7 +497,8 @@ describe('webhook routes', () => {
         .post('/')
         .send({ url: 'http://internal.example.com/hook', events: ['asset.ready'] });
       expect(res.body.error).toBe(
-        'URL refused: internal.example.com resolves to an address webhooks may not reach: private (10.0.0.0/8)',
+        'Webhooks can only reach public addresses, and internal.example.com points to a private ' +
+          'network. To allow it, add the network to WEBHOOK_ALLOWED_NETWORKS on the server.',
       );
       expect(JSON.stringify(res.body)).not.toContain('10.1.2.3');
     });

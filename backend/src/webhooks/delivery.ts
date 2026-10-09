@@ -129,12 +129,12 @@ export async function attemptDelivery(
       return {
         delivered: false,
         statusCode: status,
-        error: `the receiver answered ${status}; redirects are not followed`,
+        error: `Your endpoint answered ${status}. Redirects are not followed.`,
       };
     }
-    return { delivered: false, statusCode: status, error: `the receiver answered ${status}` };
+    return { delivered: false, statusCode: status, error: `Your endpoint answered ${status}` };
   } catch (err) {
-    const message = err instanceof EgressError ? err.message : 'request failed';
+    const message = err instanceof EgressError ? err.message : 'The request failed';
     if (!(err instanceof EgressError)) logger.warn({ err }, 'Unexpected webhook request error');
     return { delivered: false, statusCode: null, error: message };
   }

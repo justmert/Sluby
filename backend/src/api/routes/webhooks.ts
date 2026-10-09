@@ -145,7 +145,7 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
     checkUrlShape(url);
     // checked again before every delivery, since dns can change after this
     const refused = await deps.vetWebhookUrl(url);
-    if (refused) throw new AppError(400, `URL refused: ${refused}`);
+    if (refused) throw new AppError(400, refused);
 
     checkEvents(events);
 
@@ -216,7 +216,7 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
     if (body.url !== undefined) {
       checkUrlShape(body.url);
       const refused = await deps.vetWebhookUrl(body.url);
-      if (refused) throw new AppError(400, `URL refused: ${refused}`);
+      if (refused) throw new AppError(400, refused);
       patch.url = body.url;
     }
     if (body.events !== undefined) {

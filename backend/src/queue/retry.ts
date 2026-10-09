@@ -31,6 +31,8 @@ export interface RetryAssetDeps {
 
 export type RetryStage = 'upload-segments' | 'transcode';
 
+const NOT_FAILED = 'Only a failed video can be retried. It may have restarted already.';
+
 /**
  * Whether a retry has something to start from: a finished transcode on disk,
  * or the uploaded file to transcode again. The same test the retry makes.
@@ -65,16 +67,19 @@ export function buildRetryAsset(deps: RetryAssetDeps) {
   return async (id: string, owner?: string): Promise<{ stage: RetryStage }> => {
     const asset = await deps.getAsset(id, owner);
     if (!asset) throw new AppError(404, 'Video asset not found');
-    if (asset.status !== 'failed') throw new AppError(400, 'Asset is not in failed state');
+    if (asset.status !== 'failed') throw new AppError(400, NOT_FAILED);
 
     const { session, completed, available } = await checkSource(id);
     if (!available) {
-      throw new AppError(410, 'Source file not found, please re-upload the video');
+      throw new AppError(
+        410,
+        'Could not retry because the original file is gone. Upload the video again.',
+      );
     }
 
     // two retries at once: only one moves the asset, the other sees it processing
     if (!(await deps.claimFailedAsset(id, owner))) {
-      throw new AppError(400, 'Asset is not in failed state');
+      throw new AppError(400, NOT_FAILED);
     }
 
     // a fresh run, so the stages after this one get job ids the failed

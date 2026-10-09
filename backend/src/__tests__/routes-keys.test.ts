@@ -212,7 +212,7 @@ describe('key routes', () => {
       });
       const res = await request(app()).post('/key-2/rotate').send({});
       expect(res.status).toBe(409);
-      expect(res.body.error).toBe('API key was already rotated; rotate its replacement instead');
+      expect(res.body.error).toBe('This key was already rotated. Rotate its replacement instead.');
     });
   });
 
