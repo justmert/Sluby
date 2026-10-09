@@ -168,6 +168,18 @@ describe('errorText', () => {
     });
   });
 
+  it('leaves a host name that opens a server message as it was typed', () => {
+    expect(errorText(new ApiError(400, 'qa-hooks.invalid could not be found'))).toBe(
+      'qa-hooks.invalid could not be found.',
+    );
+    expect(errorText(new ApiError(400, 'dev_box.lan could not be found'))).toBe(
+      'dev_box.lan could not be found.',
+    );
+    expect(errorText(new ApiError(400, 'rate_limit: must be at most 10'))).toBe(
+      'Rate limit: must be at most 10.',
+    );
+  });
+
   it('keeps a readable validation message as a sentence', () => {
     expect(
       errorText(new ApiError(400, 'title: String must contain at most 200 character(s)')),

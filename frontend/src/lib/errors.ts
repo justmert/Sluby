@@ -140,8 +140,10 @@ function readable(message: string | undefined): message is string {
 
 /** "rate_limit: must be at most 10" reads as "Rate limit: must be at most 10." */
 function sentence(text: string): string {
-  const t = text.trim().replace(/^(\w+)_(\w+)/, (_m, a: string, b: string) => `${a} ${b}`);
-  const capped = t.charAt(0).toUpperCase() + t.slice(1);
+  // only a field name before its colon reads better spelled out
+  const t = text.trim().replace(/^(\w+)_(\w+)(?=:)/, (_m, a: string, b: string) => `${a} ${b}`);
+  // a host or address the reader typed keeps its case
+  const capped = /^[^\s]*[./@]/.test(t) ? t : t.charAt(0).toUpperCase() + t.slice(1);
   return /[.!?]$/.test(capped) ? capped : `${capped}.`;
 }
 
