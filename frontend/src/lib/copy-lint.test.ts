@@ -131,27 +131,7 @@ export function lintSource(rel: string, source: string): Finding[] {
  */
 const KNOWN: Array<[string, string, number]> = [
   // [file, rule, count]
-  ['components/asset/PlaybackIdsCard.tsx', 'asset', 2],
-  ['components/asset/PlaybackIdsCard.tsx', 'three dots', 1],
-  ['components/asset/SiaStorageBreakdown.tsx', 'hyphen for nothing', 1],
-  ['components/asset/SiaStorageBreakdown.tsx', 'three dots', 1],
-  ['components/dashboard/dashboard-layout.ts', 'sia internals', 1],
   ['components/upload/pipeline-steps.ts', 'sia internals', 1],
-  ['lib/snippets.ts', 'sia internals', 1],
-  ['pages/studio/AssetDetailPage.tsx', 'asset', 4],
-  ['pages/studio/AssetDetailPage.tsx', 'hyphen for nothing', 5],
-  ['pages/studio/AssetDetailPage.tsx', 'sia internals', 1],
-  ['pages/studio/AssetsPage.tsx', 'asset', 2],
-  ['pages/studio/AssetsPage.tsx', 'hyphen for nothing', 2],
-  ['pages/studio/AssetsPage.tsx', 'lower-case url or id', 1],
-  ['pages/studio/AssetsPage.tsx', 'sia internals', 2],
-  ['pages/studio/DashboardPage.tsx', 'asset', 1],
-  ['pages/studio/DashboardPage.tsx', 'sia internals', 3],
-  ['pages/studio/DeveloperPage.tsx', 'asset', 1],
-  ['pages/studio/DeveloperPage.tsx', 'lower-case url or id', 1],
-  ['pages/studio/SettingsPage.tsx', 'lower-case url or id', 1],
-  ['pages/studio/UploadPage.tsx', 'asset', 3],
-  ['pages/studio/UploadPage.tsx', 'three dots', 2],
 ];
 
 const key = (f: { file: string; rule: string }) => `${f.file} | ${f.rule}`;
