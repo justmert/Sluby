@@ -43,20 +43,22 @@ export function App() {
           and the page blinked from skeleton to empty to page */}
       <PageTransition>
         <RouteSuspense>
+          {/* case matters, as it does to nginx and the breadcrumbs: /STUDIO is not found */}
           <Routes>
-            <Route path="/" element={<Navigate to={ROUTES.OVERVIEW} replace />} />
+            <Route caseSensitive path="/" element={<Navigate to={ROUTES.OVERVIEW} replace />} />
 
-            <Route path={ROUTES.OVERVIEW} element={<Overview />} />
-            <Route path={ROUTES.VIDEOS} element={<Videos />} />
-            <Route path={`${ROUTES.VIDEOS}/:id`} element={<Video />} />
+            <Route caseSensitive path={ROUTES.OVERVIEW} element={<Overview />} />
+            <Route caseSensitive path={ROUTES.VIDEOS} element={<Videos />} />
+            <Route caseSensitive path={`${ROUTES.VIDEOS}/:id`} element={<Video />} />
 
-            <Route path={ROUTES.DEVELOPERS} element={<Quickstart />} />
-            <Route path={ROUTES.API_KEYS} element={<ApiKeys />} />
-            <Route path={ROUTES.WEBHOOKS} element={<Webhooks />} />
-            <Route path={`${ROUTES.WEBHOOKS}/:id`} element={<Webhook />} />
-            <Route path={ROUTES.EXPLORER} element={<Explorer />} />
+            <Route caseSensitive path={ROUTES.DEVELOPERS} element={<Quickstart />} />
+            <Route caseSensitive path={ROUTES.API_KEYS} element={<ApiKeys />} />
+            <Route caseSensitive path={ROUTES.WEBHOOKS} element={<Webhooks />} />
+            <Route caseSensitive path={`${ROUTES.WEBHOOKS}/:id`} element={<Webhook />} />
+            <Route caseSensitive path={ROUTES.EXPLORER} element={<Explorer />} />
 
             <Route
+              caseSensitive
               path={ROUTES.DEPLOYMENT}
               element={
                 <OperatorOnly>
@@ -65,6 +67,7 @@ export function App() {
               }
             />
             <Route
+              caseSensitive
               path={ROUTES.METRICS}
               element={
                 <OperatorOnly>
@@ -73,12 +76,21 @@ export function App() {
               }
             />
 
-            <Route path={ROUTES.SETTINGS} element={<Moved fallback={<Settings />} />} />
+            <Route
+              caseSensitive
+              path={ROUTES.SETTINGS}
+              element={<Moved fallback={<Settings />} />}
+            />
 
             {/* new pages: add the route here and the chunk in lib/page-chunks.ts */}
 
             {LEGACY_PATHS.map((path) => (
-              <Route key={path} path={path} element={<Moved fallback={<NotFoundPage />} />} />
+              <Route
+                key={path}
+                caseSensitive
+                path={path}
+                element={<Moved fallback={<NotFoundPage />} />}
+              />
             ))}
 
             <Route path="*" element={<NotFoundPage />} />

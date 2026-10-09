@@ -54,6 +54,9 @@ describe('App routes', () => {
     ['/studio/developers/explorer', 'explorer'],
     ['/studio/settings', 'settings'],
     ['/studio/nope', 'notFound'],
+    // nginx and the breadcrumbs match case exactly, so the router does too
+    ['/STUDIO', 'notFound'],
+    ['/Studio/Videos', 'notFound'],
   ])('serves %s with the %s page', async (route, page) => {
     renderAt(route);
     expect(await screen.findByTestId('page')).toHaveTextContent(page);
