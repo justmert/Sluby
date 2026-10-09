@@ -139,6 +139,17 @@ describe('Webhooks page', () => {
     ).toBeInTheDocument();
   });
 
+  it('says the endpoint did not answer when a test got no response and no reason', async () => {
+    routes['POST /api/v1/webhooks/w1/test'] = { delivered: false, status_code: null };
+    render();
+    await screen.findByText('https://example.com/sluby-hook');
+    const menu = await openMenu('https://example.com/sluby-hook');
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Send test' }));
+    expect(
+      await screen.findByText('Test not delivered. Your endpoint did not answer'),
+    ).toBeInTheDocument();
+  });
+
   it('pauses and resumes an endpoint (FLW-53)', async () => {
     routes['PATCH /api/v1/webhooks/w1'] = ({ body }: RecordedCall) => {
       hooks = [hook({ is_active: (body as { is_active: boolean }).is_active })];

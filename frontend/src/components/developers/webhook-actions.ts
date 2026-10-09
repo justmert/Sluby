@@ -31,7 +31,9 @@ export function useWebhookActions() {
         toastError(
           result.error
             ? `Test not delivered. ${sentence(result.error)}`
-            : `Test not delivered. Your endpoint answered ${result.statusCode ?? 'nothing'}`,
+            : result.statusCode == null
+              ? 'Test not delivered. Your endpoint did not answer'
+              : `Test not delivered. Your endpoint answered ${result.statusCode}`,
         );
       }
     } catch (err) {
