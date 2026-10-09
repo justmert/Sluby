@@ -113,6 +113,11 @@ describe('ProcessingCard', () => {
       ),
     ).toBeInTheDocument();
     expect(steps()[0]).toBe('Upload, stopped');
+    // wraps at a large text size, like the action beside it on a failed video
+    expect(screen.getByRole('button', { name: 'Delete video' })).toHaveClass(
+      'whitespace-normal',
+      'pointer-coarse:h-auto',
+    );
     await userEvent.click(screen.getByRole('button', { name: 'Delete video' }));
     expect(props.onDelete).toHaveBeenCalled();
   });
