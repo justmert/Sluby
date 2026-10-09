@@ -1588,10 +1588,11 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(unknown.status).toBe(404);
       const missing = await call('GET', '/api/v1/auth/github/callback', 'none');
       check('GET', '/api/v1/auth/{provider}/callback', missing);
-      expect(missing.status).toBe(400);
+      expect(missing.status).toBe(302);
+      expect(missing.headers.location).toBe('/studio?signin_error=expired_handshake');
       const badState = await call('GET', '/api/v1/auth/github/callback?code=x&state=nope', 'none');
       check('GET', '/api/v1/auth/{provider}/callback', badState);
-      expect(badState.status).toBe(400);
+      expect(badState.status).toBe(302);
     });
   });
 

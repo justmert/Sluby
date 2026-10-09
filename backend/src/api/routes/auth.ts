@@ -28,23 +28,27 @@ function callbackUrl(provider: SignInProvider): string {
   return `${env.PUBLIC_URL.replace(/\/$/, '')}/api/v1/auth/${provider.id}/callback`;
 }
 
-/**
- * Answer with fixed text. Never put request or provider input in it: the
- * callback runs on the Studio's origin, so an echoed value would be script
- * running with the user's session.
- */
-function plain(res: Response, status: number, message: string): void {
-  res
-    .status(status)
-    .set({
-      'Content-Type': 'text/plain; charset=utf-8',
-      'X-Content-Type-Options': 'nosniff',
-      'Cache-Control': 'no-store',
-    })
-    .send(message);
-}
-
 const DEFAULT_LANDING = '/studio';
+
+/**
+ * Why a sign-in did not finish, as the Studio reads it from `signin_error`:
+ * the handshake expired or came from another browser, the account is not on
+ * the allowlist, the person cancelled at the provider, the provider failed,
+ * or the provider is not configured on this server.
+ */
+export type SignInFailure =
+  'expired_handshake' | 'not_allowed' | 'cancelled' | 'provider_failed' | 'not_configured';
+
+/**
+ * Send the browser back to the Studio with the failure in the query, so it
+ * can explain it on its own sign-in screen. `handle` is the provider login
+ * that was refused; the Studio must show it as text, never as markup.
+ */
+function signInFailed(res: Response, code: SignInFailure, handle?: string): void {
+  const query = new URLSearchParams({ signin_error: code });
+  if (handle !== undefined) query.set('handle', handle);
+  res.set('Cache-Control', 'no-store').redirect(`${DEFAULT_LANDING}?${query.toString()}`);
+}
 
 /**
  * Where to send the browser after sign-in: a path on this server, or /studio.
@@ -240,7 +244,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
     res.setHeader('Set-Cookie', clear);
 
     if (!provider.isConfigured()) {
-      plain(res, 500, `${provider.label} sign-in is not configured.`);
+      signInFailed(res, 'not_configured');
       return;
     }
 
@@ -255,7 +259,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       typeof state !== 'string' ||
       !sameState(state, handshake.state)
     ) {
-      plain(res, 400, 'This sign-in has expired or was started in another browser. Sign in again.');
+      signInFailed(res, 'expired_handshake');
       return;
     }
 
@@ -286,11 +290,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
           { provider: provider.id, subject: profile.subject, username: profile.username },
           'Sign-in refused by the allowlist',
         );
-        plain(
-          res,
-          403,
-          `Access denied: ${provider.label} account "${profile.username}" is not on the Studio allowlist.`,
-        );
+        signInFailed(res, 'not_allowed', profile.username);
         return;
       }
 
@@ -311,11 +311,14 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       res.redirect(safeRedirectPath(handshake.next));
     } catch (e) {
       if (e instanceof SignInError) {
-        plain(res, e.reason === 'failed' ? 500 : 400, e.message);
+        if (e.reason !== 'cancelled') {
+          logger.warn({ err: e, provider: provider.id }, 'Sign-in did not complete');
+        }
+        signInFailed(res, e.reason === 'cancelled' ? 'cancelled' : 'provider_failed');
         return;
       }
       logger.error({ err: e, provider: provider.id }, 'Sign-in callback failed');
-      plain(res, 500, `${provider.label} sign-in failed. Please try again.`);
+      signInFailed(res, 'provider_failed');
     }
   });
 
