@@ -17,6 +17,11 @@ describe('CodeBlock', () => {
     expect(writeText).toHaveBeenCalledWith("const a = 'b';");
   });
 
+  it('puts the copy button of a single snippet on a solid chip, so a long first line scrolls under it, not through it', () => {
+    renderWithMotion(<CodeBlock code={'x'.repeat(200)} language="text" label="snippet" />);
+    expect(screen.getByRole('button', { name: 'Copy snippet' })).toHaveClass('bg-muted');
+  });
+
   it('switches languages with tabs and copies the shown one', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });

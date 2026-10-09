@@ -126,7 +126,7 @@ export function CodeBlock({
           value={code ?? ''}
           label={`Copy ${label}`}
           onCopied={onCopied}
-          className="absolute top-2 right-2"
+          className="absolute top-2 right-2 bg-muted"
         />
         <Pre code={code ?? ''} language={language} label={label} className={preClassName} />
       </div>
