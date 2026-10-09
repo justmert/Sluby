@@ -314,6 +314,32 @@ describe('AuthGate reasons (B-11)', () => {
   });
 });
 
+describe('AuthGate, a 401 without a reason', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('asks the session check why, as for an upload the server refused in plain text', async () => {
+    let revoked = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) !== '/api/v1/auth/me') return json({ error: 'Not signed in' }, 401);
+        return revoked ? json({ error: 'Not signed in', reason: 'revoked' }, 401) : json(me);
+      }),
+    );
+    const client = renderGate();
+    await screen.findByText(/alice via GitHub/);
+    revoked = true;
+    await client
+      .getMutationCache()
+      .build(client, { mutationFn: () => apiClient.post('/keys', { name: 'k' }) })
+      .execute(undefined)
+      .catch(() => {});
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'You were signed out from another browser.',
+    );
+  });
+});
+
 describe('AuthGate sign-in failures (B-12)', () => {
   afterEach(() => window.history.replaceState(null, '', '/'));
 

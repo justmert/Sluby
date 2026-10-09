@@ -255,15 +255,30 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // a 401 from any later call means the session ended (expiry, sign out
   // everywhere, allowlist removal); go back to sign-in rather than leave the
   // pages showing errors and stale data
-  useEffect(
-    () =>
-      onUnauthorized((reason) =>
-        setState((prev) =>
-          prev.kind === 'signedIn' ? { kind: 'signedOut', ended: true, reason } : prev,
-        ),
-      ),
-    [],
-  );
+  useEffect(() => {
+    let active = true;
+    const end = (reason: SessionEndReason | undefined) =>
+      setState((prev) =>
+        prev.kind === 'signedIn' ? { kind: 'signedOut', ended: true, reason } : prev,
+      );
+    const stop = onUnauthorized((reason) => {
+      if (reason !== undefined) {
+        end(reason);
+        return;
+      }
+      // the upload endpoint answers 401 in plain text, without a reason; the
+      // session check gives one, so the screen can say what happened
+      apiClient.get<MeResponse>('/auth/me').then(
+        () => active && end(undefined),
+        (err: unknown) =>
+          active && end(statusOf(err) === 401 ? sessionEndReasonOf(err) : undefined),
+      );
+    });
+    return () => {
+      active = false;
+      stop();
+    };
+  }, []);
 
   const signedIn = state.kind === 'signedIn';
   useEffect(() => {
