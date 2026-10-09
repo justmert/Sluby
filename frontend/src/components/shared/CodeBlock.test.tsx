@@ -66,6 +66,11 @@ describe('CodeBlock', () => {
     expect(region).toHaveAttribute('tabindex', '0');
   });
 
+  it('does not say code twice when the label already ends with it', () => {
+    renderWithMotion(<CodeBlock code="<SlubyPlayer />" language="tsx" label="embed code" />);
+    expect(screen.getByRole('region', { name: 'embed code' })).toBeInTheDocument();
+  });
+
   it('names its language tabs', () => {
     renderWithMotion(
       <CodeBlock

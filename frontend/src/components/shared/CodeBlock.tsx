@@ -49,7 +49,8 @@ function Pre({
     <pre
       tabIndex={0}
       role="region"
-      aria-label={`${label} code`}
+      // "embed code" stays as is instead of being read as "embed code code"
+      aria-label={/\bcode$/i.test(label) ? label : `${label} code`}
       className={cn(
         // no ligatures: code people copy should show !== and => as typed
         'overflow-x-auto rounded-lg p-4 pr-12 font-mono text-xs leading-relaxed [font-variant-ligatures:none] outline-none focus-visible:ring-3 focus-visible:ring-ring',
