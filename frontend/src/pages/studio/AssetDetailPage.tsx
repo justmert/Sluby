@@ -467,7 +467,7 @@ export default function AssetDetailPage() {
         }
       />
 
-      <div className="grid items-start gap-6 @5xl/page:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="grid items-start gap-6 @5xl/page:grid-cols-[minmax(0,1fr)_24rem] @7xl/page:grid-cols-[minmax(0,1fr)_28rem]">
         <div className="flex min-w-0 flex-col gap-3">
           {player}
           {!wide && ready && (
