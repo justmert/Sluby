@@ -45,6 +45,19 @@ const css = async () => {
 const forcedBlock = async () =>
   /@media \(forced-colors: active\)\s*\{([\s\S]*?)\n\}/.exec(await css())![1];
 
+describe('chart axis labels', () => {
+  it('color the tick text recharts 3 renders, which keeps 4.5:1 in both themes', () => {
+    const { container } = render(
+      <ChartContainer config={{}}>
+        <svg />
+      </ChartContainer>,
+    );
+    expect(container.querySelector('[data-slot=chart]')!.className).toContain(
+      '[&_.recharts-cartesian-axis-tick-value]:fill-muted-foreground',
+    );
+  });
+});
+
 describe('forced colors', () => {
   it('drops the resting transparent outline that forced colors would paint on every item', async () => {
     expect(await forcedBlock()).toMatch(
