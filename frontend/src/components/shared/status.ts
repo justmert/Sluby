@@ -69,7 +69,8 @@ export const STATUS = {
   key: {
     creating: spec('Creating', 'neutral', undefined, true),
     active: spec('Active', 'success'),
-    expiring: spec('Expiring', 'warning', Clock),
+    // the old key of a rotation, working until its grace period ends
+    replaced: spec('Replaced', 'warning', Clock),
     revoked: spec('Revoked', 'neutral'),
   },
   /** a webhook endpoint */

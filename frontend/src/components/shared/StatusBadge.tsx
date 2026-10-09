@@ -73,7 +73,7 @@ export interface StatusBadgeProps<K extends StatusKind> extends Omit<BadgeViewPr
  *
  *   <StatusBadge kind="asset" status={asset.status} />
  *   <StatusBadge kind="asset" status={asset.status} busy="spinner" live />
- *   <StatusBadge kind="key" status="expiring">Expires {formatTimeLeft(at)}</StatusBadge>
+ *   <StatusBadge kind="key" status="replaced">Replaced · Stops {formatTimeLeft(at)}</StatusBadge>
  */
 export function StatusBadge<K extends StatusKind>({
   kind,

@@ -13,6 +13,8 @@ export interface CopyButtonProps {
   /** Show "Copy" next to the icon, for places where copying is the main action. */
   withText?: boolean;
   variant?: 'ghost' | 'outline' | 'default';
+  /** called once the value is on the clipboard, e.g. to let a secret dialog close */
+  onCopied?: () => void;
 }
 
 type CopyState = 'idle' | 'copied' | 'failed';
@@ -26,6 +28,7 @@ export function CopyButton({
   label = 'Copy to clipboard',
   withText = false,
   variant = 'ghost',
+  onCopied,
 }: CopyButtonProps) {
   const [state, setState] = useState<CopyState>('idle');
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -36,6 +39,7 @@ export function CopyButton({
     try {
       await navigator.clipboard.writeText(value);
       setState('copied');
+      onCopied?.();
     } catch {
       // clipboard needs a secure context; say so instead of pretending
       setState('failed');

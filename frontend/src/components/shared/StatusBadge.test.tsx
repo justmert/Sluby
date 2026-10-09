@@ -60,14 +60,13 @@ describe('StatusBadge', () => {
 
   it('takes custom text while keeping the tone', () => {
     renderWithMotion(
-      <StatusBadge kind="key" status="expiring">
-        Expires in 2 hours
+      <StatusBadge kind="key" status="replaced">
+        Replaced · Stops in 2 hours
       </StatusBadge>,
     );
-    expect(screen.getByText('Expires in 2 hours').closest('[data-slot=badge]')).toHaveAttribute(
-      'data-tone',
-      'warning',
-    );
+    expect(
+      screen.getByText('Replaced · Stops in 2 hours').closest('[data-slot=badge]'),
+    ).toHaveAttribute('data-tone', 'warning');
   });
 
   it('announces changes only when live', () => {

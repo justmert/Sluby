@@ -296,4 +296,33 @@ describe('DataTable', () => {
     await vi.waitFor(() => expect(within(table).queryByText('Alpha')).toBeNull());
     expect(within(table).getAllByRole('row')).toHaveLength(3);
   });
+  it('fades in a row added later, but not the rows of the first render', async () => {
+    const { rerender, container } = renderWithMotion(
+      <DataTable
+        caption="Keys"
+        columns={columns}
+        rows={rows}
+        getRowId={(r) => r.id}
+        getRowLabel={(r) => r.name}
+        animateRows
+      />,
+    );
+    const first = screen.getByText('Alpha').closest('tr')!;
+    // first render starts at the visible state, with no fade
+    expect(first.style.opacity).toBe('1');
+    rerender(
+      <DataTable
+        caption="Keys"
+        columns={columns}
+        rows={[{ id: 'c', name: 'Gamma', size: 1 }, ...rows]}
+        getRowId={(r) => r.id}
+        getRowLabel={(r) => r.name}
+        animateRows
+      />,
+    );
+    const added = screen.getByText('Gamma').closest('tr')!;
+    // the new row starts from listItem's hidden state
+    expect(added.style.opacity).toBe('0');
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(3);
+  });
 });

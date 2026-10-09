@@ -43,4 +43,34 @@ describe('CodeBlock', () => {
       '[font-variant-ligatures:none]',
     );
   });
+
+  it('is a named region the keyboard can scroll, in every browser (A11Y-19)', () => {
+    renderWithMotion(<CodeBlock code="npm i @sluby/sdk" language="bash" label="install command" />);
+    const region = screen.getByRole('region', { name: 'install command code' });
+    expect(region.tagName).toBe('PRE');
+    expect(region).toHaveAttribute('tabindex', '0');
+  });
+
+  it('names its language tabs', () => {
+    renderWithMotion(
+      <CodeBlock
+        label="setup snippet"
+        tabsLabel="Snippet language"
+        samples={[
+          { label: 'JavaScript', language: 'ts', code: 'a' },
+          { label: 'curl', language: 'bash', code: 'b' },
+        ]}
+      />,
+    );
+    expect(screen.getByRole('tablist', { name: 'Snippet language' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'setup snippet code' })).toHaveTextContent('a');
+  });
+
+  it('reports a copy', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    const onCopied = vi.fn();
+    renderWithMotion(<CodeBlock code="x" label="secret" onCopied={onCopied} />);
+    await act(async () => screen.getByRole('button', { name: 'Copy secret' }).click());
+    expect(onCopied).toHaveBeenCalledTimes(1);
+  });
 });

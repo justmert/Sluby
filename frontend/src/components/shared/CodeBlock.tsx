@@ -35,16 +35,21 @@ function Highlighted({ code, language }: { code: string; language: CodeLanguage 
 function Pre({
   code,
   language,
+  label,
   className,
 }: {
   code: string;
   language: CodeLanguage;
+  label: string;
   className?: string;
 }) {
   return (
-    // chrome lets a keyboard scroll a wide snippet, so it takes focus
+    // focusable and named, so a keyboard can scroll a wide snippet in every
+    // browser (safari does not make scrollers focusable on its own)
     <pre
       tabIndex={0}
+      role="region"
+      aria-label={`${label} code`}
       className={cn(
         // no ligatures: code people copy should show !== and => as typed
         'overflow-x-auto rounded-lg p-4 pr-12 font-mono text-xs leading-relaxed [font-variant-ligatures:none] outline-none focus-visible:ring-3 focus-visible:ring-ring',
@@ -76,6 +81,10 @@ export interface CodeBlockProps {
   /** the selected tab, for a page that remembers it across snippets */
   value?: string;
   onValueChange?: (label: string) => void;
+  /** names the language tabs for screen readers (default "Language") */
+  tabsLabel?: string;
+  /** called after a copy, e.g. so a secret dialog knows the value was taken */
+  onCopied?: () => void;
   className?: string;
   /** goes on the scrolling <pre>, e.g. max-h-96 for a long response */
   preClassName?: string;
@@ -98,6 +107,8 @@ export function CodeBlock({
   samples,
   value,
   onValueChange,
+  tabsLabel = 'Language',
+  onCopied,
   className,
   preClassName,
 }: CodeBlockProps) {
@@ -110,8 +121,13 @@ export function CodeBlock({
         data-slot="code-block"
         className={cn('relative rounded-lg border bg-muted/40', className)}
       >
-        <CopyButton value={code ?? ''} label={`Copy ${label}`} className="absolute top-2 right-2" />
-        <Pre code={code ?? ''} language={language} className={preClassName} />
+        <CopyButton
+          value={code ?? ''}
+          label={`Copy ${label}`}
+          onCopied={onCopied}
+          className="absolute top-2 right-2"
+        />
+        <Pre code={code ?? ''} language={language} label={label} className={preClassName} />
       </div>
     );
   }
@@ -127,7 +143,7 @@ export function CodeBlock({
       className={cn('gap-0 rounded-lg border bg-muted/40', className)}
     >
       <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
-        <TabsList variant="line" className="h-7">
+        <TabsList variant="line" className="h-7" aria-label={tabsLabel}>
           {samples.map((s) => (
             <TabsTrigger key={s.label} value={s.label} className="px-2 text-xs">
               {s.label}
@@ -137,11 +153,17 @@ export function CodeBlock({
         <CopyButton
           value={selected?.code ?? ''}
           label={`Copy ${label}${selected ? ` (${selected.label})` : ''}`}
+          onCopied={onCopied}
         />
       </div>
       {samples.map((s) => (
         <TabsContent key={s.label} value={s.label} className="rounded-t-none">
-          <Pre code={s.code} language={s.language} className={cn('pr-4', preClassName)} />
+          <Pre
+            code={s.code}
+            language={s.language}
+            label={label}
+            className={cn('pr-4', preClassName)}
+          />
         </TabsContent>
       ))}
     </Tabs>
