@@ -1,3 +1,4 @@
+import { createElement, lazy, useState, type ComponentType } from 'react';
 import { ROUTES } from './constants';
 
 // the code for each routed page, in one place, so App.tsx can lazy-load it
@@ -47,7 +48,35 @@ const DETAIL_PATHS: Array<[RegExp, PageChunk]> = [
  */
 export function preloadPage(path: string): void {
   const name = chunkFor(path);
-  if (name) PAGE_CHUNKS[name]().catch(() => {});
+  if (name) loadPage(PAGE_CHUNKS[name]).catch(() => {});
+}
+
+type PageLoader = () => Promise<{ default: ComponentType }>;
+
+const loadedPages = new WeakMap<PageLoader, ComponentType>();
+
+/** Loads a page's code and remembers it, so the page can render without suspending. */
+export function loadPage(load: PageLoader) {
+  return load().then((mod) => {
+    loadedPages.set(load, mod.default);
+    return mod;
+  });
+}
+
+/**
+ * lazy() for a routed page that renders at once when its code is already
+ * here (preloaded on hover, or at startup for the first page). A plain
+ * lazy() suspends once even then, and react holds a fallback it revealed
+ * for 300 ms, so the page and its requests would start that much later.
+ */
+export function lazyPage(load: PageLoader): ComponentType {
+  const Lazy = lazy(() => loadPage(load));
+  return function LazyPage() {
+    // chosen once per mount: switching from Lazy to the loaded component
+    // later would remount the page and drop its state
+    const [Page] = useState<ComponentType>(() => loadedPages.get(load) ?? Lazy);
+    return createElement(Page);
+  };
 }
 
 /** Which page's code serves a path, if a studio page does. Search and hash are ignored. */

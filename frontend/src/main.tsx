@@ -8,11 +8,16 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MotionProvider } from '@/components/motion/MotionProvider';
 import { App } from '@/App';
+import { preloadPage } from '@/lib/page-chunks';
 import { queryClient } from '@/lib/query-client';
 import './index.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
+
+// fetch the first page's code alongside the session check, so the page is
+// usually here by the time the studio renders and does not suspend
+preloadPage(window.location.pathname);
 
 createRoot(root).render(
   <StrictMode>

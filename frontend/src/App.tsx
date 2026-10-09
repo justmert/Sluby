@@ -1,27 +1,27 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router';
-import { lazy, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { OperatorOnly } from '@/components/layout/OperatorOnly';
 import { RouteSuspense } from '@/components/layout/RouteSuspense';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { ROUTES } from '@/lib/constants';
-import { PAGE_CHUNKS } from '@/lib/page-chunks';
+import { lazyPage, PAGE_CHUNKS } from '@/lib/page-chunks';
 import { LEGACY_PATHS, legacyRedirect } from '@/lib/redirects';
 import { useSession } from '@/lib/session';
 
-const NotFoundPage = lazy(PAGE_CHUNKS.notFound);
+const NotFoundPage = lazyPage(PAGE_CHUNKS.notFound);
 
-const Overview = lazy(PAGE_CHUNKS.overview);
-const Videos = lazy(PAGE_CHUNKS.videos);
-const Video = lazy(PAGE_CHUNKS.video);
-const Quickstart = lazy(PAGE_CHUNKS.quickstart);
-const ApiKeys = lazy(PAGE_CHUNKS.apiKeys);
-const Webhooks = lazy(PAGE_CHUNKS.webhooks);
-const Webhook = lazy(PAGE_CHUNKS.webhook);
-const Explorer = lazy(PAGE_CHUNKS.explorer);
-const Health = lazy(PAGE_CHUNKS.health);
-const Metrics = lazy(PAGE_CHUNKS.metrics);
-const Settings = lazy(PAGE_CHUNKS.settings);
+const Overview = lazyPage(PAGE_CHUNKS.overview);
+const Videos = lazyPage(PAGE_CHUNKS.videos);
+const Video = lazyPage(PAGE_CHUNKS.video);
+const Quickstart = lazyPage(PAGE_CHUNKS.quickstart);
+const ApiKeys = lazyPage(PAGE_CHUNKS.apiKeys);
+const Webhooks = lazyPage(PAGE_CHUNKS.webhooks);
+const Webhook = lazyPage(PAGE_CHUNKS.webhook);
+const Explorer = lazyPage(PAGE_CHUNKS.explorer);
+const Health = lazyPage(PAGE_CHUNKS.health);
+const Metrics = lazyPage(PAGE_CHUNKS.metrics);
+const Settings = lazyPage(PAGE_CHUNKS.settings);
 
 /**
  * An old url: replace it with where the page lives now, keeping its search
