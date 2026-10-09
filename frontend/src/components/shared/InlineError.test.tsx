@@ -60,4 +60,14 @@ describe('PageState', () => {
     const controls = screen.getAllByRole('link').concat(screen.getAllByRole('button'));
     expect(controls.map((c) => c.textContent)).toEqual(['Back to videos', 'Try again']);
   });
+
+  it('leaves out Details when the raw text says the same as the sentence', () => {
+    const msg =
+      'This account already has 20 API keys, the most allowed. Revoke one you no longer use, then try again.';
+    renderWithMotion(
+      <InlineError title="Could not create the key" error={new ApiError(409, msg)} />,
+    );
+    expect(screen.getAllByText(msg)).toHaveLength(1);
+    expect(screen.queryByText('Details')).not.toBeInTheDocument();
+  });
 });
