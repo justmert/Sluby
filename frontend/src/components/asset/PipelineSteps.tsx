@@ -208,7 +208,8 @@ export function PipelineSteps({
                   <Ring state={state} />
                   {i < last && <Rail filled={state === 'done'} vertical={false} />}
                 </span>
-                <span className="pr-2 leading-tight">{label}</span>
+                {/* a label wider than its quarter (Transcode at 320) breaks inside it */}
+                <span className="pr-2 leading-tight hyphens-auto wrap-break-word">{label}</span>
               </>
             )}
           </li>

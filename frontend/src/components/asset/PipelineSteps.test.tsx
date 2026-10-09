@@ -7,6 +7,12 @@ const items = () =>
   within(screen.getByRole('list', { name: 'Processing steps' })).getAllByRole('listitem');
 
 describe('PipelineSteps', () => {
+  it('breaks a step label that is wider than its column at 320 instead of running into the next', () => {
+    renderWithMotion(<PipelineSteps steps={['done', 'active', 'pending', 'pending']} />);
+    const label = screen.getByText('Transcode').closest('li')!.lastElementChild!;
+    expect(label).toHaveClass('hyphens-auto', 'wrap-break-word');
+  });
+
   it('names every step with where it stands', () => {
     renderWithMotion(<PipelineSteps steps={['done', 'active', 'pending', 'pending']} />);
     expect(items().map((li) => li.textContent)).toEqual([
