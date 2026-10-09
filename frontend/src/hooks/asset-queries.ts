@@ -7,6 +7,7 @@ import {
   type Query,
 } from '@tanstack/react-query';
 import type { ListAssetsOptions, PaginatedResponse, VideoAsset } from '@sluby/sdk';
+import { errorText } from '@/lib/errors';
 import { sluby } from '@/lib/sluby';
 import { uploadStore } from '@/lib/studio-upload';
 
@@ -237,10 +238,16 @@ export function useDeleteAssets() {
   return useMutation({
     mutationFn: async (ids: string[]): Promise<DeleteFailure[]> => {
       const results = await Promise.allSettled(ids.map((id) => sluby.assets.delete(id)));
+      // allSettled never rejects, so a 401 has to be rethrown for the query
+      // client to end the session (FLW-13) instead of becoming a row failure
+      const signedOut = results.find(
+        (r): r is PromiseRejectedResult => r.status === 'rejected' && errorStatus(r.reason) === 401,
+      );
+      if (signedOut) throw signedOut.reason;
       return results.flatMap((r, i) =>
         // already gone is what a delete asks for
         r.status === 'rejected' && errorStatus(r.reason) !== 404
-          ? [{ id: ids[i], error: r.reason instanceof Error ? r.reason.message : String(r.reason) }]
+          ? [{ id: ids[i], error: errorText(r.reason) }]
           : [],
       );
     },

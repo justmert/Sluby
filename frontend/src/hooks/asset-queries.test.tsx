@@ -3,6 +3,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { VideoAsset } from '@sluby/sdk';
+import { createQueryClient } from '@/lib/query-client';
+import { onUnauthorized } from '@/lib/session-events';
 import { jsonFetch, reply } from '@/test/render';
 import { useLatestAssets } from './useLatestAssets';
 import { useProcessingJob } from './asset-detail-queries';
@@ -240,5 +242,44 @@ describe('asset hooks', () => {
     releaseDelete();
     await act(() => deleting);
     await waitFor(() => expect(result.current.latest.data?.data).toHaveLength(1));
+  });
+});
+
+describe('useDeleteAssets and the session', () => {
+  it('ends the session on a 401 instead of reporting a failed row (FLW-13)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(jsonFetch({ 'DELETE /api/v1/assets/a1': reply(401, { error: 'Not signed in' }) })),
+    );
+    const client = createQueryClient();
+    const seen = vi.fn();
+    const stop = onUnauthorized(seen);
+    const { result } = renderHook(() => useDeleteAssets(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+    await act(() => result.current.mutateAsync(['a1']).catch(() => {}));
+    expect(seen).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    stop();
+  });
+
+  it('turns a failed row into a sentence, not the raw server text', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        jsonFetch({ 'DELETE /api/v1/assets/a1': reply(500, { error: 'Internal Server Error' }) }),
+      ),
+    );
+    const { Wrapper } = wrapper();
+    const { result } = renderHook(() => useDeleteAssets(), { wrapper: Wrapper });
+    let failures: Awaited<ReturnType<typeof result.current.mutateAsync>> = [];
+    await act(async () => {
+      failures = await result.current.mutateAsync(['a1']);
+    });
+    expect(failures).toEqual([
+      { id: 'a1', error: expect.stringMatching(/^The server ran into a problem \(error 500\)/) },
+    ]);
   });
 });
