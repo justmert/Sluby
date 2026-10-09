@@ -37,6 +37,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
           '--info-bg': 'color-mix(in oklab, var(--info) 10%, var(--popover))',
           '--info-border': 'color-mix(in oklab, var(--info) 30%, var(--popover))',
           '--info-text': 'var(--info)',
+          // the close button sits inside the toast, top right, instead of as
+          // a bordered circle straddling its corner
+          '--toast-close-button-start': 'unset',
+          '--toast-close-button-end': '0.5rem',
+          '--toast-close-button-transform': 'translateY(0.875rem)',
         } as React.CSSProperties
       }
       // bottom right on a desktop; below 600px sonner spans the width, so on
@@ -62,9 +67,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
       duration={8000}
       toastOptions={{
         classNames: {
-          toast: 'cn-toast',
+          // room on the right for the close button
+          toast: 'cn-toast pr-10!',
           // a finger needs more than the 20px close button
-          closeButton: 'pointer-coarse:size-8',
+          closeButton:
+            'border-0! bg-transparent! text-current opacity-60 hover:bg-transparent! hover:opacity-100 pointer-coarse:size-8',
         },
       }}
       {...props}

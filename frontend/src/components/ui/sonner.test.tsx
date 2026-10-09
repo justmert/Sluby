@@ -23,4 +23,19 @@ describe('Toaster (D-20, A11Y-25)', () => {
       'calc(16px + env(safe-area-inset-bottom) + var(--toast-lift, 0px))',
     );
   });
+
+  it('keeps the close button inside the toast, on the right, instead of on its corner', async () => {
+    render(
+      <ThemeProvider>
+        <Toaster closeButton />
+      </ThemeProvider>,
+    );
+    act(() => void toast('Saved'));
+    await screen.findByText('Saved');
+    const toaster = document.querySelector<HTMLElement>('[data-sonner-toaster]')!;
+    expect(toaster.style.getPropertyValue('--toast-close-button-start')).toBe('unset');
+    expect(toaster.style.getPropertyValue('--toast-close-button-end')).toBe('0.5rem');
+    const close = screen.getByRole('button', { name: /close/i });
+    expect(close).toHaveClass('border-0!', 'bg-transparent!');
+  });
 });
