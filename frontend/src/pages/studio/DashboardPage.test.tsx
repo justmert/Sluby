@@ -559,6 +559,32 @@ describe('Overview page', () => {
       ).toBeInTheDocument();
     });
 
+    it('counts every stalled upload, not only the five it lists', async () => {
+      const waiting = Array.from({ length: 12 }, (_, i) =>
+        video({
+          id: `s${i}`,
+          title: `Lost ${i}`,
+          status: 'created',
+          created_at: minutesAgo(60 + i),
+          updated_at: minutesAgo(60 + i),
+        }),
+      );
+      setup({
+        '/api/v1/assets': (call: RecordedCall) => {
+          const status = call.query.get('status');
+          if (status !== 'created') return page([]);
+          // the list it shows asks for five; the count walks every page
+          const limit = Number(call.query.get('limit'));
+          return page(waiting.slice(0, limit), waiting.length);
+        },
+      });
+      render();
+      const attention = await screen.findByRole('list', { name: 'Needs attention' });
+      await waitFor(() => expect(within(attention).getAllByRole('listitem')).toHaveLength(5));
+      await waitFor(() => expect(card('Needs attention')).toHaveTextContent('and 7 more'));
+      expect(card('Needs attention')).toHaveTextContent('12');
+    });
+
     it('is not drawn when nothing needs attention', async () => {
       setup();
       render();

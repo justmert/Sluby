@@ -24,6 +24,7 @@ import { RecentVideos } from '@/components/overview/RecentVideos';
 import { StatusCard } from '@/components/overview/StatusCard';
 import { InlineError } from '@/components/shared/InlineError';
 import { Button } from '@/components/ui/button';
+import { useStaleUploadCount } from '@/hooks/asset-queries';
 import { useApiKeys } from '@/hooks/useApiKeys';
 import {
   isStalled,
@@ -77,6 +78,8 @@ export default function DashboardPage() {
   const run = useReconciliation();
   const failed = useFailedVideos();
   const waiting = useWaitingVideos();
+  // the same walk the library uses for "uploads never started", so the counts agree
+  const staleCreated = useStaleUploadCount();
   const latest = useLatestAssets(RECENT_FETCH);
   const sending = useSendingIds();
 
@@ -149,6 +152,10 @@ export default function DashboardPage() {
     failed: failed.data?.data,
     failedTotal: failed.data?.total,
     stalled,
+    stalledTotal:
+      staleCreated.data === undefined
+        ? undefined
+        : staleCreated.data + stalled.filter((v) => v.status === 'uploading').length,
     webhooks: webhooks.data?.data,
   };
   const attention = attentionItems(attentionInput);

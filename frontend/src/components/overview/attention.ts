@@ -17,6 +17,8 @@ export interface AttentionInput {
   /** all failed videos, of which `failed` holds the newest */
   failedTotal?: number;
   stalled?: VideoAsset[];
+  /** all stalled uploads, of which `stalled` holds the oldest */
+  stalledTotal?: number;
   webhooks?: WebhookRecord[];
 }
 
@@ -54,8 +56,13 @@ export function attentionItems(input: AttentionInput): AttentionItem[] {
   return items;
 }
 
-/** How many items there are in all, counting failed videos that were not fetched. */
+/** How many items there are in all, counting failed videos and stalled uploads that were not fetched. */
 export function attentionTotal(input: AttentionInput, items: AttentionItem[]): number {
-  const fetched = input.failed?.length ?? 0;
-  return items.length + Math.max(0, (input.failedTotal ?? fetched) - fetched);
+  const failed = input.failed?.length ?? 0;
+  const stalled = input.stalled?.length ?? 0;
+  return (
+    items.length +
+    Math.max(0, (input.failedTotal ?? failed) - failed) +
+    Math.max(0, (input.stalledTotal ?? stalled) - stalled)
+  );
 }
