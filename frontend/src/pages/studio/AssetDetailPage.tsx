@@ -287,7 +287,7 @@ export default function AssetDetailPage() {
   const gone = !!a && asset.isError && (goneStatus === 404 || goneStatus === 400);
   useEffect(() => {
     if (!gone || !id || deletedHere.current === id) return;
-    toastError('This video was deleted in another tab or browser.');
+    toastError('This video was deleted in another tab or browser');
     queryClient.removeQueries({ queryKey: ['assets', 'one', id], exact: true });
   }, [gone, id, queryClient]);
 

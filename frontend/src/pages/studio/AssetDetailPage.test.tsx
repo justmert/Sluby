@@ -512,7 +512,7 @@ describe('AssetDetailPage', () => {
       alive = false;
       await act(() => client.refetchQueries({ queryKey: ['assets', 'one', 'a1'] }));
       expect(
-        await screen.findByText('This video was deleted in another tab or browser.'),
+        await screen.findByText('This video was deleted in another tab or browser'),
       ).toBeInTheDocument();
       expect(
         await screen.findByRole('heading', { level: 1, name: 'Video not found' }),

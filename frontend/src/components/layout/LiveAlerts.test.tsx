@@ -31,7 +31,7 @@ const toldGoodNews = () =>
   waitFor(() =>
     expect(serviceToast()).toMatchObject({
       type: 'success',
-      title: 'Everything is working again.',
+      title: 'Everything is working again',
     }),
   );
 
@@ -79,15 +79,15 @@ describe('LiveAlerts', () => {
     await answer(status('ok'));
     await answer(status('degraded', { indexer: false }));
     await answer(status('degraded', { indexer: false }));
-    expect(await screen.findByText('Sia storage is not working.')).toBeInTheDocument();
+    expect(await screen.findByText('Sia storage is not working')).toBeInTheDocument();
     await answer(status('degraded', { indexer: false }));
     await answer(status('degraded', { indexer: false }));
-    expect(screen.getAllByText('Sia storage is not working.')).toHaveLength(1);
+    expect(screen.getAllByText('Sia storage is not working')).toHaveLength(1);
     await answer(status('ok'));
     await answer(status('ok'));
     // the same toast turns into the good news instead of a second one piling up
     await toldGoodNews();
-    expect(screen.queryByText('Sia storage is not working.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sia storage is not working')).not.toBeInTheDocument();
   });
 
   it('says nothing about a blip that one poll caught, so a flapping probe is not read out twice a minute', async () => {
@@ -132,7 +132,7 @@ describe('LiveAlerts', () => {
     await answer(status('ok'));
     await answer(status('degraded', { indexer: false }));
     await answer(status('degraded', { indexer: false }));
-    expect(await screen.findByText('Sia storage is not working.')).toBeInTheDocument();
+    expect(await screen.findByText('Sia storage is not working')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open health' })).not.toBeInTheDocument();
   });
 });

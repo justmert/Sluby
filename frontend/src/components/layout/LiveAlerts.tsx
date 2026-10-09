@@ -18,11 +18,11 @@ function failing(status: SystemStatus): string[] {
 }
 
 function sentence(names: string[]): string {
-  if (names.length === 0) return 'Some services are not working.';
+  if (names.length === 0) return 'Some services are not working';
   const list =
     names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
   const verb = names.length === 1 ? 'is' : 'are';
-  return `${list.charAt(0).toUpperCase()}${list.slice(1)} ${verb} not working.`;
+  return `${list.charAt(0).toUpperCase()}${list.slice(1)} ${verb} not working`;
 }
 
 /**
@@ -59,13 +59,13 @@ export function LiveAlerts() {
     if (current === 'ok') {
       // sonner keeps the old toast's options under the same id; clear the
       // action and close button the warning had
-      toastSuccess('Everything is working again.', {
+      toastSuccess('Everything is working again', {
         id: SERVICE_TOAST_ID,
         action: undefined,
         closeButton: undefined,
       });
     } else if (current === 'down') {
-      toastError(`This server is down. ${message}`, { id: SERVICE_TOAST_ID, action });
+      toastError(`This server is down. ${message}.`, { id: SERVICE_TOAST_ID, action });
     } else {
       toastWarning(message, { id: SERVICE_TOAST_ID, action });
     }

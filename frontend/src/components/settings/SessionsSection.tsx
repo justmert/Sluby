@@ -71,7 +71,7 @@ export function SessionsSection() {
       toastSuccess('Signed out that browser');
     } catch (err) {
       // gone already is what was asked for; the list refetches either way
-      if (statusOf(err) === 404) toastSuccess('That browser was already signed out.');
+      if (statusOf(err) === 404) toastSuccess('That browser was already signed out');
       else {
         toastError(withLead('Could not sign out that browser', err));
         if (hadFocus) keepFocus(s.id);

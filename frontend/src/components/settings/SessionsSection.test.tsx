@@ -125,7 +125,7 @@ describe('SessionsSection', () => {
       },
     });
     await userEvent.click(await screen.findByRole('button', { name: 'Sign out Safari on iPhone' }));
-    expect(await screen.findByText('That browser was already signed out.')).toBeInTheDocument();
+    expect(await screen.findByText('That browser was already signed out')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('Safari on iPhone')).not.toBeInTheDocument());
   });
 
