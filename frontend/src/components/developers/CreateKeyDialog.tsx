@@ -110,8 +110,9 @@ export function CreateKeyDialog({
           <FieldGroup>
             <Field data-invalid={!!shown('name') || undefined}>
               <FieldLabel htmlFor="key-name">Name</FieldLabel>
-              {/* no autoFocus: the dialog focuses its first field itself, and
-                  autoFocus would leave it no opener to give focus back to */}
+              {/* no autoFocus: the dialog focuses its first field itself. an earlier
+                  focus leaves it no opener to give focus back to, and lets
+                  safari's tab out of its trap */}
               <Input
                 id="key-name"
                 value={form.name}

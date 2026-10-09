@@ -93,8 +93,9 @@ export function AddWebhookDialog({
           <FieldGroup>
             <Field data-invalid={!!urlError || undefined}>
               <FieldLabel htmlFor="hook-url">Endpoint URL</FieldLabel>
-              {/* no autoFocus: the dialog focuses its first field itself, and
-                  autoFocus would leave it no opener to give focus back to */}
+              {/* no autoFocus: the dialog focuses its first field itself. an earlier
+                  focus leaves it no opener to give focus back to, and lets
+                  safari's tab out of its trap */}
               <Input
                 id="hook-url"
                 type="url"
