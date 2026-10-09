@@ -60,30 +60,40 @@ function CreateDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const create = useCreatePlaybackId(assetId);
-  const [name, setName] = useState('');
-  const [policy, setPolicy] = useState<PlaybackPolicy>('public');
-
-  // a refusal shows in the form; once the form is closed, a toast says it
+  // whether this form is still on screen. a create that outlives it (closed,
+  // or replaced by a new form) reports in a toast instead
   const shown = useRef(open);
   useEffect(() => {
     shown.current = open;
   }, [open]);
+  useEffect(
+    () => () => {
+      shown.current = false;
+    },
+    [],
+  );
+  const create = useCreatePlaybackId(assetId, {
+    onCreated: () => {
+      if (shown.current) onOpenChange(false);
+      toastSuccess('Playback ID created');
+    },
+    onFailed: (err, input) => {
+      // in the form, with what was typed still in it
+      if (shown.current) return;
+      const lead = input.name
+        ? `Could not create the playback ID “${input.name}”`
+        : 'Could not create the playback ID';
+      toastError(withLead(lead, err));
+    },
+  });
+  const [name, setName] = useState('');
+  const [policy, setPolicy] = useState<PlaybackPolicy>('public');
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (create.isPending) return;
-    const input = { policy, ...(name.trim() ? { name: name.trim() } : {}) };
     // the form waits for the answer, so what was typed is still there if it fails
-    create.mutate(input, {
-      onSuccess: () => {
-        onOpenChange(false);
-        toastSuccess('Playback ID created');
-      },
-      onError: (err) => {
-        if (!shown.current) toastError(withLead('Could not create the playback ID', err));
-      },
-    });
+    create.mutate({ policy, ...(name.trim() ? { name: name.trim() } : {}) });
   };
 
   return (

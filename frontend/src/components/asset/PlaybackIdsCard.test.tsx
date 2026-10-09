@@ -206,6 +206,65 @@ describe('PlaybackIdsCard', () => {
     expect(screen.queryByText('Creating…')).not.toBeInTheDocument();
   });
 
+  it('still says a create worked when its form was closed and a new one opened meanwhile', async () => {
+    let release!: () => void;
+    server(undefined, new Promise<void>((r) => (release = r)));
+    show();
+    await screen.findByText('Site embed');
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    let dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name (optional)'), 'Partner');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    await within(dialog).findByRole('button', { name: 'Creating…' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    dialog = await screen.findByRole('dialog');
+    release();
+    expect(await screen.findByText('Playback ID created')).toBeInTheDocument();
+    // the answer was for the first form; the one open now stays open
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(within(dialog).getByLabelText('Name (optional)')).toHaveValue('');
+  });
+
+  it('says a create failed, with the name typed, when its form is gone', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        jsonFetch({
+          '/api/v1/assets/a1/playback-ids': { data: [] },
+          'POST /api/v1/assets/a1/playback-ids': async () => {
+            await held;
+            return reply(403, { error: 'Missing scope: manage' });
+          },
+        }),
+      ),
+    );
+    show();
+    await screen.findByText(/No playback IDs yet/);
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    let dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name (optional)'), 'Partner');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    await within(dialog).findByRole('button', { name: 'Creating…' });
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    dialog = await screen.findByRole('dialog');
+    release();
+    expect(
+      await screen.findByText(
+        'Could not create the playback ID “Partner”. You do not have access to this. Ask an operator if you need it.',
+      ),
+    ).toBeInTheDocument();
+    // not shown in the new form, which asked for nothing yet
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('deletes after a confirm, and the dialog keeps naming the id while it closes', async () => {
     const stub = server();
     show();

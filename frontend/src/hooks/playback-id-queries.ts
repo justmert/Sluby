@@ -45,8 +45,18 @@ export function usePlaybackIds(assetId: string, enabled = true) {
 
 let pendingSeq = 0;
 
-/** Create a playback id; a placeholder row shows until the server answers. */
-export function useCreatePlaybackId(assetId: string) {
+/** What becomes of a create, told even after the form that asked has closed. */
+export interface CreateReport {
+  onCreated?: (created: PlaybackId, input: CreatePlaybackIdInput) => void;
+  onFailed?: (err: unknown, input: CreatePlaybackIdInput) => void;
+}
+
+/**
+ * Create a playback id; a placeholder row shows until the server answers.
+ * `report` runs with the mutation itself, not with the component that
+ * called mutate, so a create still reports after its form unmounts.
+ */
+export function useCreatePlaybackId(assetId: string, report: CreateReport = {}) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreatePlaybackIdInput) => sluby.playbackIds.create(assetId, input),
@@ -63,16 +73,18 @@ export function useCreatePlaybackId(assetId: string) {
       // the server lists the newest first
       return { placeholder };
     },
-    onSuccess: (created, _input, context) => {
+    onSuccess: (created, input, context) => {
       keyAliases.set(created.id, context.placeholder.id);
       queryClient.setQueryData<PlaybackId[]>(key(assetId), (rows = []) =>
         rows.map((r) => (r.id === context.placeholder.id ? created : r)),
       );
+      report.onCreated?.(created, input);
     },
-    onError: (_err, _input, context) => {
+    onError: (err, input, context) => {
       queryClient.setQueryData<PlaybackId[]>(key(assetId), (rows = []) =>
         rows.filter((r) => r.id !== context?.placeholder.id),
       );
+      report.onFailed?.(err, input);
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: key(assetId) }),
   });
