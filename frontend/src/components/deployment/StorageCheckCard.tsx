@@ -98,7 +98,13 @@ const IDS = 'font-mono break-all';
 function IdList({ label, ids }: { label: string; ids: string[] }) {
   return (
     <Disclosure label={label} count={ids.length}>
-      <ul aria-label={label.charAt(0).toUpperCase() + label.slice(1)} className={cn(LIST, IDS)}>
+      {/* a scroller with nothing focusable inside: Safari can scroll it from
+          the keyboard only if the list itself takes focus */}
+      <ul
+        aria-label={label.charAt(0).toUpperCase() + label.slice(1)}
+        tabIndex={0}
+        className={cn(LIST, IDS, 'outline-none focus-visible:ring-3 focus-visible:ring-ring')}
+      >
         {ids.map((x) => (
           <li key={x} className="py-0.5">
             {x}

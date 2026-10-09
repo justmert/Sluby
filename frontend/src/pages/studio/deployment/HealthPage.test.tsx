@@ -141,9 +141,11 @@ describe('HealthPage', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(within(check).getByRole('list', { name: 'Unused files on Sia' })).toHaveTextContent(
-      'o1o2',
-    );
+    const list = within(check).getByRole('list', { name: 'Unused files on Sia' });
+    expect(list).toHaveTextContent('o1o2');
+    // it scrolls, and holds nothing focusable, so Safari's keyboard needs the list itself
+    expect(list).toHaveAttribute('tabindex', '0');
+    expect(list).toHaveClass('focus-visible:ring-3', 'focus-visible:ring-ring');
     // nothing is missing, so there is nothing to list
     expect(within(check).queryByRole('button', { name: /missing files/ })).not.toBeInTheDocument();
   });
