@@ -65,6 +65,12 @@ describe('forced colors', () => {
     );
   });
 
+  it('drops the same resting outline on chart parts, which hide it through descendant classes', async () => {
+    expect(await forcedBlock()).toMatch(
+      /\[data-slot='chart'\]\s+:is\(\.recharts-surface, \.recharts-layer, \.recharts-sector\):not\(:focus-visible\)\s*\{\s*outline-style: none;/,
+    );
+  });
+
   it('marks the highlighted menu, select and palette option', async () => {
     const block = await forcedBlock();
     expect(block).toMatch(

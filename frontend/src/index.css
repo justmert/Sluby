@@ -529,6 +529,12 @@
   .outline-hidden:not(:focus-visible) {
     outline-style: none;
   }
+  /* the chart hides the same outline through descendant classes, which the
+     rule above does not see; firefox then boxes every bar, tick and layer */
+  [data-slot='chart']
+    :is(.recharts-surface, .recharts-layer, .recharts-sector):not(:focus-visible) {
+    outline-style: none;
+  }
   /* the option the arrows are on in a menu, select or the palette */
   [data-highlighted],
   [cmdk-item][data-selected='true'] {
