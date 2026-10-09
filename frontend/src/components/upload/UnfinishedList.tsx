@@ -126,7 +126,7 @@ export function UnfinishedList({
             if (errorStatus(err) !== 404 && errorStatus(err) !== 409) throw err;
           }
           forgetUnfinishedUpload(u.storageKey);
-          toastSuccess(`Unfinished upload of ${u.fileName} deleted`);
+          toastSuccess(`“${u.title || u.fileName}” deleted`);
           void queryClient.invalidateQueries({ queryKey: ['uploads', 'unfinished'] });
           void queryClient.invalidateQueries({ queryKey: ['assets'] });
         }}

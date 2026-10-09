@@ -533,6 +533,8 @@ describe('upload sheet: unfinished uploads from an earlier page load', () => {
     );
     await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(localStorage.getItem(storageKey)).toBeNull());
+    // named the way the row names it
+    expect(await screen.findByText('“Holiday clip” deleted')).toBeInTheDocument();
     expect(server.calls.map((c) => `${c.method} ${c.path}`)).toContain(
       'DELETE /api/v1/uploads/up-1',
     );
