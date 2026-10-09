@@ -216,8 +216,8 @@ function DetailsPanel({ asset, save, onEditStart, renderError }: EditProps) {
         <DescriptionItem label="Created">{formatDate(asset.createdAt)}</DescriptionItem>
         <DescriptionItem label="Updated">{formatDate(asset.updatedAt)}</DescriptionItem>
       </DescriptionList>
-      <div>
-        <h3 className="mb-1 text-sm text-muted-foreground">Description</h3>
+      <div className="text-sm">
+        <h3 className="mb-1 font-sans text-sm text-muted-foreground">Description</h3>
         <InlineEditField
           label="description"
           value={asset.description}

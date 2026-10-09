@@ -337,6 +337,17 @@ describe('AssetDetailPage', () => {
       expect(within(details).getByText('Main playlist file')).toBeInTheDocument();
       expect(within(details).getByText('A bunny')).toHaveClass('line-clamp-6', 'wrap-anywhere');
     });
+
+    it('sets the description label and text like the other details, not as a heading', async () => {
+      // the global h3 rule gave it the heading family at 400, and the text took
+      // the 16px body size on phones while every other value is 14px
+      render(undefined, {}, '/studio/videos/a1?panel=details');
+      const details = await screen.findByRole('tabpanel', { name: 'Details' });
+      expect(within(details).getByRole('heading', { name: 'Description' })).toHaveClass(
+        'font-sans',
+      );
+      expect(within(details).getByText('A bunny').closest('.text-sm')).not.toBeNull();
+    });
   });
 
   describe('editing in place', () => {
