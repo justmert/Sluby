@@ -95,6 +95,8 @@ export function OverviewStats({
               usageFailed ? undefined : null
             ) : plays === null ? (
               'Not counted on this server'
+            ) : plays.total === 0 ? (
+              'No plays yet'
             ) : (
               <PlaysSparkline days={plays.days} className="my-0.5 h-3" />
             )

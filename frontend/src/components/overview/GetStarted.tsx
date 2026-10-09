@@ -200,7 +200,7 @@ export function GetStarted({
             }
             action={
               !by.upload.done && (
-                <Button size="sm" onClick={() => sheet.open()}>
+                <Button variant="outline" size="sm" onClick={() => sheet.open()}>
                   <Icons.upload />
                   Upload video
                 </Button>

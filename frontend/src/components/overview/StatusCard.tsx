@@ -110,7 +110,8 @@ export function StatusFrame({
         <CardDescription>{STATUS_DESCRIPTION}</CardDescription>
         {badge && <CardAction>{badge}</CardAction>}
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      {/* the content takes the spare height, so the footer sits at the card's bottom edge */}
+      <CardContent className="flex-1">{children}</CardContent>
       {footer && <CardFooter>{footer}</CardFooter>}
     </Card>
   );

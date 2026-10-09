@@ -190,7 +190,8 @@ export function RecentVideos({
           title="No videos yet"
           description="Upload a video and it will be ready to stream in a few minutes."
           action={
-            <Button onClick={() => sheet.open()}>
+            // outline: the page header already has the one primary upload button
+            <Button variant="outline" onClick={() => sheet.open()}>
               <Icons.upload />
               Upload video
             </Button>
