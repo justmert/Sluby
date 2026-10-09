@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { X } from 'lucide-react';
 import { AnimatedItem, AnimatedList } from '@/components/motion';
@@ -22,6 +23,8 @@ export interface DraftListProps {
   onTitle: (draft: Draft, title: string) => void;
   onBlur: (draft: Draft) => void;
   onRemove: (draft: Draft) => void;
+  /** true once for the title that should take focus as it appears (A11Y-13) */
+  claimFocus: (draft: Draft) => boolean;
   /** when this account uploaded the same file in this browser lately */
   earlier: (draft: Draft) => UploadRecord | null;
 }
@@ -66,7 +69,25 @@ function DraftField({
   onBlur,
   onRemove,
   earlier,
+  claimFocus,
 }: DraftListProps & { draft: Draft; single: boolean }) {
+  const input = useRef<HTMLInputElement>(null);
+  // focus the new title in the same commit it appears, before the next
+  // keystroke can land anywhere else, and never over a field someone is
+  // typing in (a second drop while they type)
+  useLayoutEffect(() => {
+    if (!claimFocus(d)) return;
+    const active = document.activeElement;
+    const typing =
+      active instanceof HTMLTextAreaElement ||
+      (active instanceof HTMLInputElement && active.type !== 'file' && active.type !== 'radio') ||
+      (active instanceof HTMLElement && active.isContentEditable);
+    if (typing || !input.current) return;
+    input.current.focus();
+    input.current.select();
+    // only on mount: later renders must not move focus
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const empty = d.title.trim() === '';
   const invalid = empty && showErrors(d);
   const tooLarge = limit !== null && d.file.size > limit;
@@ -79,6 +100,7 @@ function DraftField({
       {single && <FieldLabel htmlFor={draftTitleId(d)}>Title</FieldLabel>}
       <div className="flex items-center gap-2">
         <Input
+          ref={input}
           id={draftTitleId(d)}
           aria-label={single ? undefined : `Title for ${d.file.name}`}
           aria-invalid={invalid || undefined}

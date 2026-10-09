@@ -187,6 +187,35 @@ describe('upload sheet: picking and starting', () => {
   });
 });
 
+describe('upload sheet: typing straight after picking', () => {
+  it('keeps every keystroke typed the moment the title appears', async () => {
+    setup();
+    drop(video('clip.mp4'));
+    // no waiting and no delay between keys, as autofill or a fast typist:
+    // the title must already have focus, with its text selected
+    await userEvent.setup({ delay: null }).keyboard('Teaser cut');
+    // let any late focus or select attempt run
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(screen.getByLabelText('Title')).toHaveValue('Teaser cut');
+    expect(screen.getByLabelText('Title')).toHaveFocus();
+  });
+
+  it('never takes focus away from a field the person is typing in', async () => {
+    setup();
+    drop(video('a.mp4'), video('b.mp4'));
+    const second = screen.getByLabelText('Title for b.mp4');
+    await userEvent.click(second);
+    await userEvent.keyboard('{End} two');
+    // a second drop while typing adds a draft but leaves focus and text alone
+    drop(video('c.mp4'));
+    await userEvent.keyboard(' more');
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(second).toHaveFocus();
+    expect(second).toHaveValue('b two more');
+    expect(screen.getByLabelText('Title for c.mp4')).toHaveValue('c');
+  });
+});
+
 describe('upload sheet: limits, history and other tabs', () => {
   it('marks a file over the server limit and does not offer to upload it (FLW-45)', async () => {
     setup({ options: { readLimit: async () => 10_000_000 } });
@@ -354,7 +383,8 @@ describe('upload sheet: rows', () => {
 
   it('offers the embed code and the video once it is ready', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
+    // userEvent.setup() installs a getter-only clipboard, so define it instead of assigning
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     const { f } = setup();
     f.processing.mockResolvedValue(job({ status: 'completed', stage: 'completed' }));
     await startUpload();

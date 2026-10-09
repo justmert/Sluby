@@ -70,12 +70,8 @@ const useRemoteUploads = (tabs: UploadTabs) =>
   useSyncExternalStore(tabs.subscribe, tabs.remote, tabs.remote);
 
 /** Focus an element by id once it is on screen; rows mount a frame after the store changes. */
-function focusSoon(id: string, select = false) {
-  requestAnimationFrame(() => {
-    const el = document.getElementById(id);
-    el?.focus();
-    if (select && el instanceof HTMLInputElement) el.select();
-  });
+function focusSoon(id: string) {
+  requestAnimationFrame(() => document.getElementById(id)?.focus());
 }
 
 /** "a.txt is not a video file." and the other reasons picked files were skipped. */
@@ -159,9 +155,8 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
 
   const addDrafts = (files: File[]) => {
     if (files.length === 0) return;
-    const [first] = store.addDrafts(files);
-    // the first new title takes focus, selected, ready to type over (A11Y-13)
-    focusSoon(draftTitleId({ id: first }), true);
+    // the first new title takes focus as it mounts (DraftList), ready to type over
+    store.addDrafts(files);
   };
 
   /** Continue an unfinished upload with its file; returns why not, if it cannot. */
@@ -292,6 +287,7 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
               onBlur={(d) => setTouched((t) => new Set(t).add(d.id))}
               onRemove={(d) => store.removeDraft(d.id)}
               earlier={(d) => findUpload(d.fingerprint, session.id)}
+              claimFocus={(d) => store.claimDraftFocus(d.id)}
             />
             {single && (
               <Field className="gap-1.5">

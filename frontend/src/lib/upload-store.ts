@@ -379,6 +379,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
   const listeners = new Set<() => void>();
   let guarding = false;
   let limitLoad: Promise<void> | null = null;
+  let focusRequest: string | null = null;
 
   // closing the tab drops the in-memory transfer, so ask first
   const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -1277,8 +1278,17 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
         title: titleFromFile(file.name),
       }));
       state = { ...state, drafts: [...state.drafts, ...added] };
+      // the first new title asks for focus once, when it mounts (DraftList)
+      if (added.length > 0) focusRequest = added[0].id;
       emit();
       return added.map((d) => d.id);
+    },
+
+    /** True once for the draft that should take focus as it appears; false after that. */
+    claimDraftFocus(id: string): boolean {
+      if (focusRequest !== id) return false;
+      focusRequest = null;
+      return true;
     },
 
     updateDraft(id: string, patch: Pick<Draft, 'title'>) {
