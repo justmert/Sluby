@@ -141,6 +141,55 @@ export interface AssetStats {
   objectCount: number;
 }
 
+/** A missing object of the storage check, with the video that holds it. */
+export interface MissingObject {
+  objectId: string;
+  /** Null when no live video holds the object any more. */
+  videoAssetId: string | null;
+  title: string | null;
+}
+
+interface ReconciliationReportBase {
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  createdAt: string;
+  /** `drift` when objects are missing (for `account`: objects of the caller's videos). */
+  status: 'ok' | 'drift' | 'failed';
+  missingCount: number;
+  /** Tracked by a video, absent from the indexer. */
+  missingIds: string[];
+  /** `missingIds` in the same order, each with its video. */
+  missingObjects: MissingObject[];
+}
+
+/** The whole deployment's check, for the platform identity and operators. */
+export interface ReconciliationReportDeployment extends ReconciliationReportBase {
+  scope: 'deployment';
+  dbObjectCount: number;
+  indexerObjectCount: number;
+  inSyncCount: number;
+  orphanCount: number;
+  /** Pinned on the indexer, tracked by no video. */
+  orphanedIds: string[];
+  errorMessage: string | null;
+}
+
+/** One account's part of the check: only its own missing objects. */
+export interface ReconciliationReportAccount extends ReconciliationReportBase {
+  scope: 'account';
+}
+
+/** The latest storage check from `reconciliation.latest()`. */
+export type ReconciliationReport = ReconciliationReportDeployment | ReconciliationReportAccount;
+
+/** The answer of `reconciliation.run()`. */
+export interface ReconciliationTrigger {
+  enqueued: boolean;
+  /** A check was already waiting or running, so nothing new was queued. */
+  alreadyPending: boolean;
+}
+
 /** Plays per UTC day from `assets.usage()`. */
 export interface UsageReport {
   /** Oldest first, today last; a day without plays has `plays: 0`. */

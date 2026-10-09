@@ -9,6 +9,7 @@ export { PlaybackManager } from './playback.js';
 export { PlaybackIdManager } from './playback-ids.js';
 export { KeyManager } from './keys.js';
 export { SessionManager } from './sessions.js';
+export { ReconciliationManager } from './reconciliation.js';
 export { WebhookEndpointManager } from './webhook-endpoints.js';
 export { WebhookManager, DEFAULT_WEBHOOK_TOLERANCE_SECONDS } from './webhooks.js';
 export type { WebhookHeaders, VerifyRequestOptions } from './webhooks.js';
@@ -74,4 +75,9 @@ export type {
   UpdateWebhookEndpointInput,
   StudioSession,
   UsageReport,
+  MissingObject,
+  ReconciliationReport,
+  ReconciliationReportDeployment,
+  ReconciliationReportAccount,
+  ReconciliationTrigger,
 } from './types.js';

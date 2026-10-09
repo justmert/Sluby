@@ -109,6 +109,19 @@ interface SdkClient {
       }>
     >;
   };
+  reconciliation: {
+    latest: () => Promise<{
+      scope: string;
+      status: string;
+      missingIds: string[];
+      missingObjects: Array<{
+        objectId: string;
+        videoAssetId: string | null;
+        title: string | null;
+      }>;
+    }>;
+    run: () => Promise<{ enqueued: boolean; alreadyPending: boolean }>;
+  };
   webhooks: {
     verifyRequest: (rawBody: string, headers: http.IncomingHttpHeaders, secret: string) => boolean;
   };
@@ -156,6 +169,7 @@ interface SdkModule {
   NotFoundError: new (...args: never[]) => Error;
   ConflictError: new (...args: never[]) => Error & { statusCode: number; current?: Asset };
   AuthenticationError: new (...args: never[]) => Error;
+  PermissionError: new (...args: never[]) => Error;
 }
 const SDK_ENTRY = new URL('../../../packages/sdk/src/index.ts', import.meta.url).href;
 
@@ -574,5 +588,35 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
       status: 'failed',
       retryable: false,
     });
+  });
+
+  it('reads the storage check with the video of each missing object, scoped to the account', async () => {
+    const mine = await assets.createVideoAsset({
+      title: 'Mine',
+      creatorAddress: ALICE,
+      manifestObjectId: 'a1'.repeat(32),
+    });
+    const theirs = await assets.createVideoAsset({
+      title: 'Theirs',
+      creatorAddress: BOB,
+      manifestObjectId: 'b1'.repeat(32),
+    });
+    await tdb.sql`
+      insert into reconciliation_runs
+        (started_at, finished_at, status, db_object_count, indexer_object_count,
+         in_sync_count, orphan_count, missing_count, orphaned_ids, missing_ids, error_message)
+      values (now(), now(), 'drift', 2, 0, 0, 0, 2, ${tdb.sql.json([])},
+        ${tdb.sql.json(['a1'.repeat(32), 'b1'.repeat(32)])}, null)`;
+
+    const report = await alice.reconciliation.latest();
+    expect(report).toMatchObject({ scope: 'account', status: 'drift' });
+    expect(report.missingObjects).toEqual([
+      { objectId: 'a1'.repeat(32), videoAssetId: mine.id, title: 'Mine' },
+    ]);
+    expect((await bob.reconciliation.latest()).missingObjects).toEqual([
+      { objectId: 'b1'.repeat(32), videoAssetId: theirs.id, title: 'Theirs' },
+    ]);
+    // starting a check is for the platform identity and operators
+    await expect(alice.reconciliation.run()).rejects.toBeInstanceOf(sdk.PermissionError);
   });
 });

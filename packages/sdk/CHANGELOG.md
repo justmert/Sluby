@@ -35,6 +35,7 @@
 - `assets.processing(id)` returns `retryable`: whether `assets.retry()` can start a new run (false for a file that is not a readable video, or when nothing is left to start from).
 - `client.sessions`: `list()` (`StudioSession[]`, with `lastSeenAt`), `revoke(id)` and `revokeAll()`, for an app signed in with a browser session; an API key gets an `AuthenticationError`.
 - `SiaSession` marks the refresh of a share map it already holds with `renew=1`, so a long watch counts as one play. `getShareMap(id, source, { renew })` takes it too.
+- `client.reconciliation`: `latest()` returns the latest storage check (`ReconciliationReport`, `scope` `account` or `deployment`) with `missingObjects`, each missing object id with the `videoAssetId` and `title` of its video (null when no live video holds it), and `run()` queues a check (platform identity and operators only).
 - `ConflictError` also covers 412 Precondition Failed, with `current` set by `assets.update`.
 - `client.playbackIds`: `list(assetId)`, `create(assetId, { policy, name })` and `delete(playbackId)` (`PlaybackId`).
 - `assets.renditions(id)` returns the asset's renditions (`Rendition[]`) and `assets.stats()` the account's library totals (`AssetStats`).
