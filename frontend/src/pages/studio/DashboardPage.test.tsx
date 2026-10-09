@@ -540,6 +540,25 @@ describe('Overview page', () => {
   });
 
   describe('needs attention', () => {
+    it('does not call the library empty when its only video is a stalled upload', async () => {
+      const stalled = video({
+        id: 's1',
+        title: 'Lost upload',
+        status: 'created',
+        created_at: minutesAgo(25),
+        updated_at: minutesAgo(25),
+      });
+      setup({ '/api/v1/assets': assetsRoute({ created: [stalled] }, [stalled]) });
+      render();
+      await screen.findByRole('list', { name: 'Needs attention' });
+      const recent = card('Recent videos');
+      expect(within(recent).queryByText('No videos yet')).not.toBeInTheDocument();
+      expect(within(recent).getByText('No finished videos yet')).toBeInTheDocument();
+      expect(
+        within(recent).getByText('Uploads that did not finish are listed under Needs attention.'),
+      ).toBeInTheDocument();
+    });
+
     it('is not drawn when nothing needs attention', async () => {
       setup();
       render();

@@ -151,9 +151,12 @@ export function RecentVideos({
   onRetry,
   retrying,
   placeholders,
+  stalled = 0,
 }: {
   /** undefined while loading */
   videos?: VideoAsset[];
+  /** uploads left out of the list because their file never came (they show under Needs attention) */
+  stalled?: number;
   error: Error | null;
   onRetry: () => void;
   retrying: boolean;
@@ -169,8 +172,12 @@ export function RecentVideos({
       ) : videos.length === 0 ? (
         <EmptyState
           icon={Icons.video}
-          title="No videos yet"
-          description="Upload a video and it will be ready to stream in a few minutes."
+          title={stalled > 0 ? 'No finished videos yet' : 'No videos yet'}
+          description={
+            stalled > 0
+              ? 'Uploads that did not finish are listed under Needs attention.'
+              : 'Upload a video and it will be ready to stream in a few minutes.'
+          }
           action={
             // outline: the page header already has the one primary upload button
             <Button variant="outline" onClick={() => sheet.open()}>

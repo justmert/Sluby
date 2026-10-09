@@ -130,6 +130,7 @@ export default function DashboardPage() {
 
   // recent videos, leaving out uploads whose file never came (FLW-31)
   const recent = latest.data?.data.filter((v) => !isStalled(v, sending)).slice(0, RECENT);
+  const stalledCount = latest.data?.data.filter((v) => isStalled(v, sending)).length ?? 0;
   const shown = recent?.length;
   useEffect(() => {
     if (shown) rememberRows(shown);
@@ -234,6 +235,7 @@ export default function DashboardPage() {
                 onRetry={() => void latest.refetch()}
                 retrying={latest.isFetching}
                 placeholders={placeholders}
+                stalled={stalledCount}
               />
             </AnimatedItem>
             <AnimatedItem as="div" key="status" layout={false}>
