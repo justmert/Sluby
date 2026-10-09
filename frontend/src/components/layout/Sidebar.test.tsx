@@ -57,6 +57,7 @@ describe('AppSidebar', () => {
         .getAllByRole('link')
         .map((a) => [a.textContent, a.getAttribute('href')]),
     ).toEqual([
+      ['SlubyStudio', '/studio'],
       ['Overview', '/studio'],
       ['Videos', '/studio/videos'],
       ['Quickstart', '/studio/developers'],

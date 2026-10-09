@@ -40,89 +40,92 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <NavLink to={ROUTES.OVERVIEW} onClick={closeMobile}>
-                {/* the menu button sizes every svg inside it to 16px; the mark keeps its 32 */}
-                <Logo className="size-8!" />
-                <div className="grid flex-1 text-left leading-tight">
-                  <span className="truncate font-heading font-semibold">Sluby</span>
-                  <span className="truncate text-xs text-muted-foreground">Studio</span>
-                </div>
-              </NavLink>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
-      <SidebarContent>
-        {/* the nav landmark, so screen readers can jump to it */}
-        <nav aria-label="Studio" className="flex flex-1 flex-col">
-          {groups.map((group) => {
-            const labelId = group.label ? `nav-group-${group.id}` : undefined;
-            return (
-              <SidebarGroup
-                key={group.id}
-                role={labelId ? 'group' : undefined}
-                aria-labelledby={labelId}
-                // settings sits at the bottom, apart from the work pages
-                className={group.id === 'settings' ? 'mt-auto border-t' : undefined}
-              >
-                {group.label && (
-                  <SidebarGroupLabel id={labelId} className="gap-2">
-                    {group.label}
-                    {group.operatorOnly && (
-                      <>
-                        <Badge
-                          variant="outline"
-                          aria-hidden="true"
-                          className="h-4 px-1.5 text-kbd font-normal"
-                        >
-                          Operator
-                        </Badge>
-                        <span className="sr-only">, operators only</span>
-                      </>
-                    )}
-                  </SidebarGroupLabel>
-                )}
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {group.items.map((item) => (
-                      <NavEntry
-                        key={item.path}
-                        item={item}
-                        signal={signals[item.path]}
-                        active={isNavActive(item, pathname)}
-                        pathname={pathname}
-                        onNavigate={closeMobile}
-                      />
-                    ))}
-                    {group.id === 'settings' && (
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild tooltip="API reference, opens in a new tab">
-                          <a href={LINKS.API_REFERENCE} target="_blank" rel="noopener noreferrer">
-                            <FileText />
-                            <span className="min-w-0 flex-1 truncate">API reference</span>
-                            <ArrowUpRight
-                              aria-hidden="true"
-                              className="text-muted-foreground group-data-[collapsible=icon]:hidden"
-                            />
-                            <span className="sr-only">, opens in a new tab</span>
-                          </a>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    )}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
-            );
-          })}
-        </nav>
-      </SidebarContent>
-      <SidebarFooter className="pt-0">
-        <VersionLine />
-      </SidebarFooter>
+      {/* the nav landmark holds the whole sidebar, logo and footer too, so
+          nothing in it sits outside a landmark */}
+      <nav aria-label="Studio" className="flex min-h-0 flex-1 flex-col">
+        <SidebarHeader>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton size="lg" asChild>
+                <NavLink to={ROUTES.OVERVIEW} onClick={closeMobile}>
+                  {/* the menu button sizes every svg inside it to 16px; the mark keeps its 32 */}
+                  <Logo className="size-8!" />
+                  <div className="grid flex-1 text-left leading-tight">
+                    <span className="truncate font-heading font-semibold">Sluby</span>
+                    <span className="truncate text-xs text-muted-foreground">Studio</span>
+                  </div>
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarHeader>
+        <SidebarContent>
+          <div className="flex flex-1 flex-col">
+            {groups.map((group) => {
+              const labelId = group.label ? `nav-group-${group.id}` : undefined;
+              return (
+                <SidebarGroup
+                  key={group.id}
+                  role={labelId ? 'group' : undefined}
+                  aria-labelledby={labelId}
+                  // settings sits at the bottom, apart from the work pages
+                  className={group.id === 'settings' ? 'mt-auto border-t' : undefined}
+                >
+                  {group.label && (
+                    <SidebarGroupLabel id={labelId} className="gap-2">
+                      {group.label}
+                      {group.operatorOnly && (
+                        <>
+                          <Badge
+                            variant="outline"
+                            aria-hidden="true"
+                            className="h-4 px-1.5 text-kbd font-normal"
+                          >
+                            Operator
+                          </Badge>
+                          <span className="sr-only">, operators only</span>
+                        </>
+                      )}
+                    </SidebarGroupLabel>
+                  )}
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {group.items.map((item) => (
+                        <NavEntry
+                          key={item.path}
+                          item={item}
+                          signal={signals[item.path]}
+                          active={isNavActive(item, pathname)}
+                          pathname={pathname}
+                          onNavigate={closeMobile}
+                        />
+                      ))}
+                      {group.id === 'settings' && (
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild tooltip="API reference, opens in a new tab">
+                            <a href={LINKS.API_REFERENCE} target="_blank" rel="noopener noreferrer">
+                              <FileText />
+                              <span className="min-w-0 flex-1 truncate">API reference</span>
+                              <ArrowUpRight
+                                aria-hidden="true"
+                                className="text-muted-foreground group-data-[collapsible=icon]:hidden"
+                              />
+                              <span className="sr-only">, opens in a new tab</span>
+                            </a>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      )}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              );
+            })}
+          </div>
+        </SidebarContent>
+        <SidebarFooter className="pt-0">
+          <VersionLine />
+        </SidebarFooter>
+      </nav>
       <SidebarRail />
     </Sidebar>
   );
