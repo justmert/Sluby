@@ -89,9 +89,9 @@ describe('AuthGate', () => {
     renderGate();
 
     // it answered, so "could not reach" would send people checking their network
-    expect(await screen.findByText('The server returned an error')).toBeInTheDocument();
+    expect(await screen.findByText('The server ran into a problem')).toBeInTheDocument();
     expect(screen.queryByText('Could not reach the server')).not.toBeInTheDocument();
-    expect(screen.getByText('The server answered HTTP 502.')).toBeInTheDocument();
+    expect(screen.getByText(/It answered with error 502\./)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
@@ -102,7 +102,11 @@ describe('AuthGate', () => {
   it('says the server is unreachable when the request never arrives', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     renderGate();
-    expect(await screen.findByText('The request did not reach the server.')).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'Check that the server is running and your connection works, then try again.',
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText('Could not reach the server')).toBeInTheDocument();
   });
 
@@ -183,5 +187,30 @@ describe('AuthGate', () => {
       .execute(undefined)
       .catch(() => {});
     expect(await screen.findByText(/your session ended/i)).toBeInTheDocument();
+  });
+
+  it('checks the session again when the back/forward cache restores the page (FLW-07)', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json(me))
+      .mockResolvedValueOnce(json({ error: 'Not signed in' }, 401));
+    vi.stubGlobal('fetch', fetchMock);
+    renderGate();
+    expect(await screen.findByText(/alice via GitHub/)).toBeInTheDocument();
+    // signed out in the meantime, then Back restores this document from the cache
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    await waitFor(() => expect(screen.queryByText(/alice via GitHub/)).not.toBeInTheDocument());
+    expect(await screen.findByRole('button', { name: /Sign in with GitHub/ })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not check again on a normal pageshow', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json(me));
+    vi.stubGlobal('fetch', fetchMock);
+    renderGate();
+    expect(await screen.findByText(/alice via GitHub/)).toBeInTheDocument();
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }));
+    expect(screen.getByText(/alice via GitHub/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -44,21 +44,34 @@ function Screen({ children, contentKey }: { children: ReactNode; contentKey: str
         <div className="flex flex-col items-center gap-3">
           <Logo className="size-11" />
           <h1 className="text-3xl font-semibold">Sluby Studio</h1>
-          <p className="text-sm text-muted-foreground">Decentralized video streaming on Sia</p>
+          <p className="text-sm text-muted-foreground">Self-hosted video, stored on Sia</p>
         </div>
-        {/* the brand stays put while what is below it changes */}
-        <AnimatePresence mode="wait" initial={false}>
-          <m.div
-            key={contentKey}
-            variants={fadeUp}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            className="flex min-h-24 w-full flex-col items-center gap-8"
-          >
-            {children}
-          </m.div>
-        </AnimatePresence>
+        {/* the brand stays put while what is below it changes. the old and new
+            content share one grid cell instead of waiting for each other:
+            with mode="wait" the next screen mounted only after the previous
+            one's exit finished, and when /auth/me answered before motion's
+            features had loaded, that exit never finished and the sign-in
+            button never appeared (FLW-01). the spinner has no exit at all. */}
+        <div className="grid w-full *:col-start-1 *:row-start-1">
+          <AnimatePresence initial={false}>
+            {contentKey === 'loading' ? (
+              <div key="loading" className="flex min-h-24 w-full flex-col items-center gap-8">
+                {children}
+              </div>
+            ) : (
+              <m.div
+                key={contentKey}
+                variants={fadeUp}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                className="flex min-h-24 w-full flex-col items-center gap-8"
+              >
+                {children}
+              </m.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </m.div>
   );
@@ -93,10 +106,10 @@ function SignIn({ ended }: { ended: boolean }) {
         }}
       >
         {redirecting ? <Spinner aria-hidden="true" /> : <GitHubMark className="size-4" />}
-        {redirecting ? 'Redirecting to GitHub...' : 'Sign in with GitHub'}
+        {redirecting ? 'Redirecting to GitHub…' : 'Sign in with GitHub'}
       </Button>
-      <p className="max-w-xs text-xs leading-relaxed text-muted-foreground">
-        The REST API and SDK accept API keys for programmatic use.
+      <p className="max-w-xs text-xs text-muted-foreground">
+        Using the API? Create an API key in Settings after you sign in.
       </p>
     </>
   );
@@ -128,8 +141,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
           answered: status !== undefined,
           detail:
             status !== undefined
-              ? `The server answered ${err instanceof Error ? err.message : status}.`
-              : 'The request did not reach the server.',
+              ? `It answered with error ${status}. Try again in a moment. If it keeps happening, check the server logs.`
+              : 'Check that the server is running and your connection works, then try again.',
         });
       })
       .finally(() => {
@@ -139,6 +152,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [attempt]);
+
+  // the back/forward cache can restore this page after sign out with the
+  // signed-in pages still in it; hide them and ask the server again
+  useEffect(() => {
+    const recheck = (e: PageTransitionEvent) => {
+      if (!e.persisted) return;
+      // the pages unmount with this, and the effect below then drops their cache
+      setState({ kind: 'loading' });
+      setAttempt((n) => n + 1);
+    };
+    window.addEventListener('pageshow', recheck);
+    return () => window.removeEventListener('pageshow', recheck);
+  }, []);
 
   // a 401 from any later call means the session ended (expiry, sign out
   // everywhere, allowlist removal); go back to sign-in rather than leave the
@@ -174,7 +200,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       <Screen contentKey="unreachable">
         <div role="alert" className="flex flex-col gap-1.5">
           <p className="font-medium">
-            {state.answered ? 'The server returned an error' : 'Could not reach the server'}
+            {state.answered ? 'The server ran into a problem' : 'Could not reach the server'}
           </p>
           <p className="text-sm text-muted-foreground">{state.detail}</p>
         </div>
@@ -187,7 +213,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           }}
         >
           {retrying ? <Spinner aria-hidden="true" /> : <RotateCcw />}
-          {retrying ? 'Trying again...' : 'Try again'}
+          {retrying ? 'Trying again…' : 'Try again'}
         </Button>
       </Screen>
     );

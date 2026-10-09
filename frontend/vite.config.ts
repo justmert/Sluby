@@ -105,6 +105,8 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       globals: true,
       include: ['src/**/*.test.{ts,tsx}'],
+      // real-browser tests run from vitest.browser.config.ts
+      exclude: ['src/**/*.browser.test.{ts,tsx}', '**/node_modules/**'],
       setupFiles: ['./src/test/setup.ts', './src/test/timeouts.ts'],
       // a loaded ci runner can take seconds per page render
       testTimeout: 30_000,
