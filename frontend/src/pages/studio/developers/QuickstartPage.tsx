@@ -5,6 +5,7 @@ import { useReadyVideos } from '@/components/developers/use-ready-videos';
 import { VideoPicker } from '@/components/developers/VideoPicker';
 import { PageContainer, PageHeader, SectionHeader } from '@/components/layout/PageContainer';
 import { CodeBlock, type CodeSample } from '@/components/shared/CodeBlock';
+import { ScrollFade } from '@/components/shared/ScrollFade';
 import { CopyField } from '@/components/shared/CopyField';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -169,19 +170,23 @@ export default function QuickstartPage() {
         <CardContent className="flex flex-col gap-4">
           <Tabs value={active} onValueChange={setActive} className="min-w-0 gap-4">
             {/* nine tasks do not fit a phone; the list scrolls sideways instead */}
-            <div className="-mx-1 scroll-px-1 overflow-x-auto px-1 pb-1">
-              <TabsList
-                aria-label="Snippets"
-                // a tab half outside the strip scrolls into view when it takes focus
-                onFocus={(e) => e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
-              >
-                {tabs.map((t) => (
-                  <TabsTrigger key={t.id} value={t.id} className="flex-none px-2.5">
-                    {t.title}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </div>
+            <ScrollFade>
+              <div className="-mx-1 overflow-x-auto px-1 pb-1">
+                <TabsList
+                  aria-label="Snippets"
+                  // a tab half outside the strip scrolls into view when it takes focus
+                  onFocus={(e) =>
+                    e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+                  }
+                >
+                  {tabs.map((t) => (
+                    <TabsTrigger key={t.id} value={t.id} className="flex-none px-2.5">
+                      {t.title}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
+            </ScrollFade>
             <div className="flex flex-col gap-2">
               <VideoPicker
                 videos={ready.videos}

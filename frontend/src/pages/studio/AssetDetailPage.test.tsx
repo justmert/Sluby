@@ -329,6 +329,12 @@ describe('AssetDetailPage', () => {
       expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
     });
 
+    it('fades the side of the section tabs that runs past a phone', async () => {
+      render();
+      const sections = await screen.findByRole('tablist', { name: 'Video sections' });
+      expect(sections.closest('[data-slot="scroll-fade"]')).not.toBeNull();
+    });
+
     it('shows the details with copyable IDs and the description', async () => {
       render(undefined, {}, '/studio/videos/a1?panel=details');
       const details = await screen.findByRole('tabpanel', { name: 'Details' });

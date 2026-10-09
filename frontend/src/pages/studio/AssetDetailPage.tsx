@@ -17,6 +17,7 @@ import { VideoActionsMenu } from '@/components/asset/VideoActionsMenu';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { FadeSwap } from '@/components/motion';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { ScrollFade } from '@/components/shared/ScrollFade';
 import { CopyField } from '@/components/shared/CopyField';
 import { DescriptionItem, DescriptionList } from '@/components/shared/DescriptionList';
 import { InlineEditField } from '@/components/shared/InlineEditField';
@@ -505,36 +506,38 @@ export default function AssetDetailPage() {
         onValueChange={(v) => setParam('tab', v === 'playback' ? null : v)}
         className="mt-10"
       >
-        <div className="-mx-4 scroll-px-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-          <TabsList
-            aria-label="Video sections"
-            // a tab half outside the strip scrolls into view when it takes focus
-            onFocus={(e) => e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
-          >
-            {ready && (
-              <>
-                <TabsTrigger value="playback">
-                  Playback IDs
-                  {playbackIds.data && (
-                    <span className="text-muted-foreground tabular-nums">
-                      ({playbackIds.data.length})
-                    </span>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="storage">Storage on Sia</TabsTrigger>
-                <TabsTrigger value="renditions">
-                  Renditions
-                  {renditions.data && (
-                    <span className="text-muted-foreground tabular-nums">
-                      ({renditions.data.data.length})
-                    </span>
-                  )}
-                </TabsTrigger>
-              </>
-            )}
-            <TabsTrigger value="activity">Activity</TabsTrigger>
-          </TabsList>
-        </div>
+        <ScrollFade>
+          <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+            <TabsList
+              aria-label="Video sections"
+              // a tab half outside the strip scrolls into view when it takes focus
+              onFocus={(e) => e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
+            >
+              {ready && (
+                <>
+                  <TabsTrigger value="playback">
+                    Playback IDs
+                    {playbackIds.data && (
+                      <span className="text-muted-foreground tabular-nums">
+                        ({playbackIds.data.length})
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="storage">Storage on Sia</TabsTrigger>
+                  <TabsTrigger value="renditions">
+                    Renditions
+                    {renditions.data && (
+                      <span className="text-muted-foreground tabular-nums">
+                        ({renditions.data.data.length})
+                      </span>
+                    )}
+                  </TabsTrigger>
+                </>
+              )}
+              <TabsTrigger value="activity">Activity</TabsTrigger>
+            </TabsList>
+          </div>
+        </ScrollFade>
         {ready && (
           <>
             <TabsContent value="playback" className="mt-4">

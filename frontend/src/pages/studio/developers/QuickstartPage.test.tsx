@@ -95,6 +95,12 @@ describe('Quickstart', () => {
     );
   });
 
+  it('fades the side of the snippet tabs that runs past a phone', () => {
+    render();
+    const snippets = screen.getByRole('tablist', { name: 'Snippets' });
+    expect(snippets.closest('[data-slot="scroll-fade"]')).not.toBeNull();
+  });
+
   it('names the snippet and language tab lists (A11Y-36)', async () => {
     render();
     const snippets = screen.getByRole('tablist', { name: 'Snippets' });
