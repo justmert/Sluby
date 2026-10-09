@@ -42,12 +42,19 @@ export type SignInFailure =
 /**
  * Send the browser back to the Studio with the failure in the query, so it
  * can explain it on its own sign-in screen. `handle` is the provider login
- * that was refused; the Studio must show it as text, never as markup.
+ * that was refused; the Studio must show it as text, never as markup. When
+ * the handshake survived, `next` is where the sign-in started, so trying
+ * again from that screen still lands on the page the person wanted.
  */
-function signInFailed(res: Response, code: SignInFailure, handle?: string): void {
-  const query = new URLSearchParams({ signin_error: code });
-  if (handle !== undefined) query.set('handle', handle);
-  res.set('Cache-Control', 'no-store').redirect(`${DEFAULT_LANDING}?${query.toString()}`);
+function signInFailed(
+  res: Response,
+  code: SignInFailure,
+  opts: { handle?: string; next?: string } = {},
+): void {
+  const url = new URL(safeRedirectPath(opts.next), env.PUBLIC_URL);
+  url.searchParams.set('signin_error', code);
+  if (opts.handle !== undefined) url.searchParams.set('handle', opts.handle);
+  res.set('Cache-Control', 'no-store').redirect(`${url.pathname}${url.search}${url.hash}`);
 }
 
 /**
@@ -291,7 +298,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
           { provider: provider.id, subject: profile.subject, username: profile.username },
           'Sign-in refused by the allowlist',
         );
-        signInFailed(res, 'not_allowed', profile.username);
+        signInFailed(res, 'not_allowed', { handle: profile.username, next: handshake.next });
         return;
       }
 
@@ -315,11 +322,13 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
         if (e.reason !== 'cancelled') {
           logger.warn({ err: e, provider: provider.id }, 'Sign-in did not complete');
         }
-        signInFailed(res, e.reason === 'cancelled' ? 'cancelled' : 'provider_failed');
+        signInFailed(res, e.reason === 'cancelled' ? 'cancelled' : 'provider_failed', {
+          next: handshake.next,
+        });
         return;
       }
       logger.error({ err: e, provider: provider.id }, 'Sign-in callback failed');
-      signInFailed(res, 'provider_failed');
+      signInFailed(res, 'provider_failed', { next: handshake.next });
     }
   });
 

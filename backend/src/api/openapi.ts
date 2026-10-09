@@ -1253,8 +1253,9 @@ export const openapiDocument = {
           'Browser-facing: every outcome is a redirect into the Studio. Accepted only from the ' +
           'browser that started the sign-in: the `state` must match the `sluby_signin` cookie set ' +
           "by the login route, within ten minutes. The account is the provider's stable id " +
-          '(GitHub: the numeric account id), never the login. A failure redirects to ' +
-          '`/studio?signin_error=<code>`: `expired_handshake` (expired, or started in another ' +
+          '(GitHub: the numeric account id), never the login. A failure redirects to the ' +
+          'page the sign-in started from (or `/studio` once the handshake is lost) with ' +
+          '`signin_error=<code>` added: `expired_handshake` (expired, or started in another ' +
           'browser), `not_allowed` (with `&handle=<login>`, the account is not on the allowlist), ' +
           '`cancelled` (the person declined at the provider), `provider_failed` (the provider ' +
           'refused the code or could not be reached) or `not_configured`.',
@@ -1272,7 +1273,7 @@ export const openapiDocument = {
           '302': {
             description:
               'Signed in (redirect to `next` with a session cookie), or failed (redirect to ' +
-              '`/studio?signin_error=<code>`).',
+              '`next`, or `/studio`, with `signin_error=<code>`).',
           },
           '404': errorWith('No such sign-in provider.'),
         },

@@ -425,6 +425,20 @@ describe('GET /auth/github/callback', () => {
     expectSignInError(res, 'cancelled');
   });
 
+  it('sends a failed sign-in back to the page it started from, query and hash kept', async () => {
+    const { state, cookie } = await startLogin('/studio/videos/abc?view=grid#share');
+    const res = await request(app())
+      .get('/api/v1/auth/github/callback')
+      .query({ error: 'access_denied', state })
+      .set('Cookie', cookie);
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.location, 'https://sluby.test');
+    expect(location.pathname).toBe('/studio/videos/abc');
+    expect(location.searchParams.get('view')).toBe('grid');
+    expect(location.searchParams.get('signin_error')).toBe('cancelled');
+    expect(location.hash).toBe('#share');
+  });
+
   it('sends the browser back with not_configured when github oauth is not configured', async () => {
     env.GITHUB_CLIENT_SECRET = undefined;
     const res = await request(app())
