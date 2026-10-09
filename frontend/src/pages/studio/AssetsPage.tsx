@@ -659,8 +659,8 @@ export default function AssetsPage() {
     </label>
   );
 
-  // the stale-uploads line sits above the results; waiting for its count
-  // (asked at the same time) keeps it from pushing loaded rows down
+  // the stale-uploads line sits under the results; waiting for its count
+  // (asked at the same time) keeps it from pushing the page links down
   const results =
     list.isLoading || stale.isPending ? (
       p.view === 'grid' ? (
@@ -942,9 +942,10 @@ export default function AssetsPage() {
           openPreview(asset);
         }}
       >
-        {/* inside the results box, so its arrival does not move the box (CLS) */}
+        {results}
+        {/* under the results, so its arrival never pushes the table down */}
         {!list.isLoading && (stale.data ?? 0) > 0 && p.status !== 'created' && (
-          <p className="mb-3 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+          <p className="mt-3 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
             {stale.data === 1
               ? '1 upload never started.'
               : `${formatCount(stale.data!)} uploads never started.`}
@@ -958,7 +959,6 @@ export default function AssetsPage() {
             </Button>
           </p>
         )}
-        {results}
       </div>
 
       {(total > PAGE_SIZE || p.page > 1) && !pastTheEnd && !list.isLoading && (

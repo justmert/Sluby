@@ -505,6 +505,14 @@ describe('AssetsPage: search and history', () => {
     expect(where()).toBe('');
   });
 
+  it('says it under the videos, so the line arriving never pushes the table down', async () => {
+    library([bunny, asset('s1', 'Abandoned', 'created', { created_at: OLD })]);
+    renderLibrary();
+    const line = await screen.findByText('1 upload never started.');
+    const table = screen.getByRole('table', { name: /Videos/ });
+    expect(table.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('counts uploads that never started and filters to them', async () => {
     const stale = asset('s1', 'Abandoned', 'created', { created_at: OLD });
     library([bunny, stale]);
