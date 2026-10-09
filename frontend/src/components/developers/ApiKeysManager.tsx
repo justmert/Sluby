@@ -114,6 +114,7 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
       cell: (k) => (
         <InlineEditField
           label={`name of ${k.name}`}
+          className="w-full min-w-40"
           value={k.name}
           maxLength={KEY_NAME_MAX}
           requiredMessage="Enter a name."

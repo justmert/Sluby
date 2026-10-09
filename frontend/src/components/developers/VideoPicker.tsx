@@ -82,10 +82,14 @@ export function VideoPicker({
         >
           <SelectValue />
         </SelectTrigger>
-        <SelectContent>
+        {/* a list under the field, as wide as it, so long titles truncate instead of running off a phone */}
+        <SelectContent
+          position="popper"
+          className="w-(--radix-select-trigger-width) max-w-[calc(100vw-2rem)]"
+        >
           {videos.map((v) => (
             <SelectItem key={v.id} value={v.id}>
-              <span dir="auto" className="truncate">
+              <span dir="auto" className="block min-w-0 truncate">
                 {v.title || 'Untitled video'}
               </span>
             </SelectItem>
