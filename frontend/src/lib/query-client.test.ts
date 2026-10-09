@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NotFoundError, RateLimitError } from '@sluby/sdk';
-import { ApiError } from './api-client';
+import { NotFoundError, RateLimitError, TimeoutError } from '@sluby/sdk';
+import { ApiError, RequestTimeoutError } from './api-client';
 import { createQueryClient, retryDelay } from './query-client';
 import { onUnauthorized } from './session-events';
 
@@ -27,6 +27,11 @@ describe('the studio query client', () => {
   it('retries a 5xx or a network failure once', async () => {
     expect(await attempts(new ApiError(502, 'HTTP 502'))).toBe(2);
     expect(await attempts(new TypeError('Failed to fetch'))).toBe(2);
+  });
+
+  it('does not retry a timeout, so its message shows after one 15 s wait instead of two', async () => {
+    expect(await attempts(new RequestTimeoutError(15_000))).toBe(1);
+    expect(await attempts(new TimeoutError('Request timed out after 15000 ms'))).toBe(1);
   });
 
   it('retries a 429 once, but not when the wait is long', async () => {

@@ -1,5 +1,6 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 import { retryAfterOf, statusOf } from './api-client';
+import { isTimeout } from './errors';
 import { sessionEndReasonOf } from './session';
 import { reportUnauthorized } from './session-events';
 
@@ -7,9 +8,12 @@ function onError(err: unknown) {
   if (statusOf(err) === 401) reportUnauthorized(sessionEndReasonOf(err));
 }
 
-// a 4xx answer will not change on a second try; a 5xx, a timeout or a network
-// error might. a 429 is worth one more try once the server's wait is over.
+// a 4xx answer will not change on a second try; a 5xx or a network error
+// might. a 429 is worth one more try once the server's wait is over. a
+// timeout is not retried: a second 15 s wait would put the timeout message
+// at 31 s, twice the budget people were promised
 export function retry(failureCount: number, err: unknown): boolean {
+  if (isTimeout(err)) return false;
   const status = statusOf(err);
   if (status === 429) return failureCount < 1 && (retryAfterOf(err) ?? 0) <= 30;
   if (status !== undefined && status >= 400 && status < 500) return false;

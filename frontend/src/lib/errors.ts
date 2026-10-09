@@ -146,7 +146,8 @@ function known(message: string | undefined): string | undefined {
 }
 
 const isAbort = (err: unknown) => err instanceof Error && err.name === 'AbortError';
-const isTimeout = (err: unknown) =>
+/** No answer in time: apiClient's own timeout, the sdk's, or an AbortSignal.timeout. */
+export const isTimeout = (err: unknown) =>
   err instanceof RequestTimeoutError || (err instanceof Error && err.name === 'TimeoutError');
 // fetch rejects with a TypeError when there is no response at all
 const isNetwork = (err: unknown) =>
