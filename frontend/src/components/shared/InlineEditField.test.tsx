@@ -124,6 +124,28 @@ describe('InlineEditField', () => {
     expect(screen.getByRole('textbox')).toHaveValue('Mine');
   });
 
+  it('puts focus back in the field when the error settles into a note', async () => {
+    const onSave = vi.fn().mockRejectedValue(new ApiError(412, 'changed'));
+    renderWithMotion(
+      <InlineEditField
+        label="title"
+        value="Old"
+        onSave={onSave}
+        renderError={(_err, { settle }) => (
+          <button type="button" onClick={() => settle('Reloaded.')}>
+            Reload
+          </button>
+        )}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+    await userEvent.type(screen.getByRole('textbox'), ' and mine{Enter}');
+    await userEvent.click(await screen.findByRole('button', { name: 'Reload' }));
+    expect(screen.getByText('Reloaded.')).toBeInTheDocument();
+    // the button that had focus is gone; the field takes it, not the page
+    expect(screen.getByRole('textbox')).toHaveFocus();
+  });
+
   it('counts characters once the text nears the limit', async () => {
     renderWithMotion(
       <InlineEditField

@@ -118,6 +118,9 @@ export function InlineEditField({
   // after Enter or Escape, focus goes back to the control that opened the field
   const trigger = useRef<HTMLButtonElement>(null);
   const refocus = useRef(false);
+  const field = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  // the error's own button (Reload) had focus and is gone with the error
+  const focusField = useRef(false);
   useEffect(() => {
     // with `display` the button only comes back once the save has settled
     if (!editing && refocus.current && trigger.current) {
@@ -145,9 +148,20 @@ export function InlineEditField({
   };
 
   const settle = (next: ReactNode) => {
+    focusField.current = true;
     setError(null);
     setNote(next);
   };
+
+  useEffect(() => {
+    if (!focusField.current || error !== null) return;
+    focusField.current = false;
+    const el = field.current;
+    if (!el) return;
+    el.focus();
+    // keep what was typed, with the caret at its end, rather than selected
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [error, note]);
 
   const commit = async () => {
     if (cancelled.current) return;
@@ -202,6 +216,9 @@ export function InlineEditField({
         value: draft,
         placeholder,
         maxLength,
+        ref: (el: HTMLInputElement | HTMLTextAreaElement | null) => {
+          field.current = el;
+        },
         autoFocus: true,
         onFocus: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) =>
           e.currentTarget.select(),
