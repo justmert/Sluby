@@ -48,6 +48,11 @@ export function ChartCard({
   );
 }
 
+/** Where the throughput chart's now and peak line goes, held empty until there is one. */
+export function ThroughputFigureSlot() {
+  return <div data-slot="throughput-figure" aria-hidden="true" className="mb-3 h-5" />;
+}
+
 /** A chart's box while it loads, at the chart's own height. */
 export function ChartLoading({ height = SERVER_CHART }: { height?: string }) {
   return <Skeleton className={cn(height, 'w-full', lateSkeleton)} />;
@@ -179,6 +184,7 @@ export function AnalyticsLoading(_: { operator?: boolean }) {
       <ServerStats />
       <div className={ANALYTICS.charts}>
         <ChartCard {...THROUGHPUT_COPY}>
+          <ThroughputFigureSlot />
           <ChartLoading />
         </ChartCard>
         <ChartCard {...RESPONSES_COPY}>

@@ -132,15 +132,24 @@ describe('MetricsPage', () => {
     expect(container.querySelectorAll('[data-slot="skeleton"].h-56')).toHaveLength(2);
   });
 
-  it('collapses empty charts to a small box with a sentence instead of bare axes', async () => {
+  it('collapses an empty requests chart to a small box with a sentence instead of bare axes', async () => {
     const { container } = render();
     expect(await screen.findByText('Nothing streamed yet')).toBeInTheDocument();
-    expect(screen.getByText('Collecting samples')).toBeInTheDocument();
+    const requests = screen.getByText('Streaming requests').closest('[data-slot="card"]')!;
+    expect(requests.querySelector('.min-h-40')).not.toBeNull();
+    expect(container.querySelector('.recharts-cartesian-axis')).toBeNull();
+  });
+
+  it('holds the drawn throughput chart’s boxes while it collects its first samples, so nothing grows seconds later', async () => {
+    render();
+    const collecting = await screen.findByText('Collecting samples');
+    const card = screen.getByText('Streaming throughput').closest('[data-slot="card"]')!;
+    // the chart's own height, and a line where the now and peak figure goes
+    expect(collecting.closest('.h-56')).not.toBeNull();
+    expect(card.querySelector('[data-slot="throughput-figure"]')).not.toBeNull();
+    expect(card.querySelector('.min-h-40')).toBeNull();
     // no figure for a line that is not drawn yet
     expect(screen.queryByText(/^Now/)).not.toBeInTheDocument();
-    expect(container.querySelector('.recharts-cartesian-axis')).toBeNull();
-    expect(container.querySelectorAll('.min-h-40')).toHaveLength(2);
-    expect(container.querySelector('.h-56')).toBeNull();
   });
 
   it('draws the requests as an image that says its numbers, with labels on the bars', async () => {

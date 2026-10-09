@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from 'recharts';
 import { BarChart3 } from 'lucide-react';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
-import { ChartCard, ChartLoading, ServerStats } from '@/components/dashboard/analytics-parts';
+import {
+  ChartCard,
+  ChartLoading,
+  ServerStats,
+  ThroughputFigureSlot,
+} from '@/components/dashboard/analytics-parts';
 import {
   ANALYTICS,
   EMPTY_CHART,
@@ -75,15 +80,17 @@ function ThroughputChart({ rates }: { rates: RatePoint[] }) {
   // the line draws in once; after that each new sample just lands, since a
   // sliding window morphing point by point reads as the data wobbling
   const motion = useChartMotion('drawn');
-  // a line needs two rates; one alone is a dot on a made-up scale
+  // a line needs two rates; one alone is a dot on a made-up scale. the
+  // first two come within seconds, so this is loading, not an empty chart:
+  // it keeps the chart's height, and nothing grows when the line lands
   if (rates.length < 2) {
     return (
-      <ChartPending>
+      <div className={cn('grid w-full place-items-center', SERVER_CHART)}>
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner aria-hidden="true" />
           Collecting samples
         </p>
-      </ChartPending>
+      </div>
     );
   }
   const { now, peak } = throughputSummary(rates)!;
@@ -205,9 +212,10 @@ function RequestsChart({ m }: { m: MetricsSnapshot }) {
 function ThroughputFigure({ rates }: { rates: RatePoint[] }) {
   // with fewer than two rates the chart still says it is collecting samples
   const s = rates.length >= 2 ? throughputSummary(rates) : null;
-  if (!s) return null;
+  // the figure's line waits empty, so the chart below does not move down
+  if (!s) return <ThroughputFigureSlot />;
   return (
-    <p className="mb-3 text-sm text-muted-foreground tabular-nums">
+    <p data-slot="throughput-figure" className="mb-3 text-sm text-muted-foreground tabular-nums">
       Now <span className="font-medium text-foreground">{rate(s.now)}</span>, peak {rate(s.peak)}
     </p>
   );
@@ -254,7 +262,7 @@ export default function MetricsPage() {
             <ServerStats m={m} stagger={stagger} />
             <div className={ANALYTICS.charts}>
               <ChartCard {...THROUGHPUT_COPY}>
-                {m && <ThroughputFigure rates={metrics.rates} />}
+                {m ? <ThroughputFigure rates={metrics.rates} /> : <ThroughputFigureSlot />}
                 <FadeSwap swapKey={m ? 'ready' : 'loading'}>
                   {m ? <ThroughputChart rates={metrics.rates} /> : <ChartLoading />}
                 </FadeSwap>
