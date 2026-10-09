@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ACCESS_FILTERS, ALL, STATUS_FILTERS } from './filters';
+import { mainLandmark } from '@/components/shared/main-landmark';
 
 export interface FilterPopoverProps {
   status: VideoAssetStatus | undefined;
@@ -39,7 +40,9 @@ export function FilterPopover({
 }: FilterPopoverProps) {
   const applied = (status ? 1 : 0) + (tier ? 1 : 0);
   return (
-    <DropdownMenu>
+    // not modal: a modal menu hides the rest of the page from screen readers
+    // with aria-hidden while its controls stay focusable (axe aria-hidden-focus)
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
@@ -56,7 +59,7 @@ export function FilterPopover({
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent container={mainLandmark()} align="start" className="w-56">
         <DropdownMenuLabel>Status</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={status ?? ALL}

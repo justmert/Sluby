@@ -34,6 +34,7 @@ function DropdownMenuContent({
   align = 'start',
   sideOffset = 4,
   portal = true,
+  container,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
   /**
@@ -42,8 +43,10 @@ function DropdownMenuContent({
    * bar's banner) for screen readers
    */
   portal?: boolean;
+  /** where the menu mounts; the shell's overlay root by default */
+  container?: HTMLElement | null;
 }) {
-  const container = usePortalContainer();
+  const defaultContainer = usePortalContainer();
   const content = (
     <DropdownMenuPrimitive.Content
       data-slot="dropdown-menu-content"
@@ -57,7 +60,9 @@ function DropdownMenuContent({
     />
   );
   return portal ? (
-    <DropdownMenuPrimitive.Portal container={container}>{content}</DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.Portal container={container ?? defaultContainer}>
+      {content}
+    </DropdownMenuPrimitive.Portal>
   ) : (
     content
   );

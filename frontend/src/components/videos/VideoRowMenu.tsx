@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { mainLandmark } from '@/components/shared/main-landmark';
 
 /**
  * A video's actions as a menu, for the grid cards; the table draws the same
@@ -28,7 +29,9 @@ export function VideoRowMenu({
   const normal = actions.filter((a) => !a.destructive);
   const danger = actions.filter((a) => a.destructive);
   return (
-    <DropdownMenu>
+    // not modal: a modal menu hides the rest of the page from screen readers
+    // with aria-hidden while its controls stay focusable (axe aria-hidden-focus)
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
@@ -39,7 +42,7 @@ export function VideoRowMenu({
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-auto min-w-44">
+      <DropdownMenuContent container={mainLandmark()} align="end" className="w-auto min-w-44">
         {normal.map((a) => (
           <DropdownMenuItem key={a.label} onSelect={a.onSelect} disabled={a.disabled}>
             <a.icon aria-hidden="true" />

@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, ChevronsUpDown, MoreHorizontal, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -17,6 +17,7 @@ import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { InlineError } from './InlineError';
 import { selectRange } from './select-range';
+import { mainLandmark } from './main-landmark';
 
 export type SortDirection = 'asc' | 'desc';
 export interface SortState {
@@ -159,13 +160,15 @@ function RowMenu({ actions, label }: { actions: RowAction[]; label: string }) {
   const normal = actions.filter((a) => !a.destructive);
   const danger = actions.filter((a) => a.destructive);
   return (
-    <DropdownMenu>
+    // not modal: a modal menu hides the rest of the page from screen readers
+    // with aria-hidden while its controls stay focusable (axe aria-hidden-focus)
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${label}`}>
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-auto min-w-44">
+      <DropdownMenuContent container={mainLandmark()} align="end" className="w-auto min-w-44">
         {normal.map((a) => (
           <DropdownMenuItem key={a.label} onSelect={a.onSelect} disabled={a.disabled}>
             <a.icon aria-hidden="true" />
@@ -266,6 +269,19 @@ export function DataTable<T>({
     anchor.current = id;
     shift.current = false;
   };
+  // as cards (narrower than 40rem) the header leaves the screen but stays
+  // for screen readers: plain words there, not controls nobody can see or
+  // reach, so every column keeps a name (axe empty-table-header)
+  const box = useRef<HTMLDivElement>(null);
+  const [cards, setCards] = useState(false);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const observer = new ResizeObserver(([entry]) => setCards(entry.contentRect.width < 40 * rem));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const colClass = (c: DataTableColumn<T>) => c.hideBelow && BREAKPOINT[c.hideBelow];
   // rows present at mount stay put unless asked to stagger in; later ones
   // (a poll that brings a new row) fade in
@@ -292,7 +308,7 @@ export function DataTable<T>({
       {failed ? (
         <InlineError error={error} what={what} onRetry={onRetry} retrying={retrying} />
       ) : (
-        <div className="@container/table overflow-hidden rounded-xl border bg-card">
+        <div ref={box} className="@container/table overflow-hidden rounded-xl border bg-card">
           <ResponsiveTable
             data-responsive="container"
             aria-label={caption}
@@ -303,12 +319,16 @@ export function DataTable<T>({
               <TableRow>
                 {selectable && (
                   <TableHead className="w-10 pl-4">
-                    <Checkbox
-                      checked={allState}
-                      onCheckedChange={toggleAll}
-                      disabled={!rows || rows.length === 0}
-                      aria-label="Select all on this page"
-                    />
+                    {cards ? (
+                      <span className="sr-only">Select</span>
+                    ) : (
+                      <Checkbox
+                        checked={allState}
+                        onCheckedChange={toggleAll}
+                        disabled={!rows || rows.length === 0}
+                        aria-label="Select all on this page"
+                      />
+                    )}
                   </TableHead>
                 )}
                 {columns.map((c, i) => (
@@ -329,7 +349,7 @@ export function DataTable<T>({
                       c.className,
                     )}
                   >
-                    {c.sortable && onSortChange ? (
+                    {c.sortable && onSortChange && !cards ? (
                       <SortHeader column={c} sort={sort} onSortChange={onSortChange} />
                     ) : (
                       c.header
