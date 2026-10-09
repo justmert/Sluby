@@ -135,22 +135,28 @@ function Analytics() {
   );
 }
 
+// account, signed-in browsers and appearance, each a heading over a card
 function Settings() {
+  const { authDisabled } = useSession();
+  const section = (height: string) => (
+    <div>
+      <Skeleton className="mb-3 h-6 w-36" />
+      <Skeleton className={`${height} ${card}`} />
+    </div>
+  );
   return (
     <>
       <Header />
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Skeleton className={`h-[320px] lg:col-span-2 ${card}`} />
-        <div className="flex flex-col gap-4">
-          <Skeleton className={`h-[128px] ${card}`} />
-          <Skeleton className={`h-[296px] ${card}`} />
-        </div>
+      <div className="flex flex-col gap-10">
+        {section(authDisabled ? 'h-[178px]' : 'h-[198px]')}
+        {!authDisabled && section('h-[150px]')}
+        {section('h-[66px]')}
       </div>
     </>
   );
 }
 
-const SKELETONS: Array<[RegExp, () => React.ReactNode]> = [
+const SKELETONS: Array<[RegExp, () => React.ReactNode, string?]> = [
   [/^\/studio\/?$/, Dashboard],
   [/^\/studio\/videos\/?$/, Assets],
   [/^\/studio\/videos\/[^/]+\/?$/, AssetDetail],
@@ -160,7 +166,8 @@ const SKELETONS: Array<[RegExp, () => React.ReactNode]> = [
   [/^\/studio\/developers\/explorer\/?$/, Explorer],
   [/^\/studio\/deployment\/?$/, Health],
   [/^\/studio\/deployment\/metrics\/?$/, Analytics],
-  [/^\/studio\/settings\/?$/, Settings],
+  // settings is one narrow column (SettingsPage)
+  [/^\/studio\/settings\/?$/, Settings, 'max-w-3xl'],
 ];
 
 /**
@@ -170,14 +177,14 @@ const SKELETONS: Array<[RegExp, () => React.ReactNode]> = [
  */
 export function RouteFallback() {
   const { pathname } = useLocation();
-  const Shape = SKELETONS.find(([pattern]) => pattern.test(pathname))?.[1];
+  const [, Shape, width] = SKELETONS.find(([pattern]) => pattern.test(pathname)) ?? [];
   return (
     <div data-slot="route-fallback" aria-busy="true" className={lateReveal}>
       <span className="sr-only" role="status">
         Loading page
       </span>
       {Shape && (
-        <PageContainer>
+        <PageContainer className={width}>
           <Shape />
         </PageContainer>
       )}

@@ -65,4 +65,17 @@ describe('RouteFallback', () => {
   it('waits before fading in, so a fast load never flashes it', () => {
     expect(shapeAt('/studio/settings')).toHaveClass('delay-150', 'fill-mode-backwards');
   });
+
+  it('draws settings as its one narrow column of three sections, two with sign-in off', () => {
+    const on = shapeAt('/studio/settings');
+    expect(on.querySelector('[data-slot="page-container"]')).toHaveClass('max-w-3xl');
+    expect(on.querySelectorAll('.rounded-xl')).toHaveLength(3);
+    const view = renderPage(
+      <WithSession authDisabled>
+        <RouteFallback />
+      </WithSession>,
+      { route: '/studio/settings' },
+    );
+    expect(view.container.querySelectorAll('.rounded-xl')).toHaveLength(2);
+  });
 });
