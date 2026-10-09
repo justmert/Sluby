@@ -1,4 +1,5 @@
 import { OptionList } from './OptionList';
+import type { WebhookEventName } from '@/hooks/useWebhooks';
 import { WEBHOOK_EVENTS } from './options';
 
 /** The webhook events as checkboxes, for adding a webhook and editing one. */
@@ -11,8 +12,8 @@ export function EventsEditor({
   hideLegend,
   className,
 }: {
-  value: string[];
-  onChange: (next: string[]) => void;
+  value: WebhookEventName[];
+  onChange: (next: WebhookEventName[]) => void;
   error?: string | null;
   disabled?: boolean;
   idPrefix?: string;

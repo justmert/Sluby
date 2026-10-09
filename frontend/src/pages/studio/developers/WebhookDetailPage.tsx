@@ -38,6 +38,7 @@ import {
   useUpdateWebhook,
   useWebhook,
   webhookLabel,
+  type WebhookEventName,
   type WebhookRecord,
 } from '@/hooks/useWebhooks';
 import { statusOf } from '@/lib/api-client';
@@ -59,7 +60,7 @@ const sameEvents = (a: string[], b: string[]) =>
 /** The events the webhook gets, editable; Save changes appears once they differ. */
 function EventsCard({ hook }: { hook: WebhookRecord }) {
   const update = useUpdateWebhook();
-  const [draft, setDraft] = useState<string[] | null>(null);
+  const [draft, setDraft] = useState<WebhookEventName[] | null>(null);
   const events = draft ?? hook.events;
   const dirty = draft !== null && !sameEvents(draft, hook.events);
   const error = draft !== null && draft.length === 0 ? 'Choose at least one event.' : null;
@@ -180,13 +181,11 @@ export default function WebhookDetailPage() {
         title={label}
         meta={
           <>
-            <StatusBadge kind="webhook" status={hook.is_active ? 'active' : 'inactive'} />
-            <span>Added {formatDate(hook.created_at)}</span>
-            {hook.last_delivery_at !== undefined && (
-              <span className="inline-flex items-center gap-1.5">
-                Last delivery <LastDelivery hook={hook} />
-              </span>
-            )}
+            <StatusBadge kind="webhook" status={hook.isActive ? 'active' : 'inactive'} />
+            <span>Added {formatDate(hook.createdAt)}</span>
+            <span className="inline-flex items-center gap-1.5">
+              Last delivery <LastDelivery hook={hook} />
+            </span>
           </>
         }
         secondaryActions={
@@ -206,14 +205,14 @@ export default function WebhookDetailPage() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => void actions.setActive(hook, !hook.is_active)}
+              onClick={() => void actions.setActive(hook, !hook.isActive)}
               disabled={actions.updating === hook.id}
               aria-busy={actions.updating === hook.id || undefined}
             >
               {actions.updating === hook.id ? (
                 <Spinner data-icon="inline-start" aria-hidden="true" />
               ) : (
-                <PauseIcon active={hook.is_active} />
+                <PauseIcon active={hook.isActive} />
               )}
               {pauseLabel(hook)}
             </Button>
@@ -261,7 +260,7 @@ export default function WebhookDetailPage() {
       <EventsCard key={hook.events.join()} hook={hook} />
 
       <SectionHeader title="Deliveries" description="The latest attempts, newest first" />
-      <DeliveriesTable webhookId={hook.id} paused={!hook.is_active} />
+      <DeliveriesTable webhookId={hook.id} paused={!hook.isActive} />
 
       <SectionHeader
         title="Verify requests"

@@ -1,70 +1,36 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/lib/api-client';
+import type { ApiKey, ApiKeyPage, ApiKeyScope, CreatedApiKey, RotatedApiKey } from '@sluby/sdk';
+import { sluby } from '@/lib/sluby';
 
-export type KeyScope = 'upload' | 'read' | 'manage';
+export type KeyScope = ApiKeyScope;
+export type ApiKeyRecord = ApiKey;
+/** This server's limits on keys, to check a new key against. */
+export type KeyLimits = ApiKeyPage['limits'];
+/** A key right after creation or rotation: the listing plus its secret, shown once. */
+export type IssuedKey = CreatedApiKey &
+  Partial<Pick<RotatedApiKey, 'rotatedFrom' | 'previousKeyExpiresAt'>>;
 
-export interface ApiKeyRecord {
-  id: string;
-  name: string;
-  scopes: KeyScope[];
-  rate_limit: number;
-  is_active: boolean;
-  created_at: string;
-  /** Set while a rotated-out key is in its grace period. */
-  expires_at: string | null;
-  /**
-   * The key's first 12 characters ("sluby_" and 6 more), null for keys made
-   * before prefixes were stored. B-01: absent until the server has it.
-   */
-  prefix?: string | null;
-  /** When a request last used the key, to the minute; null if never. B-01. */
-  last_used_at?: string | null;
-}
-
-/** This server's limits on keys, to check a new key against. B-08. */
-export interface KeyLimits {
-  max_keys: number;
-  max_rate_limit: number;
-}
-
-/** A key as the server returns it right after creation or rotation: the listing plus its secret. */
-export interface IssuedKey extends ApiKeyRecord {
-  key: string;
-  rotated_from?: string;
-  previous_key_expires_at?: string;
-}
-
-interface KeyPage {
-  data: ApiKeyRecord[];
-  has_more: boolean;
-  next_cursor: string | null;
-  /** B-08: absent until the server has it. */
-  limits?: KeyLimits;
-}
-
-type KeyList = { data: ApiKeyRecord[]; limits?: KeyLimits };
+type KeyList = { data: ApiKeyRecord[]; limits: KeyLimits };
 
 const KEYS = ['api-keys'];
 
 /** Every key of the account, following the cursor until the last page. */
-async function listAllKeys(): Promise<KeyList> {
+async function listAllKeys(signal: AbortSignal): Promise<KeyList> {
   const data: ApiKeyRecord[] = [];
-  let limits: KeyLimits | undefined;
-  let cursor: string | null = null;
-  do {
-    const query: string = cursor ? `?${new URLSearchParams({ cursor })}` : '';
-    const page: KeyPage = await apiClient.get<KeyPage>(`/keys${query}`);
+  let page = await sluby.keys.list({ signal });
+  data.push(...page.data);
+  const { limits } = page;
+  while (page.hasMore && page.nextCursor) {
+    page = await sluby.keys.list({ cursor: page.nextCursor, signal });
     data.push(...page.data);
-    limits ??= page.limits;
-    cursor = page.has_more ? page.next_cursor : null;
-  } while (cursor);
-  return limits ? { data, limits } : { data };
+  }
+  return { data, limits };
 }
 
 export function useApiKeys() {
   return useQuery({
     queryKey: KEYS,
-    queryFn: listAllKeys,
+    queryFn: ({ signal }) => listAllKeys(signal),
     // a rotated key drops off the list when its grace period ends
     refetchInterval: 60_000,
   });
@@ -72,18 +38,17 @@ export function useApiKeys() {
 
 /** The listing part of an issued key: the secret must never reach the query cache. */
 function listed(k: IssuedKey): ApiKeyRecord {
-  const row: ApiKeyRecord = {
+  return {
     id: k.id,
     name: k.name,
     scopes: k.scopes,
-    rate_limit: k.rate_limit,
-    is_active: k.is_active,
-    created_at: k.created_at,
-    expires_at: k.expires_at,
+    rateLimit: k.rateLimit,
+    isActive: k.isActive,
+    createdAt: k.createdAt,
+    expiresAt: k.expiresAt,
+    prefix: k.prefix,
+    lastUsedAt: k.lastUsedAt,
   };
-  if (k.prefix !== undefined) row.prefix = k.prefix;
-  if (k.last_used_at !== undefined) row.last_used_at = k.last_used_at;
-  return row;
 }
 
 function editKeys(qc: QueryClient, edit: (rows: ApiKeyRecord[]) => ApiKeyRecord[]) {
@@ -93,13 +58,13 @@ function editKeys(qc: QueryClient, edit: (rows: ApiKeyRecord[]) => ApiKeyRecord[
 // the issued secret is handed to the dialog once; the mutation must not keep it
 const secretMutation = { gcTime: 0 } as const;
 
-type CreateBody = { name: string; scopes: KeyScope[]; rate_limit: number };
+type CreateBody = { name: string; scopes: KeyScope[]; rateLimit: number };
 
 export function useCreateApiKey() {
   const qc = useQueryClient();
   return useMutation({
     ...secretMutation,
-    mutationFn: (body: CreateBody) => apiClient.post<IssuedKey>('/keys', body),
+    mutationFn: (body: CreateBody): Promise<IssuedKey> => sluby.keys.create(body),
     // the row goes in once the server made the key, never before: a refused
     // key would otherwise flash into the list and out again behind the dialog
     onSuccess: (issued) =>
@@ -112,8 +77,8 @@ export function useRotateApiKey() {
   const qc = useQueryClient();
   return useMutation({
     ...secretMutation,
-    mutationFn: ({ id, graceSeconds }: { id: string; graceSeconds: number }) =>
-      apiClient.post<IssuedKey>(`/keys/${id}/rotate`, { grace_period_seconds: graceSeconds }),
+    mutationFn: ({ id, graceSeconds }: { id: string; graceSeconds: number }): Promise<IssuedKey> =>
+      sluby.keys.rotate(id, { gracePeriodSeconds: graceSeconds }),
     // show the new key and the old one's deadline now, the refetch confirms it
     onSuccess: (issued, { id, graceSeconds }) =>
       editKeys(qc, (rows) => [
@@ -121,7 +86,7 @@ export function useRotateApiKey() {
         ...rows.flatMap((r) => {
           if (r.id !== id) return [r];
           if (graceSeconds === 0) return [];
-          return [{ ...r, expires_at: issued.previous_key_expires_at ?? r.expires_at }];
+          return [{ ...r, expiresAt: issued.previousKeyExpiresAt ?? r.expiresAt }];
         }),
       ]),
     onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
@@ -132,8 +97,7 @@ export function useRotateApiKey() {
 export function useRenameApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) =>
-      apiClient.patch<ApiKeyRecord>(`/keys/${id}`, { name }),
+    mutationFn: ({ id, name }: { id: string; name: string }) => sluby.keys.update(id, { name }),
     onSuccess: (updated) =>
       editKeys(qc, (rows) => rows.map((r) => (r.id === updated.id ? { ...r, ...updated } : r))),
     onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
@@ -147,11 +111,11 @@ export function useRenameApiKey() {
 export function useRevokeApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiClient.delete<{ success: boolean }>(`/keys/${id}`),
+    mutationFn: (id: string) => sluby.keys.revoke(id),
     onSuccess: (_res, id) => editKeys(qc, (rows) => rows.filter((r) => r.id !== id)),
     onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
   });
 }
 
-/** A key the rotation replaced: it works until `expires_at`, then drops off the list. */
-export const isReplaced = (k: ApiKeyRecord) => k.expires_at !== null;
+/** A key the rotation replaced: it works until `expiresAt`, then drops off the list. */
+export const isReplaced = (k: ApiKeyRecord) => k.expiresAt !== null;

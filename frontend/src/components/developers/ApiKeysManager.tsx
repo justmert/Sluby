@@ -51,13 +51,13 @@ const time = (iso: string) =>
   new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
 function revealedKey(issued: IssuedKey, graceSeconds?: number): RevealedSecret {
-  const rotated = issued.rotated_from !== undefined;
+  const rotated = issued.rotatedFrom !== undefined;
   let note: ReactNode;
   if (rotated) {
     note =
-      graceSeconds === 0 || !issued.previous_key_expires_at
+      graceSeconds === 0 || !issued.previousKeyExpiresAt
         ? 'The old key stops working now.'
-        : `The old key keeps working until ${formatDate(issued.previous_key_expires_at)} at ${time(issued.previous_key_expires_at)}.`;
+        : `The old key keeps working until ${formatDate(issued.previousKeyExpiresAt)} at ${time(issued.previousKeyExpiresAt)}.`;
   }
   return {
     title: rotated ? 'API key rotated' : 'API key created',
@@ -82,7 +82,7 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
   const revoke = useRevokeApiKey();
   const rows = keys.data?.data;
   const limits = keys.data?.limits;
-  const atCap = limits !== undefined && rows !== undefined && rows.length >= limits.max_keys;
+  const atCap = limits !== undefined && rows !== undefined && rows.length >= limits.maxKeys;
 
   const [creating, setCreating] = useCreateParam('key');
   const [form, setForm] = useState<KeyForm>(emptyKeyForm);
@@ -166,13 +166,11 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
       header: 'Last used',
       className: 'max-sm:hidden! whitespace-nowrap',
       cell: (k) =>
-        k.last_used_at === undefined ? (
-          <span className="text-muted-foreground">{NO_VALUE}</span>
-        ) : k.last_used_at === null ? (
+        k.lastUsedAt === null ? (
           <span className="text-muted-foreground">Never</span>
         ) : (
-          <time dateTime={k.last_used_at} title={formatDate(k.last_used_at)}>
-            {formatRelativeTime(k.last_used_at)}
+          <time dateTime={k.lastUsedAt} title={formatDate(k.lastUsedAt)}>
+            {formatRelativeTime(k.lastUsedAt)}
           </time>
         ),
     },
@@ -180,7 +178,7 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
       id: 'created',
       header: 'Created',
       className: 'max-xl:hidden! whitespace-nowrap text-muted-foreground',
-      cell: (k) => <time dateTime={k.created_at}>{formatDate(k.created_at)}</time>,
+      cell: (k) => <time dateTime={k.createdAt}>{formatDate(k.createdAt)}</time>,
     },
     {
       id: 'status',
@@ -189,7 +187,7 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
       cell: (k) =>
         isReplaced(k) ? (
           <StatusBadge kind="key" status="replaced">
-            Replaced · Stops {formatTimeLeft(k.expires_at!)}
+            Replaced · Stops {formatTimeLeft(k.expiresAt!)}
           </StatusBadge>
         ) : (
           <StatusBadge kind="key" status="active" />
@@ -211,7 +209,7 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
     </Button>
   );
   const capReason = limits
-    ? `You have ${formatCount(limits.max_keys)} keys, the most allowed. Revoke one to create another.`
+    ? `You have ${formatCount(limits.maxKeys)} keys, the most allowed. Revoke one to create another.`
     : '';
   const primary = atCap ? (
     <Tooltip>
@@ -280,7 +278,7 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
       />
       {limits && rows && rows.length > 0 && (
         <p className="text-xs text-muted-foreground tabular-nums">
-          {formatCount(rows.length)} of {formatCount(limits.max_keys)} keys
+          {formatCount(rows.length)} of {formatCount(limits.maxKeys)} keys
         </p>
       )}
       {atCap && (
@@ -335,7 +333,7 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
               <>
                 {' '}
                 It is the old key from a rotation and stops on its own{' '}
-                {formatTimeLeft(k.expires_at!)}.
+                {formatTimeLeft(k.expiresAt!)}.
               </>
             )}
           </>

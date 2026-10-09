@@ -52,6 +52,7 @@ beforeEach(() => {
       ],
       has_more: false,
       next_cursor: null,
+      limits: { max_keys: 100, max_rate_limit: 10000 },
     },
   };
   fetchStub = jsonFetch(new Proxy({}, { get: (_, k) => routes[k as string] }));
@@ -190,7 +191,12 @@ describe('Quickstart', () => {
     routes['/api/v1/keys'] = reply(502, '<html>Bad Gateway</html>');
     render();
     expect(await screen.findByText('Could not load your API keys.')).toBeInTheDocument();
-    routes['/api/v1/keys'] = { data: [], has_more: false, next_cursor: null };
+    routes['/api/v1/keys'] = {
+      data: [],
+      has_more: false,
+      next_cursor: null,
+      limits: { max_keys: 100, max_rate_limit: 10000 },
+    };
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('No active keys yet')).toBeInTheDocument();
     expect(screen.getByRole('tablist', { name: 'Snippets' })).toBeInTheDocument();

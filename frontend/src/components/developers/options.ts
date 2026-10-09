@@ -1,4 +1,5 @@
 import type { KeyScope } from '@/hooks/useApiKeys';
+import type { WebhookEventName } from '@/hooks/useWebhooks';
 
 // the choices the key and webhook forms offer, with the words people see.
 // scope and event names stay as the api spells them (mono); the details say
@@ -22,7 +23,7 @@ export const GRACE_OPTIONS = [
 ];
 
 /** Every event a webhook can subscribe to, in the order they happen. */
-export const WEBHOOK_EVENTS = [
+export const WEBHOOK_EVENTS: { value: WebhookEventName; detail: string }[] = [
   { value: 'upload.started', detail: 'An upload started' },
   { value: 'upload.completed', detail: 'The file arrived' },
   { value: 'upload.failed', detail: 'The upload could not start processing' },
@@ -31,4 +32,4 @@ export const WEBHOOK_EVENTS = [
   { value: 'asset.errored', detail: 'Processing failed and will not retry' },
 ];
 
-export const DEFAULT_EVENTS = ['asset.ready', 'asset.errored'];
+export const DEFAULT_EVENTS: WebhookEventName[] = ['asset.ready', 'asset.errored'];

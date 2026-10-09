@@ -50,17 +50,15 @@ function DeliveryDetail({
 }) {
   return (
     <div className="flex flex-col gap-3 py-3">
-      {d.payload !== undefined && (
-        <CodeBlock
-          code={JSON.stringify(d.payload, null, 2)}
-          language="json"
-          label={`${d.event} payload`}
-          preClassName="max-h-80"
-        />
-      )}
+      <CodeBlock
+        code={JSON.stringify(d.payload, null, 2)}
+        language="json"
+        label={`${d.event} payload`}
+        preClassName="max-h-80"
+      />
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
         <dt className="text-muted-foreground">Event ID</dt>
-        <dd className="min-w-0 font-mono text-xs leading-5 break-all">{d.event_id ?? '–'}</dd>
+        <dd className="min-w-0 font-mono text-xs leading-5 break-all">{d.eventId ?? '–'}</dd>
         <dt className="text-muted-foreground">Error</dt>
         <dd className={cn('min-w-0 wrap-anywhere', d.error && 'text-destructive')}>
           {d.error ?? 'None'}
@@ -208,7 +206,7 @@ export function DeliveriesTable({ webhookId, paused }: { webhookId: string; paus
                         <ResponsiveCell cell="primary" className="pl-4">
                           {fresh && <ArrivalFlash />}
                           <span className="relative flex flex-wrap items-center gap-1.5">
-                            <HttpStatusBadge code={d.status_code} />
+                            <HttpStatusBadge code={d.statusCode} />
                             {d.manual && <Badge variant="outline">Resent</Badge>}
                           </span>
                         </ResponsiveCell>
@@ -219,8 +217,8 @@ export function DeliveriesTable({ webhookId, paused }: { webhookId: string; paus
                           {d.attempt}
                         </ResponsiveCell>
                         <ResponsiveCell label="Time" className="text-muted-foreground">
-                          <time dateTime={d.created_at} title={fullTime(d.created_at)}>
-                            {formatRelativeTime(d.created_at)}
+                          <time dateTime={d.createdAt} title={fullTime(d.createdAt)}>
+                            {formatRelativeTime(d.createdAt)}
                           </time>
                         </ResponsiveCell>
                         <ResponsiveCell cell="actions" className="pr-4 text-right">
@@ -229,7 +227,7 @@ export function DeliveriesTable({ webhookId, paused }: { webhookId: string; paus
                             size="icon-sm"
                             aria-expanded={isOpen}
                             aria-controls={panelId}
-                            aria-label={`Details for ${d.event}, ${formatRelativeTime(d.created_at)}`}
+                            aria-label={`Details for ${d.event}, ${formatRelativeTime(d.createdAt)}`}
                             onClick={() => toggle(d.id)}
                           >
                             <ChevronDown

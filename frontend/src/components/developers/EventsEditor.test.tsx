@@ -3,10 +3,11 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { renderWithMotion } from '@/test/render';
+import type { WebhookEventName } from '@/hooks/useWebhooks';
 import { EventsEditor } from './EventsEditor';
 
-function Harness({ initial }: { initial: string[] }) {
-  const [value, setValue] = useState(initial);
+function Harness({ initial }: { initial: WebhookEventName[] }) {
+  const [value, setValue] = useState<WebhookEventName[]>(initial);
   return (
     <>
       <EventsEditor

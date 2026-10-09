@@ -20,12 +20,12 @@ export function useWebhookActions() {
     try {
       const result = await test.mutateAsync(hook.id);
       if (result.delivered) {
-        toastSuccess(`Test delivered (your endpoint answered ${result.status_code})`);
+        toastSuccess(`Test delivered (your endpoint answered ${result.statusCode})`);
       } else {
         toastError(
           result.error
             ? `Test not delivered. ${sentence(result.error)}`
-            : `Test not delivered. Your endpoint answered ${result.status_code ?? 'nothing'}`,
+            : `Test not delivered. Your endpoint answered ${result.statusCode ?? 'nothing'}`,
         );
       }
     } catch (err) {
@@ -35,7 +35,7 @@ export function useWebhookActions() {
 
   const setActive = async (hook: WebhookRecord, active: boolean) => {
     try {
-      await update.mutateAsync({ id: hook.id, patch: { is_active: active } });
+      await update.mutateAsync({ id: hook.id, patch: { isActive: active } });
       toastSuccess(active ? 'Webhook resumed' : 'Webhook paused');
     } catch (err) {
       toastError(
@@ -52,8 +52,8 @@ export function useWebhookActions() {
   };
 }
 
-export const pauseIcon = (hook: WebhookRecord) => (hook.is_active ? CirclePause : CirclePlay);
-export const pauseLabel = (hook: WebhookRecord) => (hook.is_active ? 'Pause' : 'Resume');
+export const pauseIcon = (hook: WebhookRecord) => (hook.isActive ? CirclePause : CirclePlay);
+export const pauseLabel = (hook: WebhookRecord) => (hook.isActive ? 'Pause' : 'Resume');
 export const TestIcon = Send;
 
 /** What the secret dialog shows for a new webhook or a rotated signing secret. */

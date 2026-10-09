@@ -9,6 +9,7 @@ import {
   useUpdateWebhook,
   useWebhook,
   useWebhooks,
+  type WebhookRecord,
 } from './useWebhooks';
 
 const hook = {
@@ -45,7 +46,7 @@ describe('useWebhooks hooks', () => {
     const one = renderHook(() => useWebhook('w1'), { wrapper });
     expect(one.result.current.data?.url).toBe('https://a.example/h');
     answer({ ...hook, last_delivery_at: null, last_delivery_ok: null });
-    await waitFor(() => expect(one.result.current.data?.last_delivery_at).toBeNull());
+    await waitFor(() => expect(one.result.current.data?.lastDeliveryAt).toBeNull());
   });
 
   it('writes a patched webhook into the list and the single copy (B-03)', async () => {
@@ -57,11 +58,11 @@ describe('useWebhooks hooks', () => {
     const list = renderHook(() => useWebhooks(), { wrapper });
     await waitFor(() => expect(list.result.current.data).toBeDefined());
     const update = renderHook(() => useUpdateWebhook(), { wrapper });
-    await update.result.current.mutateAsync({ id: 'w1', patch: { is_active: false } });
-    expect(client.getQueryData<{ data: (typeof hook)[] }>(['webhooks'])?.data[0].is_active).toBe(
+    await update.result.current.mutateAsync({ id: 'w1', patch: { isActive: false } });
+    expect(client.getQueryData<{ data: WebhookRecord[] }>(['webhooks'])?.data[0].isActive).toBe(
       false,
     );
-    expect(client.getQueryData<typeof hook>(['webhooks', 'one', 'w1'])?.is_active).toBe(false);
+    expect(client.getQueryData<WebhookRecord>(['webhooks', 'one', 'w1'])?.isActive).toBe(false);
   });
 
   it('adds a webhook to the list only once the server answered (MOT-17)', async () => {

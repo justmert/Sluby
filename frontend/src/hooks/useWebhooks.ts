@@ -1,56 +1,20 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/lib/api-client';
+import type {
+  CreatedWebhookEndpoint,
+  UpdateWebhookEndpointInput,
+  WebhookDelivery as SdkDelivery,
+  WebhookEndpoint,
+  WebhookEventName,
+  WebhookTestResult as SdkTestResult,
+} from '@sluby/sdk';
+import { sluby } from '@/lib/sluby';
 
-export interface WebhookRecord {
-  id: string;
-  url: string;
-  events: string[];
-  is_active: boolean;
-  created_at: string;
-  /** When the newest delivery was attempted; null before any. B-07: absent until the server has it. */
-  last_delivery_at?: string | null;
-  /** Whether that delivery reached the endpoint; null before any. B-07. */
-  last_delivery_ok?: boolean | null;
-}
-
-/** The creation response, the only time the signing secret is returned. */
-export interface CreatedWebhook {
-  id: string;
-  url: string;
-  events: string[];
-  secret: string;
-}
-
-/** One delivery attempt, as GET /webhooks/:id/deliveries lists it. */
-export interface WebhookDelivery {
-  id: string;
-  event_id: string | null;
-  event: string;
-  status_code: number | null;
-  delivered: boolean;
-  /** Why the attempt failed; null when it was delivered. */
-  error: string | null;
-  attempt: number;
-  created_at: string;
-  /** The JSON body that was sent. B-06: absent until the server has it. */
-  payload?: unknown;
-  /** True for a resend from the studio or the api. B-05/B-06. */
-  manual?: boolean;
-}
-
-export interface WebhookTestResult {
-  delivered: boolean;
-  status_code: number | null;
-  error: string | null;
-}
-
-/** A new signing secret, from POST /webhooks/:id/rotate-secret (B-04). */
-export interface RotatedSecret {
-  id: string;
-  secret: string;
-}
-
-export type WebhookPatch = { url?: string; events?: string[]; is_active?: boolean };
+export type WebhookRecord = WebhookEndpoint;
+export type CreatedWebhook = CreatedWebhookEndpoint;
+export type WebhookDelivery = SdkDelivery;
+export type WebhookTestResult = SdkTestResult;
+export type WebhookPatch = UpdateWebhookEndpointInput;
+export type { WebhookEventName };
 
 const KEY = ['webhooks'];
 const oneKey = (id: string) => ['webhooks', 'one', id];
@@ -65,10 +29,14 @@ function editHooks(qc: QueryClient, edit: (rows: WebhookRecord[]) => WebhookReco
   qc.setQueryData<HookList>(KEY, (old) => (old ? { ...old, data: edit(old.data) } : old));
 }
 
-export function useWebhooks() {
+/** The endpoint list; the nav polls it for its failed-delivery dot. */
+export function useWebhooks({ refetchInterval }: { refetchInterval?: number } = {}) {
   return useQuery({
     queryKey: KEY,
-    queryFn: () => apiClient.get<HookList>('/webhooks'),
+    queryFn: async ({ signal }): Promise<HookList> => ({
+      data: await sluby.webhookEndpoints.list({ signal }),
+    }),
+    refetchInterval,
   });
 }
 
@@ -78,9 +46,9 @@ export function useWebhooks() {
  */
 export function useWebhook(id: string) {
   const qc = useQueryClient();
-  return useQuery({
+  return useQuery<WebhookRecord>({
     queryKey: oneKey(id),
-    queryFn: () => apiClient.get<WebhookRecord>(`/webhooks/${encodeURIComponent(id)}`),
+    queryFn: ({ signal }) => sluby.webhookEndpoints.get(id, { signal }),
     placeholderData: () => qc.getQueryData<HookList>(KEY)?.data.find((w) => w.id === id),
   });
 }
@@ -93,8 +61,8 @@ function storeHook(qc: QueryClient, hook: WebhookRecord) {
 export function useCreateWebhook() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { url: string; events: string[] }) =>
-      apiClient.post<CreatedWebhook>('/webhooks', body),
+    mutationFn: (body: { url: string; events: WebhookEventName[] }) =>
+      sluby.webhookEndpoints.create(body),
     // the response holds the signing secret; do not keep it once handed over
     gcTime: 0,
     // the row goes in once the server added the endpoint, newest first; the
@@ -105,10 +73,10 @@ export function useCreateWebhook() {
           id: created.id,
           url: created.url,
           events: created.events,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          last_delivery_at: null,
-          last_delivery_ok: null,
+          isActive: true,
+          createdAt: new Date().toISOString(),
+          lastDeliveryAt: null,
+          lastDeliveryOk: null,
         },
         ...rows.filter((r) => r.id !== created.id),
       ]),
@@ -121,7 +89,7 @@ export function useUpdateWebhook() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: WebhookPatch }) =>
-      apiClient.patch<WebhookRecord>(`/webhooks/${encodeURIComponent(id)}`, patch),
+      sluby.webhookEndpoints.update(id, patch),
     onSuccess: (hook) => storeHook(qc, hook),
     onSettled: () => qc.invalidateQueries({ queryKey: KEY }),
   });
@@ -130,8 +98,7 @@ export function useUpdateWebhook() {
 /** A new signing secret, shown once; the old one stops at once (B-04). */
 export function useRotateWebhookSecret() {
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.post<RotatedSecret>(`/webhooks/${encodeURIComponent(id)}/rotate-secret`),
+    mutationFn: (id: string) => sluby.webhookEndpoints.rotateSecret(id),
     gcTime: 0,
   });
 }
@@ -140,10 +107,7 @@ export function useRotateWebhookSecret() {
 export function useRedeliver(webhookId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (deliveryId: string) =>
-      apiClient.post<{ delivery_id: string }>(
-        `/webhooks/${encodeURIComponent(webhookId)}/deliveries/${encodeURIComponent(deliveryId)}/redeliver`,
-      ),
+    mutationFn: (deliveryId: string) => sluby.webhookEndpoints.redeliver(webhookId, deliveryId),
     onSettled: () => qc.invalidateQueries({ queryKey: deliveriesKey(webhookId) }),
   });
 }
@@ -152,8 +116,7 @@ export function useRedeliver(webhookId: string) {
 export function useDeleteWebhook() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.delete<{ success: boolean }>(`/webhooks/${encodeURIComponent(id)}`),
+    mutationFn: (id: string) => sluby.webhookEndpoints.delete(id),
     onSuccess: (_res, id) => {
       editHooks(qc, (rows) => rows.filter((r) => r.id !== id));
       qc.removeQueries({ queryKey: oneKey(id) });
@@ -166,8 +129,7 @@ export function useDeleteWebhook() {
 export function useTestWebhook() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.post<WebhookTestResult>(`/webhooks/${encodeURIComponent(id)}/test`),
+    mutationFn: (id: string) => sluby.webhookEndpoints.test(id),
     onSettled: (_data, _err, id) => {
       void qc.invalidateQueries({ queryKey: deliveriesKey(id) });
       // the last delivery shown in the list and the header changed too
@@ -185,10 +147,9 @@ export function useTestWebhook() {
 export function useWebhookDeliveries(id: string) {
   return useQuery({
     queryKey: deliveriesKey(id),
-    queryFn: () =>
-      apiClient.get<{ data: WebhookDelivery[] }>(
-        `/webhooks/${encodeURIComponent(id)}/deliveries?limit=50`,
-      ),
+    queryFn: async ({ signal }) => ({
+      data: await sluby.webhookEndpoints.deliveries(id, { limit: 50, signal }),
+    }),
     refetchInterval: DELIVERIES_POLL_MS,
   });
 }

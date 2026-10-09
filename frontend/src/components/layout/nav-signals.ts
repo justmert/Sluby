@@ -1,9 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
 import { statusSpec } from '@/components/shared/status';
 import { movingCount, useAssetStats } from '@/hooks/useStats';
 import { healthOf, useSystemStatus } from '@/hooks/useSystemStatus';
-import type { WebhookRecord } from '@/hooks/useWebhooks';
-import { apiClient } from '@/lib/api-client';
+import { useWebhooks } from '@/hooks/useWebhooks';
 import { ROUTES } from '@/lib/constants';
 import { formatCount } from '@/lib/formatters';
 
@@ -20,19 +18,11 @@ export type NavSignal =
 // minute is enough for the dot, and the webhooks pages share the cache entry
 const WEBHOOK_POLL_MS = 60_000;
 
-function useWebhookList() {
-  return useQuery({
-    queryKey: ['webhooks'],
-    queryFn: () => apiClient.get<{ data: WebhookRecord[] }>('/webhooks'),
-    refetchInterval: WEBHOOK_POLL_MS,
-  });
-}
-
 /** The signals for the nav, by item path. Members get no Health signal: they have no Health page. */
 export function useNavSignals(operator: boolean): Partial<Record<string, NavSignal>> {
   const status = useSystemStatus({ poll: true });
   const stats = useAssetStats();
-  const webhooks = useWebhookList();
+  const webhooks = useWebhooks({ refetchInterval: WEBHOOK_POLL_MS });
   const signals: Partial<Record<string, NavSignal>> = {};
 
   if (operator) {
@@ -62,9 +52,8 @@ export function useNavSignals(operator: boolean): Partial<Record<string, NavSign
     };
   }
 
-  // B-07: a server before it sends no last_delivery_ok, and then there is no dot.
   // a paused endpoint gets nothing sent, so its old failure is not news
-  const failing = webhooks.data?.data.some((w) => w.is_active && w.last_delivery_ok === false);
+  const failing = webhooks.data?.data.some((w) => w.isActive && w.lastDeliveryOk === false);
   if (failing) {
     signals[ROUTES.WEBHOOKS] = { kind: 'dot', tone: 'danger', text: 'a delivery failed' };
   }

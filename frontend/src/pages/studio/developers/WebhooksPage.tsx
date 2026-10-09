@@ -132,9 +132,7 @@ export default function WebhooksPage() {
           {
             id: 'status',
             header: 'Status',
-            cell: (w) => (
-              <StatusBadge kind="webhook" status={w.is_active ? 'active' : 'inactive'} />
-            ),
+            cell: (w) => <StatusBadge kind="webhook" status={w.isActive ? 'active' : 'inactive'} />,
           },
         ]}
         rowActions={(w) => [
@@ -148,7 +146,7 @@ export default function WebhooksPage() {
             label: pauseLabel(w),
             icon: pauseIcon(w),
             disabled: actions.updating === w.id,
-            onSelect: () => void actions.setActive(w, !w.is_active),
+            onSelect: () => void actions.setActive(w, !w.isActive),
           },
           {
             label: 'Delete',

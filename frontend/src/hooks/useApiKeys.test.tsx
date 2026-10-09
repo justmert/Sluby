@@ -13,6 +13,8 @@ const key = (id: string) => ({
   is_active: true,
   created_at: '2026-10-01T00:00:00Z',
   expires_at: null,
+  prefix: null,
+  last_used_at: null,
 });
 
 const wrapper = ({ children }: { children: ReactNode }) => (
@@ -40,19 +42,7 @@ describe('useApiKeys', () => {
     const { result } = renderHook(() => useApiKeys(), { wrapper });
     await waitFor(() => expect(result.current.data).toBeDefined());
     expect(result.current.data!.data.map((k) => k.id)).toEqual(['k1', 'k2']);
-    expect(result.current.data!.limits).toEqual(limits);
-  });
-
-  it('has no limits from a server before B-08', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        jsonFetch({ '/api/v1/keys': { data: [key('k1')], has_more: false, next_cursor: null } }),
-      ),
-    );
-    const { result } = renderHook(() => useApiKeys(), { wrapper });
-    await waitFor(() => expect(result.current.data).toBeDefined());
-    expect(result.current.data).toEqual({ data: [key('k1')] });
+    expect(result.current.data!.limits).toEqual({ maxKeys: 20, maxRateLimit: 1000 });
   });
 
   it('puts a new key in the list only once the server made it (MOT-17)', async () => {
@@ -65,7 +55,12 @@ describe('useApiKeys', () => {
       'fetch',
       vi.fn(
         jsonFetch({
-          '/api/v1/keys': () => ({ data: listed, has_more: false, next_cursor: null }),
+          '/api/v1/keys': () => ({
+            data: listed,
+            has_more: false,
+            next_cursor: null,
+            limits: { max_keys: 20, max_rate_limit: 1000 },
+          }),
           'POST /api/v1/keys': () => new Promise((r) => (answer = r)),
         }),
       ),
@@ -76,7 +71,7 @@ describe('useApiKeys', () => {
     const list = renderHook(() => useApiKeys(), { wrapper: own });
     await waitFor(() => expect(list.result.current.data?.data).toHaveLength(1));
     const create = renderHook(() => useCreateApiKey(), { wrapper: own });
-    const done = create.result.current.mutateAsync({ name: 'n', scopes: ['read'], rate_limit: 1 });
+    const done = create.result.current.mutateAsync({ name: 'n', scopes: ['read'], rateLimit: 1 });
     await new Promise((r) => setTimeout(r, 20));
     expect(client.getQueryData<{ data: unknown[] }>(['api-keys'])?.data).toHaveLength(1);
     listed = [{ ...key('k2'), prefix: 'sluby_x' }, ...listed];

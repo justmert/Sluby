@@ -54,7 +54,7 @@ export function CreateKeyDialog({
     if (open) setTouched({});
   }
 
-  const errors = keyFormErrors(form, limits?.max_rate_limit);
+  const errors = keyFormErrors(form, limits?.maxRateLimit);
   const server = create.isError ? fieldErrorsOf(create.error) : {};
   const serverFor = (field: FieldName) =>
     Object.entries(server).find(([k]) => SERVER_FIELD[k] === field)?.[1] ?? null;
@@ -83,7 +83,7 @@ export function CreateKeyDialog({
       const issued = await create.mutateAsync({
         name: form.name.trim(),
         scopes: form.scopes,
-        rate_limit: Number(form.rateLimit),
+        rateLimit: Number(form.rateLimit),
       });
       // the secret now lives only in the dialog that shows it once
       create.reset();
@@ -144,7 +144,7 @@ export function CreateKeyDialog({
                 type="number"
                 inputMode="numeric"
                 min={1}
-                max={limits?.max_rate_limit}
+                max={limits?.maxRateLimit}
                 step={1}
                 value={form.rateLimit}
                 onChange={(e) => set({ rateLimit: e.target.value })}
@@ -157,7 +157,7 @@ export function CreateKeyDialog({
               />
               <FieldDescription id="key-rate-help">
                 {limits
-                  ? `Requests per minute, up to ${formatCount(limits.max_rate_limit)}.`
+                  ? `Requests per minute, up to ${formatCount(limits.maxRateLimit)}.`
                   : 'Requests per minute.'}
               </FieldDescription>
               <FieldError id="key-rate-error">{shown('rateLimit')}</FieldError>

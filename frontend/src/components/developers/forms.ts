@@ -1,4 +1,5 @@
 import type { KeyScope } from '@/hooks/useApiKeys';
+import type { WebhookEventName } from '@/hooks/useWebhooks';
 import { formatCount } from '@/lib/formatters';
 import { DEFAULT_EVENTS, DEFAULT_RATE_LIMIT, DEFAULT_SCOPES, KEY_SCOPES } from './options';
 
@@ -42,7 +43,7 @@ export function keyFormErrors(f: KeyForm, maxRate?: number): Record<FieldName, s
 export const SERVER_FIELD: Record<string, FieldName> = {
   name: 'name',
   scopes: 'scopes',
-  rate_limit: 'rateLimit',
+  rateLimit: 'rateLimit',
 };
 
 export const FIRST_INPUT: Record<FieldName, string> = {
@@ -53,7 +54,7 @@ export const FIRST_INPUT: Record<FieldName, string> = {
 
 export interface WebhookForm {
   url: string;
-  events: string[];
+  events: WebhookEventName[];
 }
 
 /** Longest receiver URL the server accepts (B-17). */
