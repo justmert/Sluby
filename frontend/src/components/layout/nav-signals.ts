@@ -1,4 +1,5 @@
 import { statusSpec } from '@/components/shared/status';
+import { useSendingAssetIds } from '@/hooks/asset-queries';
 import { movingCount, useAssetStats } from '@/hooks/useStats';
 import { healthOf, useSystemStatus } from '@/hooks/useSystemStatus';
 import { useWebhooks } from '@/hooks/useWebhooks';
@@ -22,6 +23,7 @@ const WEBHOOK_POLL_MS = 60_000;
 export function useNavSignals(operator: boolean): Partial<Record<string, NavSignal>> {
   const status = useSystemStatus({ poll: true });
   const stats = useAssetStats();
+  const sendingHere = useSendingAssetIds().size;
   const webhooks = useWebhooks({ refetchInterval: WEBHOOK_POLL_MS });
   const signals: Partial<Record<string, NavSignal>> = {};
 
@@ -43,7 +45,7 @@ export function useNavSignals(operator: boolean): Partial<Record<string, NavSign
     }
   }
 
-  const moving = stats.data ? movingCount(stats.data) : 0;
+  const moving = stats.data ? movingCount(stats.data, sendingHere) : 0;
   if (moving > 0) {
     signals[ROUTES.VIDEOS] = {
       kind: 'count',

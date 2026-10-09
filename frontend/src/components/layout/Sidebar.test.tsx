@@ -144,11 +144,17 @@ describe('AppSidebar signals (D-14)', () => {
     expect(await nav().findByRole('link', { name: 'Health, could not check' })).toBeInTheDocument();
   });
 
-  it('counts the videos being processed or uploaded on Videos', async () => {
+  it('counts the videos being processed on Videos', async () => {
+    routes['/api/v1/stats'] = stats(2);
+    render(false);
+    const link = await nav().findByRole('link', { name: 'Videos, 2 processing' });
+    expect(within(link).getByText('2')).toBeInTheDocument();
+  });
+
+  it('leaves out an upload no tab of this browser is sending, which may have stopped for good (FLW-12)', async () => {
     routes['/api/v1/stats'] = stats(2, 1);
     render(false);
-    const link = await nav().findByRole('link', { name: 'Videos, 3 processing' });
-    expect(within(link).getByText('3')).toBeInTheDocument();
+    expect(await nav().findByRole('link', { name: 'Videos, 2 processing' })).toBeInTheDocument();
   });
 
   it('shows no count when nothing is moving', async () => {

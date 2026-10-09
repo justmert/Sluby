@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, statusOf } from '@/lib/api-client';
+import { useSendingAssetIds } from './asset-queries';
 
 export interface AssetStats {
   total: number;
@@ -106,19 +107,25 @@ export interface DeploymentReconciliation extends RunTimes {
 
 export type Reconciliation = AccountReconciliation | DeploymentReconciliation;
 
-/** Assets the pipeline is still working on; `created` is left out, since an abandoned upload can sit there for a day. */
-export function movingCount(s: AssetStats): number {
-  return s.by_status.uploading + s.by_status.processing;
+/**
+ * Videos known to be moving: the ones processing, and the uploads this
+ * browser is sending. An upload whose browser went away stays "uploading"
+ * (and an abandoned one "created") until the server sweeps it a day later,
+ * so those are left out (FLW-12).
+ */
+export function movingCount(s: AssetStats, sendingHere: number): number {
+  return s.by_status.processing + Math.min(sendingHere, s.by_status.uploading);
 }
 
 export function useAssetStats() {
+  const sendingHere = useSendingAssetIds().size;
   return useQuery({
     queryKey: ['stats'],
     queryFn: () => apiClient.get<AssetStats>('/stats'),
     // faster while something is moving, so the totals keep up with the lists;
     // react query skips the interval while the tab is hidden
     refetchInterval: (query) =>
-      query.state.data && movingCount(query.state.data) > 0 ? 5_000 : 15_000,
+      query.state.data && movingCount(query.state.data, sendingHere) > 0 ? 5_000 : 15_000,
   });
 }
 

@@ -15,15 +15,16 @@ import { cn } from '@/lib/utils';
 import { DASH, rememberedRows } from './dashboard-layout';
 
 /**
- * "3 ready, 1 failed, 1 processing, 2 waiting for file": every status with
- * videos in it, so the parts add up to the total.
+ * "3 ready, 1 failed, 1 processing, 1 uploading, 2 waiting for file": every
+ * status with videos in it, so the parts add up to the total. An upload is
+ * not called processing: it may have stopped with its browser.
  */
 function videosBreakdown(s: AssetStats): string {
   if (s.total === 0) return 'None yet';
   const parts = [`${formatCount(s.by_status.ready)} ready`];
   if (s.by_status.failed) parts.push(`${formatCount(s.by_status.failed)} failed`);
-  const moving = s.by_status.uploading + s.by_status.processing;
-  if (moving) parts.push(`${formatCount(moving)} processing`);
+  if (s.by_status.processing) parts.push(`${formatCount(s.by_status.processing)} processing`);
+  if (s.by_status.uploading) parts.push(`${formatCount(s.by_status.uploading)} uploading`);
   if (s.by_status.created) parts.push(`${formatCount(s.by_status.created)} waiting for file`);
   return parts.join(', ');
 }
