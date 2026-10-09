@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { Link, Route, Routes } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { renderPage } from '@/test/render';
+import { WithSession } from '@/test/session';
 import { RouteSuspense } from './RouteSuspense';
 
 // a page whose code never arrives, like a slow chunk
@@ -11,8 +12,9 @@ const Slow = lazy(() => new Promise<never>(() => {}));
 
 describe('RouteSuspense', () => {
   it('shows the next page loading instead of keeping the old one on screen', async () => {
+    // the fallback is drawn below the auth gate, as in the app
     renderPage(
-      <>
+      <WithSession>
         <Link to="/studio/settings">Settings</Link>
         <RouteSuspense>
           <Routes>
@@ -20,7 +22,7 @@ describe('RouteSuspense', () => {
             <Route path="/studio/settings" element={<Slow />} />
           </Routes>
         </RouteSuspense>
-      </>,
+      </WithSession>,
       { route: '/studio' },
     );
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
