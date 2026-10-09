@@ -75,6 +75,25 @@ describe('playback id routes', () => {
       expect(deps.createPlaybackId).not.toHaveBeenCalled();
     });
 
+    it.each([
+      [{ name: 'x'.repeat(101) }, /at most 100 characters/],
+      [{ name: 42 }, /name must be a string/],
+      [{ name: 'a\u0000b' }, /control characters/],
+    ])('rejects the name in %j with 400', async (body, message) => {
+      const res = await request(app()).post('/assets/asset-1/playback-ids').send(body);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(message);
+      expect(deps.createPlaybackId).not.toHaveBeenCalled();
+    });
+
+    it('trims the name and takes one of 100 characters', async () => {
+      const res = await request(app())
+        .post('/assets/asset-1/playback-ids')
+        .send({ name: ` ${'n'.repeat(100)} ` });
+      expect(res.status).toBe(201);
+      expect(vi.mocked(deps.createPlaybackId).mock.calls[0][1].name).toBe('n'.repeat(100));
+    });
+
     it('requires the manage scope', async () => {
       const res = await request(app({ ...defaultApiKey, scopes: ['read'] }))
         .post('/assets/asset-1/playback-ids')

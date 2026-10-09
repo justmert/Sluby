@@ -545,6 +545,11 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       });
       check('POST', '/api/v1/assets/{id}/playback-ids', bad);
       expect(bad.status).toBe(400);
+      const longName = await call('POST', `/api/v1/assets/${assetA.id}/playback-ids`, 'a', {
+        name: 'x'.repeat(101),
+      });
+      check('POST', '/api/v1/assets/{id}/playback-ids', longName);
+      expect(longName.status).toBe(400);
 
       const list = await call('GET', `/api/v1/assets/${assetA.id}/playback-ids`, 'a');
       check('GET', '/api/v1/assets/{id}/playback-ids', list);

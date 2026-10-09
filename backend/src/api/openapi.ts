@@ -1580,7 +1580,12 @@ export const openapiDocument = {
                 type: 'object',
                 properties: {
                   policy: { type: 'string', enum: ['public', 'signed'], default: 'public' },
-                  name: { type: 'string' },
+                  name: {
+                    type: 'string',
+                    maxLength: 100,
+                    description:
+                      'A label to tell playback IDs apart. Trimmed; no control characters.',
+                  },
                 },
               },
             },
@@ -1588,7 +1593,7 @@ export const openapiDocument = {
         },
         responses: {
           '201': jsonResponse('PlaybackId', 'Created.'),
-          '400': errorWith('A malformed id or an unknown policy.'),
+          '400': errorWith('A malformed id, an unknown policy or a name over 100 characters.'),
           '404': ref('NotFound'),
           ...authFailures,
         },

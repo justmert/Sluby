@@ -3308,7 +3308,9 @@
                     "default": "public"
                   },
                   "name": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "A label to tell playback IDs apart. Trimmed; no control characters."
                   }
                 }
               }
@@ -3327,7 +3329,7 @@
             }
           },
           "400": {
-            "description": "A malformed id or an unknown policy.",
+            "description": "A malformed id, an unknown policy or a name over 100 characters.",
             "content": {
               "application/json": {
                 "schema": {
