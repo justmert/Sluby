@@ -230,7 +230,13 @@ export function SiaStorageBreakdown({
             {
               id: 'id',
               header: 'Object ID',
-              cell: (o) => <ObjectIdBadge value={o.object_id} truncate={6} />,
+              cell: (o) => (
+                <ObjectIdBadge
+                  value={o.object_id}
+                  truncate={6}
+                  copyLabel={`Copy object ID ${o.object_id.slice(0, 8)}`}
+                />
+              ),
             },
             { id: 'size', header: 'Size', align: 'right', cell: (o) => formatBytes(o.size) },
             {

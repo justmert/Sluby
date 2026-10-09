@@ -11,6 +11,8 @@ export interface ObjectIdBadgeProps {
   className?: string;
   /** Hide the copy control if you just want the truncated label (default: false). */
   hideCopy?: boolean;
+  /** Names the copy button, e.g. "Copy video file ID for 720p", so a column of them can be told apart. */
+  copyLabel?: string;
 }
 
 /**
@@ -24,11 +26,12 @@ export function ObjectIdBadge({
   truncate = 8,
   className,
   hideCopy = false,
+  copyLabel = 'Copy object ID',
 }: ObjectIdBadgeProps) {
   return (
     <span className={cn('inline-flex items-center gap-1', className)} title={value}>
       <span className="truncate font-mono">{truncateMiddle(value, truncate)}</span>
-      {!hideCopy && <CopyButton value={value} className="size-6" label="Copy object id" />}
+      {!hideCopy && <CopyButton value={value} className="size-6" label={copyLabel} />}
     </span>
   );
 }
