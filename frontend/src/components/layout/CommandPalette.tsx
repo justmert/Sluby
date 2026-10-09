@@ -324,7 +324,7 @@ export function CommandPalette() {
         // named by its visible word, "Search"; below md the word is only for
         // screen readers, since the button shrinks to its icon
         aria-keyshortcuts={mac ? 'Meta+K' : 'Control+K'}
-        className="size-8 justify-start gap-2 p-0 text-muted-foreground max-md:justify-center md:w-44 md:px-2.5 xl:w-60"
+        className="size-8 justify-start gap-2 p-0 text-muted-foreground max-md:justify-center max-md:pointer-coarse:size-10 md:w-44 md:px-2.5 md:pointer-coarse:h-10 xl:w-60"
       >
         <Search />
         <span className="flex-1 text-left font-normal max-md:sr-only">Search</span>
