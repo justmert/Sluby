@@ -28,7 +28,7 @@ function videosBreakdown(s: AssetStats): string {
   return parts.join(', ');
 }
 
-/** The four stat cards; `s` and `usage` undefined while loading, usage null when plays are not counted. */
+/** The four stat cards; `s` and `usage` undefined while loading. */
 export function OverviewStats({
   s,
   usage,
@@ -37,12 +37,12 @@ export function OverviewStats({
   stagger = false,
 }: {
   s?: AssetStats;
-  usage?: Usage | null;
+  usage?: Usage;
   failed?: boolean;
   usageFailed?: boolean;
   stagger?: boolean;
 }) {
-  const plays = usage ? lastDays(usage) : usage;
+  const plays = usage && lastDays(usage);
   return (
     <AnimatedList
       as="div"
@@ -87,14 +87,12 @@ export function OverviewStats({
         <StatCard
           icon={Play}
           label="Plays, last 30 days"
-          value={plays === undefined ? undefined : plays === null ? null : plays.total}
+          value={plays?.total}
           format={formatCount}
           failed={usageFailed}
           hint={
             plays === undefined ? (
               usageFailed ? undefined : null
-            ) : plays === null ? (
-              'Not counted on this server'
             ) : plays.total === 0 ? (
               'No plays yet'
             ) : (

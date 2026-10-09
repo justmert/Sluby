@@ -17,8 +17,9 @@ export interface GetStartedInput {
   operator: boolean;
   status?: SystemStatus;
   stats?: AssetStats;
-  /** null when the server does not count plays */
-  usage?: Usage | null;
+  usage?: Usage;
+  /** the newest videos, whose all-time play counts also tick step 3 */
+  videos?: VideoAsset[];
   activeKeys?: number;
   webhooks?: number;
 }
@@ -34,7 +35,10 @@ export function stepStates(input: GetStartedInput): StepState[] {
   return [
     { id: 'sia', done: siaConnected(input.status, input.operator) },
     { id: 'upload', done: (input.stats?.total ?? 0) > 0 },
-    { id: 'play', done: (input.usage?.total ?? 0) > 0 },
+    {
+      id: 'play',
+      done: (input.usage?.total ?? 0) > 0 || (input.videos ?? []).some((v) => v.playCount > 0),
+    },
     { id: 'key', done: (input.activeKeys ?? 0) > 0 },
     { id: 'webhook', done: (input.webhooks ?? 0) > 0, optional: true },
   ];

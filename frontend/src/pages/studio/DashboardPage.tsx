@@ -107,6 +107,7 @@ export default function DashboardPage() {
     usage: usage.data,
     activeKeys: keys.data?.data.filter((k) => k.isActive).length,
     webhooks: webhooks.data?.data.length,
+    videos: latest.data?.data,
   });
   const complete = doneCount(steps) === REQUIRED_STEPS;
   const [shownOpen, setShownOpen] = useState(false);
@@ -176,7 +177,6 @@ export default function DashboardPage() {
                 status={system.data}
                 busy={busyVideo(latest.data?.data)}
                 firstReady={firstReady.data}
-                playsUncounted={usage.data === null}
                 onDismiss={() => {
                   hide('dismissed');
                   // the button is gone; keep keyboard users on the page
@@ -209,7 +209,7 @@ export default function DashboardPage() {
             s={s}
             usage={usage.data}
             failed={stats.isError && !s}
-            usageFailed={usage.isError && usage.data === undefined}
+            usageFailed={usage.isError && !usage.data}
             stagger={stagger}
           />
           <UpdatedAgo

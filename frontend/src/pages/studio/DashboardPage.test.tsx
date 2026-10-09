@@ -254,14 +254,6 @@ describe('Overview page', () => {
       expect(screen.queryByText('Files on Sia')).not.toBeInTheDocument();
     });
 
-    it('says plays are not counted on a server without play counts', async () => {
-      setup({
-        '/api/v1/stats/usage': reply(404, { error: 'Route GET /api/v1/stats/usage not found' }),
-      });
-      render();
-      expect(await screen.findByText('Not counted on this server')).toBeInTheDocument();
-    });
-
     it('lets the totals be retried after they fail, in a sentence', async () => {
       setup({ '/api/v1/stats': reply(500, { error: 'Internal Server Error' }) });
       render();
@@ -444,13 +436,36 @@ describe('Overview page', () => {
       expect(card('Get started')).toHaveTextContent('3 of 4 done');
     });
 
-    it('says step 3 cannot tick itself on a server that does not count plays', async () => {
-      setup({ '/api/v1/stats/usage': reply(404, { error: 'not found' }) });
+    it('explains that only a play on your site ticks step 3', async () => {
+      const ready = video({ id: 'r1', title: 'Teaser' });
+      setup({
+        '/api/v1/stats': {
+          ...emptyStats,
+          total: 1,
+          by_status: { ...emptyStats.by_status, ready: 1 },
+        },
+        '/api/v1/assets': assetsRoute({ ready: [ready] }, [ready]),
+      });
       render();
       await screen.findByRole('list', { name: 'Steps' });
       expect(
-        within(steps()[2]).getByText(/This server does not count plays yet/),
+        await within(steps()[2]).findByText(/previews in the Studio do not count/),
       ).toBeInTheDocument();
+    });
+
+    it('ticks step 3 from a video that has been played, even outside the 90 days of usage', async () => {
+      const played = video({ id: 'r1', title: 'Teaser', play_count: 4 });
+      setup({
+        '/api/v1/stats': {
+          ...emptyStats,
+          total: 1,
+          by_status: { ...emptyStats.by_status, ready: 1 },
+        },
+        '/api/v1/assets': assetsRoute({ ready: [played] }, [played]),
+      });
+      render();
+      await screen.findByRole('list', { name: 'Steps' });
+      expect(within(steps()[2]).getByText(', Done')).toBeInTheDocument();
     });
 
     it('stays hidden after it is dismissed, also after a reload', async () => {
@@ -610,6 +625,27 @@ describe('Overview page', () => {
         'href',
         '/studio/deployment',
       );
+    });
+
+    it('offers Retry processing on a failed video that retrying can fix', async () => {
+      const failed = video({ id: 'f1', title: 'Teaser', status: 'failed' });
+      setup({
+        '/api/v1/assets': assetsRoute({ failed: [failed] }, []),
+        '/api/v1/assets/f1/processing': job({
+          status: 'failed',
+          stage: 'failed',
+          error_message: 'sia upload timed out',
+          retryable: true,
+          logs: [{ stage: 'upload', message: 'x', at: minutesAgo(1) }],
+        }),
+        'POST /api/v1/assets/f1/retry': reply(202, { stage: 'upload-segments' }),
+      });
+      render();
+      const attention = await screen.findByRole('list', { name: 'Needs attention' });
+      await userEvent.click(
+        await within(attention).findByRole('button', { name: 'Retry processing' }),
+      );
+      expect(await screen.findByText(/^“Teaser”: processing restarted from/)).toBeInTheDocument();
     });
 
     it('shows five rows at most and counts the rest, linking to the failed videos', async () => {

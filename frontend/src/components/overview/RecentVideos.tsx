@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import type { RetryStage, VideoAsset } from '@sluby/sdk';
+import type { VideoAsset } from '@sluby/sdk';
 import * as m from 'motion/react-m';
 import { AssetThumbnail } from '@/components/asset/AssetThumbnail';
+import { RetryProcessingButton } from '@/components/asset/RetryProcessingButton';
 import { failureInfo, processingView } from '@/components/asset/processing';
 import { AnimatedItem, AnimatedList } from '@/components/motion';
 import { EmptyState } from '@/components/shared/EmptyState';
@@ -12,15 +13,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Spinner } from '@/components/ui/spinner';
 import { useProcessingJob } from '@/hooks/asset-detail-queries';
-import { useRetryProcessing } from '@/hooks/asset-queries';
 import { ROUTES } from '@/lib/constants';
-import { withLead } from '@/lib/errors';
 import { formatBytes, formatDuration, formatRelativeTime } from '@/lib/formatters';
 import { Icons } from '@/lib/icons';
 import { highlight, lateReveal } from '@/lib/motion';
-import { toastError, toastSuccess } from '@/lib/toast';
 import { useUploadSheet } from '@/lib/upload-sheet';
 import { cn } from '@/lib/utils';
 
@@ -49,35 +46,19 @@ function RowProgress({ video }: { video: VideoAsset }) {
   );
 }
 
-const RETRY_FROM: Record<RetryStage, string> = {
-  transcode: 'Transcoding',
-  'upload-segments': 'Storing on Sia',
-};
-
-function RetryButton({ video }: { video: VideoAsset }) {
-  const retry = useRetryProcessing();
+/** Retry on a failed row, only when retrying can help (an unreadable file gets none). */
+function RowRetry({ video }: { video: VideoAsset }) {
   const job = useProcessingJob(video.id, video.status, true);
-  // a failure retrying cannot fix (an unreadable file) offers no retry
-  if (!job.data || !failureInfo(job.data, video).retryable) return null;
-  const run = async () => {
-    try {
-      const { stage } = await retry.mutateAsync(video.id);
-      toastSuccess(`“${video.title}”: processing restarted from ${RETRY_FROM[stage]}`);
-    } catch (err) {
-      toastError(withLead('Could not retry', err));
-    }
-  };
+  if (!job.data || failureInfo(job.data, video).action !== 'retry') return null;
   return (
-    <Button
+    <RetryProcessingButton
+      asset={video}
+      named
+      compact
       variant="ghost"
       size="sm"
-      onClick={() => void run()}
-      disabled={retry.isPending}
-      aria-label={`Retry processing ${video.title}`}
-    >
-      {retry.isPending ? <Spinner aria-hidden="true" /> : <Icons.retry />}
-      <span className="hidden @md/recent:inline">Retry</span>
-    </Button>
+      labelClassName="hidden @md/recent:inline"
+    />
   );
 }
 
@@ -124,7 +105,7 @@ function VideoRow({ video }: { video: VideoAsset }) {
         </div>
         <StatusBadge kind="asset" status={video.status} busy="dot" className="shrink-0" />
       </Link>
-      {video.status === 'failed' && <RetryButton video={video} />}
+      {video.status === 'failed' && <RowRetry video={video} />}
     </div>
   );
 }

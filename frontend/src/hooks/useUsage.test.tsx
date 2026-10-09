@@ -33,13 +33,6 @@ describe('useUsage', () => {
     expect(server.calls[0].query.get('days')).toBe('90');
   });
 
-  it('reads a server that does not count plays as null, not as an error', async () => {
-    const { wrapper } = setup(reply(404, { error: 'Route GET /api/v1/stats/usage not found' }));
-    const { result } = renderHook(() => useUsage(), { wrapper });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toBeNull();
-  });
-
   it('keeps other failures as errors', async () => {
     const { wrapper } = setup(reply(500, { error: 'Internal Server Error' }));
     const { result } = renderHook(() => useUsage(), { wrapper });

@@ -32,8 +32,6 @@ interface GetStartedProps {
   busy?: VideoAsset;
   /** a ready video for the embed code step; null when there is none */
   firstReady: VideoAsset | null | undefined;
-  /** the server does not count plays, so step 3 cannot complete here */
-  playsUncounted: boolean;
   onDismiss: () => void;
 }
 
@@ -43,7 +41,10 @@ const COPY: Record<StepId, { title: string; why: string }> = {
     why: 'Videos are stored on Sia, so this server needs a working Sia account.',
   },
   upload: { title: 'Upload a video', why: 'It is ready to stream in a few minutes.' },
-  play: { title: 'Play it on your site', why: 'Copy the embed code for a ready video.' },
+  play: {
+    title: 'Play it on your site',
+    why: 'Copy the embed code for a ready video. This ticks when a player on your site loads it; previews in the Studio do not count.',
+  },
   key: {
     title: 'Create an API key',
     why: 'Your server uses it to upload videos and sign private ones.',
@@ -140,7 +141,6 @@ export function GetStarted({
   status,
   busy,
   firstReady,
-  playsUncounted,
   onDismiss,
 }: GetStartedProps) {
   const sheet = useUploadSheet();
@@ -213,11 +213,9 @@ export function GetStarted({
             line={
               by.play.done
                 ? 'A player loaded one of your videos'
-                : playsUncounted
-                  ? 'This server does not count plays yet, so this step cannot tick itself.'
-                  : firstReady
-                    ? COPY.play.why
-                    : 'Available once a video is ready.'
+                : firstReady
+                  ? COPY.play.why
+                  : 'Available once a video is ready.'
             }
             action={
               !by.play.done &&

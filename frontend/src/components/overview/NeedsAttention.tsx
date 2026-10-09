@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import type { VideoAsset } from '@sluby/sdk';
 import { CircleAlert, TriangleAlert } from 'lucide-react';
 import { failureInfo } from '@/components/asset/processing';
+import { RetryProcessingButton } from '@/components/asset/RetryProcessingButton';
 import { AnimatedItem, AnimatedList } from '@/components/motion';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -82,7 +83,14 @@ function FailedRow({ video }: { video: VideoAsset }) {
       tone="danger"
       title={<>{quoted(video.title)} failed</>}
       why={job.data ? info.body : 'Processing failed.'}
-      action={<OpenVideo video={video} />}
+      action={
+        <>
+          {info.action === 'retry' && job.data && (
+            <RetryProcessingButton asset={video} named variant="outline" size="sm" />
+          )}
+          <OpenVideo video={video} />
+        </>
+      }
     />
   );
 }
