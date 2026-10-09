@@ -28,20 +28,29 @@ function sentence(names: string[]): string {
 /**
  * Toasts when the server's health changes while the Studio is open: once
  * per change, never per poll, and not for the state found on load (the
- * Health dot shows that). Shares the shell's status poll.
+ * Health dot shows that). A change counts once two polls in a row agree, so
+ * a probe that fails for one poll does not toast (and get read out) twice,
+ * down and then back. Shares the shell's status poll.
  */
 export function LiveAlerts() {
   const status = useSystemStatus({ poll: true });
   const { operator } = useSession();
   const navigate = useNavigate();
-  const last = useRef<SystemStatus['status'] | null>(null);
+  // the verdict last told (or found on load), and the previous poll's
+  const told = useRef<SystemStatus['status'] | null>(null);
+  const previous = useRef<SystemStatus['status'] | null>(null);
   const current = status.data?.status;
 
   useEffect(() => {
     if (!status.data || !current) return;
-    const before = last.current;
-    last.current = current;
-    if (before === null || before === current) return;
+    const before = previous.current;
+    previous.current = current;
+    if (told.current === null) {
+      told.current = current;
+      return;
+    }
+    if (current === told.current || current !== before) return;
+    told.current = current;
 
     const action = operator
       ? { label: 'Open health', onClick: () => void navigate(ROUTES.DEPLOYMENT) }
@@ -60,9 +69,9 @@ export function LiveAlerts() {
     } else {
       toastWarning(message, { id: SERVICE_TOAST_ID, action });
     }
-    // status.data changes with every poll; only a change of the verdict matters
+    // runs once per poll answer; status.data and the rest are read as they are then
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current]);
+  }, [status.dataUpdatedAt]);
 
   return null;
 }
