@@ -122,6 +122,36 @@ describe('asset hooks', () => {
     expect(server.calls).toHaveLength(1);
   });
 
+  it('does not poll a video whose upload stopped more than 10 minutes ago (FLW-12)', async () => {
+    const server = jsonFetch({
+      '/api/v1/assets/a1': assetBody({
+        status: 'created',
+        created_at: new Date(Date.now() - 11 * 60_000).toISOString(),
+      }),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { Wrapper } = wrapper();
+    renderHook(() => useAssetById('a1'), { wrapper: Wrapper });
+    await waitFor(() => expect(server.calls).toHaveLength(1));
+    // the detail poll runs every 3 s while a video is in flight
+    await new Promise((r) => setTimeout(r, 3_500));
+    expect(server.calls).toHaveLength(1);
+  });
+
+  it('keeps polling an upload that started a minute ago', async () => {
+    const server = jsonFetch({
+      '/api/v1/assets/a1': assetBody({
+        status: 'uploading',
+        created_at: new Date(Date.now() - 60_000).toISOString(),
+      }),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { Wrapper } = wrapper();
+    renderHook(() => useAssetById('a1'), { wrapper: Wrapper });
+    await waitFor(() => expect(server.calls).toHaveLength(1));
+    await waitFor(() => expect(server.calls.length).toBeGreaterThan(1), { timeout: 4_000 });
+  });
+
   it('stops polling the processing job on a 401', async () => {
     const server = jsonFetch({
       '/api/v1/assets/a1/processing': reply(401, { error: 'Not signed in' }),
