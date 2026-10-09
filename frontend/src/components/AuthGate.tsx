@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { GitHubMark } from '@/components/brand/GitHubMark';
 import { Logo } from '@/components/brand/Logo';
 import { apiClient, statusOf } from '@/lib/api-client';
+import { describeError, errorText } from '@/lib/errors';
 import { fadeUp, transition } from '@/lib/motion';
 import { loadPage } from '@/lib/navigation';
 import {
@@ -31,9 +32,10 @@ type GateState =
   | { kind: 'signedOut'; ended: boolean; reason?: SessionEndReason }
   /**
    * The server did not answer usefully; signing in again would not help.
-   * `answered` tells an error reply apart from a request that never arrived.
+   * `title` tells a server error, any other reply and a request that never
+   * arrived apart.
    */
-  | { kind: 'unreachable'; answered: boolean; detail: string };
+  | { kind: 'unreachable'; title: string; detail: string };
 
 /** What the sign-in screen says about a session that ended. Null says nothing. */
 function endedMessage(ended: boolean, reason: SessionEndReason | undefined): string | null {
@@ -222,14 +224,26 @@ export function AuthGate({ children }: { children: ReactNode }) {
           setState({ kind: 'signedOut', ended: false, reason: sessionEndReasonOf(err) });
           return;
         }
-        setState({
-          kind: 'unreachable',
-          answered: status !== undefined,
-          detail:
-            status !== undefined
-              ? `It answered with error ${status}. Try again in a moment. If it keeps happening, check the server logs.`
-              : 'Check that the server is running and your connection works, then try again.',
-        });
+        if (status === undefined && describeError(err).kind === 'offline') {
+          setState({
+            kind: 'unreachable',
+            title: 'Could not reach the server',
+            detail: 'Check that the server is running and your connection works, then try again.',
+          });
+        } else if (status !== undefined && status >= 500) {
+          setState({
+            kind: 'unreachable',
+            title: 'The server ran into a problem',
+            detail: `It answered with error ${status}. Try again in a moment. If it keeps happening, check the server logs.`,
+          });
+        } else {
+          // a 429, an answer that is not json, a route the server lacks
+          setState({
+            kind: 'unreachable',
+            title: 'Could not check your session',
+            detail: errorText(err),
+          });
+        }
       })
       .finally(() => {
         if (!cancelled) setRetrying(false);
@@ -302,9 +316,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return (
       <Screen contentKey="unreachable">
         <div role="alert" className="flex flex-col gap-1.5">
-          <p className="font-medium">
-            {state.answered ? 'The server ran into a problem' : 'Could not reach the server'}
-          </p>
+          <p className="font-medium">{state.title}</p>
           <p className="text-sm text-muted-foreground">{state.detail}</p>
         </div>
         <Button

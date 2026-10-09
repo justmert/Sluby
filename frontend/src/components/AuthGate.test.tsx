@@ -108,6 +108,39 @@ describe('AuthGate', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('says a busy server asks to wait, not that it answered with an error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'Too many requests' }), {
+          status: 429,
+          headers: { 'content-type': 'application/json', 'retry-after': '30' },
+        }),
+      ),
+    );
+    renderGate();
+    expect(await screen.findByText('Could not check your session')).toBeInTheDocument();
+    expect(
+      screen.getByText('Too many requests. Wait 30 seconds and try again.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/It answered with error/)).not.toBeInTheDocument();
+  });
+
+  it('does not call an unreadable answer error 200', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response('{bad', { status: 200, headers: { 'content-type': 'application/json' } }),
+        ),
+    );
+    renderGate();
+    expect(await screen.findByText('Could not check your session')).toBeInTheDocument();
+    expect(screen.getByText('Something went wrong. Try again in a moment.')).toBeInTheDocument();
+    expect(screen.queryByText(/error 200/)).not.toBeInTheDocument();
+  });
+
   it('says the server is unreachable when the request never arrives', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     renderGate();
