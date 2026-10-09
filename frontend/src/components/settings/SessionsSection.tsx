@@ -24,17 +24,17 @@ const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** When a browser was last used; this one is in use right now. */
 function lastActive(s: StudioSession): string {
   if (s.current) return 'Just now';
-  return s.last_seen_at ? sentence(formatRelativeTime(s.last_seen_at)) : NO_VALUE;
+  return s.lastSeenAt ? sentence(formatRelativeTime(s.lastSeenAt)) : NO_VALUE;
 }
 
 function BrowserCell({ session }: { session: StudioSession }) {
-  const { label, mobile } = browserLabel(session.user_agent);
+  const { label, mobile } = browserLabel(session.userAgent);
   const Icon = mobile ? Smartphone : Monitor;
   return (
     // nowrap: the icon never sits alone on a line above a long name
     <span className="flex min-w-0 flex-nowrap items-center gap-2">
       <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <span className="min-w-0 truncate" title={session.user_agent ?? undefined}>
+      <span className="min-w-0 truncate" title={session.userAgent ?? undefined}>
         {label}
       </span>
       {session.current && <StatusBadge kind="session" status="current" className="shrink-0" />}
@@ -50,9 +50,7 @@ export function SessionsSection() {
   const signOutEverywhere = useSignOutEverywhere();
   const [confirmAll, setConfirmAll] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
-  const rows = sessions.data?.data;
-  // B-10: servers before it send no last_seen_at at all; leave the column out there
-  const knowsLastSeen = rows?.some((s) => s.last_seen_at !== undefined) ?? false;
+  const rows = sessions.data;
 
   // the row leaves at once, and its button with it; keep focus in the list
   // (the next browser's Sign out), or on Sign out everywhere when none are left
@@ -91,25 +89,19 @@ export function SessionsSection() {
     {
       id: 'created',
       header: 'Signed in',
-      cell: (s) => <span title={formatRelativeTime(s.created_at)}>{formatDate(s.created_at)}</span>,
+      cell: (s) => <span title={formatRelativeTime(s.createdAt)}>{formatDate(s.createdAt)}</span>,
     },
-    ...(knowsLastSeen
-      ? [
-          {
-            id: 'seen',
-            header: 'Last active',
-            cell: (s: StudioSession) => (
-              <span title={s.last_seen_at ? formatDate(s.last_seen_at) : undefined}>
-                {lastActive(s)}
-              </span>
-            ),
-          },
-        ]
-      : []),
+    {
+      id: 'seen',
+      header: 'Last active',
+      cell: (s) => (
+        <span title={s.lastSeenAt ? formatDate(s.lastSeenAt) : undefined}>{lastActive(s)}</span>
+      ),
+    },
     {
       id: 'expires',
       header: 'Expires',
-      cell: (s) => <span title={formatDate(s.expires_at)}>{formatTimeLeft(s.expires_at)}</span>,
+      cell: (s) => <span title={formatDate(s.expiresAt)}>{formatTimeLeft(s.expiresAt)}</span>,
     },
     {
       id: 'action',
@@ -120,7 +112,7 @@ export function SessionsSection() {
         // this browser signs out from Account above, which also leaves the page
         if (s.current) return null;
         const pending = revoke.isPending && revoke.variables === s.id;
-        const { label } = browserLabel(s.user_agent);
+        const { label } = browserLabel(s.userAgent);
         return (
           <Button
             variant="ghost"
@@ -165,7 +157,7 @@ export function SessionsSection() {
         columns={columns}
         rows={rows}
         getRowId={(s) => s.id}
-        getRowLabel={(s) => browserLabel(s.user_agent).label}
+        getRowLabel={(s) => browserLabel(s.userAgent).label}
         loadingRows={2}
         error={sessions.error}
         onRetry={() => sessions.refetch()}

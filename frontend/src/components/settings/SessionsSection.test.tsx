@@ -78,14 +78,6 @@ describe('SessionsSection', () => {
     expect(within(await rowOf('Unknown browser')).getByText('–')).toBeInTheDocument();
   });
 
-  it('leaves the column out for a server that does not send last_seen_at', async () => {
-    rows = rows.map(({ last_seen_at: _, ...r }) => r);
-    setup();
-    await rowOf('Safari on iPhone');
-    expect(screen.queryByRole('columnheader', { name: 'Last active' })).not.toBeInTheDocument();
-    expect(screen.queryByText('3 hours ago')).not.toBeInTheDocument();
-  });
-
   it('signs out another browser, named in its button, and not this one from the table', async () => {
     const { fetch } = setup({
       'DELETE /api/v1/auth/sessions/s2': () => {

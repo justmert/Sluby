@@ -1,27 +1,19 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import type { StudioSession } from '@sluby/sdk';
 import { apiClient, statusOf } from '@/lib/api-client';
 import { replacePage } from '@/lib/navigation';
+import { sluby } from '@/lib/sluby';
 
-export interface StudioSession {
-  id: string;
-  user_agent: string | null;
-  created_at: string;
-  expires_at: string;
-  /** The session this browser is using. */
-  current: boolean;
-  /** When the session was last used, to within 5 minutes. B-10: absent until the server has it. */
-  last_seen_at?: string | null;
-}
-
-type SessionList = { data: StudioSession[] };
+export type { StudioSession };
 
 const KEYS = ['studio-sessions'];
 
+/** The browsers signed in as this account, newest first (sdk `sessions.list`). */
 export function useSessions(enabled: boolean) {
   return useQuery({
     queryKey: KEYS,
-    queryFn: () => apiClient.get<SessionList>('/auth/sessions'),
+    queryFn: ({ signal }) => sluby.sessions.list({ signal }),
     enabled,
   });
 }
@@ -29,13 +21,11 @@ export function useSessions(enabled: boolean) {
 export function useRevokeSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiClient.delete<{ success: boolean }>(`/auth/sessions/${id}`),
+    mutationFn: (id: string) => sluby.sessions.revoke(id),
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: KEYS });
-      const previous = qc.getQueryData<SessionList>(KEYS);
-      qc.setQueryData<SessionList>(KEYS, (old) =>
-        old ? { ...old, data: old.data.filter((s) => s.id !== id) } : old,
-      );
+      const previous = qc.getQueryData<StudioSession[]>(KEYS);
+      qc.setQueryData<StudioSession[]>(KEYS, (old) => old?.filter((s) => s.id !== id));
       return { previous };
     },
     onError: (_err, _id, ctx) => {
@@ -93,5 +83,5 @@ export function useSignOut() {
 /** Sign out every browser of this account, this one included: DELETE /auth/sessions, then leave. */
 export function useSignOutEverywhere() {
   const qc = useQueryClient();
-  return () => signOutWith(qc, () => apiClient.delete('/auth/sessions'));
+  return () => signOutWith(qc, () => sluby.sessions.revokeAll());
 }

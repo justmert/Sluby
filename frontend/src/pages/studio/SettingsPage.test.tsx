@@ -76,7 +76,8 @@ beforeEach(() => {
       201,
     );
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
+    // the sdk asks with absolute urls, apiClient with paths
+    const url = String(input).replace(window.location.origin, '');
     const method = init?.method ?? 'GET';
     if (url === '/api/v1/keys' && method === 'GET') {
       if (!keyPages) return json({ data: keys, has_more: false, next_cursor: null });
