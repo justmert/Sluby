@@ -88,6 +88,7 @@ function VideoRow({ video }: { video: VideoAsset }) {
         <AssetThumbnail
           thumbnailObjectIds={video.thumbnailObjectIds}
           isPrivate={video.accessTier === 'private'}
+          failed={video.status === 'failed'}
           className="w-16 shrink-0 @md/recent:w-20"
         />
         <div className="min-w-0 flex-1">

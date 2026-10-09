@@ -640,6 +640,22 @@ describe('Overview page', () => {
       );
     });
 
+    it('draws a failed video in recent videos with the same failed thumbnail as the library', async () => {
+      const failed = video({ id: 'f1', title: 'Teaser', status: 'failed' });
+      setup({
+        '/api/v1/assets': assetsRoute({ failed: [failed] }, [failed]),
+        '/api/v1/assets/f1/processing': job({
+          status: 'failed',
+          stage: 'failed',
+          retryable: false,
+        }),
+      });
+      render();
+      const recent = await screen.findByRole('list', { name: 'Recent videos' });
+      const link = await within(recent).findByRole('link', { name: /Teaser/ });
+      expect(link.querySelector('[data-state="failed"]')).not.toBeNull();
+    });
+
     it('offers Retry processing on a failed video that retrying can fix', async () => {
       const failed = video({ id: 'f1', title: 'Teaser', status: 'failed' });
       setup({
