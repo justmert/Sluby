@@ -142,7 +142,14 @@ describe('Quickstart', () => {
   it('keeps the placeholder when the videos do not load, and says so', async () => {
     routes['/api/v1/assets'] = reply(500, { error: 'boom' });
     render();
-    expect(await screen.findByText(/Could not load your videos/)).toBeInTheDocument();
+    expect(
+      await screen.findByText('Could not load your videos, so the snippets use YOUR_VIDEO_ID.'),
+    ).toBeInTheDocument();
+    routes['/api/v1/assets'] = { data: [], total: 0, page: 1, limit: 50, has_more: false };
+    await userEvent.click(screen.getAllByRole('button', { name: 'Try again' })[0]);
+    expect(
+      await screen.findByText(/The snippets use YOUR_VIDEO_ID until a video is ready/),
+    ).toBeInTheDocument();
   });
 
   it('plays a public video with the share panel’s code, and signs a private one', async () => {

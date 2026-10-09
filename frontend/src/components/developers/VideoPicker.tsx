@@ -8,6 +8,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ErrorDetails } from '@/components/shared/ErrorDetails';
+import { Button } from '@/components/ui/button';
 import { errorText } from '@/lib/errors';
 import { useUploadSheet } from '@/lib/upload-sheet';
 
@@ -20,21 +22,37 @@ export function VideoPicker({
   selected,
   error,
   onChange,
+  onRetry,
+  retrying = false,
 }: {
   videos: VideoAsset[] | undefined;
   selected: VideoAsset | null | undefined;
   error: unknown;
   onChange: (id: string) => void;
+  /** loads the videos again after a failure */
+  onRetry: () => unknown;
+  retrying?: boolean;
 }) {
   const upload = useUploadSheet();
   if (selected === undefined) {
     return <Skeleton className="h-9 w-full max-w-sm" />;
   }
   if (error && !videos) {
+    // the snippets still work with the placeholder; the full reason is under Details
     return (
-      <p className="text-sm text-muted-foreground">
-        Could not load your videos, so the snippets use YOUR_VIDEO_ID. {errorText(error)}
-      </p>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+        <span>Could not load your videos, so the snippets use YOUR_VIDEO_ID.</span>
+        <Button
+          variant="link"
+          size="sm"
+          className="h-auto p-0"
+          onClick={() => void onRetry()}
+          disabled={retrying}
+        >
+          {retrying ? 'Trying again…' : 'Try again'}
+        </Button>
+        <ErrorDetails detail={errorText(error)} className="basis-full" />
+      </div>
     );
   }
   if (!selected || !videos) {

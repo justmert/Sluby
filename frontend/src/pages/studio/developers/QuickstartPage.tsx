@@ -182,6 +182,8 @@ export default function QuickstartPage() {
                 videos={ready.videos}
                 selected={ready.selected}
                 error={ready.list.error}
+                onRetry={() => ready.list.refetch()}
+                retrying={ready.list.isFetching}
                 onChange={setPickedId}
               />
               <p className="text-xs text-muted-foreground">
