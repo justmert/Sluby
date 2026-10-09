@@ -7,6 +7,10 @@ export interface WebhookRecord {
   events: string[];
   is_active: boolean;
   created_at: string;
+  /** When the newest delivery was attempted; null before any. B-07: absent until the server has it. */
+  last_delivery_at?: string | null;
+  /** Whether that delivery reached the endpoint; null before any. B-07. */
+  last_delivery_ok?: boolean | null;
   /** Only on the stand-in row shown while the server adds the endpoint. */
   pending?: true;
 }
@@ -30,6 +34,10 @@ export interface WebhookDelivery {
   error: string | null;
   attempt: number;
   created_at: string;
+  /** The JSON body that was sent. B-06: absent until the server has it. */
+  payload?: unknown;
+  /** True for a resend from the studio or the api. B-05/B-06. */
+  manual?: boolean;
 }
 
 export interface WebhookTestResult {

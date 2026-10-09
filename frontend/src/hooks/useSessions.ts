@@ -8,6 +8,8 @@ export interface StudioSession {
   expires_at: string;
   /** The session this browser is using. */
   current: boolean;
+  /** When the session was last used, to within 5 minutes. B-10: absent until the server has it. */
+  last_seen_at?: string | null;
 }
 
 type SessionList = { data: StudioSession[] };

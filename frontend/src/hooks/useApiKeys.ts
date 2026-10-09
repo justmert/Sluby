@@ -12,8 +12,21 @@ export interface ApiKeyRecord {
   created_at: string;
   /** Set while a rotated-out key is in its grace period. */
   expires_at: string | null;
+  /**
+   * The key's first 12 characters ("sluby_" and 6 more), null for keys made
+   * before prefixes were stored. B-01: absent until the server has it.
+   */
+  prefix?: string | null;
+  /** When a request last used the key, to the minute; null if never. B-01. */
+  last_used_at?: string | null;
   /** Only on the stand-in row shown while the server creates the key. */
   pending?: true;
+}
+
+/** This server's limits on keys, to check a new key against. B-08. */
+export interface KeyLimits {
+  max_keys: number;
+  max_rate_limit: number;
 }
 
 /** A key as the server returns it right after creation or rotation: the listing plus its secret. */
@@ -27,23 +40,27 @@ interface KeyPage {
   data: ApiKeyRecord[];
   has_more: boolean;
   next_cursor: string | null;
+  /** B-08: absent until the server has it. */
+  limits?: KeyLimits;
 }
 
-type KeyList = { data: ApiKeyRecord[] };
+type KeyList = { data: ApiKeyRecord[]; limits?: KeyLimits };
 
 const KEYS = ['api-keys'];
 
 /** Every key of the account, following the cursor until the last page. */
 async function listAllKeys(): Promise<KeyList> {
   const data: ApiKeyRecord[] = [];
+  let limits: KeyLimits | undefined;
   let cursor: string | null = null;
   do {
     const query: string = cursor ? `?${new URLSearchParams({ cursor })}` : '';
     const page: KeyPage = await apiClient.get<KeyPage>(`/keys${query}`);
     data.push(...page.data);
+    limits ??= page.limits;
     cursor = page.has_more ? page.next_cursor : null;
   } while (cursor);
-  return { data };
+  return limits ? { data, limits } : { data };
 }
 
 export function useApiKeys() {

@@ -53,3 +53,13 @@ export function useSession(): AuthSession {
   if (!session) throw new Error('useSession must be used below AuthGate');
   return session;
 }
+
+/**
+ * Why a session ended, from the `reason` of a session 401 (plan B-11):
+ * `{ error, reason }`. Servers before B-11 send no reason.
+ */
+export type SessionEndReason = 'missing' | 'expired' | 'revoked' | 'not_allowed';
+
+/** The `?signin_error=` codes the GitHub callback sends back to the studio (plan B-12). */
+export type SignInError =
+  'expired_handshake' | 'not_allowed' | 'provider_failed' | 'not_configured';
