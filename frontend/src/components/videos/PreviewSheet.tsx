@@ -104,7 +104,10 @@ export function PreviewSheet({ asset, onClose, previous, next, onStep }: Preview
                   size="icon-sm"
                   aria-label="Previous video"
                   aria-keyshortcuts="ArrowLeft"
-                  disabled={!previous}
+                  // aria-disabled, not disabled: a focused button that turns
+                  // disabled drops focus out of the sheet at the last video
+                  aria-disabled={!previous}
+                  className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                   onClick={() => step(previous)}
                 >
                   <ChevronLeft />
@@ -114,7 +117,8 @@ export function PreviewSheet({ asset, onClose, previous, next, onStep }: Preview
                   size="icon-sm"
                   aria-label="Next video"
                   aria-keyshortcuts="ArrowRight"
-                  disabled={!next}
+                  aria-disabled={!next}
+                  className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                   onClick={() => step(next)}
                 >
                   <ChevronRight />

@@ -884,7 +884,7 @@ describe('AssetsPage: row menu and preview', () => {
     expect(where()).toBe('?preview=bad');
     expect(
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Next video' }),
-    ).toBeDisabled();
+    ).toHaveAttribute('aria-disabled', 'true');
 
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

@@ -86,4 +86,35 @@ describe('ConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
   });
+
+  it('lets the page send focus elsewhere once it closes', async () => {
+    function Page() {
+      const [item, setItem] = useState<string | null>(null);
+      return (
+        <>
+          <input aria-label="Search" />
+          <button type="button" onClick={() => setItem('x')}>
+            Open
+          </button>
+          <ConfirmDialog
+            item={item}
+            onClose={() => setItem(null)}
+            title="Delete this video?"
+            description="It is removed. This cannot be undone."
+            confirmLabel="Delete"
+            onConfirm={() => undefined}
+            onCloseAutoFocus={(e) => {
+              e.preventDefault();
+              (document.querySelector('[aria-label="Search"]') as HTMLElement).focus();
+            }}
+          />
+        </>
+      );
+    }
+    renderWithMotion(<Page />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('textbox', { name: 'Search' })).toHaveFocus();
+  });
 });
