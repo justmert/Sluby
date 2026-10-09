@@ -88,7 +88,13 @@ export function VideoPicker({
           className="w-(--radix-select-trigger-width) max-w-[calc(100vw-2rem)]"
         >
           {videos.map((v) => (
-            <SelectItem key={v.id} value={v.id}>
+            // the item's text wrapper is a flex span; min-w-0 lets the title shrink and end in an ellipsis
+            <SelectItem
+              key={v.id}
+              value={v.id}
+              title={v.title || undefined}
+              className="*:[span]:last:min-w-0"
+            >
               <span dir="auto" className="block min-w-0 truncate">
                 {v.title || 'Untitled video'}
               </span>

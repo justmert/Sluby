@@ -208,4 +208,22 @@ describe('Quickstart', () => {
     expect(await screen.findByText('No active keys yet')).toBeInTheDocument();
     expect(screen.getByRole('tablist', { name: 'Snippets' })).toBeInTheDocument();
   });
+
+  it('truncates a long title in the video list and keeps the whole title as its tooltip', async () => {
+    const long =
+      'Quarterly all-hands recording with the full engineering, design and operations teams, extended cut including Q&A';
+    routes['/api/v1/assets'] = {
+      data: [asset(VID, long)],
+      total: 1,
+      page: 1,
+      limit: 50,
+      has_more: false,
+    };
+    render();
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Video' }));
+    const option = await screen.findByRole('option', { name: long });
+    expect(option).toHaveAttribute('title', long);
+    expect(option).toHaveClass('*:[span]:last:min-w-0');
+    expect(within(option).getByText(long)).toHaveClass('truncate');
+  });
 });
