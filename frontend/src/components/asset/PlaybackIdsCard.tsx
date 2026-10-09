@@ -53,10 +53,13 @@ const POLICY_HELP: Record<PlaybackPolicy, string> = {
 
 function CreateDialog({
   assetId,
+  isPrivate,
   open,
   onOpenChange,
 }: {
   assetId: string;
+  /** a private video needs a signed URL whatever the ID's own rule says */
+  isPrivate: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -87,7 +90,11 @@ function CreateDialog({
     },
   });
   const [name, setName] = useState('');
-  const [policy, setPolicy] = useState<PlaybackPolicy>('public');
+  const [policy, setPolicy] = useState<PlaybackPolicy>(isPrivate ? 'signed' : 'public');
+  const help =
+    isPrivate && policy === 'public'
+      ? 'This video is private, so players still need a signed URL until you make it public.'
+      : POLICY_HELP[policy];
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,9 +141,7 @@ function CreateDialog({
                   <SelectItem value="signed">Signed URL required</SelectItem>
                 </SelectContent>
               </Select>
-              <FieldDescription id="playback-id-policy-help">
-                {POLICY_HELP[policy]}
-              </FieldDescription>
+              <FieldDescription id="playback-id-policy-help">{help}</FieldDescription>
             </Field>
           </FieldGroup>
           <InlineError error={create.error} title="Could not create the playback ID" />
@@ -372,7 +377,13 @@ export function PlaybackIdsCard({ asset }: { asset: Asset }) {
         </p>
       )}
 
-      <CreateDialog key={createSeq} assetId={asset.id} open={creating} onOpenChange={setCreating} />
+      <CreateDialog
+        key={createSeq}
+        assetId={asset.id}
+        isPrivate={asset.accessTier === 'private'}
+        open={creating}
+        onOpenChange={setCreating}
+      />
 
       <ConfirmDialog
         item={pendingDelete}

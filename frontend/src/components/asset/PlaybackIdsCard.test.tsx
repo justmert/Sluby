@@ -165,6 +165,27 @@ describe('PlaybackIdsCard', () => {
     expect(await screen.findByText('Playback ID created')).toBeInTheDocument();
   });
 
+  it('on a private video, starts at a signed ID and says an open one still needs signing', async () => {
+    const stub = server([]);
+    show('private');
+    await screen.findByText(/No playback IDs yet/);
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    const dialog = await screen.findByRole('dialog');
+    const policy = within(dialog).getByRole('combobox', { name: 'Who can play' });
+    expect(policy).toHaveTextContent('Signed URL required');
+
+    await userEvent.click(policy);
+    await userEvent.click(await screen.findByRole('option', { name: 'Anyone with the URL' }));
+    expect(policy).toHaveAccessibleDescription(
+      'This video is private, so players still need a signed URL until you make it public.',
+    );
+    await userEvent.click(policy);
+    await userEvent.click(await screen.findByRole('option', { name: 'Signed URL required' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(stub.calls.some((c) => c.method === 'POST')).toBe(true));
+    expect(stub.calls.find((c) => c.method === 'POST')!.body).toEqual({ policy: 'signed' });
+  });
+
   it('sends a public create with no name as just the policy', async () => {
     const stub = server([]);
     show();
