@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { LogOut, Monitor, Smartphone } from 'lucide-react';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DataTable, type DataTableColumn } from '@/components/shared/DataTable';
@@ -49,18 +49,35 @@ export function SessionsSection() {
   const revoke = useRevokeSession();
   const signOutEverywhere = useSignOutEverywhere();
   const [confirmAll, setConfirmAll] = useState(false);
+  const sectionRef = useRef<HTMLElement>(null);
   const rows = sessions.data?.data;
   // B-10: servers before it send no last_seen_at at all; leave the column out there
   const knowsLastSeen = rows?.some((s) => s.last_seen_at !== undefined) ?? false;
 
+  // the row leaves at once, and its button with it; keep focus in the list
+  // (the next browser's Sign out), or on Sign out everywhere when none are left
+  const keepFocus = (failedId?: string) =>
+    requestAnimationFrame(() => {
+      const section = sectionRef.current;
+      if (!section) return;
+      const again = failedId && section.querySelector<HTMLElement>(`[data-sign-out="${failedId}"]`);
+      const next = section.querySelector<HTMLElement>('[data-sign-out]');
+      (again || next || section.querySelector<HTMLElement>('[data-sign-out-all]'))?.focus();
+    });
+
   const signOutOther = async (s: StudioSession) => {
+    const hadFocus = document.activeElement?.getAttribute('data-sign-out') === s.id;
+    if (hadFocus) keepFocus();
     try {
       await revoke.mutateAsync(s.id);
       toastSuccess('Signed out that browser');
     } catch (err) {
       // gone already is what was asked for; the list refetches either way
       if (statusOf(err) === 404) toastSuccess('That browser was already signed out.');
-      else toastError(withLead('Could not sign out that browser', err));
+      else {
+        toastError(withLead('Could not sign out that browser', err));
+        if (hadFocus) keepFocus(s.id);
+      }
     }
   };
 
@@ -111,6 +128,7 @@ export function SessionsSection() {
             className="text-destructive hover:text-destructive"
             disabled={pending}
             aria-label={`Sign out ${label}`}
+            data-sign-out={s.id}
             onClick={() => void signOutOther(s)}
           >
             {pending ? <Spinner aria-hidden="true" /> : <LogOut aria-hidden="true" />}
@@ -124,7 +142,7 @@ export function SessionsSection() {
   const others = rows?.filter((s) => !s.current).length ?? 0;
 
   return (
-    <section aria-labelledby="settings-browsers">
+    <section ref={sectionRef} aria-labelledby="settings-browsers">
       <SectionHeader
         id="settings-browsers"
         title="Signed-in browsers"
@@ -136,7 +154,7 @@ export function SessionsSection() {
         // always there, so the header does not grow when the list lands;
         // it signs this browser out too, so it works with no others listed
         action={
-          <Button variant="outline" size="sm" onClick={() => setConfirmAll(true)}>
+          <Button variant="outline" size="sm" data-sign-out-all onClick={() => setConfirmAll(true)}>
             <LogOut aria-hidden="true" />
             Sign out everywhere
           </Button>

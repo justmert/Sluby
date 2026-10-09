@@ -102,6 +102,29 @@ describe('SessionsSection', () => {
     expect(screen.getByText('No other browsers are signed in.')).toBeInTheDocument();
   });
 
+  it('keeps keyboard focus in the list when a signed-out row leaves', async () => {
+    rows.push({ ...rows[1], id: 's3', user_agent: null });
+    setup({
+      'DELETE /api/v1/auth/sessions/s2': () => {
+        rows = rows.filter((r) => r.id !== 's2');
+        return { success: true };
+      },
+      'DELETE /api/v1/auth/sessions/s3': () => {
+        rows = rows.filter((r) => r.id !== 's3');
+        return { success: true };
+      },
+    });
+    const first = await screen.findByRole('button', { name: 'Sign out Safari on iPhone' });
+    first.focus();
+    await userEvent.keyboard('{Enter}');
+    const next = screen.getByRole('button', { name: 'Sign out Unknown browser' });
+    await waitFor(() => expect(next).toHaveFocus());
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Sign out everywhere' })).toHaveFocus(),
+    );
+  });
+
   it('treats a browser that was already signed out as done', async () => {
     setup({
       'DELETE /api/v1/auth/sessions/s2': () => {
