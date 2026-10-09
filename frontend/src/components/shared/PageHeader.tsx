@@ -4,6 +4,11 @@ import { cn } from '@/lib/utils';
 export interface PageHeaderProps {
   /** the page's h1; a string gets a tooltip with the full text when it truncates */
   title: ReactNode;
+  /**
+   * Replaces the h1 with your own heading block, e.g. an editable title that
+   * renders its own h1. `title` is then not rendered.
+   */
+  heading?: ReactNode;
   /** one fragment under the title, 70 characters at most, no period */
   description?: ReactNode;
   /** a row under the title for status and facts: badges, "0:10 · 1080p" */
@@ -34,6 +39,7 @@ export interface PageHeaderProps {
  */
 export function PageHeader({
   title,
+  heading,
   description,
   meta,
   breadcrumbs,
@@ -54,13 +60,15 @@ export function PageHeader({
       <div className="min-w-0 flex-1">
         {breadcrumbs && <div className="mb-2 text-sm text-muted-foreground">{breadcrumbs}</div>}
         {/* dir=auto: a right-to-left video title truncates at its end, not its start */}
-        <h1
-          dir="auto"
-          className="truncate font-heading text-title"
-          title={typeof title === 'string' ? title : undefined}
-        >
-          {title}
-        </h1>
+        {heading ?? (
+          <h1
+            dir="auto"
+            className="truncate font-heading text-title"
+            title={typeof title === 'string' ? title : undefined}
+          >
+            {title}
+          </h1>
+        )}
         {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
         {meta && (
           <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground tabular-nums">

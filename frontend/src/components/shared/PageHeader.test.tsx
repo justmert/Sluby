@@ -47,4 +47,18 @@ describe('SectionHeader', () => {
     rerender(<SectionHeader title="Hosts" as="h3" />);
     expect(screen.getByRole('heading', { level: 3, name: 'Hosts' })).toBeInTheDocument();
   });
+
+  it('takes a heading block of its own in place of the h1', () => {
+    render(
+      <PageHeader
+        title="ignored"
+        heading={<h1 className="custom">Editable title</h1>}
+        meta={<span>Ready</span>}
+      />,
+    );
+    const h1s = screen.getAllByRole('heading', { level: 1 });
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]).toHaveTextContent('Editable title');
+    expect(screen.queryByText('ignored')).toBeNull();
+  });
 });
