@@ -483,6 +483,14 @@ describe('Overview page', () => {
       expect(screen.queryByRole('heading', { name: 'Get started' })).not.toBeInTheDocument();
     });
 
+    it('is not drawn when the data it needs could not load', async () => {
+      setup({ '/api/v1/keys': reply(500, { error: 'boom' }) });
+      render();
+      await screen.findByRole('heading', { level: 2, name: 'Recent videos' });
+      await waitFor(() => expect(server.calls.some((c) => c.path === '/api/v1/keys')).toBe(true));
+      expect(screen.queryByRole('heading', { name: 'Get started' })).not.toBeInTheDocument();
+    });
+
     it('still shows when the browser blocks storage', async () => {
       const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
         throw new Error('SecurityError');

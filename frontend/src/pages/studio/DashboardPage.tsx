@@ -110,16 +110,19 @@ export default function DashboardPage() {
     videos: latest.data?.data,
   });
   const complete = doneCount(steps) === REQUIRED_STEPS;
+  // a step whose data failed to load is unknown, not undone: the card would
+  // tell an account with keys and videos that it has none
+  const known = [stats, system, usage, keys, webhooks].every((q) => q.data !== undefined);
   const [shownOpen, setShownOpen] = useState(false);
-  if (ready && !hidden && !complete && !shownOpen) setShownOpen(true);
+  if (ready && known && !hidden && !complete && !shownOpen) setShownOpen(true);
   useEffect(() => {
-    if (!ready || hidden || !complete) return;
+    if (!ready || !known || hidden || !complete) return;
     // finished before it was ever drawn: never draw it
     if (!shownOpen) return hide('done');
     const id = window.setTimeout(() => hide('done'), DONE_LINGER_MS);
     return () => window.clearTimeout(id);
-  }, [ready, hidden, complete, shownOpen, hide]);
-  const showChecklist = ready && !hidden && (!complete || shownOpen);
+  }, [ready, known, hidden, complete, shownOpen, hide]);
+  const showChecklist = ready && !hidden && (shownOpen || (known && !complete));
   const firstReady = useFirstReadyVideo(showChecklist && (s?.by_status.ready ?? 0) > 0);
 
   // recent videos, leaving out uploads whose file never came (FLW-31)
