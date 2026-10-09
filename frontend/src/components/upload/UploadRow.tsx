@@ -23,7 +23,7 @@ import { CHUNK_SIZE, isTransferring, type UploadState, type UploadStore } from '
 import { cn } from '@/lib/utils';
 import { ChunkStrip } from './ChunkStrip';
 import { rowTitleId } from './ids';
-import { statusLine } from './upload-status';
+import { badgeStatus, statusLine } from './upload-status';
 
 const ButtonSpinner = () => <Spinner role={undefined} aria-hidden="true" />;
 
@@ -44,7 +44,7 @@ function WaitingBar({ label }: { label: string }) {
  * failed, with the shared "this just happened" timing (MOT-11). Rows that
  * were already settled when the sheet opened do not flash.
  */
-function SettleFlash({ phase }: { phase: UploadState['phase'] }) {
+function SettleFlash({ phase }: { phase: UploadState['phase'] | null }) {
   const tone = phase === 'ready' ? 'ring-success' : phase === 'failed' ? 'ring-destructive' : null;
   return (
     <AnimatePresence initial={false}>
@@ -247,7 +247,7 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
       data-testid="upload-row"
       data-phase={s.phase}
     >
-      <SettleFlash phase={s.phase} />
+      <SettleFlash phase={s.assetGone ? null : s.phase} />
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <h3
@@ -263,11 +263,7 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
             <span dir="auto">{s.fileName}</span>
           </p>
         </div>
-        <StatusBadge
-          kind="upload"
-          status={s.phase === 'failed' && s.lostConnection ? 'offline' : s.phase}
-          className="shrink-0"
-        />
+        <StatusBadge kind="upload" status={badgeStatus(s)} className="shrink-0" />
         {dismissable && (
           <Button
             variant="ghost"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { job, upload } from '@/test/upload-state';
-import { sentOf, shortStatus, statusLine, timeLeft } from './upload-status';
+import { badgeStatus, endedText, sentOf, shortStatus, statusLine, timeLeft } from './upload-status';
 
 describe('upload status line', () => {
   it('says percent, bytes and time left while sending, and no time before the speed settles', () => {
@@ -74,5 +74,29 @@ describe('upload status line', () => {
     expect(
       statusLine(upload({ phase: 'failed', error: 'The file is not a readable video.' })),
     ).toMatchObject({ text: 'The file is not a readable video.', tone: 'danger' });
+  });
+});
+
+describe('an upload whose video was deleted elsewhere', () => {
+  const gone = upload({
+    phase: 'failed',
+    failedDuring: 'processing',
+    assetGone: true,
+    error: 'This video was deleted before processing finished.',
+  });
+
+  it('reads as deleted, not as a red failure', () => {
+    expect(badgeStatus(gone)).toBe('deleted');
+    expect(statusLine(gone).tone).toBe('muted');
+    expect(shortStatus(gone)).toBe('Deleted');
+    expect(endedText(gone)).toBe('“Clip” was deleted before processing finished.');
+  });
+
+  it('keeps a real failure red and says it failed', () => {
+    const failed = upload({ phase: 'failed', error: 'The file is not a readable video.' });
+    expect(badgeStatus(failed)).toBe('failed');
+    expect(statusLine(failed).tone).toBe('danger');
+    expect(endedText(failed)).toBe('“Clip” failed. The file is not a readable video.');
+    expect(badgeStatus(upload({ phase: 'failed', lostConnection: true }))).toBe('offline');
   });
 });

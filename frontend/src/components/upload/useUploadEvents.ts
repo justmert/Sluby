@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router';
 import { statusSpec } from '@/components/shared/status';
 import { ROUTES } from '@/lib/constants';
 import { primaryEmbed } from '@/lib/embed';
-import { toastError, toastSuccess } from '@/lib/toast';
+import { toastError, toastSuccess, toastWarning } from '@/lib/toast';
 import { recordUpload } from '@/lib/upload-history';
+import { endedText } from './upload-status';
 import { useUploadSheet } from '@/lib/upload-sheet';
 import {
   useUploads,
@@ -77,12 +78,7 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
         !u.authFailed &&
         !u.lostConnection
       ) {
-        said.set(
-          u.key,
-          u.phase === 'ready'
-            ? `“${u.title}” is ready`
-            : `“${u.title}” failed. ${u.error ?? ''}`.trim(),
-        );
+        said.set(u.key, u.phase === 'ready' ? `“${u.title}” is ready` : endedText(u));
       } else if (u.phase === 'ready' && u.assetId) {
         toastSuccess(`“${u.title}” is ready`, {
           action: { label: 'Copy embed code', onClick: () => void copyEmbed(u) },
@@ -95,11 +91,15 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
           said.set(u.key, `“${u.title}”: ${statusSpec('upload', 'offline').label}`);
           continue;
         }
+        if (u.assetGone) {
+          toastWarning(endedText(u));
+          continue;
+        }
         const action =
-          u.assetId && !u.assetGone && u.failedDuring === 'processing'
+          u.assetId && u.failedDuring === 'processing'
             ? { label: 'Open video', onClick: () => void navigate(ROUTES.video(u.assetId!)) }
             : { label: 'Open uploads', onClick: () => sheet.open() };
-        toastError(`“${u.title}” failed. ${u.error ?? ''}`.trim(), { action });
+        toastError(endedText(u), { action });
       } else {
         said.set(u.key, `“${u.title}”: ${statusSpec('upload', u.phase).label}`);
       }

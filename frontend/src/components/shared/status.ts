@@ -6,6 +6,7 @@ import {
   Clock,
   Lock,
   Monitor,
+  Trash2,
   TriangleAlert,
   WifiOff,
   type LucideIcon,
@@ -59,6 +60,8 @@ export const STATUS = {
     ready: spec('Ready', 'success', CircleCheck),
     failed: spec('Failed', 'danger', CircleAlert),
     cancelled: spec('Canceled', 'neutral'),
+    /** its video was deleted, here or elsewhere, before processing finished */
+    deleted: spec('Deleted', 'neutral', Trash2),
     /** the connection dropped; it continues by itself once the browser is online */
     offline: spec('Offline', 'neutral', WifiOff),
   },

@@ -101,7 +101,11 @@ export function statusLine(u: UploadState): StatusLine {
       );
     case 'failed':
       // a dropped connection is not the upload's fault, and it goes on by itself
-      return line(u.error ?? 'The upload failed.', { tone: u.lostConnection ? 'muted' : 'danger' });
+      // neither is the upload's fault: the connection goes on by itself, and a
+      // video deleted elsewhere was someone's choice
+      return line(u.error ?? 'The upload failed.', {
+        tone: u.lostConnection || u.assetGone ? 'muted' : 'danger',
+      });
     case 'cancelled':
       if (u.cleanup === 'pending') return line('Canceling…');
       if (u.cleanup === 'failed') {
@@ -131,8 +135,21 @@ export function shortStatus(u: UploadState): string {
     case 'ready':
       return 'Ready';
     case 'failed':
-      return 'Failed';
+      return u.assetGone ? 'Deleted' : 'Failed';
     case 'cancelled':
       return 'Canceled';
   }
+}
+
+/** The badge an upload row shows: its phase, unless it ended for a reason that is not a failure. */
+export function badgeStatus(u: UploadState): UploadState['phase'] | 'offline' | 'deleted' {
+  if (u.phase !== 'failed') return u.phase;
+  if (u.lostConnection) return 'offline';
+  return u.assetGone ? 'deleted' : 'failed';
+}
+
+/** What the toast and the screen reader say when an upload ends without a video. */
+export function endedText(u: UploadState): string {
+  if (u.assetGone) return `“${u.title}” was deleted before processing finished.`;
+  return `“${u.title}” failed. ${u.error ?? ''}`.trim();
 }
