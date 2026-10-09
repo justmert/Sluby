@@ -32,7 +32,8 @@ async function copyEmbed(u: UploadState) {
  * with Open video (D-14), "Continuing “Teaser” from 40%" once the sdk
  * really continued (FLW-04), and the file remembered for the duplicate hint
  * (FLW-47). Other phase changes are written to the returned live region,
- * once each; ready and failed are announced by their toasts.
+ * once each; ready and failed are announced by their toasts, or by the
+ * region while the sheet is open and the row already shows them.
  */
 export function useUploadEvents(store: UploadStore, accountId: string) {
   const { uploads } = useUploads(store);
@@ -61,7 +62,19 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
       if (u.phase === 'processing' && u.assetId) {
         recordUpload({ fingerprint: u.fingerprint, title: u.title, assetId: u.assetId, accountId });
       }
-      if (u.phase === 'ready' && u.assetId) {
+      // with the sheet open the row itself shows it; say it once, without a toast on top
+      if (
+        (u.phase === 'ready' || u.phase === 'failed') &&
+        sheet.isOpen &&
+        !u.authFailed &&
+        !u.lostConnection
+      ) {
+        said.push(
+          u.phase === 'ready'
+            ? `“${u.title}” is ready`
+            : `“${u.title}” failed. ${u.error ?? ''}`.trim(),
+        );
+      } else if (u.phase === 'ready' && u.assetId) {
         toastSuccess(`“${u.title}” is ready`, {
           action: { label: 'Copy embed code', onClick: () => void copyEmbed(u) },
         });

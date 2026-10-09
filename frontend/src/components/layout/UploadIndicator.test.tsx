@@ -19,7 +19,7 @@ function Where() {
   return <p data-testid="where">{pathname + search}</p>;
 }
 
-function setup() {
+function setup(route = '/studio/videos?status=ready') {
   const f = fakeUploadClient();
   const store = createUploadStore(f.client, { unloadTarget: null, onlineTarget: null });
   renderPage(
@@ -27,7 +27,7 @@ function setup() {
       <UploadIndicator store={store} />
       <Where />
     </WithSession>,
-    { route: '/studio/videos?status=ready' },
+    { route },
   );
   return { f, store };
 }
@@ -47,7 +47,8 @@ describe('UploadIndicator', () => {
       f.current().progress(42, 100);
     });
     const ring = screen.getByRole('button', { name: 'Keynote: Uploading, 42%. Go to uploads' });
-    expect(ring).toHaveTextContent('42%');
+    // the figure is drawn beside the button that covers it
+    expect(ring.parentElement).toHaveTextContent('42%');
 
     act(() => f.current().progress(80, 100));
     expect(screen.getByRole('button', { name: /Keynote: Uploading, 80%/ })).toBeInTheDocument();
@@ -65,7 +66,7 @@ describe('UploadIndicator', () => {
     act(() => f.current().progress(30, 100));
     await act(() => store.pause(key));
     expect(
-      screen.getByRole('button', { name: 'Keynote: Paused at 30%. Go to uploads' }),
+      screen.getByRole('button', { name: 'Keynote: Paused at 30%. Go to uploads' }).parentElement,
     ).toHaveTextContent('Paused');
     expect(screen.getByRole('status')).toHaveTextContent('“Keynote”: Paused');
   });
@@ -79,7 +80,8 @@ describe('UploadIndicator', () => {
       f.current().progress(10, 100);
     });
     expect(
-      screen.getByRole('button', { name: /^2 uploads in progress\. Keynote: Uploading, 10%/ }),
+      screen.getByRole('button', { name: /^2 uploads in progress\. Keynote: Uploading, 10%/ })
+        .parentElement,
     ).toHaveTextContent('2');
   });
 
@@ -126,5 +128,37 @@ describe('UploadIndicator', () => {
     await act(async () => f.current().resolveUpload('up-1'));
     act(() => f.current().progress(40, 100));
     expect(await screen.findByText('Continuing “Keynote” from 40%')).toBeInTheDocument();
+  });
+
+  it('says a failure in the live region instead of a toast while the sheet shows the row', async () => {
+    const { f, store } = setup('/studio/videos?upload=1');
+    act(() => {
+      store.start(file, { title: 'Keynote' });
+    });
+    await act(async () => f.current().fail(new SlubyError('Bad request', 400)));
+    expect(screen.getByRole('status')).toHaveTextContent('“Keynote” failed. Bad request.');
+    expect(
+      screen.queryByText(/^“Keynote” failed/, { selector: '[data-title]' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows a dropped connection as offline, without a failure toast', async () => {
+    const f = fakeUploadClient();
+    const store = createUploadStore(f.client, {
+      unloadTarget: null,
+      onlineTarget: null,
+      isOnline: () => false,
+    });
+    renderPage(
+      <WithSession>
+        <UploadIndicator store={store} />
+      </WithSession>,
+    );
+    act(() => {
+      store.start(file, { title: 'Keynote' });
+    });
+    await act(async () => f.current().fail(new SlubyError('Upload failed: network', 0)));
+    expect(screen.getByRole('status')).toHaveTextContent('“Keynote”: Offline');
+    expect(screen.queryByText(/failed/)).not.toBeInTheDocument();
   });
 });

@@ -23,7 +23,17 @@ export function UploadSheet() {
       <SheetContent
         side={phone ? 'bottom' : 'right'}
         aria-describedby={undefined}
-        onOpenAutoFocus={focus.onOpenAutoFocus}
+        onOpenAutoFocus={(e) => {
+          focus.onOpenAutoFocus(e);
+          // start on the sheet's first action rather than its close button
+          const choose = (e.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>(
+            '[data-upload-choose]',
+          );
+          if (choose) {
+            e.preventDefault();
+            choose.focus();
+          }
+        }}
         onCloseAutoFocus={focus.onCloseAutoFocus}
         className="gap-0 overflow-y-auto overscroll-contain data-[side=bottom]:h-dvh data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
       >

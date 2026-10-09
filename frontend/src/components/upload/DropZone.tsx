@@ -79,6 +79,7 @@ export function DropZone({
               Drop videos here, or{' '}
               <button
                 type="button"
+                data-upload-choose
                 aria-labelledby={`${id}-title`}
                 aria-describedby={`${id}-hint`}
                 onClick={(e) => {

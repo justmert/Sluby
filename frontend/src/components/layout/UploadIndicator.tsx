@@ -114,6 +114,11 @@ export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }
   );
 }
 
+/**
+ * The ring and its figures are drawn beside an empty button that covers
+ * them, so the button's name is the full sentence (CPY-18) without visible
+ * text inside it that the name would have to repeat (WCAG 2.5.3).
+ */
 function RingButton({
   lead,
   count,
@@ -126,29 +131,31 @@ function RingButton({
     count > 1
       ? `${count} uploads in progress. ${detail}. Go to uploads`
       : `${detail}. Go to uploads`;
+  const figure = paused
+    ? 'Paused'
+    : lead.phase === 'finishing' || (!lead.job && lead.phase === 'processing')
+      ? null
+      : `${percent}%`;
   return (
-    <button
-      type="button"
-      aria-label={label}
-      className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-      {...props}
-    >
-      <Ring percent={percent} paused={paused} />
-      <span className="hidden tabular-nums sm:inline" aria-hidden="true">
-        {paused
-          ? 'Paused'
-          : lead.phase === 'finishing' || (!lead.job && lead.phase === 'processing')
-            ? null
-            : `${percent}%`}
+    <span className="group/ring relative flex h-8 items-center">
+      <span
+        aria-hidden="true"
+        className="pointer-events-none flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-150 group-hover/ring:bg-muted group-hover/ring:text-foreground"
+      >
+        <Ring percent={percent} paused={paused} />
+        {figure && <span className="hidden tabular-nums sm:inline">{figure}</span>}
+        {count > 1 && (
+          <span className="rounded-full bg-muted px-1.5 text-xs text-foreground tabular-nums">
+            {count}
+          </span>
+        )}
       </span>
-      {count > 1 && (
-        <span
-          className="rounded-full bg-muted px-1.5 text-xs text-foreground tabular-nums"
-          aria-hidden="true"
-        >
-          {count}
-        </span>
-      )}
-    </button>
+      <button
+        type="button"
+        aria-label={label}
+        className="absolute inset-0 rounded-md focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+        {...props}
+      />
+    </span>
   );
 }
