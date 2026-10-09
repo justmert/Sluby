@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Code, KeyRound, Link2, Plus, Trash2 } from 'lucide-react';
 import type { PlaybackId, PlaybackPolicy, VideoAsset } from '@sluby/sdk';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { CopyButton } from '@/components/shared/CopyButton';
 import { DataTable, type DataTableColumn } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { InlineError } from '@/components/shared/InlineError';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import {
@@ -63,14 +64,25 @@ function CreateDialog({
   const [name, setName] = useState('');
   const [policy, setPolicy] = useState<PlaybackPolicy>('public');
 
+  // a refusal shows in the form; once the form is closed, a toast says it
+  const shown = useRef(open);
+  useEffect(() => {
+    shown.current = open;
+  }, [open]);
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (create.isPending) return;
     const input = { policy, ...(name.trim() ? { name: name.trim() } : {}) };
-    // the row shows at once as pending; the dialog does not wait for it
-    onOpenChange(false);
+    // the form waits for the answer, so what was typed is still there if it fails
     create.mutate(input, {
-      onSuccess: () => toastSuccess('Playback ID created'),
-      onError: (err) => toastError(withLead('Could not create the playback ID', err)),
+      onSuccess: () => {
+        onOpenChange(false);
+        toastSuccess('Playback ID created');
+      },
+      onError: (err) => {
+        if (!shown.current) toastError(withLead('Could not create the playback ID', err));
+      },
     });
   };
 
@@ -117,11 +129,19 @@ function CreateDialog({
               </FieldDescription>
             </Field>
           </FieldGroup>
+          <InlineError error={create.error} title="Could not create the playback ID" />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit">Create</Button>
+            <Button
+              type="submit"
+              disabled={create.isPending}
+              aria-busy={create.isPending || undefined}
+            >
+              {create.isPending && <Spinner data-icon="inline-start" aria-hidden="true" />}
+              {create.isPending ? 'Creating…' : 'Create'}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

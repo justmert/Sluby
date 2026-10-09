@@ -135,7 +135,7 @@ describe('PlaybackIdsCard', () => {
     ).toBeInTheDocument();
   });
 
-  it('creates a signed id with a name, showing a pending row until the server answers', async () => {
+  it('creates a signed id with a name, keeping the form open until the server answers', async () => {
     let release!: () => void;
     const stub = server(undefined, new Promise<void>((r) => (release = r)));
     show();
@@ -148,17 +148,19 @@ describe('PlaybackIdsCard', () => {
     await userEvent.click(await screen.findByRole('option', { name: 'Signed URL required' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
 
-    // the dialog closes at once and a placeholder row stands in
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(screen.getByText('Creating…')).toBeInTheDocument();
-    expect(screen.getByText('Partner')).toBeInTheDocument();
+    // the form waits for the answer, so a refusal can be shown in it
+    const creating = await within(dialog).findByRole('button', { name: 'Creating…' });
+    expect(creating).toBeDisabled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
 
     const body = stub.calls.find((c) => c.method === 'POST')!.body;
     expect(body).toEqual({ policy: 'signed', name: 'Partner' });
     expect(checkValue(body, requestSchema(createOp)!)).toEqual([]);
 
     release();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(await screen.findByText(PB_NEW)).toBeInTheDocument();
+    expect(screen.getByText('Partner')).toBeInTheDocument();
     expect(screen.queryByText('Creating…')).not.toBeInTheDocument();
     expect(await screen.findByText('Playback ID created')).toBeInTheDocument();
   });
@@ -175,7 +177,7 @@ describe('PlaybackIdsCard', () => {
     expect(stub.calls.find((c) => c.method === 'POST')!.body).toEqual({ policy: 'public' });
   });
 
-  it('drops the placeholder and says why when a create fails', async () => {
+  it('keeps what was typed and says why in the form when a create fails', async () => {
     const stub = jsonFetch({
       '/api/v1/assets/a1/playback-ids': { data: [] },
       'POST /api/v1/assets/a1/playback-ids': reply(403, { error: 'Missing scope: manage' }),
@@ -184,14 +186,23 @@ describe('PlaybackIdsCard', () => {
     show();
     await screen.findByText(/No playback IDs yet/);
     await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
-    await userEvent.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Create' }),
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name (optional)'), 'Partner');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Who can play' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Signed URL required' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).toHaveTextContent('Could not create the playback ID');
+    expect(alert).toHaveTextContent('You do not have access to this.');
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(within(dialog).getByLabelText('Name (optional)')).toHaveValue('Partner');
+    expect(within(dialog).getByRole('combobox', { name: 'Who can play' })).toHaveTextContent(
+      'Signed URL required',
     );
-    expect(
-      await screen.findByText(
-        'Could not create the playback ID. You do not have access to this. Ask an operator if you need it.',
-      ),
-    ).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Create' })).toBeEnabled();
+    // said once, in the form, not again in a toast
+    expect(screen.queryByText(/^Could not create the playback ID\. /)).not.toBeInTheDocument();
     expect(screen.queryByText('Creating…')).not.toBeInTheDocument();
   });
 
