@@ -126,12 +126,21 @@ describe('errorText', () => {
 
   it('falls back to a plain sentence for unknown 403, 404 and 409', () => {
     expect(errorText(new ApiError(403, 'nope'))).toMatch(/do not have access/);
-    expect(errorText(new ApiError(404, 'Route GET /x not found'))).toBe(
+    expect(errorText(new ApiError(404, 'Not found'))).toBe(
       'It no longer exists. It may have been deleted.',
     );
     expect(errorText(new ApiError(409, 'HTTP 409'))).toBe(
       'This changed in the meantime. Refresh and try again.',
     );
+  });
+
+  it('says a route the server does not have is a version gap, not a deletion', () => {
+    // a list or a page cannot be deleted; a missing route means the server is older
+    const err = new ApiError(404, 'Route GET /api/v1/stats/usage not found');
+    expect(errorText(err)).toBe(
+      'This server does not offer this yet. It may run an older version than the Studio.',
+    );
+    expect(describeError(err).action).toBe('none');
   });
 
   it('keeps a readable validation message as a sentence', () => {

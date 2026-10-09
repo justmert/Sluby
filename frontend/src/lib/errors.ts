@@ -58,6 +58,11 @@ const KNOWN: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/^Webhook endpoint not found/i, () => 'That webhook no longer exists.'],
   [/^API key not found/i, () => 'That API key no longer exists.'],
   [/^Session not found/i, () => 'That browser was already signed out.'],
+  // error-handler.ts: no such route, so the server is older than the studio
+  [
+    /^Route [A-Z]+ \S+ not found$/,
+    () => 'This server does not offer this yet. It may run an older version than the Studio.',
+  ],
   // playback.ts:95, 99, 134, 192
   [
     /^Video (is not ready for playback|manifest not available)/i,
