@@ -62,6 +62,15 @@ const nullable = (type: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+const assetEtagHeader = {
+  ETag: {
+    description:
+      'The asset’s version: its `updated_at` in milliseconds since the epoch, quoted. Send it ' +
+      'back in If-Match on PATCH.',
+    schema: { type: 'string', example: '"1767225600000"' },
+  },
+};
+
 const idParam = (name: string, description: string) => ({
   name,
   in: 'path' as const,
@@ -1458,7 +1467,7 @@ export const openapiDocument = {
         'x-required-scope': 'read',
         parameters: [idParam('id', 'Asset id.')],
         responses: {
-          '200': jsonResponse('Asset', 'The asset.'),
+          '200': { ...jsonResponse('Asset', 'The asset.'), headers: assetEtagHeader },
           '400': badId,
           '404': ref('NotFound'),
           ...authFailures,
@@ -1469,9 +1478,21 @@ export const openapiDocument = {
         summary: 'Update asset metadata.',
         description:
           'Changing access_tier takes effect on the delivery gateway at once. An asset being ' +
-          'deleted answers 404, as it does to every read.',
+          'deleted answers 404, as it does to every read. Send If-Match with the ETag of the ' +
+          'version you edited (from GET or an earlier PATCH, or built from `updated_at` as ' +
+          '`"<epoch milliseconds>"`) and the edit applies only if nobody changed the asset since; ' +
+          'otherwise 412 with the asset as it is now. Processing changes the version too.',
         'x-required-scope': 'manage',
-        parameters: [idParam('id', 'Asset id.')],
+        parameters: [
+          idParam('id', 'Asset id.'),
+          {
+            name: 'If-Match',
+            in: 'header' as const,
+            required: false,
+            schema: { type: 'string' },
+            description: 'One or more ETags, or `*` for any version. Weak tags never match.',
+          },
+        ],
         requestBody: {
           content: {
             'application/json': {
@@ -1497,9 +1518,25 @@ export const openapiDocument = {
           },
         },
         responses: {
-          '200': jsonResponse('Asset', 'Updated.'),
-          '400': ref('BadRequest'),
+          '200': { ...jsonResponse('Asset', 'Updated.'), headers: assetEtagHeader },
+          '400': errorWith('Invalid input, or an If-Match that is not an ETag.'),
           '404': ref('NotFound'),
+          '412': {
+            description: 'The asset changed since the If-Match version; nothing was saved.',
+            headers: assetEtagHeader,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['error', 'current'],
+                  properties: {
+                    error: { type: 'string' },
+                    current: { $ref: '#/components/schemas/Asset' },
+                  },
+                },
+              },
+            },
+          },
           ...authFailures,
         },
       },

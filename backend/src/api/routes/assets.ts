@@ -83,6 +83,10 @@ export interface AssetRouteDeps {
   // Every by-id operation is scoped by it so one tenant cannot reach
   // another's asset by guessing a UUID.
   getAsset: (id: string, owner?: string) => Promise<VideoAssetRecord | null>;
+  /**
+   * With `ifMatch`, the edit applies only while the asset is still at one of
+   * those versions (see assetVersion); `conflict` carries the asset as it is.
+   */
   updateAsset: (
     id: string,
     data: {
@@ -91,7 +95,12 @@ export interface AssetRouteDeps {
       accessTier?: 'public' | 'private';
     },
     owner?: string,
-  ) => Promise<VideoAssetRecord | null>;
+    ifMatch?: number[],
+  ) => Promise<
+    | { status: 'updated'; asset: VideoAssetRecord }
+    | { status: 'not_found' }
+    | { status: 'conflict'; current: VideoAssetRecord }
+  >;
   deleteAsset: (id: string, owner?: string) => Promise<boolean>;
   getProcessingJob: (
     videoAssetId: string,
@@ -130,6 +139,38 @@ interface VideoAssetRecord {
   totalStorageBytes: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * An asset's version: its updated_at in epoch milliseconds, which is also
+ * what updated_at says to the millisecond, so a client can build the ETag
+ * from any listing.
+ */
+export const assetVersion = (asset: { updatedAt: Date }) => asset.updatedAt.getTime();
+
+const assetEtag = (asset: { updatedAt: Date }) => `"${assetVersion(asset)}"`;
+
+/**
+ * The versions an If-Match header accepts: undefined when there is no
+ * condition (no header, or `*`), else the quoted versions it lists. A weak
+ * tag never matches, as RFC 9110 has it for If-Match.
+ */
+export function parseIfMatch(header: string | undefined): number[] | undefined {
+  if (header === undefined) return undefined;
+  const tags = header
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (tags.includes('*')) return undefined;
+  const versions: number[] = [];
+  for (const tag of tags) {
+    const m = /^(W\/)?"(\d{1,15})"$/.exec(tag);
+    if (!m) {
+      throw new AppError(400, 'If-Match must be the ETag of the video, such as "1767225600000".');
+    }
+    if (!m[1]) versions.push(Number(m[2]));
+  }
+  return versions;
 }
 
 export function createAssetRoutes(deps: AssetRouteDeps): Router {
@@ -202,27 +243,41 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
       throw new AppError(404, 'Video asset not found');
     }
 
-    res.json(formatAsset(asset));
+    res.set('ETag', assetEtag(asset)).json(formatAsset(asset));
   });
 
   /**
    * PATCH /api/v1/assets/:id
-   * Update video asset metadata.
+   * Update video asset metadata. With If-Match (the ETag GET and PATCH send)
+   * the edit applies only if nobody changed the asset since; otherwise 412
+   * with the asset as it is now, so two tabs cannot overwrite each other.
    */
   router.patch('/:id', requireScope('manage'), async (req: Request, res: Response) => {
     const body = parseOrThrow(patchBodySchema, req.body ?? {});
+    const ifMatch = parseIfMatch(req.get('If-Match'));
 
-    const updated = await deps.updateAsset(
+    const result = await deps.updateAsset(
       String(req.params.id),
       { title: body.title, description: body.description, accessTier: body.access_tier },
       ownerFilter(req.apiKey!.creatorAddress),
+      ifMatch,
     );
 
-    if (!updated) {
+    if (result.status === 'not_found') {
       throw new AppError(404, 'Video asset not found');
     }
+    if (result.status === 'conflict') {
+      res
+        .status(412)
+        .set('ETag', assetEtag(result.current))
+        .json({
+          error: 'This video was changed somewhere else.',
+          current: formatAsset(result.current),
+        });
+      return;
+    }
 
-    res.json(formatAsset(updated));
+    res.set('ETag', assetEtag(result.asset)).json(formatAsset(result.asset));
   });
 
   /**

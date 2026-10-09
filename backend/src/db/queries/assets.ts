@@ -228,9 +228,19 @@ export async function updateAssetMetadata(
   id: string,
   data: Partial<Pick<VideoAsset, 'title' | 'description' | 'accessTier'>>,
   owner?: string,
+  /**
+   * Versions (updated_at in epoch milliseconds, the asset's ETag) the caller
+   * last saw; the edit applies only while the row is still at one of them.
+   */
+  ifMatch?: number[],
 ): Promise<VideoAsset | undefined> {
   const scope = [eq(videoAssets.id, id), isNull(videoAssets.deletedAt)];
   if (owner !== undefined) scope.push(eq(videoAssets.creatorAddress, owner));
+  if (ifMatch !== undefined) {
+    scope.push(
+      sql`(extract(epoch from date_trunc('milliseconds', ${videoAssets.updatedAt})) * 1000)::bigint = any(${`{${ifMatch.join(',')}}`}::bigint[])`,
+    );
+  }
   // a tier that actually changes revokes every signed url of the asset, in
   // the same statement, so no url outlives the change it was minted under
   const tierChange =
@@ -247,7 +257,9 @@ export async function updateAssetMetadata(
             legacySignaturesUntil: sql`case when ${tierChange} then null else ${videoAssets.legacySignaturesUntil} end`,
           }
         : {}),
-      updatedAt: new Date(),
+      // always past the previous value at millisecond precision, so two edits
+      // in one millisecond still give two versions and If-Match tells them apart
+      updatedAt: sql`greatest(now(), date_trunc('milliseconds', ${videoAssets.updatedAt}) + interval '1 millisecond')`,
     })
     .where(and(...scope))
     .returning();

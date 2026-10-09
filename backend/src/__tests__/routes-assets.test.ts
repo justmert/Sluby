@@ -49,7 +49,7 @@ describe('asset routes', () => {
     deps = {
       listAssets: vi.fn().mockResolvedValue({ data: [], total: 0 }),
       getAsset: vi.fn().mockResolvedValue(null),
-      updateAsset: vi.fn().mockResolvedValue(null),
+      updateAsset: vi.fn().mockResolvedValue({ status: 'not_found' }),
       deleteAsset: vi.fn().mockResolvedValue(true),
       getProcessingJob: vi.fn().mockResolvedValue(undefined),
       getAssetRenditions: vi.fn().mockResolvedValue(null),
@@ -209,6 +209,8 @@ describe('asset routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.id).toBe('asset-1');
       expect(res.body.title).toBe('Test Video');
+      // the version is updated_at in epoch milliseconds
+      expect(res.headers.etag).toBe(`"${Date.parse('2025-01-01T01:00:00Z')}"`);
     });
 
     it('should return 404 when asset not found', async () => {
@@ -252,7 +254,7 @@ describe('asset routes', () => {
   describe('PATCH /:id', () => {
     it('should update asset metadata', async () => {
       const updated = createMockAsset({ title: 'Updated Title' });
-      vi.mocked(deps.updateAsset).mockResolvedValue(updated);
+      vi.mocked(deps.updateAsset).mockResolvedValue({ status: 'updated', asset: updated });
 
       const res = await request(createApp())
         .patch('/asset-1')
@@ -264,11 +266,13 @@ describe('asset routes', () => {
         'asset-1',
         { title: 'Updated Title', description: 'New desc', accessTier: undefined },
         '0xabc123',
+        undefined,
       );
+      expect(res.headers.etag).toBe(`"${updated.updatedAt.getTime()}"`);
     });
 
     it('should return 404 when asset not found', async () => {
-      vi.mocked(deps.updateAsset).mockResolvedValue(null);
+      vi.mocked(deps.updateAsset).mockResolvedValue({ status: 'not_found' });
 
       const res = await request(createApp()).patch('/nonexistent').send({ title: 'New' });
 
@@ -286,7 +290,10 @@ describe('asset routes', () => {
     });
 
     it('should map access_tier to accessTier in dep call', async () => {
-      vi.mocked(deps.updateAsset).mockResolvedValue(createMockAsset());
+      vi.mocked(deps.updateAsset).mockResolvedValue({
+        status: 'updated',
+        asset: createMockAsset(),
+      });
 
       await request(createApp()).patch('/asset-1').send({ access_tier: 'private' });
 
@@ -294,7 +301,44 @@ describe('asset routes', () => {
         'asset-1',
         expect.objectContaining({ accessTier: 'private' }),
         '0xabc123',
+        undefined,
       );
+    });
+
+    it('passes the If-Match versions on, and answers 412 with the asset as it is now', async () => {
+      const current = createMockAsset({ title: 'Changed elsewhere' });
+      vi.mocked(deps.updateAsset).mockResolvedValue({ status: 'conflict', current });
+
+      const res = await request(createApp())
+        .patch('/asset-1')
+        .set('If-Match', '"1767225600000", W/"5"')
+        .send({ title: 'Mine' });
+
+      expect(deps.updateAsset).toHaveBeenCalledWith(
+        'asset-1',
+        expect.objectContaining({ title: 'Mine' }),
+        '0xabc123',
+        [1767225600000],
+      );
+      expect(res.status).toBe(412);
+      expect(res.body.error).toBe('This video was changed somewhere else.');
+      expect(res.body.current).toMatchObject({ id: current.id, title: 'Changed elsewhere' });
+      expect(res.headers.etag).toBe(`"${current.updatedAt.getTime()}"`);
+    });
+
+    it('treats If-Match: * as no condition', async () => {
+      vi.mocked(deps.updateAsset).mockResolvedValue({
+        status: 'updated',
+        asset: createMockAsset(),
+      });
+      await request(createApp()).patch('/asset-1').set('If-Match', '*').send({ title: 'x' });
+      expect(vi.mocked(deps.updateAsset).mock.calls[0][3]).toBeUndefined();
+    });
+
+    it.each(['1767225600000', '"abc"', '"1", nope'])('rejects If-Match %s with 400', async (h) => {
+      const res = await request(createApp()).patch('/asset-1').set('If-Match', h).send({});
+      expect(res.status).toBe(400);
+      expect(deps.updateAsset).not.toHaveBeenCalled();
     });
   });
 

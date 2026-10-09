@@ -426,6 +426,53 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect((await assetRow(assetA.id)).title).toBe('alice ready');
     });
 
+    it('refuses an edit based on an old version with 412, and applies one on the current', async () => {
+      const got = await call('GET', `/api/v1/assets/${assetA.id}`, 'a');
+      check('GET', '/api/v1/assets/{id}', got);
+      const etag = got.headers.etag;
+      expect(etag).toBe(`"${Date.parse(got.body.updated_at)}"`);
+
+      const first = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
+        title: 'tab one',
+      }).set('If-Match', etag);
+      check('PATCH', '/api/v1/assets/{id}', first);
+      expect(first.status).toBe(200);
+      expect(first.headers.etag).not.toBe(etag);
+
+      const stale = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
+        title: 'tab two',
+      }).set('If-Match', etag);
+      check('PATCH', '/api/v1/assets/{id}', stale);
+      expect(stale.status).toBe(412);
+      expect(stale.body.error).toBe('This video was changed somewhere else.');
+      expect(stale.body.current.title).toBe('tab one');
+      expect(stale.headers.etag).toBe(first.headers.etag);
+      expect((await assetRow(assetA.id)).title).toBe('tab one');
+
+      const retried = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
+        title: 'tab two',
+      }).set('If-Match', stale.headers.etag);
+      expect(retried.status).toBe(200);
+      expect(retried.body.title).toBe('tab two');
+
+      // another tenant's asset is a 404 whatever the version
+      const foreign = await call('PATCH', `/api/v1/assets/${assetB.id}`, 'a', {
+        title: 'x',
+      }).set('If-Match', etag);
+      check('PATCH', '/api/v1/assets/{id}', foreign);
+      expect(foreign.status).toBe(404);
+      const byPlatform = await call('PATCH', `/api/v1/assets/${assetB.id}`, 'platform', {
+        title: 'platform edit',
+      }).set('If-Match', '"1"');
+      check('PATCH', '/api/v1/assets/{id}', byPlatform);
+      expect(byPlatform.status).toBe(412);
+      const badHeader = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
+        title: 'x',
+      }).set('If-Match', 'nope');
+      check('PATCH', '/api/v1/assets/{id}', badHeader);
+      expect(badHeader.status).toBe(400);
+    });
+
     it('updates title, description and tier, trimming the title', async () => {
       const res = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
         title: '  renamed  ',

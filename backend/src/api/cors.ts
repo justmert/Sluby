@@ -11,6 +11,7 @@ const ALLOWED_HEADERS = [
   'Upload-Concat',
   'Upload-Defer-Length',
   'X-Requested-With',
+  'If-Match',
 ];
 
 const EXPOSED_HEADERS = [
@@ -26,6 +27,7 @@ const EXPOSED_HEADERS = [
   'X-RateLimit-Limit',
   'X-RateLimit-Remaining',
   'X-RateLimit-Reset',
+  'ETag',
 ];
 
 const BASE: CorsOptions = {

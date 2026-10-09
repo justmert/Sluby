@@ -2863,6 +2863,15 @@
                   "$ref": "#/components/schemas/Asset"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "description": "The asset’s version: its `updated_at` in milliseconds since the epoch, quoted. Send it back in If-Match on PATCH.",
+                "schema": {
+                  "type": "string",
+                  "example": "\"1767225600000\""
+                }
+              }
             }
           },
           "400": {
@@ -2894,7 +2903,7 @@
           "Assets"
         ],
         "summary": "Update asset metadata.",
-        "description": "Changing access_tier takes effect on the delivery gateway at once. An asset being deleted answers 404, as it does to every read.",
+        "description": "Changing access_tier takes effect on the delivery gateway at once. An asset being deleted answers 404, as it does to every read. Send If-Match with the ETag of the version you edited (from GET or an earlier PATCH, or built from `updated_at` as `\"<epoch milliseconds>\"`) and the edit applies only if nobody changed the asset since; otherwise 412 with the asset as it is now. Processing changes the version too.",
         "x-required-scope": "manage",
         "parameters": [
           {
@@ -2905,6 +2914,15 @@
               "type": "string"
             },
             "description": "Asset id."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "One or more ETags, or `*` for any version. Weak tags never match."
           }
         ],
         "requestBody": {
@@ -2946,10 +2964,26 @@
                   "$ref": "#/components/schemas/Asset"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "description": "The asset’s version: its `updated_at` in milliseconds since the epoch, quoted. Send it back in If-Match on PATCH.",
+                "schema": {
+                  "type": "string",
+                  "example": "\"1767225600000\""
+                }
+              }
             }
           },
           "400": {
-            "$ref": "#/components/responses/BadRequest"
+            "description": "Invalid input, or an If-Match that is not an ETag.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -2959,6 +2993,37 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "description": "The asset changed since the If-Match version; nothing was saved.",
+            "headers": {
+              "ETag": {
+                "description": "The asset’s version: its `updated_at` in milliseconds since the epoch, quoted. Send it back in If-Match on PATCH.",
+                "schema": {
+                  "type": "string",
+                  "example": "\"1767225600000\""
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "current"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "current": {
+                      "$ref": "#/components/schemas/Asset"
+                    }
+                  }
+                }
+              }
+            }
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"

@@ -554,7 +554,7 @@ export function buildApiDeps(
       return toAssetRecord(asset);
     },
 
-    updateAsset: async (id, data, owner) => {
+    updateAsset: async (id, data, owner, ifMatch) => {
       const updated = await updateAssetMetadata(
         id,
         {
@@ -563,8 +563,16 @@ export function buildApiDeps(
           ...(data.accessTier !== undefined ? { accessTier: data.accessTier } : {}),
         },
         owner,
+        ifMatch,
       );
-      if (!updated) return null;
+      if (!updated) {
+        // a conditional edit that matched nothing: the asset moved on, or
+        // there is no such asset for this caller
+        const current = ifMatch !== undefined ? await getVideoAssetById(id, owner) : undefined;
+        return current
+          ? { status: 'conflict', current: toAssetRecord(current) }
+          : { status: 'not_found' };
+      }
 
       // A tier change must take effect on the delivery path at once: drop the
       // asset's cached state so the gateway reads the new tier and signing
@@ -572,7 +580,7 @@ export function buildApiDeps(
       // up to a minute by this process).
       if (data.accessTier !== undefined) invalidateAssetAccess(id);
 
-      return toAssetRecord(updated);
+      return { status: 'updated', asset: toAssetRecord(updated) };
     },
 
     deleteAsset,
