@@ -4,6 +4,8 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UploadSheet } from '@/components/upload/UploadSheet';
 import { useIsWide } from '@/hooks/use-mobile';
+import { AuthOffBanner } from './AuthOffBanner';
+import { LiveAlerts } from './LiveAlerts';
 import { AppSidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { routeTitle, useRouteCrumbs } from './use-route-crumbs';
@@ -80,11 +82,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className="relative flex w-full min-w-0 flex-1 flex-col bg-background"
       >
         <TopBar />
+        <AuthOffBanner />
         <main id={MAIN_ID} tabIndex={-1} className="min-w-0 flex-1 overflow-x-clip outline-none">
           <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>
         </main>
       </div>
       <UploadSheet />
+      <LiveAlerts />
     </SidebarProvider>
   );
 }

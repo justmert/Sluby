@@ -18,3 +18,8 @@ export function toastError(message: string, options?: ExternalToast) {
 export function toastSuccess(message: string, options?: ExternalToast) {
   return toast.success(message, { duration: SUCCESS_TOAST_MS, ...options });
 }
+
+/** Something needs attention but is not a failure of what the reader did; stays until closed like an error. */
+export function toastWarning(message: string, options?: ExternalToast) {
+  return toast.warning(message, { duration: Infinity, closeButton: true, ...options });
+}
