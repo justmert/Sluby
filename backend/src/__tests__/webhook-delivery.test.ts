@@ -110,6 +110,7 @@ describe('deliverWebhook', () => {
         error: null,
         deliveredAt: expect.any(Date),
         retryCount: 2,
+        manual: false,
       },
     ]);
     expect(recorded[0].deliveredAt!.getTime()).toBeGreaterThanOrEqual(before);
@@ -239,6 +240,13 @@ describe('deliverWebhook', () => {
     const v1 = retry.headers['x-sluby-signature-v1'] as string;
     expect(verifySignature(`${timestamp}.${job.body}`, v1, 'whsec_rotated')).toBe(true);
     expect(verifySignature(`${timestamp}.${job.body}`, v1, 'whsec_test')).toBe(false);
+  });
+
+  it('logs a resend as manual, and an ordinary delivery as not', async () => {
+    const { deps, recorded } = setup(receiver.url);
+    await deliverWebhook(deps, job, 0);
+    await deliverWebhook(deps, { ...job, manual: true }, 0);
+    expect(recorded.map((r) => r.manual)).toEqual([false, true]);
   });
 
   it('omits the delivery header for a job queued by an older version', async () => {

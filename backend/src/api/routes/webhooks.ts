@@ -53,6 +53,18 @@ export interface WebhookRouteDeps {
   ) => Promise<WebhookRecord | null>;
   /** Stores a new signing secret; false when the endpoint is not the account's. */
   rotateWebhookSecret: (id: string, owner: string | undefined, secret: string) => Promise<boolean>;
+  /**
+   * Queue the stored payload of delivery `deliveryId` again, unchanged (same
+   * event id). `not_found` when the endpoint is not the account's or has no
+   * such delivery, `paused` when the endpoint is paused.
+   */
+  redeliverWebhook: (
+    id: string,
+    owner: string | undefined,
+    deliveryId: string,
+  ) => Promise<
+    { status: 'queued'; deliveryId: string } | { status: 'not_found' } | { status: 'paused' }
+  >;
   /** Deletes only if the endpoint belongs to the account; false when it does not. */
   deleteWebhook: (id: string, owner: string | undefined) => Promise<boolean>;
   /**
@@ -239,6 +251,29 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
     if (!rotated) throw new AppError(404, 'Webhook endpoint not found');
     res.json({ id, secret });
   });
+
+  /**
+   * POST /api/v1/webhooks/:id/deliveries/:deliveryId/redeliver
+   * Send a logged delivery's payload again, with the same event id so a
+   * receiver that already handled it can drop it. Queued like any delivery,
+   * with the usual retries; its attempts are logged with `manual: true`.
+   */
+  router.post(
+    '/:id/deliveries/:deliveryId/redeliver',
+    requireScope('manage'),
+    async (req: Request, res: Response) => {
+      const result = await deps.redeliverWebhook(
+        String(req.params.id),
+        ownerFilter(req.apiKey!.creatorAddress),
+        String(req.params.deliveryId),
+      );
+      if (result.status === 'not_found') throw new AppError(404, 'Delivery not found');
+      if (result.status === 'paused') {
+        throw new AppError(409, 'This webhook is paused. Resume it to resend.');
+      }
+      res.status(202).json({ delivery_id: result.deliveryId });
+    },
+  );
 
   /**
    * DELETE /api/v1/webhooks/:id

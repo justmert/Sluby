@@ -42,6 +42,7 @@ describe('webhook routes', () => {
       listWebhooks: vi.fn().mockResolvedValue([]),
       getWebhook: vi.fn().mockResolvedValue(null),
       rotateWebhookSecret: vi.fn().mockResolvedValue(true),
+      redeliverWebhook: vi.fn().mockResolvedValue({ status: 'queued', deliveryId: 'dlv_2' }),
       updateWebhook: vi.fn(async (id, _owner, patch) => ({
         id,
         url: patch.url ?? 'https://example.com/hook',
@@ -392,6 +393,28 @@ describe('webhook routes', () => {
     it("answers 404 for an endpoint that is not the caller's", async () => {
       vi.mocked(deps.rotateWebhookSecret).mockResolvedValue(false);
       const res = await request(createApp()).post('/wh-9/rotate-secret');
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /:id/deliveries/:deliveryId/redeliver', () => {
+    it('queues the delivery again and answers 202 with the new delivery id', async () => {
+      const res = await request(createApp()).post('/wh-1/deliveries/d-1/redeliver');
+      expect(res.status).toBe(202);
+      expect(res.body).toEqual({ delivery_id: 'dlv_2' });
+      expect(deps.redeliverWebhook).toHaveBeenCalledWith('wh-1', '0xabc123', 'd-1');
+    });
+
+    it('answers 409 while the endpoint is paused', async () => {
+      vi.mocked(deps.redeliverWebhook).mockResolvedValue({ status: 'paused' });
+      const res = await request(createApp()).post('/wh-1/deliveries/d-1/redeliver');
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('This webhook is paused. Resume it to resend.');
+    });
+
+    it('answers 404 for a delivery or endpoint that is not the caller’s', async () => {
+      vi.mocked(deps.redeliverWebhook).mockResolvedValue({ status: 'not_found' });
+      const res = await request(createApp()).post('/wh-1/deliveries/d-9/redeliver');
       expect(res.status).toBe(404);
     });
   });

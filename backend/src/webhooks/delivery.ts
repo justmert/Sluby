@@ -18,6 +18,8 @@ export interface WebhookJobData {
   event: string;
   body: string;
   deliveryId?: string;
+  /** A resend someone asked for; recorded as such in the delivery log. */
+  manual?: boolean;
 }
 
 /** Waits before the 2nd, 3rd and 4th attempt; the first runs immediately. */
@@ -72,6 +74,7 @@ export interface DeliveryRecord {
   /** When the receiver answered 2xx; null for a failed attempt. */
   deliveredAt: Date | null;
   retryCount: number;
+  manual: boolean;
 }
 
 export interface WebhookDeliveryDeps {
@@ -169,6 +172,7 @@ export async function deliverWebhook(
       error: outcome.error,
       deliveredAt: outcome.delivered ? new Date() : null,
       retryCount,
+      manual: data.manual === true,
     });
   } catch (err) {
     logger.error(

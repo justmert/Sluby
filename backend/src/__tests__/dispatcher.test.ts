@@ -99,4 +99,16 @@ describe('WebhookDispatcher', () => {
       'redis down',
     );
   });
+
+  it('queues a resend as it is, with no fixed job id', async () => {
+    const job: WebhookJobData = {
+      endpointId: 'ep-1',
+      event: 'asset.ready',
+      body: '{"id":"evt_1"}',
+      deliveryId: 'dlv_9',
+      manual: true,
+    };
+    await dispatcher.enqueue(job);
+    expect(added).toEqual([[{ name: 'asset.ready', data: job }]]);
+  });
 });

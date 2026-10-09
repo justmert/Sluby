@@ -541,6 +541,8 @@ export const webhookDeliveries = pgTable(
     error: text('error'),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     retryCount: integer('retry_count').notNull().default(0),
+    // a resend someone asked for, of a payload sent before
+    manual: boolean('manual').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

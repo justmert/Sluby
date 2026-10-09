@@ -2054,6 +2054,41 @@ export const openapiDocument = {
         },
       },
     },
+    '/api/v1/webhooks/{id}/deliveries/{deliveryId}/redeliver': {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Send a logged delivery again.',
+        description:
+          'Queues the stored payload of the delivery again, with the same event `id` so a ' +
+          'receiver that already handled it can drop the repeat. It is signed with the current ' +
+          'secret, gets a new X-Sluby-Delivery id and the usual retries, and each attempt is ' +
+          'logged with `manual: true`. A paused endpoint answers 409.',
+        'x-required-scope': 'manage',
+        parameters: [
+          idParam('id', 'Endpoint id.'),
+          idParam('deliveryId', 'The `id` of an entry in the delivery log.'),
+        ],
+        responses: {
+          '202': jsonSchemaResponse(
+            {
+              type: 'object',
+              required: ['delivery_id'],
+              properties: {
+                delivery_id: {
+                  type: 'string',
+                  description: 'The X-Sluby-Delivery header the resend carries.',
+                },
+              },
+            },
+            'Queued.',
+          ),
+          '400': badId,
+          '404': ref('NotFound'),
+          '409': errorWith('The endpoint is paused.'),
+          ...authFailures,
+        },
+      },
+    },
     '/api/v1/webhooks/{id}': {
       get: {
         tags: ['Webhooks'],

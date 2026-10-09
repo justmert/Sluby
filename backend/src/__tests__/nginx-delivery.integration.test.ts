@@ -831,7 +831,7 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
         startedAt: new Date(),
         queues: { transcode: queue, uploadSegments: queue, finalize: queue, deletion: queue },
         pingRedis: async () => {},
-        webhookDispatcher: { dispatch: async () => {} },
+        webhookDispatcher: { dispatch: async () => {}, enqueue: async () => {} },
         triggerReconciliation: async () => ({ enqueued: false }),
       });
       server = http.createServer(app);

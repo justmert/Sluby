@@ -73,13 +73,19 @@ import {
   getWebhookEndpointWithHealth,
   updateWebhookEndpoint,
   setWebhookSecret,
+  getWebhookDelivery,
   listWebhookDeliveries,
   listWebhookEndpointsByOwner,
   deleteWebhookEndpoint,
 } from './db/queries/webhooks.js';
 import { EgressError, vetUrl } from './webhooks/egress.js';
 import { webhookEgressPolicy } from './webhooks/policy.js';
-import { attemptDelivery, eventBody, newDeliveryId } from './webhooks/delivery.js';
+import {
+  attemptDelivery,
+  eventBody,
+  newDeliveryId,
+  type WebhookJobData,
+} from './webhooks/delivery.js';
 import {
   createPlaybackIdForAsset,
   listPlaybackIdsByAsset,
@@ -142,6 +148,8 @@ export interface AppContext {
   pingRedis: () => Promise<void>;
   webhookDispatcher: {
     dispatch: (event: string, data: Record<string, unknown>, owner: string) => Promise<void>;
+    /** Queue one delivery as it is (a resend). */
+    enqueue: (job: WebhookJobData) => Promise<void>;
   };
   triggerReconciliation: () => Promise<{ enqueued: boolean }>;
 }
@@ -787,6 +795,26 @@ export function buildApiDeps(
     rotateWebhookSecret: async (id, creatorAddress, secret) =>
       Boolean(await setWebhookSecret(id, creatorAddress, secret)),
 
+    redeliverWebhook: async (id, creatorAddress, deliveryId) => {
+      const endpoint = await getWebhookEndpointForOwner(id, creatorAddress);
+      if (!endpoint) return { status: 'not_found' };
+      const delivery = await getWebhookDelivery(deliveryId, endpoint.id);
+      if (!delivery) return { status: 'not_found' };
+      if (!endpoint.isActive) return { status: 'paused' };
+      const job: WebhookJobData = {
+        endpointId: endpoint.id,
+        event: delivery.eventType,
+        // the stored payload carries the original event id; jsonb keeps no
+        // key order, so the bytes can differ, and the signature is made over
+        // what is sent
+        body: JSON.stringify(delivery.payload),
+        deliveryId: newDeliveryId(),
+        manual: true,
+      };
+      await ctx.webhookDispatcher.enqueue(job);
+      return { status: 'queued', deliveryId: job.deliveryId! };
+    },
+
     deleteWebhook: async (id, creatorAddress) => {
       const deleted = await deleteWebhookEndpoint(id, creatorAddress);
       return Boolean(deleted);
@@ -820,6 +848,7 @@ export function buildApiDeps(
         error: outcome.error,
         deliveredAt: outcome.delivered ? new Date() : null,
         retryCount: 0,
+        manual: false,
       });
       return outcome;
     },

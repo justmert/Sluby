@@ -30,7 +30,7 @@ const { app } = createApp({
     deletion: unusedQueue,
   },
   pingRedis: async () => {},
-  webhookDispatcher: { dispatch: async () => {} },
+  webhookDispatcher: { dispatch: async () => {}, enqueue: async () => {} },
   triggerReconciliation: async () => ({ enqueued: false }),
 });
 

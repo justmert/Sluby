@@ -23,6 +23,7 @@ import {
 import type * as AppModule from '../app.js';
 import type * as AssetQueries from '../db/queries/assets.js';
 import type * as KeyQueries from '../db/queries/api-keys.js';
+import type { WebhookJobData } from '../webhooks/delivery.js';
 
 const A = 'github:alice';
 const B = 'github:bob';
@@ -60,6 +61,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
   const jobs: Array<{ queue: string; name: string; data: unknown; jobId?: string }> = [];
   const events: Array<{ event: string; data: Record<string, unknown>; owner: string }> = [];
   let reconcileTriggers = 0;
+  const queuedDeliveries: WebhookJobData[] = [];
 
   const fakeQueue = (queue: string) => ({
     add: async (name: string, data: unknown, opts?: { jobId?: string }) => {
@@ -102,6 +104,9 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         dispatch: async (event, data, owner) => {
           events.push({ event, data, owner });
         },
+        enqueue: async (job) => {
+          queuedDeliveries.push(job);
+        },
       },
       triggerReconciliation: async () => {
         reconcileTriggers++;
@@ -128,6 +133,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     jobs.length = 0;
     events.length = 0;
     reconcileTriggers = 0;
+    queuedDeliveries.length = 0;
     mkdirSync(uploadDir, { recursive: true });
 
     const all = ['upload', 'read', 'manage'];
@@ -770,6 +776,64 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         expect(deliveries.status).toBe(200);
         expect(deliveries.body.data).toHaveLength(1);
 
+        // a resend queues the stored payload with its event id; the queued job
+        // is then sent by the real delivery code, as the worker would
+        const first = deliveries.body.data[0];
+        const redeliverPath = '/api/v1/webhooks/{id}/deliveries/{deliveryId}/redeliver';
+        const resendByB = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/deliveries/${first.id}/redeliver`,
+          'b',
+        );
+        check('POST', redeliverPath, resendByB);
+        expect(resendByB.status).toBe(404);
+        const resend = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/deliveries/${first.id}/redeliver`,
+          'a',
+        );
+        check('POST', redeliverPath, resend);
+        expect(resend.status).toBe(202);
+        expect(resend.body.delivery_id).toMatch(/^dlv_/);
+        expect(queuedDeliveries).toHaveLength(1);
+        const [queued] = queuedDeliveries;
+        expect(queued).toMatchObject({
+          endpointId: created.body.id,
+          event: 'webhook.test',
+          deliveryId: resend.body.delivery_id,
+          manual: true,
+        });
+        expect(JSON.parse(queued.body).id).toBe(first.event_id);
+        const { deliverWebhook } = await import('../webhooks/delivery.js');
+        const webhookQueries = await import('../db/queries/webhooks.js');
+        const { webhookEgressPolicy } = await import('../webhooks/policy.js');
+        await deliverWebhook(
+          {
+            getEndpoint: webhookQueries.getWebhookEndpointById,
+            recordDelivery: async (row) => {
+              await webhookQueries.createWebhookDelivery(row);
+            },
+            egress: webhookEgressPolicy(),
+          },
+          queued,
+          0,
+        );
+        expect(hits).toEqual(['webhook.test', 'webhook.test']);
+        const afterResend = await call(
+          'GET',
+          `/api/v1/webhooks/${created.body.id}/deliveries`,
+          'a',
+        );
+        expect(afterResend.body.data).toHaveLength(2);
+        expect(afterResend.body.data[0].event_id).toBe(first.event_id);
+        const unknownDelivery = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/deliveries/${created.body.id}/redeliver`,
+          'a',
+        );
+        check('POST', redeliverPath, unknownDelivery);
+        expect(unknownDelivery.status).toBe(404);
+
         const rotateByB = await call(
           'POST',
           `/api/v1/webhooks/${created.body.id}/rotate-secret`,
@@ -809,6 +873,13 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         expect(listPaused.body.data.map((w: { is_active: boolean }) => w.is_active)).toEqual([
           false,
         ]);
+        const resendPaused = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/deliveries/${first.id}/redeliver`,
+          'a',
+        );
+        check('POST', redeliverPath, resendPaused);
+        expect(resendPaused.status).toBe(409);
         const badPatch = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'a', {});
         check('PATCH', '/api/v1/webhooks/{id}', badPatch);
         expect(badPatch.status).toBe(400);
@@ -862,6 +933,19 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         );
         check('POST', '/api/v1/webhooks/{id}/rotate-secret', rotatedByP);
         expect(rotatedByP.status).toBe(200);
+        const pDeliveries = await call(
+          'GET',
+          `/api/v1/webhooks/${other.body.id}/deliveries`,
+          'platform',
+        );
+        const resendByP = await call(
+          'POST',
+          `/api/v1/webhooks/${other.body.id}/deliveries/${pDeliveries.body.data[0].id}/redeliver`,
+          'platform',
+        );
+        check('POST', redeliverPath, resendByP);
+        // paused just above
+        expect(resendByP.status).toBe(409);
         const byBAgain = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'b');
         expect(byBAgain.status).toBe(404);
         const byP = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'platform');

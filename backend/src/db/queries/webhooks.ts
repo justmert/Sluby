@@ -207,6 +207,19 @@ export async function createWebhookDelivery(data: NewWebhookDelivery): Promise<W
   return delivery;
 }
 
+/** One delivery attempt of an endpoint, or undefined when the endpoint has no such row. */
+export async function getWebhookDelivery(
+  id: string,
+  webhookEndpointId: string,
+): Promise<WebhookDelivery | undefined> {
+  return db.query.webhookDeliveries.findFirst({
+    where: and(
+      eq(webhookDeliveries.id, id),
+      eq(webhookDeliveries.webhookEndpointId, webhookEndpointId),
+    ),
+  });
+}
+
 /**
  * List deliveries for a given webhook endpoint, ordered newest first.
  */
