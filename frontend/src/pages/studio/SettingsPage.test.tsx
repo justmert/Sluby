@@ -4,6 +4,7 @@ import { renderPage } from '@/test/render';
 import type { AuthSession } from '@/lib/session';
 import { WithSession } from '@/test/session';
 import { formatTimeLeft as timeLeft } from '@/lib/formatters';
+import * as settingsModule from './SettingsPage';
 import SettingsPage from './SettingsPage';
 
 let sessions: Array<Record<string, unknown>>;
@@ -82,6 +83,10 @@ describe('SettingsPage', () => {
     await screen.findByText('Safari on iPhone');
     expect(screen.queryByText('API keys')).not.toBeInTheDocument();
     expect(calls('GET', '/api/v1/keys')).toHaveLength(0);
+  });
+
+  it('exports only the page, with no keys card left behind', () => {
+    expect(Object.keys(settingsModule)).toEqual(['default']);
   });
 
   it('asks for no server status: the version and network live in the sidebar now', async () => {

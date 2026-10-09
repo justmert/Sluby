@@ -8,14 +8,6 @@ import { InlineEditField } from '@/components/shared/InlineEditField';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   isReplaced,
@@ -71,12 +63,8 @@ function revealedKey(issued: IssuedKey, graceSeconds?: number): RevealedSecret {
 
 const rowLabel = (k: ApiKeyRecord) => (k.prefix ? `${k.name}, ${k.prefix}…` : k.name);
 
-/**
- * Every API key of the account: create, rename, rotate and revoke. Renders
- * as the API keys page, or as a card for a page that shows keys beside
- * other things.
- */
-export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }) {
+/** Every API key of the account: create, rename, rotate and revoke. */
+export function ApiKeysManager() {
   const keys = useApiKeys();
   const rename = useRenameApiKey();
   const revoke = useRevokeApiKey();
@@ -199,7 +187,6 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
   const createButton = (
     <Button
       id={CREATE_BUTTON_ID}
-      size={layout === 'card' ? 'sm' : 'default'}
       onClick={openCreate}
       aria-disabled={atCap || undefined}
       aria-describedby={atCap ? CAP_REASON_ID : undefined}
@@ -358,21 +345,6 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
     </>
   );
 
-  if (layout === 'card') {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>API keys</CardTitle>
-          <CardDescription>
-            For the REST API and SDK. A key is shown only once, when you create it.
-          </CardDescription>
-          <CardAction>{primary}</CardAction>
-        </CardHeader>
-        <CardContent>{table}</CardContent>
-        {dialogs}
-      </Card>
-    );
-  }
   return (
     <>
       <PageHeader
@@ -384,9 +356,4 @@ export function ApiKeysManager({ layout = 'page' }: { layout?: 'page' | 'card' }
       {dialogs}
     </>
   );
-}
-
-/** The keys as a card, for the Settings page until keys live only on their own page. */
-export function ApiKeysCard() {
-  return <ApiKeysManager layout="card" />;
 }

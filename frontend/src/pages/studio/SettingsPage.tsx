@@ -1,13 +1,8 @@
-import { ApiKeysCard } from '@/components/developers/ApiKeysManager';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { AccountSection } from '@/components/settings/AccountSection';
 import { AppearanceSection } from '@/components/settings/AppearanceSection';
 import { SessionsSection } from '@/components/settings/SessionsSection';
 import { useSession } from '@/lib/session';
-
-// the keys moved to the developers section (plan D-05); this card shows the
-// same manager until the settings page drops it
-export { ApiKeysCard };
 
 export default function SettingsPage() {
   const { authDisabled } = useSession();
