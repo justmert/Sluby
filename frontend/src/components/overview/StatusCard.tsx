@@ -59,7 +59,11 @@ function serverProbe(s: SystemStatus): Probe {
   return { ok: true, latency_ms: Math.max(s.database.latency_ms, s.redis.latency_ms) };
 }
 
-function filesLine(run: Reconciliation | null | undefined): { tone: Tone; text: string } {
+function filesLine(
+  run: Reconciliation | null | undefined,
+  runFailed: boolean,
+): { tone: Tone; text: string } {
+  if (runFailed) return { tone: 'muted', text: 'Could not load the storage check' };
   if (run === undefined) return { tone: 'muted', text: 'Not checked yet' };
   if (run === null) return { tone: 'muted', text: 'Not checked yet' };
   const when = formatRelativeTime(run.finished_at);
@@ -128,6 +132,7 @@ export function StatusCard({
   onRetry,
   retrying,
   run,
+  runFailed = false,
   operator,
 }: {
   status?: SystemStatus;
@@ -136,9 +141,11 @@ export function StatusCard({
   retrying: boolean;
   /** the latest storage check; null before any, undefined while it loads */
   run: Reconciliation | null | undefined;
+  /** the storage check could not load, so nothing is known about the files */
+  runFailed?: boolean;
   operator: boolean;
 }) {
-  const files = filesLine(run);
+  const files = filesLine(run, runFailed);
   return (
     <StatusFrame
       badge={

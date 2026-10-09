@@ -236,7 +236,8 @@ export default function DashboardPage() {
                 error={system.error}
                 onRetry={() => void system.refetch()}
                 retrying={system.isFetching}
-                run={run.isPending ? undefined : run.isError ? undefined : run.data}
+                run={run.data}
+                runFailed={run.isError && run.data === undefined}
                 operator={operator}
               />
             </AnimatedItem>

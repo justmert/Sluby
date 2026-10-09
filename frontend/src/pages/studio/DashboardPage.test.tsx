@@ -812,6 +812,13 @@ describe('Overview page', () => {
       expect(await screen.findByText('Could not load the status')).toBeInTheDocument();
     });
 
+    it('says the storage check could not load instead of claiming it never ran', async () => {
+      setup({ '/api/v1/reconciliation': reply(500, { error: 'boom' }) });
+      render();
+      expect(await screen.findByText('Could not load the storage check')).toBeInTheDocument();
+      expect(screen.queryByText('Not checked yet')).not.toBeInTheDocument();
+    });
+
     it('says a check has not run yet', async () => {
       setup({ '/api/v1/reconciliation': reply(404, { error: 'none' }) });
       render();
