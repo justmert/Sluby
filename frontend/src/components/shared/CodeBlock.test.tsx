@@ -36,4 +36,11 @@ describe('CodeBlock', () => {
     );
     expect(writeText).toHaveBeenCalledWith('curl -X POST $URL');
   });
+
+  it('shows code without ligatures, so !== and => read as typed', () => {
+    renderWithMotion(<CodeBlock code="a !== b => c" language="ts" label="snippet" />);
+    expect(screen.getByText(/!==/).closest('pre')!.className).toContain(
+      '[font-variant-ligatures:none]',
+    );
+  });
 });

@@ -122,18 +122,23 @@ function MetaRow({ asset, interrupted }: { asset: VideoAsset; interrupted: boole
     );
   }
   parts.push(`Created ${formatRelativeTime(asset.createdAt)}`);
+  const items: ReactNode[] = [
+    <StatusBadge
+      key="status"
+      kind="asset"
+      status={interrupted ? 'interrupted' : asset.status}
+      busy="spinner"
+      live
+    />,
+    ...parts,
+  ];
+  // the dot ends each item, so a wrapped line never starts with one
   return (
     <>
-      <StatusBadge
-        kind="asset"
-        status={interrupted ? 'interrupted' : asset.status}
-        busy="spinner"
-        live
-      />
-      {parts.map((part, i) => (
+      {items.map((item, i) => (
         <span key={i} className="inline-flex items-center gap-2">
-          <span aria-hidden="true">·</span>
-          {part}
+          {item}
+          {i < items.length - 1 && <span aria-hidden="true">·</span>}
         </span>
       ))}
     </>
