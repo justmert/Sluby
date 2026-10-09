@@ -243,6 +243,10 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
         return { skipped: 'stopped' };
       }
 
+      // the upload worker may not pick this up for a while (it runs one Sia
+      // upload at a time), so the log and the stage say what the video waits
+      // for instead of leaving it at "transcode, 65%"
+      await note(pj, 'upload', 'Waiting for the Sia uploader');
       await queues.uploadSegments.add(
         'upload-segments',
         {
@@ -284,7 +288,8 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
   ): Promise<CompletedOutput | null> {
     const { videoAssetId } = job.data;
     const outputDir = await createRunDir(outputRoot, videoAssetId);
-    await note(pj, 'transcode', `Starting transcode for ${path.basename(filePath)}`);
+    // the log is shown next to the video, so it names the video, not the upload file
+    await note(pj, 'transcode', `Starting transcode of video ${videoAssetId}`);
 
     const result = await transcode(filePath, outputDir, {
       // transcode progress is 0-60% of the pipeline

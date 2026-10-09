@@ -349,7 +349,10 @@ export const openapiDocument = {
           stage: {
             type: 'string',
             enum: ['queued', 'transcode', 'upload', 'finalize', 'completed', 'failed'],
-            description: 'Pipeline step, from the latest stage-tagged log line.',
+            description:
+              'Pipeline step, from the latest stage-tagged log line. `upload` starts as soon as ' +
+              'the transcode hands off, with the line "Waiting for the Sia uploader" while the ' +
+              'video waits its turn to be stored on Sia.',
           },
           progress_percent: { type: 'integer' },
           retry_count: {

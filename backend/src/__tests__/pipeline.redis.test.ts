@@ -324,10 +324,15 @@ describe.skipIf(!hasTestDatabase || !hasTestRedis)(
       expect(events.map(([e]) => e)).toEqual(['processing.started', 'asset.ready']);
       expect(existsSync(path.join(dirs.out, a.id))).toBe(false);
       expect(existsSync(a.filePath)).toBe(false);
-      expect(await jobs.getProcessingJobByVideoAssetId(a.id)).toMatchObject({
-        status: 'completed',
-        retryCount: 0,
-      });
+      const job = await jobs.getProcessingJobByVideoAssetId(a.id);
+      expect(job).toMatchObject({ status: 'completed', retryCount: 0 });
+      const lines = (job!.logs ?? []).map((l) => `${l.stage}: ${l.message}`);
+      expect(lines[0]).toBe(`transcode: Starting transcode of video ${a.id}`);
+      // the hand-off is its own upload-stage line, before the upload starts
+      const waiting = lines.indexOf('upload: Waiting for the Sia uploader');
+      expect(waiting).toBeGreaterThan(0);
+      expect(lines[waiting - 1]).toMatch(/^transcode: /);
+      expect(lines[waiting + 1]).toBe('upload: Uploading segments to Sia');
     });
 
     it('fails the asset and sends asset.errored when a transcode stalls twice', async () => {
