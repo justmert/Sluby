@@ -31,18 +31,9 @@ export function DropZone({
   const [dragging, setDragging] = useState(false);
 
   return (
+    // the box is a big mouse target; the button inside is the keyboard's way in
     <div
-      role="button"
-      tabIndex={0}
-      aria-labelledby={`${id}-title`}
-      aria-describedby={`${id}-hint`}
       onClick={() => input.current?.click()}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          input.current?.click();
-        }
-      }}
       onDragEnter={(e) => {
         e.preventDefault();
         depth.current += 1;
@@ -61,7 +52,7 @@ export function DropZone({
       }}
       data-dragging={dragging || undefined}
       className={cn(
-        'flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed px-4 transition-[border-color,background-color,box-shadow] duration-150 outline-none focus-visible:ring-3 focus-visible:ring-ring',
+        'flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed px-4 transition-[border-color,background-color,box-shadow] duration-150 has-focus-visible:border-ring',
         compact ? 'py-4' : 'flex-col justify-center py-10 text-center sm:py-12',
         dragging
           ? 'border-primary bg-primary/5 ring-4 ring-primary/15'
@@ -81,7 +72,26 @@ export function DropZone({
       </m.div>
       <div className="min-w-0">
         <p id={`${id}-title`} className="text-sm font-medium">
-          {dragging ? 'Drop to add' : 'Drop videos here, or choose files'}
+          {dragging ? (
+            'Drop to add'
+          ) : (
+            <>
+              Drop videos here, or{' '}
+              <button
+                type="button"
+                aria-labelledby={`${id}-title`}
+                aria-describedby={`${id}-hint`}
+                onClick={(e) => {
+                  // the box around would open the picker a second time
+                  e.stopPropagation();
+                  input.current?.click();
+                }}
+                className="rounded-sm text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring"
+              >
+                choose files
+              </button>
+            </>
+          )}
         </p>
         <p id={`${id}-hint`} className="mt-0.5 text-xs text-muted-foreground">
           {busy

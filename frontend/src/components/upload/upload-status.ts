@@ -100,7 +100,8 @@ export function statusLine(u: UploadState): StatusLine {
           : `Uploaded ${formatBytes(u.bytesTotal)}`,
       );
     case 'failed':
-      return line(u.error ?? 'The upload failed.', { tone: 'danger' });
+      // a dropped connection is not the upload's fault, and it goes on by itself
+      return line(u.error ?? 'The upload failed.', { tone: u.lostConnection ? 'muted' : 'danger' });
     case 'cancelled':
       if (u.cleanup === 'pending') return line('Canceling…');
       if (u.cleanup === 'failed') {

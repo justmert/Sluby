@@ -163,7 +163,11 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
       </Button>,
     );
   }
-  if ((s.phase === 'processing' || s.phase === 'failed') && assetLink) {
+  // a transfer that failed left an empty video behind; there is nothing to open yet
+  if (
+    (s.phase === 'processing' || (s.phase === 'failed' && s.failedDuring !== 'upload')) &&
+    assetLink
+  ) {
     actions.push(
       <Button key="open" variant="outline" size="sm" asChild>
         <Link to={ROUTES.video(assetLink)}>Open video</Link>
@@ -258,7 +262,11 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
             <span dir="auto">{s.fileName}</span>
           </p>
         </div>
-        <StatusBadge kind="upload" status={s.phase} className="shrink-0" />
+        <StatusBadge
+          kind="upload"
+          status={s.phase === 'failed' && s.lostConnection ? 'offline' : s.phase}
+          className="shrink-0"
+        />
         {dismissable && (
           <Button
             variant="ghost"

@@ -68,8 +68,13 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
       } else if (u.phase === 'failed') {
         // a 401 hands over to the sign-in screen, which says why
         if (u.authFailed) continue;
+        // a dropped connection continues by itself; a toast would cry wolf
+        if (u.lostConnection) {
+          said.push(`“${u.title}”: ${statusSpec('upload', 'offline').label}`);
+          continue;
+        }
         const action =
-          u.assetId && !u.assetGone
+          u.assetId && !u.assetGone && u.failedDuring === 'processing'
             ? { label: 'Open video', onClick: () => void navigate(ROUTES.video(u.assetId!)) }
             : { label: 'Open uploads', onClick: () => sheet.open() };
         toastError(`“${u.title}” failed. ${u.error ?? ''}`.trim(), { action });

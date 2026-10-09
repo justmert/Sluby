@@ -7,6 +7,7 @@ import {
   Lock,
   Monitor,
   TriangleAlert,
+  WifiOff,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -58,6 +59,8 @@ export const STATUS = {
     ready: spec('Ready', 'success', CircleCheck),
     failed: spec('Failed', 'danger', CircleAlert),
     cancelled: spec('Canceled', 'neutral'),
+    /** the connection dropped; it continues by itself once the browser is online */
+    offline: spec('Offline', 'neutral', WifiOff),
   },
   /** a processing job, ProcessingJob status */
   job: {

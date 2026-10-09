@@ -257,7 +257,15 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
   return (
     <div className="@container/sheet flex flex-col gap-8">
       <section aria-label="Add videos" className="flex flex-col gap-4">
-        <DropZone onFiles={choose} busy={busy} compact={drafts.length > 0} />
+        <DropZone
+          onFiles={choose}
+          busy={busy}
+          // once anything is listed, the zone gives the room to it (VIS-30)
+          compact={
+            drafts.length + uploads.length + queued.length + remote.length + unfinishedRows.length >
+            0
+          }
+        />
         <Collapse open={!!pickNotice}>
           <p role="alert" className="flex gap-2 text-sm text-destructive">
             <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
