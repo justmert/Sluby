@@ -16,6 +16,7 @@ const job = (over: Partial<Job> = {}): Job => ({
   startedAt: null,
   completedAt: null,
   createdAt: '2026-10-09T00:00:00Z',
+  retryable: false,
   logs: [
     { timestamp: '2026-10-09T10:00:00Z', stage: 'transcode', message: 'Starting transcode' },
     { timestamp: '2026-10-09T10:01:00Z', stage: 'upload', message: 'Uploading 12 segments' },

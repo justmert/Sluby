@@ -7,12 +7,8 @@ import type { StatusTone } from '@/components/shared/status';
  * here, so they cannot disagree again (FLW-08, FLW-21, FLW-22).
  */
 
-/**
- * A job as GET /assets/{id}/processing answers it. `retryable` comes with
- * plan item B-15; until the server sends it, failureInfo decides from the
- * error message.
- */
-export type Job = ProcessingJob & { retryable?: boolean };
+/** A job as GET /assets/{id}/processing answers it, `retryable` included (B-15). */
+export type Job = ProcessingJob;
 
 /** The four steps a video goes through, as the processing steps name and explain them. */
 export const PIPELINE_STEPS = [
@@ -192,15 +188,15 @@ const UNREADABLE = /ffprobe|invalid data found|no video stream|has no frame size
 const SOURCE_GONE = /enoent|no such file|source file not found/i;
 
 /**
- * Why a run failed and what to offer. `retryable` from the server (B-15)
- * decides; without it an unreadable file counts as final, which is what the
- * server will say once B-15 lands. The raw message (often an ffmpeg line
- * with server paths in it) is only in `detail`.
+ * Why a run failed and what to offer. The server's `retryable` (B-15)
+ * decides; with no job read yet, Retry is offered and the server refuses it
+ * if it cannot help. The message only picks the sentence. The raw message
+ * (often an ffmpeg line with server paths in it) is only in `detail`.
  */
 export function failureInfo(job: Job | undefined, asset?: Pick<VideoAsset, 'status'>): FailureInfo {
   const message = job?.errorMessage?.trim() || null;
   const unreadable = message !== null && UNREADABLE.test(message);
-  const retryable = typeof job?.retryable === 'boolean' ? job.retryable : !unreadable;
+  const retryable = job ? job.retryable : true;
   const action = asset && asset.status !== 'failed' ? 'none' : retryable ? 'retry' : 'reupload';
   return {
     title: 'Processing failed',

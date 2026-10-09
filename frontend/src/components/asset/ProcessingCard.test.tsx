@@ -22,6 +22,7 @@ function job(over: Partial<Job> = {}): Job {
     startedAt: null,
     completedAt: null,
     createdAt: '2026-10-09T00:00:00Z',
+    retryable: false,
     logs: [log('transcode')],
     ...over,
   };

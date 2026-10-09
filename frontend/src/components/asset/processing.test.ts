@@ -124,12 +124,10 @@ describe('failureInfo', () => {
     ).toMatchObject({ retryable: true, action: 'retry' });
   });
 
-  it('treats an unreadable file as final without the flag, and keeps the raw text in detail', () => {
+  it('names an unreadable file plainly when the server says it is final, raw text in detail', () => {
     const message =
       'ffprobe exited with code 1: /app/uploads/bf58: Invalid data found when processing input';
-    // a job as a server without the flag sends it
-    const { retryable: _flag, ...noFlag } = failed({ errorMessage: message });
-    expect(failureInfo(noFlag as Job, asset)).toEqual({
+    expect(failureInfo(failed({ errorMessage: message, retryable: false }), asset)).toEqual({
       title: 'Processing failed',
       body: 'The file is not a readable video.',
       retryable: false,
