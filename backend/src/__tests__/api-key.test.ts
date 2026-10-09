@@ -51,6 +51,7 @@ function keyDeps(overrides: Partial<ApiKeyMiddlewareDeps>): ApiKeyMiddlewareDeps
   return {
     findActiveSession: vi.fn(async () => undefined),
     findApiKeyByHash: vi.fn(),
+    recordKeyUse: vi.fn(),
     getAccount: vi.fn(async () => null),
     findLegacyClaim: vi.fn(async () => null),
     isAllowlistEntryPinned: vi.fn(async () => false),
@@ -73,6 +74,7 @@ describe('api-key middleware', () => {
     creatorAddress: '0xabc123',
     isActive: true,
     expiresAt: null,
+    lastUsedAt: null,
   };
 
   describe('createApiKeyMiddleware', () => {
@@ -175,6 +177,29 @@ describe('api-key middleware', () => {
         creatorAddress: '0xabc123',
         operator: false,
       });
+    });
+
+    it('records the use of a key that authenticates, and of no other', async () => {
+      const lastUsedAt = new Date(Date.now() - 120_000);
+      const deps = keyDeps({
+        findApiKeyByHash: vi.fn().mockResolvedValue({ ...activeApiKey, lastUsedAt }),
+      });
+      await createApiKeyMiddleware(deps)(
+        createMockReq({ authorization: `Bearer ${testToken}` }),
+        createMockRes() as any,
+        vi.fn(),
+      );
+      expect(deps.recordKeyUse).toHaveBeenCalledWith('key-1', lastUsedAt);
+
+      const refused = keyDeps({
+        findApiKeyByHash: vi.fn().mockResolvedValue({ ...activeApiKey, isActive: false }),
+      });
+      await createApiKeyMiddleware(refused)(
+        createMockReq({ authorization: `Bearer ${testToken}` }),
+        createMockRes() as any,
+        vi.fn(),
+      );
+      expect(refused.recordKeyUse).not.toHaveBeenCalled();
     });
 
     it('should allow API key with expiresAt in the future', async () => {

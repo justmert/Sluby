@@ -6,7 +6,7 @@
  * against the OpenAPI document, and the last test fails if an operation in
  * the document was never exercised.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import pino from 'pino';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -566,12 +566,26 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(res.status).toBe(201);
       expect(res.body.scopes).toEqual(['read', 'upload']);
       expect(res.body.key).toMatch(/^sluby_/);
+      expect(res.body.prefix).toBe(res.body.key.slice(0, 12));
+      expect(res.body.last_used_at).toBeNull();
 
       const list = await call('GET', '/api/v1/keys', 'a');
       check('GET', '/api/v1/keys', list);
       const listed = list.body.data.find((k: { id: string }) => k.id === res.body.id);
       const { key: _secret, ...created } = res.body;
       expect(created).toEqual(listed);
+
+      // using the new key stamps its last use; the write is not awaited by
+      // the request, so wait for it
+      const used = await request(app)
+        .get('/api/v1/assets')
+        .set('Authorization', `Bearer ${res.body.key}`);
+      expect(used.status).toBe(200);
+      await vi.waitFor(async () => {
+        const after = await call('GET', '/api/v1/keys', 'a');
+        const row = after.body.data.find((k: { id: string }) => k.id === res.body.id);
+        expect(Date.parse(row.last_used_at)).toBeGreaterThan(Date.now() - 60_000);
+      });
     });
 
     it('rejects names, scopes and rate limits the database cannot hold', async () => {

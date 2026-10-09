@@ -60,7 +60,9 @@ import {
   listApiKeys as dbListApiKeys,
   deleteApiKey as dbDeleteApiKey,
   rotateApiKey as dbRotateApiKey,
+  touchApiKeyLastUsed,
 } from './db/queries/api-keys.js';
+import { createKeyUseRecorder } from './api/auth/key-usage.js';
 import type { ApiKey, VideoAsset } from './db/schema.js';
 import {
   createWebhookEndpoint,
@@ -243,6 +245,7 @@ export function buildLocalDevAccount() {
 /** How the REST api and tus resolve a request's caller, from the database. */
 export function buildCallerDeps(
   localDevAccount: ReturnType<typeof buildLocalDevAccount>,
+  logger: Logger,
 ): CallerDeps {
   return {
     findActiveSession: findActiveStudioSession,
@@ -261,8 +264,13 @@ export function buildCallerDeps(
         creatorAddress: apiKey.creatorAddress,
         isActive: apiKey.isActive,
         expiresAt: apiKey.expiresAt,
+        lastUsedAt: apiKey.lastUsedAt,
       };
     },
+    recordKeyUse: createKeyUseRecorder({
+      write: touchApiKeyLastUsed,
+      onError: (err, id) => logger.warn({ err, keyId: id }, 'Could not record key use'),
+    }),
   };
 }
 
@@ -436,6 +444,8 @@ function toKeyRecord(k: ApiKey) {
     isActive: k.isActive,
     createdAt: k.createdAt,
     expiresAt: k.expiresAt,
+    prefix: k.prefix,
+    lastUsedAt: k.lastUsedAt,
   };
 }
 
@@ -818,8 +828,8 @@ export function buildApiDeps(
       };
     },
 
-    rotateApiKey: async (id, owner, { keyHash }, retireAt) => {
-      const result = await dbRotateApiKey(id, owner, keyHash, retireAt);
+    rotateApiKey: async (id, owner, replacement, retireAt) => {
+      const result = await dbRotateApiKey(id, owner, replacement, retireAt);
       if (result.status !== 'rotated') return result;
       return {
         status: 'rotated',
@@ -850,7 +860,7 @@ export function createApp(ctx: AppContext): {
   const sessionManager = buildSessionManager();
   const deleteAsset = buildAssetDeleter(ctx);
   const localDevAccount = buildLocalDevAccount();
-  const callers = buildCallerDeps(localDevAccount);
+  const callers = buildCallerDeps(localDevAccount, logger);
 
   const app = express();
   app.disable('x-powered-by');

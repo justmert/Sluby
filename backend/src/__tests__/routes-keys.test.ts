@@ -24,6 +24,8 @@ const record = (over: Partial<ApiKeyRecord> = {}): ApiKeyRecord => ({
   isActive: true,
   createdAt: new Date('2026-10-02T10:00:00Z'),
   expiresAt: null,
+  prefix: 'sluby_abcdef',
+  lastUsedAt: null,
   ...over,
 });
 
@@ -33,7 +35,13 @@ describe('key routes', () => {
   beforeEach(() => {
     deps = {
       createApiKey: vi.fn(async (data) =>
-        record({ id: 'key-1', name: data.name, scopes: data.scopes, rateLimit: data.rateLimit }),
+        record({
+          id: 'key-1',
+          name: data.name,
+          scopes: data.scopes,
+          rateLimit: data.rateLimit,
+          prefix: data.prefix,
+        }),
       ),
       listApiKeys: vi.fn().mockResolvedValue({ data: [], hasMore: false, nextCursor: null }),
       deleteApiKey: vi.fn().mockResolvedValue(true),
@@ -58,12 +66,15 @@ describe('key routes', () => {
       is_active: true,
       created_at: '2026-10-02T10:00:00.000Z',
       expires_at: null,
+      prefix: res.body.key.slice(0, 12),
+      last_used_at: null,
       key: expect.stringMatching(/^sluby_/),
     });
-    // only the hash is stored
+    // only the hash and the first 12 characters are stored
     expect(deps.createApiKey).toHaveBeenCalledWith(
       {
         keyHash: hashApiKey(res.body.key),
+        prefix: res.body.key.slice(0, 12),
         name: 'ci',
         scopes: ['read'],
         rateLimit: 60,
@@ -113,7 +124,12 @@ describe('key routes', () => {
 
   it('lists keys with their expiry', async () => {
     vi.mocked(deps.listApiKeys).mockResolvedValue({
-      data: [record({ expiresAt: new Date('2026-10-03T10:00:00Z') })],
+      data: [
+        record({
+          expiresAt: new Date('2026-10-03T10:00:00Z'),
+          lastUsedAt: new Date('2026-10-02T11:00:00Z'),
+        }),
+      ],
       hasMore: false,
       nextCursor: null,
     });
@@ -129,6 +145,8 @@ describe('key routes', () => {
       is_active: true,
       created_at: '2026-10-02T10:00:00.000Z',
       expires_at: '2026-10-03T10:00:00.000Z',
+      prefix: 'sluby_abcdef',
+      last_used_at: '2026-10-02T11:00:00.000Z',
     });
   });
 
@@ -153,6 +171,7 @@ describe('key routes', () => {
         previous_key_expires_at: '2026-10-02T13:00:00.000Z',
       });
       expect(replacement.keyHash).toBe(hashApiKey(res.body.key));
+      expect(replacement.prefix).toBe(res.body.key.slice(0, 12));
       vi.useRealTimers();
     });
 

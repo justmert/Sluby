@@ -22,6 +22,9 @@ export interface ApiKeyRecord {
   isActive: boolean;
   createdAt: Date;
   expiresAt: Date | null;
+  /** Null for keys created before prefixes were stored. */
+  prefix: string | null;
+  lastUsedAt: Date | null;
 }
 
 export interface KeyRouteDeps {
@@ -29,6 +32,7 @@ export interface KeyRouteDeps {
   createApiKey: (
     data: {
       keyHash: string;
+      prefix: string;
       name: string;
       scopes: string[];
       rateLimit: number;
@@ -54,7 +58,7 @@ export interface KeyRouteDeps {
   rotateApiKey: (
     id: string,
     owner: string | undefined,
-    replacement: { keyHash: string },
+    replacement: { keyHash: string; prefix: string },
     retireAt: Date,
   ) => Promise<
     | { status: 'rotated'; replacement: ApiKeyRecord; retiredAt: Date }
@@ -79,6 +83,8 @@ function formatKey(k: ApiKeyRecord) {
     is_active: k.isActive,
     created_at: k.createdAt.toISOString(),
     expires_at: k.expiresAt ? k.expiresAt.toISOString() : null,
+    prefix: k.prefix,
+    last_used_at: k.lastUsedAt ? k.lastUsedAt.toISOString() : null,
   };
 }
 
@@ -135,10 +141,11 @@ export function createKeyRoutes(
       throw new AppError(400, `rate_limit must be at most ${limits.rateLimitMax}`);
     }
 
-    const { key, hash } = generateApiKey();
+    const { key, hash, prefix } = generateApiKey();
     const created = await deps.createApiKey(
       {
         keyHash: hash,
+        prefix,
         name: body.name,
         scopes,
         rateLimit,
@@ -200,11 +207,11 @@ export function createKeyRoutes(
     // rotating the key you are calling with is fine: the request is already
     // authenticated, and the grace period decides how long it keeps working
 
-    const { key, hash } = generateApiKey();
+    const { key, hash, prefix } = generateApiKey();
     const result = await deps.rotateApiKey(
       id,
       ownerFilter(req.apiKey!.creatorAddress),
-      { keyHash: hash },
+      { keyHash: hash, prefix },
       new Date(Date.now() + grace * 1000),
     );
     if (result.status === 'not_found') {

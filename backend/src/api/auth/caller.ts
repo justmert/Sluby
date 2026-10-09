@@ -30,10 +30,13 @@ export interface StoredApiKey {
   creatorAddress: string;
   isActive: boolean;
   expiresAt: Date | null;
+  lastUsedAt: Date | null;
 }
 
 export interface CallerDeps extends OwnerAccessDeps {
   findApiKeyByHash: (hash: string) => Promise<StoredApiKey | null>;
+  /** Note that a key authenticated; must not throw or wait (see key-usage.ts). */
+  recordKeyUse: (id: string, lastUsedAt: Date | null) => void;
   findActiveSession: FindActiveSession;
   /** The local dev account AUTH_DISABLED runs as, created on first use. */
   localDevAccount: () => Promise<{ userId: string; username: string; displayName: string }>;
@@ -101,6 +104,7 @@ export async function resolveCaller(
   if (!owner.allowed) {
     return { ok: false, error: "API key's account is not allowed on this server" };
   }
+  deps.recordKeyUse(key.id, key.lastUsedAt);
   return {
     ok: true,
     caller: {

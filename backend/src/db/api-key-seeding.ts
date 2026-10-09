@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { apiKeys, bootstrapKeys } from './schema.js';
-import { hashApiKey } from '../api/auth/api-key.js';
+import { hashApiKey, keyPrefix } from '../api/auth/api-key.js';
 import { createApiKey } from './queries/api-keys.js';
 
 type Database = PostgresJsDatabase<Record<string, unknown>>;
@@ -39,6 +39,7 @@ export async function seedBootstrapApiKey(
         .insert(apiKeys)
         .values({
           keyHash,
+          prefix: keyPrefix(rawKey),
           name: 'bootstrap',
           scopes: ADMIN_SCOPES,
           rateLimit: 1000,

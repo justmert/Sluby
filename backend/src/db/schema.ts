@@ -380,6 +380,11 @@ export const apiKeys = pgTable(
     replacedById: uuid('replaced_by_id').references((): AnyPgColumn => apiKeys.id, {
       onDelete: 'set null',
     }),
+    // the first 12 characters of the raw key, null for keys made before it
+    // was stored
+    prefix: text('prefix'),
+    // written at most once a minute per key, see api/auth/key-usage.ts
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   },
   (t) => [
     index('api_keys_creator_address_idx').on(t.creatorAddress),

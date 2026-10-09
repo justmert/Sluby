@@ -736,7 +736,17 @@ export const openapiDocument = {
       },
       ApiKey: {
         type: 'object',
-        required: ['id', 'name', 'scopes', 'rate_limit', 'is_active', 'created_at', 'expires_at'],
+        required: [
+          'id',
+          'name',
+          'scopes',
+          'rate_limit',
+          'is_active',
+          'created_at',
+          'expires_at',
+          'prefix',
+          'last_used_at',
+        ],
         properties: {
           id: { type: 'string', format: 'uuid' },
           name: { type: 'string' },
@@ -749,6 +759,17 @@ export const openapiDocument = {
             format: 'date-time',
             description: 'Set while a rotated-out key is in its grace period.',
           },
+          prefix: nullable('string', {
+            description:
+              'The first 12 characters of the key (`sluby_` and 6 more), to tell keys apart. ' +
+              'Null for keys created before prefixes were stored.',
+          }),
+          last_used_at: nullable('string', {
+            format: 'date-time',
+            description:
+              'When the key last authenticated a request, to the minute: it is written at most ' +
+              'once a minute per key. Null if never used since this was recorded.',
+          }),
         },
       },
       ApiKeyList: {

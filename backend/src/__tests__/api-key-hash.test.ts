@@ -67,8 +67,10 @@ describe('a minted key authenticates through the bearer middleware', () => {
           creatorAddress: 'acct',
           isActive: true,
           expiresAt: null,
+          lastUsedAt: null,
         };
       },
+      recordKeyUse: () => {},
     });
     async function call(authorization: string) {
       const req = { headers: { authorization } } as unknown as Request;

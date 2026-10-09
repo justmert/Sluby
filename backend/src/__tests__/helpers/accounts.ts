@@ -110,6 +110,7 @@ export function memoryAccounts() {
     findLegacyClaim: async (address) => claims.get(address) ?? null,
     isAllowlistEntryPinned: async (provider, entry) => pins.has(`${provider}\n${entry}`),
     findApiKeyByHash: async (hash) => keys.get(hash) ?? null,
+    recordKeyUse: () => {},
     findActiveSession: async (id) => {
       const s = sessions.find((x) => x.id === id && live(x));
       return s && { id: s.id, userId: s.userId, identityId: s.identityId, expiresAt: s.expiresAt };
@@ -177,6 +178,7 @@ export function memoryAccounts() {
         creatorAddress: key.creatorAddress,
         isActive: key.isActive ?? true,
         expiresAt: key.expiresAt ?? null,
+        lastUsedAt: key.lastUsedAt ?? null,
       };
       keys.set(hashApiKey(raw), stored);
       return stored;
