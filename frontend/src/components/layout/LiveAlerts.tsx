@@ -48,7 +48,13 @@ export function LiveAlerts() {
       : undefined;
     const message = sentence(failing(status.data));
     if (current === 'ok') {
-      toastSuccess('Everything is working again.', { id: SERVICE_TOAST_ID });
+      // sonner keeps the old toast's options under the same id; clear the
+      // action and close button the warning had
+      toastSuccess('Everything is working again.', {
+        id: SERVICE_TOAST_ID,
+        action: undefined,
+        closeButton: undefined,
+      });
     } else if (current === 'down') {
       toastError(`This server is down. ${message}`, { id: SERVICE_TOAST_ID, action });
     } else {

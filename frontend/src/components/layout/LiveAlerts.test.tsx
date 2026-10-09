@@ -77,6 +77,10 @@ describe('LiveAlerts', () => {
     await op.answer(status('ok'));
     await op.answer(status('degraded', { indexer: false }));
     expect(await screen.findByRole('button', { name: 'Open health' })).toBeInTheDocument();
+    // the good news replaces the warning without its action
+    await op.answer(status('ok'));
+    expect(await screen.findByText('Everything is working again.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open health' })).not.toBeInTheDocument();
     op.unmount();
 
     const member = setup(false);
