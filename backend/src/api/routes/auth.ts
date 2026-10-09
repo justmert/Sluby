@@ -214,7 +214,8 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
     const provider = providerOf(req, res);
     if (!provider) return;
     if (!provider.isConfigured()) {
-      res.status(500).json({ error: `${provider.label} sign-in is not configured` });
+      // a browser follows this link, so send it to a page that says why
+      signInFailed(res, 'not_configured');
       return;
     }
     const handshake: Handshake = {

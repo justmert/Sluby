@@ -329,7 +329,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
         message={message}
         // a failed sign-in is old news once the session has ended since
         failure={failure && !state.ended ? signInFailureText(failure) : null}
-        canSignIn={state.reason !== 'not_allowed'}
+        // signing in cannot help an account off the allowlist, or a server
+        // with no github sign-in set up
+        canSignIn={
+          state.reason !== 'not_allowed' && !(failure?.code === 'not_configured' && !state.ended)
+        }
       />
     </Screen>
   );

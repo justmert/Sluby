@@ -214,12 +214,14 @@ describe('GET /auth/github/login', () => {
     expect(setCookies(res)[0]).toMatch(/; Secure$/);
   });
 
-  it('answers 500 when github oauth is not configured', async () => {
+  it('sends the browser back to the studio with not_configured when github oauth is not configured', async () => {
     env.GITHUB_CLIENT_ID = undefined;
     const res = await request(app()).get('/api/v1/auth/github/login');
-    expect(res.status).toBe(500);
-    expect(res.body).toEqual({ error: 'GitHub sign-in is not configured' });
-    expect(res.headers.location).toBeUndefined();
+    // a browser follows this link, so it lands on a page that says why
+    expectSignInError(res, 'not_configured');
+    expect(setCookies(res).some((c) => c.startsWith('sluby_signin=') && !/Max-Age=0/.test(c))).toBe(
+      false,
+    );
   });
 
   it('falls through to the 404 for an unknown provider', async () => {

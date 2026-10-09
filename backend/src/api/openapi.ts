@@ -1236,9 +1236,12 @@ export const openapiDocument = {
           },
         ],
         responses: {
-          '302': { description: 'Redirect to the provider.' },
+          '302': {
+            description:
+              'Redirect to the provider, or to `/studio?signin_error=not_configured` when the ' +
+              'provider is not configured on this server.',
+          },
           '404': errorWith('No such sign-in provider.'),
-          '500': errorWith('The provider is not configured on this server.'),
         },
       },
     },

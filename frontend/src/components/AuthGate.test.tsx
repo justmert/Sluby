@@ -343,6 +343,16 @@ describe('AuthGate, a 401 without a reason', () => {
 describe('AuthGate sign-in failures (B-12)', () => {
   afterEach(() => window.history.replaceState(null, '', '/'));
 
+  it('offers no sign-in button when github sign-in is not set up, since it would only fail', async () => {
+    window.history.replaceState(null, '', '/studio?signin_error=not_configured');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
+    renderGate();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Sign-in with GitHub is not set up on this server.',
+    );
+    expect(screen.queryByRole('button', { name: /sign in with github/i })).not.toBeInTheDocument();
+  });
+
   it.each([
     ['expired_handshake', '', 'That sign-in link expired. Try again.'],
     [
@@ -352,7 +362,6 @@ describe('AuthGate sign-in failures (B-12)', () => {
     ],
     ['not_allowed', '', "That GitHub account is not on this Studio's allowlist."],
     ['provider_failed', '', 'GitHub did not confirm the sign-in. Try again.'],
-    ['not_configured', '', 'Sign-in with GitHub is not set up on this server.'],
     ['cancelled', '', 'Sign-in was canceled on GitHub.'],
     ['something_new', '', 'Sign-in did not finish. Try again.'],
   ])('shows %s above the button and takes it out of the url', async (code, extra, text) => {
