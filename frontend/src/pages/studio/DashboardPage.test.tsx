@@ -609,6 +609,10 @@ describe('Overview page', () => {
       expect(
         within(rows()[2]).getByRole('link', { name: 'Open webhook example.com/hooks/sluby' }),
       ).toHaveAttribute('href', '/studio/developers/webhooks/w1');
+      // wraps at a large text size instead of running out of the card (1.4.4)
+      expect(
+        within(rows()[2]).getByRole('link', { name: 'Open webhook example.com/hooks/sluby' }),
+      ).toHaveClass('whitespace-normal', 'shrink', 'pointer-coarse:h-auto');
       expect(text[3]).toContain('“Lost upload” did not finish uploading');
       expect(attention.textContent).not.toContain('Just started');
       // a member cannot open health

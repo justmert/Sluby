@@ -63,11 +63,15 @@ function Row({
   );
 }
 
+// row actions wrap at a large text size instead of running out of the card
+const WRAPS =
+  'h-auto min-h-7 max-w-full shrink py-1 whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9';
+
 const quoted = (title: string) => <span dir="auto">“{title}”</span>;
 
 function OpenVideo({ video }: { video: VideoAsset }) {
   return (
-    <Button variant="outline" size="sm" asChild>
+    <Button variant="outline" size="sm" className={WRAPS} asChild>
       <Link to={ROUTES.video(video.id)} aria-label={`Open video ${video.title}`}>
         Open video
       </Link>
@@ -97,7 +101,7 @@ function FailedRow({ video }: { video: VideoAsset }) {
 
 function ItemRow({ item, operator }: { item: AttentionItem; operator: boolean }) {
   const openHealth = operator && (
-    <Button variant="outline" size="sm" asChild>
+    <Button variant="outline" size="sm" className={WRAPS} asChild>
       <Link to={ROUTES.DEPLOYMENT}>Open health</Link>
     </Button>
   );
@@ -137,7 +141,7 @@ function ItemRow({ item, operator }: { item: AttentionItem; operator: boolean })
               : 'The last delivery did not reach your endpoint.'
           }
           action={
-            <Button variant="outline" size="sm" asChild>
+            <Button variant="outline" size="sm" className={WRAPS} asChild>
               <Link
                 to={ROUTES.webhook(item.webhook.id)}
                 aria-label={`Open webhook ${webhookLabel(item.webhook.url)}`}
