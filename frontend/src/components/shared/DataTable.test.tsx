@@ -264,4 +264,36 @@ describe('DataTable', () => {
       window.ResizeObserver = Original;
     }
   });
+
+  it('animates rows in and out when asked, keeping a row in place across an id change', async () => {
+    const { rerender } = renderWithMotion(
+      <DataTable
+        caption="Playback IDs"
+        columns={columns}
+        rows={[{ id: 'pending:1', name: 'New', size: 1 }, ...rows]}
+        getRowId={(r) => r.id}
+        getRowKey={(r) => (r.id === 'real' ? 'pending:1' : r.id)}
+        getRowLabel={(r) => r.name}
+        animateRows
+      />,
+    );
+    const table = screen.getByRole('table', { name: 'Playback IDs' });
+    const before = within(table).getByText('New').closest('tr')!;
+    expect(before).toHaveAttribute('data-slot', 'table-row');
+    rerender(
+      <DataTable
+        caption="Playback IDs"
+        columns={columns}
+        rows={[{ id: 'real', name: 'New', size: 1 }, rows[1]]}
+        getRowId={(r) => r.id}
+        getRowKey={(r) => (r.id === 'real' ? 'pending:1' : r.id)}
+        getRowLabel={(r) => r.name}
+        animateRows
+      />,
+    );
+    // the placeholder became the real row without leaving and entering again
+    expect(within(table).getByText('New').closest('tr')).toBe(before);
+    await vi.waitFor(() => expect(within(table).queryByText('Alpha')).toBeNull());
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+  });
 });

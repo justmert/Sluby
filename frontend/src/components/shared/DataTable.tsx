@@ -120,6 +120,8 @@ export interface DataTableProps<T> {
    * leaving under the same key animate out.
    */
   rowsKey?: string;
+  /** the React key of a row when it must outlive a change of id, such as a placeholder that becomes the real row */
+  getRowKey?: (row: T) => string;
   className?: string;
 }
 
@@ -240,6 +242,7 @@ export function DataTable<T>({
   animateRows = false,
   staggerIn = false,
   rowsKey = '',
+  getRowKey,
   className,
 }: DataTableProps<T>) {
   const selectable = selected !== undefined && onSelectedChange !== undefined;
@@ -283,8 +286,6 @@ export function DataTable<T>({
     return () => observer.disconnect();
   }, []);
   const colClass = (c: DataTableColumn<T>) => c.hideBelow && BREAKPOINT[c.hideBelow];
-  // rows present at mount stay put unless asked to stagger in; later ones
-  // (a poll that brings a new row) fade in
   // the rows each set started with stay still; rows a later poll adds fade
   // in. the first set may stagger in when the page asks
   const [first] = useState(rowsKey);
@@ -455,7 +456,7 @@ export function DataTable<T>({
                 );
                 return animateRows ? (
                   <AnimatedItem
-                    key={id}
+                    key={getRowKey?.(row) ?? id}
                     as="tr"
                     initial={initialFor(id)}
                     data-slot="table-row"
@@ -469,7 +470,7 @@ export function DataTable<T>({
                   </AnimatedItem>
                 ) : (
                   <TableRow
-                    key={id}
+                    key={getRowKey?.(row) ?? id}
                     data-state={isSelected ? 'selected' : undefined}
                     className={rowClassName?.(row)}
                   >
