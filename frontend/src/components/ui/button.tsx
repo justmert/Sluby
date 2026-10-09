@@ -27,16 +27,18 @@ const buttonVariants = cva(
           'border-border bg-background text-destructive dark:focus-visible:border-destructive hover:border-destructive/40 hover:bg-destructive/10 aria-expanded:bg-destructive/10 focus-visible:border-destructive focus-visible:ring-destructive/20 dark:border-border-strong dark:bg-white/5 dark:hover:bg-destructive/20',
         link: 'text-primary underline-offset-4 hover:underline',
       },
+      // a finger gets 40px controls (36 small, 44 large) on a touch screen,
+      // while a mouse keeps the dense desktop sizes (A11Y-47)
       size: {
         default:
-          'h-8 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
-        xs: "h-6 gap-1 px-2 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: 'h-9 gap-1.5 px-3.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
-        icon: 'size-8',
-        'icon-xs': "size-6 [&_svg:not([class*='size-'])]:size-3",
-        'icon-sm': 'size-7',
-        'icon-lg': 'size-9',
+          'h-8 gap-1.5 px-3 pointer-coarse:h-10 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        xs: "h-6 gap-1 px-2 text-xs pointer-coarse:h-8 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-7 gap-1 px-2.5 text-xs pointer-coarse:h-9 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: 'h-9 gap-1.5 px-3.5 pointer-coarse:h-11 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        icon: 'size-8 pointer-coarse:size-10',
+        'icon-xs': "size-6 pointer-coarse:size-9 [&_svg:not([class*='size-'])]:size-3",
+        'icon-sm': 'size-7 pointer-coarse:size-10',
+        'icon-lg': 'size-9 pointer-coarse:size-11',
       },
     },
     defaultVariants: {
