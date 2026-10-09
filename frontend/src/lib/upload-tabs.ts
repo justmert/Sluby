@@ -86,14 +86,12 @@ export function createUploadTabs(opts: UploadTabsOptions = {}): UploadTabs {
   const channel = opts.channel !== undefined ? opts.channel : defaultChannel();
   const locks = opts.locks !== undefined ? opts.locks : defaultLocks();
   const pageTarget =
-    opts.pageTarget !== undefined
-      ? opts.pageTarget
-      : typeof window !== 'undefined'
-        ? window
-        : null;
+    opts.pageTarget !== undefined ? opts.pageTarget : typeof window !== 'undefined' ? window : null;
   const tabId = `${now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${++tabSeq}`;
 
   let local: SharedUpload[] = [];
+  // what was last posted at once; byte counts alone wait for the heartbeat
+  let shape = '';
   const seen = new Map<string, { at: number; uploads: SharedUpload[] }>();
   let snapshot: RemoteUpload[] = [];
   const listeners = new Set<() => void>();
@@ -198,15 +196,13 @@ export function createUploadTabs(opts: UploadTabsOptions = {}): UploadTabs {
     },
 
     publish(uploads) {
-      const had = local.length > 0;
       local = uploads;
-      if (uploads.length > 0) {
-        post({ type: 'state', tabId, uploads });
-        ensureTimer();
-      } else if (had) {
-        // tell the others at once that nothing runs here any more
-        post({ type: 'state', tabId, uploads: [] });
-      }
+      const next = JSON.stringify(uploads.map((u) => [u.fingerprint, u.uploadId, u.paused]));
+      if (next === shape) return;
+      // a new, finished or paused upload is news; tell the others at once
+      shape = next;
+      post({ type: 'state', tabId, uploads });
+      if (uploads.length > 0) ensureTimer();
     },
 
     remote: () => snapshot,

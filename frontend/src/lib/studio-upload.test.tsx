@@ -51,6 +51,8 @@ describe('studio upload store', () => {
     uploadStore.start(new File([new Uint8Array(10)], 'clip.mp4', { type: 'video/mp4' }), {
       title: 'Clip',
     });
+    // the transfer starts once this tab has claimed the file from the others
+    await vi.waitFor(() => expect(fake.current!.upload).toHaveBeenCalled());
     fake.current!.current().fail(new AuthenticationError('Not signed in'));
 
     expect(

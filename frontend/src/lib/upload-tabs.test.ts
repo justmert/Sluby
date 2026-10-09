@@ -55,7 +55,6 @@ describe('upload tabs', () => {
     a.publish([sending()]);
     vi.advanceTimersByTime(HEARTBEAT_MS * 5);
     expect(b.remote()).toHaveLength(1);
-
   });
 
   it('drops a tab that crashed without a goodbye once its heartbeats stop', () => {

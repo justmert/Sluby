@@ -96,7 +96,7 @@ describe('upload store: transfer', () => {
     expect(s.one()).toMatchObject({
       phase: 'failed',
       failedDuring: 'upload',
-      error: 'Upload too large',
+      error: 'Upload too large.',
       canResume: false,
     });
 
@@ -170,7 +170,7 @@ describe('upload store: transfer', () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(s.one()).toMatchObject({ phase: 'failed', failedDuring: 'upload' });
-    expect(s.one().error).toMatch(/did not report which asset/);
+    expect(s.one().error).toMatch(/did not report which video it created/);
   });
 
   it('a 401 during the transfer fails it and reports the ended session', async () => {
@@ -260,7 +260,7 @@ describe('upload store: pause, resume and cancel', () => {
 
     await expect(s.store.cancel(key)).resolves.toBeUndefined();
     expect(s.one()).toMatchObject({ phase: 'cancelled', cleanup: 'failed' });
-    expect(s.one().error).toMatch(/did not confirm removing the partial upload/);
+    expect(s.one().error).toMatch(/did not confirm it removed the partial file/);
 
     s.f.cancel.mockRejectedValueOnce(new SlubyError('Internal error', 500));
     await s.store.retryCleanup(key);
@@ -293,7 +293,7 @@ describe('upload store: pause, resume and cancel', () => {
     await s.store.cancel(key);
     await flush();
     expect(s.one()).toMatchObject({ phase: 'processing', cleanup: null, assetId: 'a' });
-    expect(s.one().notice).toMatch(/finished before it could be cancelled/);
+    expect(s.one().notice).toMatch(/finished before it could be canceled/);
   });
 
   it('a cleanup retry answered 409 follows the finished upload instead', async () => {
@@ -391,8 +391,8 @@ describe('upload store: processing poll', () => {
     const s = await transferredUpload();
     s.f.processing.mockRejectedValueOnce(new SlubyError('Bad gateway', 502));
     await vi.advanceTimersByTimeAsync(2000);
-    expect(s.one().error).toMatch(/Bad gateway/);
-    expect(s.one().pollStopped).toBe(false);
+    // a passing failure keeps the last stage and says another reading is coming
+    expect(s.one()).toMatchObject({ checking: true, error: null, pollStopped: false });
 
     s.f.processing.mockRejectedValue(new PermissionError('Missing scope'));
     await vi.advanceTimersByTimeAsync(2000);
@@ -417,8 +417,10 @@ describe('upload store: processing poll', () => {
     expect(s.one()).toMatchObject({
       phase: 'failed',
       failedDuring: 'processing',
-      error: 'ffmpeg exited with code 1',
+      error: 'Processing stopped with an error. Retrying usually works.',
     });
+    // the raw line stays on the job, for Details only
+    expect(s.one().job?.errorMessage).toBe('ffmpeg exited with code 1');
 
     await s.store.retryProcessing(key);
     await flush();
@@ -434,12 +436,16 @@ describe('upload store: processing poll', () => {
     s.f.current().finish();
     await flush();
     s.f.retry.mockRejectedValueOnce(
-      new NotFoundError('Source file not found, please re-upload the video', undefined, 410),
+      new NotFoundError(
+        'Could not retry because the original file is gone. Upload the video again.',
+        undefined,
+        410,
+      ),
     );
     await s.store.retryProcessing(key);
     expect(s.one()).toMatchObject({
       phase: 'failed',
-      error: 'Source file not found, please re-upload the video',
+      error: 'Could not retry because the original file is gone. Upload the video again.',
     });
   });
 
