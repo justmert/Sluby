@@ -179,6 +179,18 @@ describe('Webhooks page', () => {
 });
 
 describe('adding a webhook', () => {
+  it('focuses the URL field, and gives focus back to Add webhook on close (A11Y-03)', async () => {
+    render();
+    await screen.findByText('https://example.com/sluby-hook');
+    const add = screen.getByRole('button', { name: 'Add webhook' });
+    await userEvent.click(add);
+    const dialog = await screen.findByRole('dialog', { name: 'Add webhook' });
+    expect(within(dialog).getByLabelText('Endpoint URL')).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(add).toHaveFocus();
+  });
+
   it('checks the URL and events before sending (CPY-28)', async () => {
     render();
     await screen.findByText('https://example.com/sluby-hook');

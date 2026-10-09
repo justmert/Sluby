@@ -110,6 +110,8 @@ export function CreateKeyDialog({
           <FieldGroup>
             <Field data-invalid={!!shown('name') || undefined}>
               <FieldLabel htmlFor="key-name">Name</FieldLabel>
+              {/* no autoFocus: the dialog focuses its first field itself, and
+                  autoFocus would leave it no opener to give focus back to */}
               <Input
                 id="key-name"
                 value={form.name}
@@ -119,7 +121,6 @@ export function CreateKeyDialog({
                 maxLength={KEY_NAME_MAX}
                 autoComplete="off"
                 dir="auto"
-                autoFocus
                 {...errorProps('name', 'key-name')}
               />
               <FieldError id="key-name-error">{shown('name')}</FieldError>

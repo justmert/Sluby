@@ -93,6 +93,8 @@ export function AddWebhookDialog({
           <FieldGroup>
             <Field data-invalid={!!urlError || undefined}>
               <FieldLabel htmlFor="hook-url">Endpoint URL</FieldLabel>
+              {/* no autoFocus: the dialog focuses its first field itself, and
+                  autoFocus would leave it no opener to give focus back to */}
               <Input
                 id="hook-url"
                 type="url"
@@ -106,7 +108,6 @@ export function AddWebhookDialog({
                 onBlur={() => setTouched((t) => ({ ...t, url: form.url.trim() !== '' || t.url }))}
                 aria-invalid={!!urlError || undefined}
                 aria-describedby={describedBy || undefined}
-                autoFocus
               />
               <FieldError id="hook-url-error">{urlError}</FieldError>
               {duplicate && !urlError && (

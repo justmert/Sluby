@@ -262,6 +262,18 @@ describe('creating a key', () => {
     ).toBeInTheDocument();
   });
 
+  it('focuses the name, and gives focus back to Create key on close (A11Y-03)', async () => {
+    render();
+    await screen.findByText('Production web app');
+    const create = screen.getByRole('button', { name: 'Create key' });
+    await userEvent.click(create);
+    const dialog = await screen.findByRole('dialog', { name: 'Create API key' });
+    expect(within(dialog).getByLabelText('Name')).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(create).toHaveFocus();
+  });
+
   it('opens from ?create=key and drops the param on close', async () => {
     render('/studio/developers/keys?create=key');
     const dialog = await screen.findByRole('dialog', { name: 'Create API key' });
