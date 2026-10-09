@@ -41,7 +41,7 @@ const SHOWN_HEADERS = [
 ];
 
 // what a successful write may have changed elsewhere in the studio
-const CHANGED_BY_WRITES = [['webhooks'], ['assets'], ['api-keys']];
+const CHANGED_BY_WRITES = [['webhooks'], ['assets'], ['api-keys'], ['stats']];
 
 interface Answer {
   /** the request this answers, so a later edit never relabels it */

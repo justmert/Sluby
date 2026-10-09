@@ -105,7 +105,7 @@ describe('API explorer', () => {
     await userEvent.click(within(ask).getByRole('button', { name: 'Send' }));
     await screen.findByTestId('explorer-response');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    for (const key of [['webhooks'], ['assets'], ['api-keys']]) {
+    for (const key of [['webhooks'], ['assets'], ['api-keys'], ['stats']]) {
       expect(invalidate).toHaveBeenCalledWith({ queryKey: key });
     }
   });
