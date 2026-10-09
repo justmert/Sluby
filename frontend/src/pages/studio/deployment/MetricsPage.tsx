@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/chart';
 import { Spinner } from '@/components/ui/spinner';
 import { usePlatformMetrics, type RatePoint } from '@/hooks/usePlatformMetrics';
-import { formatBytes, formatCount } from '@/lib/formatters';
+import { formatBytes, formatCount, plural } from '@/lib/formatters';
 import { usePrefersReducedMotion } from '@/lib/motion';
 import type { MetricsSnapshot } from '@/lib/metrics';
 import { cn } from '@/lib/utils';
@@ -87,7 +87,9 @@ function ThroughputChart({ rates }: { rates: RatePoint[] }) {
     );
   }
   const { now, peak } = throughputSummary(rates)!;
-  const minutes = Math.max(1, Math.round((rates[rates.length - 1].at - rates[0].at) / 60_000));
+  const seconds = Math.round((rates[rates.length - 1].at - rates[0].at) / 1000);
+  const span =
+    seconds < 60 ? plural(seconds, 'second') : plural(Math.round(seconds / 60), 'minute');
   return (
     <ChartContainer config={rateConfig} className={cn(SERVER_CHART, 'aspect-auto w-full')}>
       <AreaChart
@@ -95,7 +97,7 @@ function ThroughputChart({ rates }: { rates: RatePoint[] }) {
         margin={{ left: 0, right: 8, top: 8 }}
         accessibilityLayer={false}
         role="img"
-        title={`Streaming throughput, now ${rate(now)}, peak ${rate(peak)} over the last ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`}
+        title={`Streaming throughput, now ${rate(now)}, peak ${rate(peak)} over the last ${span}`}
       >
         <CartesianGrid vertical={false} />
         <XAxis
@@ -129,7 +131,7 @@ function ThroughputChart({ rates }: { rates: RatePoint[] }) {
           fill="var(--color-bytesPerSecond)"
           stroke="var(--color-bytesPerSecond)"
           strokeWidth={2}
-          fillOpacity={0.15}
+          fillOpacity={0.12}
           {...motion}
         />
       </AreaChart>
@@ -204,7 +206,7 @@ function ThroughputFigure({ rates }: { rates: RatePoint[] }) {
   const s = throughputSummary(rates);
   if (!s) return null;
   return (
-    <p className="text-xs text-muted-foreground tabular-nums">
+    <p className="mb-3 text-sm text-muted-foreground tabular-nums">
       Now <span className="font-medium text-foreground">{rate(s.now)}</span>, peak {rate(s.peak)}
     </p>
   );
@@ -250,10 +252,8 @@ export default function MetricsPage() {
             )}
             <ServerStats m={m} stagger={stagger} />
             <div className={ANALYTICS.charts}>
-              <ChartCard
-                {...THROUGHPUT_COPY}
-                action={m && <ThroughputFigure rates={metrics.rates} />}
-              >
+              <ChartCard {...THROUGHPUT_COPY}>
+                {m && <ThroughputFigure rates={metrics.rates} />}
                 <FadeSwap swapKey={m ? 'ready' : 'loading'}>
                   {m ? <ThroughputChart rates={metrics.rates} /> : <ChartLoading />}
                 </FadeSwap>
