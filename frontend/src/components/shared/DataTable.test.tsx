@@ -325,4 +325,23 @@ describe('DataTable', () => {
     expect(added.style.opacity).toBe('0');
     expect(container.querySelectorAll('tbody tr')).toHaveLength(3);
   });
+
+  it('says a failed refresh kept the rows that loaded', () => {
+    renderWithMotion(
+      <DataTable
+        caption="Keys"
+        columns={columns}
+        rows={rows}
+        getRowId={(r) => r.id}
+        getRowLabel={(r) => r.name}
+        error={new ApiError(503, 'HTTP 503')}
+        what="your API keys"
+        onRetry={() => undefined}
+      />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not refresh your API keys. Showing the last list that loaded',
+    );
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+  });
 });

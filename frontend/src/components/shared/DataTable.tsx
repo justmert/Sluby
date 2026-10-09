@@ -304,7 +304,14 @@ export function DataTable<T>({
         </div>
       )}
       {rows !== undefined && error != null && (
-        <InlineError error={error} what={what} onRetry={onRetry} retrying={retrying} />
+        // the rows below did load; only the refresh failed
+        <InlineError
+          error={error}
+          title={what ? `Could not refresh ${what}. Showing the last list that loaded` : undefined}
+          what={what}
+          onRetry={onRetry}
+          retrying={retrying}
+        />
       )}
       {failed ? (
         <InlineError error={error} what={what} onRetry={onRetry} retrying={retrying} />
