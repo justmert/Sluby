@@ -38,6 +38,8 @@ export interface CallerDeps extends OwnerAccessDeps {
   /** Note that a key authenticated; must not throw or wait (see key-usage.ts). */
   recordKeyUse: (id: string, lastUsedAt: Date | null) => void;
   findActiveSession: FindActiveSession;
+  /** Note a session was used now; must not throw or wait. */
+  markSessionSeen: (sid: string) => void;
   /** The local dev account AUTH_DISABLED runs as, created on first use. */
   localDevAccount: () => Promise<{ userId: string; username: string; displayName: string }>;
 }
@@ -76,6 +78,7 @@ export async function resolveCaller(
     secret: env.SESSION_SECRET,
     findActiveSession: deps.findActiveSession,
     getAccount: deps.getAccount,
+    markSeen: deps.markSessionSeen,
   });
   if (signedIn) {
     const identity = signedIn.account.identities.find((i) => i.id === signedIn.session.identityId);

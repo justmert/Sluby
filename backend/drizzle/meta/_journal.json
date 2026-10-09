@@ -127,6 +127,13 @@
       "when": 1791505122716,
       "tag": "0017_delivery_manual",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791505381571,
+      "tag": "0018_session_last_seen",
+      "breakpoints": true
     }
   ]
 }

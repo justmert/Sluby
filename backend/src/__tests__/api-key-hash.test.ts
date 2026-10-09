@@ -50,6 +50,7 @@ describe('a minted key authenticates through the bearer middleware', () => {
     const stored = new Map<string, { id: string }>();
     const middleware = createApiKeyMiddleware({
       findActiveSession: async () => undefined,
+      markSessionSeen: () => {},
       getAccount: async () => null,
       findLegacyClaim: async () => null,
       isAllowlistEntryPinned: async () => false,

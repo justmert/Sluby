@@ -1613,6 +1613,7 @@
                 "user_agent",
                 "created_at",
                 "expires_at",
+                "last_seen_at",
                 "current"
               ],
               "properties": {
@@ -1633,6 +1634,14 @@
                 "expires_at": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "last_seen_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time",
+                  "description": "The last request made with the session, to within five minutes. Null until its first request on a server that records it."
                 },
                 "current": {
                   "type": "boolean",

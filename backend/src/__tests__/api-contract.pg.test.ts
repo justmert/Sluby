@@ -1546,6 +1546,12 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       const list = await request(app).get('/api/v1/auth/sessions').set('Cookie', mine.cookie);
       check('GET', '/api/v1/auth/sessions', list);
       expect(list.body.data).toHaveLength(1);
+      // the listing request itself is activity; its write is not awaited
+      await vi.waitFor(async () => {
+        const again = await request(app).get('/api/v1/auth/sessions').set('Cookie', mine.cookie);
+        check('GET', '/api/v1/auth/sessions', again);
+        expect(Date.parse(again.body.data[0].last_seen_at)).toBeGreaterThan(Date.now() - 60_000);
+      });
 
       const notMine = await request(app)
         .delete(`/api/v1/auth/sessions/${other.id}`)

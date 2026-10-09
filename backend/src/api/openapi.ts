@@ -929,12 +929,18 @@ export const openapiDocument = {
             type: 'array',
             items: {
               type: 'object',
-              required: ['id', 'user_agent', 'created_at', 'expires_at', 'current'],
+              required: ['id', 'user_agent', 'created_at', 'expires_at', 'last_seen_at', 'current'],
               properties: {
                 id: { type: 'string', format: 'uuid' },
                 user_agent: { type: ['string', 'null'] },
                 created_at: { type: 'string', format: 'date-time' },
                 expires_at: { type: 'string', format: 'date-time' },
+                last_seen_at: nullable('string', {
+                  format: 'date-time',
+                  description:
+                    'The last request made with the session, to within five minutes. Null until ' +
+                    'its first request on a server that records it.',
+                }),
                 current: { type: 'boolean', description: 'The session making the request.' },
               },
             },

@@ -488,6 +488,10 @@ export const studioSessions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    // the last request made with it, kept to within five minutes so a busy
+    // browser does not write on every request; null until its first request
+    // after this was added
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
   },
   (t) => [
     index('studio_sessions_user_id_idx').on(t.userId),

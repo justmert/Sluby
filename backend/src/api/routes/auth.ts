@@ -128,6 +128,7 @@ export interface StudioSessionRecord {
   userAgent: string | null;
   createdAt: Date;
   expiresAt: Date;
+  lastSeenAt: Date | null;
 }
 
 export interface AuthRouteDeps {
@@ -143,6 +144,8 @@ export interface AuthRouteDeps {
     userAgent: string | null;
   }) => Promise<{ id: string }>;
   findActiveSession: FindActiveSession;
+  /** Note a session was used now; must not throw or wait. */
+  markSessionSeen: (sid: string) => void;
   listActiveSessions: (userId: string) => Promise<StudioSessionRecord[]>;
   revokeSession: (id: string, userId: string) => Promise<boolean>;
   revokeAllSessions: (userId: string) => Promise<number>;
@@ -163,6 +166,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       secret: env.SESSION_SECRET,
       findActiveSession: deps.findActiveSession,
       getAccount: deps.getAccount,
+      markSeen: deps.markSessionSeen,
     });
 
   /** The caller's live session, or a 401. Only a Studio session, never a key. */
@@ -375,6 +379,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
         user_agent: r.userAgent,
         created_at: r.createdAt.toISOString(),
         expires_at: r.expiresAt.toISOString(),
+        last_seen_at: r.lastSeenAt ? r.lastSeenAt.toISOString() : null,
         current: r.id === session.id,
       })),
     });

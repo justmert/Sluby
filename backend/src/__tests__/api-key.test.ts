@@ -50,6 +50,7 @@ function createMockRes(): Response & { _status: number; _json: unknown } {
 function keyDeps(overrides: Partial<ApiKeyMiddlewareDeps>): ApiKeyMiddlewareDeps {
   return {
     findActiveSession: vi.fn(async () => undefined),
+    markSessionSeen: vi.fn(),
     findApiKeyByHash: vi.fn(),
     recordKeyUse: vi.fn(),
     getAccount: vi.fn(async () => null),

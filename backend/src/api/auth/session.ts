@@ -132,7 +132,12 @@ export interface ActiveSession {
   /** The identity the browser signed in with. */
   identityId: string;
   expiresAt: Date;
+  /** The last request made with it, to within SESSION_SEEN_INTERVAL_MS. */
+  lastSeenAt: Date | null;
 }
+
+/** How stale last_seen_at may get before a request writes it again. */
+export const SESSION_SEEN_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Looks up a session row that is neither revoked nor expired. */
 export type FindActiveSession = (sid: string) => Promise<ActiveSession | undefined>;
@@ -149,6 +154,8 @@ export async function resolveSession(
     secret: string;
     findActiveSession: FindActiveSession;
     getAccount: (userId: string) => Promise<Account | null>;
+    /** Note the session was used now; must not throw or wait. */
+    markSeen: (sid: string) => void;
   },
 ): Promise<{ session: ActiveSession; account: Account } | null> {
   const payload = verifySession(parseCookieHeader(cookieHeader)[SESSION_COOKIE_NAME], opts.secret);
@@ -157,5 +164,11 @@ export async function resolveSession(
   if (!session || session.userId !== payload.uid) return null;
   const account = await opts.getAccount(session.userId);
   if (!account || !isAccountAllowed(account)) return null;
+  if (
+    !session.lastSeenAt ||
+    Date.now() - session.lastSeenAt.getTime() >= SESSION_SEEN_INTERVAL_MS
+  ) {
+    opts.markSeen(session.id);
+  }
   return { session, account };
 }

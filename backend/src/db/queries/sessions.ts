@@ -1,6 +1,7 @@
-import { and, eq, gt, isNull, lt, or, desc, isNotNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, or, desc, isNotNull, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { studioSessions, type StudioSession } from '../schema.js';
+import { SESSION_SEEN_INTERVAL_MS } from '../../api/auth/session.js';
 
 export async function createStudioSession(data: {
   userId: string;
@@ -26,6 +27,26 @@ export async function findActiveStudioSession(id: string): Promise<StudioSession
     )
     .limit(1);
   return row;
+}
+
+/**
+ * Mark a session as used now, unless that was recorded in the last five
+ * minutes. The condition keeps concurrent requests from all writing.
+ */
+export async function markStudioSessionSeen(id: string): Promise<void> {
+  const interval = `${SESSION_SEEN_INTERVAL_MS} milliseconds`;
+  await db
+    .update(studioSessions)
+    .set({ lastSeenAt: sql`now()` })
+    .where(
+      and(
+        eq(studioSessions.id, id),
+        or(
+          isNull(studioSessions.lastSeenAt),
+          sql`${studioSessions.lastSeenAt} < now() - ${interval}::interval`,
+        ),
+      ),
+    );
 }
 
 /** An account's live sessions, newest first. */

@@ -51,6 +51,7 @@ function makeDeps(world: Omit<World, 'deps'>): TusServerDeps {
   return {
     callers: {
       findActiveSession: vi.fn(async () => undefined),
+      markSessionSeen: vi.fn(),
       findApiKeyByHash: vi.fn(async () => null),
       recordKeyUse: vi.fn(),
       getAccount: vi.fn(async () => null),
