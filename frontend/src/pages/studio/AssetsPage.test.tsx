@@ -938,3 +938,46 @@ describe('AssetsPage: row menu and preview', () => {
     expect(await screen.findByText('video page')).toBeInTheDocument();
   });
 });
+
+describe('AssetsPage: versioned edits', () => {
+  it('says a video changed elsewhere was left alone and the next try uses the latest version', async () => {
+    const server = library([bunny, sintel]);
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (init?.method === 'PATCH' && String(input).endsWith('/bad')) {
+        server.calls.push({
+          method: 'PATCH',
+          path: '/api/v1/assets/bad',
+          query: new URLSearchParams(),
+          body: undefined,
+        });
+        return new Response(
+          JSON.stringify({ error: 'This video was changed somewhere else.', current: sintel }),
+          {
+            status: 412,
+            headers: { 'content-type': 'application/json' },
+          },
+        );
+      }
+      return base(input, init);
+    });
+    renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    await userEvent.click(selectAll());
+    await userEvent.click(
+      within(screen.getByRole('toolbar')).getByRole('button', { name: 'Make private' }),
+    );
+    await userEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Make private' }),
+    );
+    expect(await screen.findByText('1 video is now private')).toBeInTheDocument();
+    expect(
+      screen.getByText('Could not change 1 video. It was changed somewhere else, so try again'),
+    ).toBeInTheDocument();
+    const headers = vi
+      .mocked(fetch)
+      .mock.calls.filter(([, init]) => init?.method === 'PATCH')
+      .map(([, init]) => new Headers(init!.headers).get('If-Match'));
+    expect(headers).toEqual([`"${Date.parse(OLD)}"`, `"${Date.parse(OLD)}"`]);
+  });
+});

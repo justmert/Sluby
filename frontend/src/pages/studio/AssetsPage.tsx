@@ -526,8 +526,13 @@ export default function AssetsPage() {
         toastSuccess(`${ok === 1 ? '1 video is' : `${formatCount(ok)} videos are`} now ${tier}`);
       }
       if (failures.length > 0) {
+        // a 412: someone edited it since this page loaded. the list reloads
+        // after the change, so trying again uses the latest version
+        const stale = failures.every((f) => errorStatus(f.error) === 412);
         toastError(
-          `Could not change ${plural(failures.length, 'video')}. ${errorText(failures[0].error)}`,
+          stale
+            ? `Could not change ${plural(failures.length, 'video')}. ${failures.length === 1 ? 'It was' : 'They were'} changed somewhere else, so try again`
+            : `Could not change ${plural(failures.length, 'video')}. ${errorText(failures[0].error)}`,
         );
       }
     } finally {
