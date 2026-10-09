@@ -67,6 +67,14 @@ describe('ActivityTimeline', () => {
     expect(screen.getByText('Nothing has run yet')).toBeInTheDocument();
   });
 
+  it('says nothing has run yet while the file is still arriving, without loading forever', () => {
+    renderPage(<ActivityTimeline {...base} job={undefined} notStarted />);
+    expect(screen.getByText('Nothing has run yet')).toBeInTheDocument();
+    expect(
+      screen.getByText('Processing starts once the whole file has arrived.'),
+    ).toBeInTheDocument();
+  });
+
   it('offers Try again when the log does not load', async () => {
     const onRetry = vi.fn();
     renderPage(

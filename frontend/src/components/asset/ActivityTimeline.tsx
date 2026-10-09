@@ -14,6 +14,8 @@ export interface ActivityTimelineProps {
   error: unknown;
   onRetry: () => unknown;
   retrying: boolean;
+  /** The file has not all arrived, so no processing job exists to read. */
+  notStarted?: boolean;
 }
 
 function time(iso: string): string {
@@ -34,9 +36,10 @@ export function ActivityTimeline({
   error,
   onRetry,
   retrying,
+  notStarted = false,
 }: ActivityTimelineProps) {
   // a 404 means no job was ever made: an upload that never finished
-  if (!job && errorStatus(error) === 404) {
+  if (!job && (notStarted || errorStatus(error) === 404)) {
     return (
       <EmptyState
         icon={History}

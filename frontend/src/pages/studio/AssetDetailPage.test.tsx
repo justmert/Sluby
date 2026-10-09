@@ -532,8 +532,9 @@ describe('AssetDetailPage', () => {
         await screen.findByRole('heading', { name: 'Upload interrupted' }),
       ).toBeInTheDocument();
       expect(screen.getByText('Interrupted')).toBeInTheDocument();
-      // no processing job exists for an upload that never finished
+      // no processing job exists for an upload that never finished, and the log says so
       expect(server.calls.some((c) => c.path.endsWith('/processing'))).toBe(false);
+      expect(screen.getByText('Nothing has run yet')).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: 'Delete video' }));
       expect(
         await screen.findByRole('alertdialog', { name: 'Delete this video?' }),

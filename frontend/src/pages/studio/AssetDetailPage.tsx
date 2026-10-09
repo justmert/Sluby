@@ -571,7 +571,8 @@ export default function AssetDetailPage() {
           <ActivityTimeline
             job={job.data}
             isLoading={job.isLoading}
-            error={a.status === 'created' || a.status === 'uploading' ? null : job.error}
+            error={job.error}
+            notStarted={a.status === 'created' || a.status === 'uploading'}
             onRetry={job.refetch}
             retrying={job.isFetching}
           />
