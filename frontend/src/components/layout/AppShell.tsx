@@ -8,6 +8,7 @@ import { useIsWide } from '@/hooks/use-mobile';
 import { Announcer } from './Announcer';
 import { AuthOffBanner } from './AuthOffBanner';
 import { LiveAlerts } from './LiveAlerts';
+import { OfflineBanner } from './OfflineBanner';
 import { AppSidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { routeTitle, useRouteCrumbs } from './use-route-crumbs';
@@ -89,6 +90,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <TopBar />
           <AuthOffBanner />
           <main id={MAIN_ID} tabIndex={-1} className="min-w-0 flex-1 overflow-x-clip outline-none">
+            <OfflineBanner />
             <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>
             {/* outside the page, so a route change never unmounts an open menu's host */}
             <div ref={setOverlayRoot} data-slot="overlay-root" />

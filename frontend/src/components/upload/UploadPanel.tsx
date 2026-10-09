@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, WifiOff, X } from 'lucide-react';
+import { useOnline } from '@/hooks/useOnline';
 import { AnimatedItem, AnimatedList, Collapse } from '@/components/motion';
 import { InlineError } from '@/components/shared/InlineError';
 import { SectionHeader } from '@/components/shared/PageHeader';
@@ -56,22 +57,6 @@ function isVideo(file: File): boolean {
     ? /\.(mp4|mov|m4v|mkv|webm|avi)$/i.test(file.name)
     : file.type.startsWith('video/');
 }
-
-function subscribeOnline(onChange: () => void) {
-  window.addEventListener('online', onChange);
-  window.addEventListener('offline', onChange);
-  return () => {
-    window.removeEventListener('online', onChange);
-    window.removeEventListener('offline', onChange);
-  };
-}
-
-const useOnline = () =>
-  useSyncExternalStore(
-    subscribeOnline,
-    () => navigator.onLine !== false,
-    () => true,
-  );
 
 const useRemoteUploads = (tabs: UploadTabs) =>
   useSyncExternalStore(tabs.subscribe, tabs.remote, tabs.remote);

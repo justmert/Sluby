@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '@/test/render';
@@ -39,6 +39,20 @@ function viewport(width: number) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('AppShell', () => {
+  it('says the browser is offline above the page, and stops saying it once back online', async () => {
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    renderShell();
+    const status = screen.getByRole('status', { name: 'Connection' });
+    expect(status).toHaveTextContent(
+      'You are offline. Pages keep what last loaded and update when the connection is back.',
+    );
+    // first in the main landmark, so it is inside a landmark and read before the page
+    expect(screen.getByRole('main').firstElementChild).toBe(status);
+    online.mockReturnValue(true);
+    act(() => void window.dispatchEvent(new Event('online')));
+    await vi.waitFor(() => expect(status).toHaveTextContent(''));
+  });
+
   it('lets the content column shrink below a wide table instead of scrolling the page', () => {
     const { container } = renderShell();
     const inset = container.querySelector('[data-slot="sidebar-inset"]');
