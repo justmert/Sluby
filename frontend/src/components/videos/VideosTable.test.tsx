@@ -121,11 +121,4 @@ describe('VideosTable', () => {
       screen.getByRole('button', { name: 'Copy video ID of Walkthrough' }),
     ).toBeInTheDocument();
   });
-
-  it('gives every row a scroll margin under the sticky toolbar (A11Y-23)', () => {
-    renderPage(<Harness assets={[video('a1', 'Walkthrough')]} />);
-    expect(screen.getByRole('link', { name: 'Walkthrough' }).closest('tr')).toHaveClass(
-      'scroll-mt-36',
-    );
-  });
 });

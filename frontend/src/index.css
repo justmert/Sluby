@@ -313,8 +313,11 @@
     /* the scrollbar keeps its space whether or not a page scrolls, so
        moving between a short and a long page does not shift the layout */
     scrollbar-gutter: stable;
-    /* a control focused from the keyboard never hides under the sticky top bar */
-    scroll-padding-top: 4.5rem;
+    /* a control focused from the keyboard never hides under the sticky top
+       bar, the Videos toolbar while it sticks, the bulk bar or a toast; the
+       variables come from the toolbar and bulk bar themselves */
+    scroll-padding-top: calc(4.5rem + var(--sticky-toolbar-h, 0px));
+    scroll-padding-bottom: max(var(--bulk-bar-pad, 0px), var(--toast-pad, 0px));
   }
   /* radix pads the body by the scrollbar width when it locks scrolling for a
      dialog or menu; with a stable gutter that space is already kept, so the
@@ -568,6 +571,15 @@
 /* sonner animates toasts for 400 ms but unmounts a dismissed one after
    200 ms, which cut the exit off halfway. 200 ms keeps enter and exit on the
    base duration and lets the exit finish before the unmount. */
+/* a toast stays until closed when it carries an error; room under the page
+   lets its last row scroll up past it, and focus never lands under it */
+html:has([data-sonner-toast]) {
+  --toast-pad: 8rem;
+}
+body:has([data-sonner-toast]) main {
+  padding-bottom: 8rem;
+}
+
 /* sonner rings a focused toast and its action with a faint shadow (1 to 2.8:1);
    they get the app's ring like every other control */
 [data-sonner-toaster] [data-sonner-toast]:focus-visible,

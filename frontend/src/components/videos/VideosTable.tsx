@@ -254,7 +254,7 @@ export function VideosTable({
       rowActions={actions}
       // a lighter selected tint than the default, so status badges on a
       // selected row keep 4.5:1 (the success badge measured 4.46 on bg-muted)
-      rowClassName={() => cn('group/row scroll-mt-36 data-[state=selected]:bg-muted/60')}
+      rowClassName={() => cn('group/row data-[state=selected]:bg-muted/60')}
       layout="fixed"
       busy={busy}
       animateRows

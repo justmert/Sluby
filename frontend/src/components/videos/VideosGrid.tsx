@@ -41,7 +41,7 @@ function VideoCard({
   return (
     <Card
       className={cn(
-        'group relative h-full scroll-mt-36 gap-0 overflow-hidden py-0 transition-[box-shadow] duration-150',
+        'group relative h-full gap-0 overflow-hidden py-0 transition-[box-shadow] duration-150',
         selected && 'ring-2 ring-primary',
       )}
     >

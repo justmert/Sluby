@@ -796,6 +796,26 @@ describe('AssetsPage: selection and bulk actions', () => {
     expect(document.activeElement).toHaveAccessibleName('Select all on this page');
   });
 
+  it('pads the page top by the filter toolbar while it sticks, so focus never hides under it (2.4.11)', async () => {
+    // jsdom runs no tailwind; the sticky toolbar is told apart by its computed position
+    const real = window.getComputedStyle;
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+      const style = real(el, pseudo);
+      if ((el as HTMLElement).hasAttribute?.('data-sticky-toolbar'))
+        return { ...style, position: 'sticky' } as CSSStyleDeclaration;
+      return style;
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(56);
+    library();
+    const { unmount } = renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue('--sticky-toolbar-h')).toBe('56px');
+    unmount();
+    expect(root.style.getPropertyValue('--sticky-toolbar-h')).toBe('');
+    vi.restoreAllMocks();
+  });
+
   it('puts the bulk bar right after the filters in the tab order (A11Y-15)', async () => {
     library();
     renderLibrary();

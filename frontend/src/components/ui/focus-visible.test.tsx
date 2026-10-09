@@ -81,6 +81,19 @@ describe('forced colors, progress', () => {
   });
 });
 
+describe('nothing sticky covers the focused control (2.4.11)', () => {
+  it('pads the top of the page by the bar and the sticky toolbar, and the bottom by the bulk bar or a toast', async () => {
+    const text = await css();
+    expect(text).toMatch(/scroll-padding-top: calc\(4\.5rem \+ var\(--sticky-toolbar-h, 0px\)\);/);
+    expect(text).toMatch(
+      /scroll-padding-bottom: max\(var\(--bulk-bar-pad, 0px\), var\(--toast-pad, 0px\)\);/,
+    );
+    expect(text).toMatch(/html:has\(\[data-sonner-toast\]\)\s*\{\s*--toast-pad: 8rem;/);
+    // and the page can scroll its last row up past a toast
+    expect(text).toMatch(/body:has\(\[data-sonner-toast\]\) main\s*\{\s*padding-bottom: 8rem;/);
+  });
+});
+
 describe('toasts', () => {
   it('ring a focused toast and its action with the app ring, not sonner’s faint shadow', async () => {
     expect(await css()).toMatch(

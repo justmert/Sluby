@@ -603,6 +603,29 @@ export default function AssetsPage() {
     };
   }, []);
 
+  // while the toolbar sticks, the page's top scroll padding grows by its
+  // height (index.css), so a card title or button focused by Shift+Tab is
+  // never left under it (WCAG 2.4.11)
+  const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!toolbar) return;
+    const root = document.documentElement;
+    const update = () =>
+      root.style.setProperty(
+        '--sticky-toolbar-h',
+        getComputedStyle(toolbar).position === 'sticky' ? `${toolbar.offsetHeight}px` : '0px',
+      );
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(toolbar);
+    window.addEventListener('resize', update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+      root.style.removeProperty('--sticky-toolbar-h');
+    };
+  }, [toolbar]);
+
   const clearFilters = () => {
     setSearchInput('');
     go({ q: null, status: null, tier: null });
@@ -791,7 +814,11 @@ export default function AssetsPage() {
       />
 
       {/* sticks under the top bar on wider screens that are tall enough for it (A11Y-24) */}
-      <div className="z-10 -mx-2 mb-3 flex flex-col gap-2 bg-background px-2 py-2 md:[@media(min-height:40rem)]:sticky md:[@media(min-height:40rem)]:top-14 @2xl/page:flex-row @2xl/page:items-center">
+      <div
+        ref={setToolbar}
+        data-sticky-toolbar
+        className="z-10 -mx-2 mb-3 flex flex-col gap-2 bg-background px-2 py-2 md:[@media(min-height:40rem)]:sticky md:[@media(min-height:40rem)]:top-14 @2xl/page:flex-row @2xl/page:items-center"
+      >
         <InputGroup className="@2xl/page:max-w-sm">
           <InputGroupAddon>
             <Search />
@@ -953,10 +980,7 @@ export default function AssetsPage() {
 
       <div
         ref={resultsRef}
-        className={cn(
-          'scroll-mt-20 transition-opacity duration-150',
-          list.isPlaceholderData && 'opacity-60',
-        )}
+        className={cn('transition-opacity duration-150', list.isPlaceholderData && 'opacity-60')}
         onKeyDown={(e) => {
           // space on a video's title previews it, like a file browser
           if (e.key !== ' ' || e.defaultPrevented) return;

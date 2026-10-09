@@ -74,6 +74,14 @@ describe('BulkBar', () => {
     expect(document.documentElement.style.getPropertyValue('--toast-lift')).toBe('4rem');
     unmount();
     expect(document.documentElement.style.getPropertyValue('--toast-lift')).toBe('');
-    expect(document.documentElement.style.scrollPaddingBottom).toBe('');
+    expect(document.documentElement.style.getPropertyValue('--bulk-bar-pad')).toBe('');
+  });
+
+  it('gives the page its height as a variable, so a toast can ask for more room (A11Y-25)', () => {
+    renderWithMotion(<BulkBar {...props()} />);
+    const root = document.documentElement;
+    // no inline padding, which would win over the toast rule in the stylesheet
+    expect(root.style.scrollPaddingBottom).toBe('');
+    expect(root.style.getPropertyValue('--bulk-bar-pad')).toMatch(/^\d+px$/);
   });
 });
