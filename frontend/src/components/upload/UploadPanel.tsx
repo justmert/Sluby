@@ -125,6 +125,16 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
     void store.loadLimit();
   }, [store]);
 
+  // a pick refused only because another tab held the file: once that tab lets
+  // go, the refusal is stale
+  const heldElsewhere = useRef<{ notice: string; fingerprints: string[] } | null>(null);
+  useEffect(() => {
+    const held = heldElsewhere.current;
+    if (!held || held.fingerprints.some((fp) => tabs.ownedElsewhere(fp))) return;
+    heldElsewhere.current = null;
+    if (store.getState().pickNotice === held.notice) store.setPickNotice(null);
+  }, [remote, tabs, store]);
+
   // the sheet just opened and holds focus itself: start on its first action
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -201,7 +211,13 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
         void resume(match, file).then((problem) => problem && store.setPickNotice(problem));
       } else fresh.push(file);
     }
-    store.setPickNotice(reasons.length > 0 ? reasons.join(' ') : null);
+    const notice = reasons.length > 0 ? reasons.join(' ') : null;
+    const held = files.filter((f) => isVideo(f) && f.size > 0 && elsewhere(f));
+    heldElsewhere.current =
+      notice && held.length > 0 && held.length === reasons.length
+        ? { notice, fingerprints: held.map(fileFingerprint) }
+        : null;
+    store.setPickNotice(notice);
     addDrafts(fresh);
   };
 

@@ -319,6 +319,14 @@ describe('upload sheet: limits, history and other tabs', () => {
     );
     expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
     expect(f.upload).not.toHaveBeenCalled();
+
+    // the other tab stops: the file is free, so the refusal goes
+    act(() => other.publish([]));
+    await waitFor(() =>
+      expect(
+        screen.queryByText('This file is already uploading in another tab.'),
+      ).not.toBeInTheDocument(),
+    );
   });
 });
 
