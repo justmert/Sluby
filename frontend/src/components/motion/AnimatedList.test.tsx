@@ -3,6 +3,7 @@ import { MotionGlobalConfig } from 'motion/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { renderWithMotion } from '@/test/render';
 import { AnimatedItem, AnimatedList } from './AnimatedList';
+import { Collapse } from './Collapse';
 
 function List({ items }: { items: string[] }) {
   return (
@@ -49,6 +50,21 @@ describe('AnimatedList', () => {
     expect(screen.getByText('a').style.opacity).toBe('0');
     rerender(<List items={['a', 'b']} />);
     expect(screen.getByText('b').style.opacity).toBe('0');
+  });
+
+  it('shows its items when it first renders inside a collapse that is already open', async () => {
+    // the collapse skips its own first animation, which blocked the list's
+    // too while its items still started hidden: the overview's needs
+    // attention rows stayed invisible on a cold load
+    MotionGlobalConfig.skipAnimations = false;
+    renderWithMotion(
+      <Collapse open>
+        <AnimatedList aria-label="videos" initial="hidden">
+          <AnimatedItem key="a">a</AnimatedItem>
+        </AnimatedList>
+      </Collapse>,
+    );
+    await waitFor(() => expect(screen.getByText('a').style.opacity).toBe('1'), { timeout: 2000 });
   });
 
   it('adds a new item', async () => {
