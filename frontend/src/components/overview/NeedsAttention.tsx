@@ -138,7 +138,12 @@ function ItemRow({ item, operator }: { item: AttentionItem; operator: boolean })
           }
           action={
             <Button variant="outline" size="sm" asChild>
-              <Link to={ROUTES.webhook(item.webhook.id)}>Open webhook</Link>
+              <Link
+                to={ROUTES.webhook(item.webhook.id)}
+                aria-label={`Open webhook ${webhookLabel(item.webhook.url)}`}
+              >
+                Open webhook
+              </Link>
             </Button>
           }
         />

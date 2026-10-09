@@ -605,10 +605,10 @@ describe('Overview page', () => {
       ).toHaveAttribute('href', '/studio/videos/f1');
       expect(text[2]).toContain('Deliveries to example.com/hooks/sluby are failing');
       expect(text[2]).toContain('Last attempt 5 minutes ago');
-      expect(within(rows()[2]).getByRole('link', { name: 'Open webhook' })).toHaveAttribute(
-        'href',
-        '/studio/developers/webhooks/w1',
-      );
+      // named after its endpoint, like the video rows, so several read apart
+      expect(
+        within(rows()[2]).getByRole('link', { name: 'Open webhook example.com/hooks/sluby' }),
+      ).toHaveAttribute('href', '/studio/developers/webhooks/w1');
       expect(text[3]).toContain('“Lost upload” did not finish uploading');
       expect(attention.textContent).not.toContain('Just started');
       // a member cannot open health
