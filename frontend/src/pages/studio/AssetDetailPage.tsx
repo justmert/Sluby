@@ -639,6 +639,8 @@ export default function AssetDetailPage() {
                       info={sia.data}
                       isLoading={sia.isLoading}
                       error={sia.error}
+                      onRetry={sia.refetch}
+                      retrying={sia.isFetching}
                     />
                   </FadeSwap>
                 </TabsContent>

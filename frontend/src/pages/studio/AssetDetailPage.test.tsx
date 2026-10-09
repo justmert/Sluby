@@ -211,13 +211,13 @@ describe('AssetDetailPage', () => {
   it('shows the Sia breakdown with shards, redundancy and countries', async () => {
     render();
     await userEvent.click(await screen.findByRole('tab', { name: 'Sia storage' }));
-    expect(await screen.findByText('3.0x')).toBeInTheDocument();
+    expect(await screen.findByText('3×')).toBeInTheDocument();
     expect(screen.getByText('10 data + 20 parity shards')).toBeInTheDocument();
     // once in the host list, once in the country bars
     expect(screen.getAllByText('Germany')).toHaveLength(2);
     expect(screen.getByText('20 sectors, 11 hosts')).toBeInTheDocument();
     expect(screen.getByText('1 shared')).toBeInTheDocument();
-    expect(screen.getByText('Variant playlist')).toBeInTheDocument();
+    expect(screen.getByText('Playlist')).toBeInTheDocument();
   });
 
   it('lists the real renditions', async () => {
