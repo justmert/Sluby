@@ -1,4 +1,4 @@
-import type { ProcessingJob, ProcessingStage, VideoAsset } from '@sluby/sdk';
+import type { ProcessingJob, ProcessingStage, RetryStage, VideoAsset } from '@sluby/sdk';
 import type { StatusTone } from '@/components/shared/status';
 
 /*
@@ -239,4 +239,22 @@ function failureBody(
 /** The plain reason a run failed: failureInfo's body. */
 export function failureSummary(job: Job | undefined): string {
   return failureInfo(job).body;
+}
+
+// the retry endpoint names where the new run starts; say it with the stage labels
+const RESTART_LABEL: Record<RetryStage, string> = {
+  transcode: STAGE_LABEL.transcode,
+  'upload-segments': STAGE_LABEL.upload,
+};
+
+/**
+ * The toast after a retry: "Processing restarted from Storing on Sia", or
+ * with the title first where several videos show: "“Teaser”: processing
+ * restarted from Transcoding".
+ */
+export function restartedMessage(stage: RetryStage, title?: string): string {
+  const from = RESTART_LABEL[stage] ?? STAGE_LABEL.transcode;
+  return title
+    ? `“${title}”: processing restarted from ${from}`
+    : `Processing restarted from ${from}`;
 }
