@@ -217,6 +217,18 @@ describe('asset routes', () => {
       expect(res.headers.etag).toBe(`"${Date.parse('2025-01-01T01:00:00Z')}"`);
     });
 
+    it('answers a revalidation in full: plays change the body but not the version', async () => {
+      vi.mocked(deps.getAsset).mockResolvedValue(createMockAsset());
+      const first = await request(createApp()).get('/asset-1');
+      expect(first.headers['cache-control']).toBe('no-store');
+
+      const again = await request(createApp())
+        .get('/asset-1')
+        .set('If-None-Match', first.headers.etag);
+      expect(again.status).toBe(200);
+      expect(again.body.play_count).toBe(7);
+    });
+
     it('should return 404 when asset not found', async () => {
       vi.mocked(deps.getAsset).mockResolvedValue(null);
 

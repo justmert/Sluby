@@ -248,7 +248,10 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
       throw new AppError(404, 'Video asset not found');
     }
 
-    res.set('ETag', assetEtag(asset)).json(formatAsset(asset));
+    // the etag versions edits, for If-Match; a play changes the body without
+    // it, so it must not validate a stored copy: no 304, and nothing to store
+    delete req.headers['if-none-match'];
+    res.set({ ETag: assetEtag(asset), 'Cache-Control': 'no-store' }).json(formatAsset(asset));
   });
 
   /**

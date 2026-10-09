@@ -66,7 +66,8 @@ const assetEtagHeader = {
   ETag: {
     description:
       'The asset’s version: its `updated_at` in milliseconds since the epoch, quoted. Send it ' +
-      'back in If-Match on PATCH.',
+      'back in If-Match on PATCH. Plays do not change it, so it never validates a cached copy: ' +
+      'GET answers with `Cache-Control: no-store` and ignores If-None-Match.',
     schema: { type: 'string', example: '"1767225600000"' },
   },
 };
