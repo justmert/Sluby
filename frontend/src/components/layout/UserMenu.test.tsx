@@ -9,7 +9,7 @@ import type { AuthSession } from '@/lib/session';
 import { WithSession } from '@/test/session';
 import { UserMenu } from './UserMenu';
 
-vi.mock('@/lib/navigation', () => ({ replacePage: vi.fn(), replacePage: vi.fn() }));
+vi.mock('@/lib/navigation', () => ({ loadPage: vi.fn(), replacePage: vi.fn() }));
 
 let client: QueryClient;
 

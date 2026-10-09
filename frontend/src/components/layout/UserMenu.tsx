@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, LogOut, Palette, UserRound } from 'lucide-react';
-import { toast } from 'sonner';
+import { toastError } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -38,7 +38,7 @@ export function UserMenu() {
       if (statusOf(err) !== 401) {
         // the session is still live, so reloading would sign straight back in
         setSigningOut(false);
-        toast.error(withLead('Could not sign out', err));
+        toastError(withLead('Could not sign out', err));
         return;
       }
     }

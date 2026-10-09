@@ -148,7 +148,7 @@ describe('AssetsPage', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     expect(
-      await screen.findByText('Could not delete "Sintel": Asset is locked'),
+      await screen.findByText('Could not delete "Sintel": Asset is locked.'),
     ).toBeInTheDocument();
     expect(screen.getByText('Deleting 1 video from Sia')).toBeInTheDocument();
     expect(deletes(server).sort()).toEqual(['a1', 'bad']);
@@ -325,7 +325,7 @@ describe('AssetsPage', () => {
       within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }),
     );
     expect(
-      await screen.findByText('Could not delete "Sintel": Asset is locked'),
+      await screen.findByText('Could not delete "Sintel": Asset is locked.'),
     ).toBeInTheDocument();
     expect(screen.getByText('Sintel')).toBeInTheDocument();
     expect(screen.getByText('3 videos')).toBeInTheDocument();
