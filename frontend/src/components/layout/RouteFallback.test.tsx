@@ -26,6 +26,17 @@ describe('RouteFallback', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading page');
   });
 
+  it('has an h1 while the page loads, as the page skeletons do', () => {
+    for (const route of ['/studio', '/studio/videos', '/studio/nope']) {
+      const fallback = shapeAt(route);
+      const h1 = fallback.querySelectorAll('h1');
+      expect(h1).toHaveLength(1);
+      expect(h1[0]).toHaveTextContent('Loading page');
+      expect(h1[0]).toHaveClass('sr-only');
+      fallback.ownerDocument.body.innerHTML = '';
+    }
+  });
+
   it('draws the page it is loading, not a generic block', () => {
     // the library is a grid of 8 cards
     expect(shapeAt('/studio/videos').querySelectorAll('.aspect-video')).toHaveLength(8);

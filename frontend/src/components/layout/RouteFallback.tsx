@@ -188,6 +188,8 @@ export function RouteFallback() {
   const [, Shape, width] = SKELETONS.find(([pattern]) => pattern.test(pathname)) ?? [];
   return (
     <div data-slot="route-fallback" aria-busy="true" className={lateReveal}>
+      {/* the page's own h1 replaces this one once its code arrives */}
+      <h1 className="sr-only">Loading page</h1>
       <span className="sr-only" role="status">
         Loading page
       </span>
