@@ -41,6 +41,15 @@ describe('webhook routes', () => {
       createWebhook: vi.fn().mockResolvedValue({ id: 'wh-1' }),
       listWebhooks: vi.fn().mockResolvedValue([]),
       getWebhook: vi.fn().mockResolvedValue(null),
+      updateWebhook: vi.fn(async (id, _owner, patch) => ({
+        id,
+        url: patch.url ?? 'https://example.com/hook',
+        events: patch.events ?? ['asset.ready'],
+        isActive: patch.isActive ?? true,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+        lastDeliveryAt: null,
+        lastDeliveryOk: null,
+      })),
       deleteWebhook: vi.fn().mockResolvedValue(undefined),
       // the real check, with no operator exemptions and a resolver that knows
       // a few test names, so registration is judged exactly as in production
@@ -325,6 +334,51 @@ describe('webhook routes', () => {
     });
   });
 
+  describe('PATCH /:id', () => {
+    it('pauses and resumes an endpoint', async () => {
+      const paused = await request(createApp()).patch('/wh-1').send({ is_active: false });
+      expect(paused.status).toBe(200);
+      expect(paused.body.is_active).toBe(false);
+      expect(deps.updateWebhook).toHaveBeenCalledWith('wh-1', '0xabc123', { isActive: false });
+      const resumed = await request(createApp()).patch('/wh-1').send({ is_active: true });
+      expect(resumed.body.is_active).toBe(true);
+    });
+
+    it('changes the url after checking it, and the events once each', async () => {
+      const res = await request(createApp())
+        .patch('/wh-1')
+        .send({ url: 'https://example.com/new', events: ['asset.ready', 'asset.ready'] });
+      expect(res.status).toBe(200);
+      expect(deps.vetWebhookUrl).toHaveBeenCalledWith('https://example.com/new');
+      expect(deps.updateWebhook).toHaveBeenCalledWith('wh-1', '0xabc123', {
+        url: 'https://example.com/new',
+        events: ['asset.ready'],
+      });
+    });
+
+    it.each([
+      [{}, /at least one of url, events and is_active/],
+      [{ secret: 'x' }, /unknown field: secret/],
+      [{ events: [] }, /At least one event type/],
+      [{ events: ['asset.deleted'] }, /Invalid events: asset.deleted/],
+      [{ is_active: 'no' }, /is_active must be true or false/],
+      [{ url: 42 }, /URL is required/],
+      [{ url: `https://example.com/${'a'.repeat(2048)}` }, /longer than 2,048 characters/],
+      [{ url: 'http://localhost/hook' }, /URL refused/],
+    ])('rejects %j', async (body, message) => {
+      const res = await request(createApp()).patch('/wh-1').send(body);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(message);
+      expect(deps.updateWebhook).not.toHaveBeenCalled();
+    });
+
+    it("answers 404 for an endpoint that is not the caller's", async () => {
+      vi.mocked(deps.updateWebhook).mockResolvedValue(null);
+      const res = await request(createApp()).patch('/wh-9').send({ is_active: false });
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe('DELETE /:id', () => {
     it('should delete a webhook and return success', async () => {
       vi.mocked(deps.deleteWebhook).mockResolvedValue(true);
@@ -355,6 +409,15 @@ describe('webhook routes', () => {
       expect(res.status).toBe(403);
     });
   });
+  it('refuses a url longer than 2,048 characters at registration', async () => {
+    const res = await request(createApp())
+      .post('/')
+      .send({ url: `https://example.com/${'a'.repeat(2048)}`, events: ['asset.ready'] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('The URL is longer than 2,048 characters.');
+    expect(deps.vetWebhookUrl).not.toHaveBeenCalled();
+  });
+
   describe('receiver url checks at registration', () => {
     it.each([
       'http://127.0.0.1:3000/api/v1/keys',

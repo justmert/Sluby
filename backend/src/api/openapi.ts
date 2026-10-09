@@ -1893,6 +1893,7 @@ export const openapiDocument = {
                   url: {
                     type: 'string',
                     format: 'uri',
+                    maxLength: 2048,
                     description: 'Absolute http(s) URL on a public address.',
                   },
                   events: {
@@ -2034,6 +2035,61 @@ export const openapiDocument = {
         responses: {
           '200': jsonResponse('Webhook', 'The endpoint.'),
           '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
+      },
+      patch: {
+        tags: ['Webhooks'],
+        summary: 'Edit, pause or resume a webhook endpoint.',
+        description:
+          'Send any of `url`, `events` and `is_active`. A new URL is checked like at registration. ' +
+          '`is_active: false` pauses the endpoint: nothing is sent to it, and deliveries already ' +
+          'queued for it are dropped. `is_active: true` resumes it for new events. The signing ' +
+          'secret does not change.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Endpoint id.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                minProperties: 1,
+                properties: {
+                  url: {
+                    type: 'string',
+                    format: 'uri',
+                    maxLength: 2048,
+                    description: 'Absolute http(s) URL on a public address.',
+                  },
+                  events: {
+                    type: 'array',
+                    minItems: 1,
+                    items: {
+                      type: 'string',
+                      enum: [
+                        'upload.started',
+                        'upload.completed',
+                        'upload.failed',
+                        'processing.started',
+                        'asset.ready',
+                        'asset.errored',
+                      ],
+                    },
+                    description:
+                      'Replaces the subscribed events. An event listed twice counts once.',
+                  },
+                  is_active: { type: 'boolean', description: 'False pauses, true resumes.' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': jsonResponse('Webhook', 'The endpoint as it is now.'),
+          '400': ref('BadRequest'),
           '404': ref('NotFound'),
           ...authFailures,
         },

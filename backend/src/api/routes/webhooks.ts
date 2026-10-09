@@ -45,6 +45,12 @@ export interface WebhookRouteDeps {
   listWebhooks: (owner: string | undefined) => Promise<WebhookRecord[]>;
   /** One endpoint, or null when it is not the account's. */
   getWebhook: (id: string, owner: string | undefined) => Promise<WebhookRecord | null>;
+  /** Changes the given fields of an endpoint of the account; null when it is not theirs. */
+  updateWebhook: (
+    id: string,
+    owner: string | undefined,
+    patch: { url?: string; events?: string[]; isActive?: boolean },
+  ) => Promise<WebhookRecord | null>;
   /** Deletes only if the endpoint belongs to the account; false when it does not. */
   deleteWebhook: (id: string, owner: string | undefined) => Promise<boolean>;
   /**
@@ -83,6 +89,30 @@ export const WEBHOOK_EVENTS = [
   'asset.errored',
 ];
 
+/** Longest receiver URL accepted, well past any real one. */
+export const WEBHOOK_URL_MAX = 2048;
+
+const PATCH_FIELDS = ['url', 'events', 'is_active'];
+
+function checkUrlShape(url: unknown): asserts url is string {
+  if (!url || typeof url !== 'string') {
+    throw new AppError(400, 'URL is required');
+  }
+  if (url.length > WEBHOOK_URL_MAX) {
+    throw new AppError(400, 'The URL is longer than 2,048 characters.');
+  }
+}
+
+function checkEvents(events: unknown): asserts events is string[] {
+  if (!events || !Array.isArray(events) || events.length === 0) {
+    throw new AppError(400, 'At least one event type is required');
+  }
+  const invalidEvents = events.filter((e: unknown) => !WEBHOOK_EVENTS.includes(e as string));
+  if (invalidEvents.length > 0) {
+    throw new AppError(400, `Invalid events: ${invalidEvents.join(', ')}`);
+  }
+}
+
 export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
   const router = Router();
 
@@ -93,21 +123,12 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
   router.post('/', requireScope('manage'), async (req: Request, res: Response) => {
     const { url, events } = req.body ?? {};
 
-    if (!url || typeof url !== 'string') {
-      throw new AppError(400, 'URL is required');
-    }
+    checkUrlShape(url);
     // checked again before every delivery, since dns can change after this
     const refused = await deps.vetWebhookUrl(url);
     if (refused) throw new AppError(400, `URL refused: ${refused}`);
 
-    if (!events || !Array.isArray(events) || events.length === 0) {
-      throw new AppError(400, 'At least one event type is required');
-    }
-
-    const invalidEvents = events.filter((e: string) => !WEBHOOK_EVENTS.includes(e));
-    if (invalidEvents.length > 0) {
-      throw new AppError(400, `Invalid events: ${invalidEvents.join(', ')}`);
-    }
+    checkEvents(events);
 
     const secret = randomBytes(32).toString('hex');
 
@@ -151,6 +172,51 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
     );
     if (!webhook) throw new AppError(404, 'Webhook endpoint not found');
     res.json(formatWebhook(webhook));
+  });
+
+  /**
+   * PATCH /api/v1/webhooks/:id
+   * Change the receiver URL or the events, or pause (`is_active: false`) and
+   * resume the endpoint. A paused endpoint is sent nothing, and deliveries
+   * already queued for it are dropped when their turn comes.
+   */
+  router.patch('/:id', requireScope('manage'), async (req: Request, res: Response) => {
+    const body: Record<string, unknown> =
+      req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const unknown = Object.keys(body).filter((k) => !PATCH_FIELDS.includes(k));
+    if (unknown.length > 0) {
+      throw new AppError(
+        400,
+        `unknown field${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}`,
+      );
+    }
+    if (!PATCH_FIELDS.some((k) => body[k] !== undefined)) {
+      throw new AppError(400, 'Send at least one of url, events and is_active');
+    }
+    const patch: { url?: string; events?: string[]; isActive?: boolean } = {};
+    if (body.url !== undefined) {
+      checkUrlShape(body.url);
+      const refused = await deps.vetWebhookUrl(body.url);
+      if (refused) throw new AppError(400, `URL refused: ${refused}`);
+      patch.url = body.url;
+    }
+    if (body.events !== undefined) {
+      checkEvents(body.events);
+      patch.events = [...new Set(body.events)];
+    }
+    if (body.is_active !== undefined) {
+      if (typeof body.is_active !== 'boolean') {
+        throw new AppError(400, 'is_active must be true or false');
+      }
+      patch.isActive = body.is_active;
+    }
+    const updated = await deps.updateWebhook(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+      patch,
+    );
+    if (!updated) throw new AppError(404, 'Webhook endpoint not found');
+    res.json(formatWebhook(updated));
   });
 
   /**

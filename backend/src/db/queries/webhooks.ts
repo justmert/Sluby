@@ -136,6 +136,27 @@ export async function getWebhookEndpointForOwner(
 }
 
 /**
+ * Change an endpoint's url, events or whether it is active. Owner-scoped like
+ * deletion; undefined when the endpoint is not the account's.
+ */
+export async function updateWebhookEndpoint(
+  id: string,
+  creatorAddress: string | undefined,
+  patch: Partial<Pick<NewWebhookEndpoint, 'url' | 'events' | 'isActive'>>,
+): Promise<WebhookEndpoint | undefined> {
+  const [updated] = await db
+    .update(webhookEndpoints)
+    .set(patch)
+    .where(
+      creatorAddress !== undefined
+        ? and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.creatorAddress, creatorAddress))
+        : eq(webhookEndpoints.id, id),
+    )
+    .returning();
+  return updated;
+}
+
+/**
  * Permanently delete a webhook endpoint and all its delivery records.
  *
  * `creatorAddress` constrains the delete to the owning account so one caller

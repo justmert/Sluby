@@ -129,6 +129,20 @@ describe.skipIf(!hasTestDatabase)('webhook queries (postgres)', () => {
       expect(await q.findEndpointsForEvent("asset.ready'] or true --", 'alice')).toEqual([]);
     });
 
+    it('updates only within the owner’s account', async () => {
+      const h = await hook();
+      expect(await q.updateWebhookEndpoint(h.id, 'bob', { isActive: false })).toBeUndefined();
+      const paused = await q.updateWebhookEndpoint(h.id, 'alice', {
+        isActive: false,
+        events: ['asset.errored'],
+      });
+      expect(paused).toMatchObject({ isActive: false, events: ['asset.errored'], url: h.url });
+      // a paused endpoint gets no events
+      expect(await q.findEndpointsForEvent('asset.errored', 'alice')).toEqual([]);
+      const moved = await q.updateWebhookEndpoint(h.id, undefined, { url: 'https://h/new' });
+      expect(moved?.url).toBe('https://h/new');
+    });
+
     it('deletes only within the owner’s account, along with its deliveries', async () => {
       const h = await hook();
       await q.createWebhookDelivery({

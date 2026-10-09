@@ -770,6 +770,34 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         expect(deliveries.status).toBe(200);
         expect(deliveries.body.data).toHaveLength(1);
 
+        const pauseByB = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'b', {
+          is_active: false,
+        });
+        check('PATCH', '/api/v1/webhooks/{id}', pauseByB);
+        expect(pauseByB.status).toBe(404);
+        const paused = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'a', {
+          is_active: false,
+          events: ['asset.ready', 'asset.errored'],
+        });
+        check('PATCH', '/api/v1/webhooks/{id}', paused);
+        expect(paused.status).toBe(200);
+        expect(paused.body).toMatchObject({
+          is_active: false,
+          events: ['asset.ready', 'asset.errored'],
+        });
+        // still listed while paused
+        const listPaused = await call('GET', '/api/v1/webhooks', 'a');
+        expect(listPaused.body.data.map((w: { is_active: boolean }) => w.is_active)).toEqual([
+          false,
+        ]);
+        const badPatch = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'a', {});
+        check('PATCH', '/api/v1/webhooks/{id}', badPatch);
+        expect(badPatch.status).toBe(400);
+        const resumed = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'a', {
+          is_active: true,
+        });
+        expect(resumed.body.is_active).toBe(true);
+
         const byB = await call('DELETE', `/api/v1/webhooks/${created.body.id}`, 'b');
         check('DELETE', '/api/v1/webhooks/{id}', byB);
         expect(byB.status).toBe(404);
@@ -803,6 +831,11 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         check('GET', '/api/v1/webhooks/{id}/deliveries', deliveriesByP);
         expect(deliveriesByP.status).toBe(200);
         expect(deliveriesByP.body.data).toHaveLength(1);
+        const pausedByP = await call('PATCH', `/api/v1/webhooks/${other.body.id}`, 'platform', {
+          is_active: false,
+        });
+        check('PATCH', '/api/v1/webhooks/{id}', pausedByP);
+        expect(pausedByP.status).toBe(200);
         const byBAgain = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'b');
         expect(byBAgain.status).toBe(404);
         const byP = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'platform');

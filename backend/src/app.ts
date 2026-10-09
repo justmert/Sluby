@@ -71,6 +71,7 @@ import {
   createWebhookDelivery,
   getWebhookEndpointForOwner,
   getWebhookEndpointWithHealth,
+  updateWebhookEndpoint,
   listWebhookDeliveries,
   listWebhookEndpointsByOwner,
   deleteWebhookEndpoint,
@@ -772,6 +773,13 @@ export function buildApiDeps(
 
     getWebhook: async (id, creatorAddress) => {
       const endpoint = await getWebhookEndpointWithHealth(id, creatorAddress);
+      return endpoint ? toWebhookRecord(endpoint) : null;
+    },
+
+    updateWebhook: async (id, creatorAddress, patch) => {
+      const updated = await updateWebhookEndpoint(id, creatorAddress, patch);
+      if (!updated) return null;
+      const endpoint = await getWebhookEndpointWithHealth(updated.id, undefined);
       return endpoint ? toWebhookRecord(endpoint) : null;
     },
 
