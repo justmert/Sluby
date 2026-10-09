@@ -87,7 +87,7 @@ export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }
               <PopoverTrigger asChild>
                 <RingButton lead={lead} count={count} />
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-80">
+              <PopoverContent align="end" className="w-80" aria-labelledby="upload-tray-title">
                 <UploadTray
                   uploads={uploads.filter((u) => isActive(u) || u.phase === 'failed')}
                   queued={queued}

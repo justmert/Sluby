@@ -54,7 +54,7 @@ describe('UploadIndicator', () => {
     expect(screen.getByRole('button', { name: /Keynote: Uploading, 80%/ })).toBeInTheDocument();
 
     await userEvent.click(ring);
-    const tray = await screen.findByRole('dialog');
+    const tray = await screen.findByRole('dialog', { name: 'Uploads' });
     expect(within(tray).getByText('Keynote')).toBeInTheDocument();
     await userEvent.click(within(tray).getByRole('button', { name: 'Open uploads' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos?status=ready&upload=1');

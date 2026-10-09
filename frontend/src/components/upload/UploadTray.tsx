@@ -41,7 +41,9 @@ export function UploadTray({
 }) {
   return (
     <div className="flex flex-col">
-      <h2 className="font-heading text-heading">Uploads</h2>
+      <h2 id="upload-tray-title" className="font-heading text-heading">
+        Uploads
+      </h2>
       <ul className="-my-0.5 mt-1 flex max-h-80 flex-col divide-y overflow-y-auto">
         {uploads.map((u) => (
           <TrayRow key={u.key} upload={u} />
