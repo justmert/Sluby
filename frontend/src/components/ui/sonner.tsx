@@ -39,12 +39,23 @@ const Toaster = ({ ...props }: ToasterProps) => {
           '--info-text': 'var(--info)',
         } as React.CSSProperties
       }
+      // bottom right on a desktop; below 600px sonner spans the width, so on
+      // phones they sit bottom center. --toast-lift raises them over a bar
+      // pinned to the bottom of the page (the videos bulk bar sets it), so a
+      // toast never covers its buttons (D-20)
+      position="bottom-right"
+      offset={{
+        top: '24px',
+        right: '24px',
+        bottom: 'calc(24px + var(--toast-lift, 0px))',
+        left: '24px',
+      }}
       // sonner's mobile default is 16px from each edge; keep that clear of
       // notches and the home indicator too
       mobileOffset={{
         top: 'calc(16px + env(safe-area-inset-top))',
         right: 'calc(16px + env(safe-area-inset-right))',
-        bottom: 'calc(16px + env(safe-area-inset-bottom))',
+        bottom: 'calc(16px + env(safe-area-inset-bottom) + var(--toast-lift, 0px))',
         left: 'calc(16px + env(safe-area-inset-left))',
       }}
       // long enough to read a sentence; every toast also has a close button
@@ -52,6 +63,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast: 'cn-toast',
+          // a finger needs more than the 20px close button
+          closeButton: 'pointer-coarse:size-8',
         },
       }}
       {...props}
