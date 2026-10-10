@@ -158,7 +158,9 @@ const assetEtag = (asset: { updatedAt: Date }) => `"${assetVersion(asset)}"`;
 /**
  * The versions an If-Match header accepts: undefined when there is no
  * condition (no header, or `*`), else the quoted versions it lists. A weak
- * tag never matches, as RFC 9110 has it for If-Match.
+ * tag counts as its strong twin: RFC 9110 has If-Match compare strongly, but
+ * the only thing that weakens this ETag is a proxy compressing the body (the
+ * bundled nginx gzips json), and the version it names is the same edit.
  */
 export function parseIfMatch(header: string | undefined): number[] | undefined {
   if (header === undefined) return undefined;
@@ -169,11 +171,11 @@ export function parseIfMatch(header: string | undefined): number[] | undefined {
   if (tags.includes('*')) return undefined;
   const versions: number[] = [];
   for (const tag of tags) {
-    const m = /^(W\/)?"(\d{1,15})"$/.exec(tag);
+    const m = /^(?:W\/)?"(\d{1,15})"$/.exec(tag);
     if (!m) {
       throw new AppError(400, 'If-Match must be the ETag of the video, such as "1767225600000".');
     }
-    if (!m[1]) versions.push(Number(m[2]));
+    versions.push(Number(m[1]));
   }
   return versions;
 }

@@ -334,12 +334,26 @@ describe('asset routes', () => {
         'asset-1',
         expect.objectContaining({ title: 'Mine' }),
         '0xabc123',
-        [1767225600000],
+        [1767225600000, 5],
       );
       expect(res.status).toBe(412);
       expect(res.body.error).toBe('This video was changed somewhere else.');
       expect(res.body.current).toMatchObject({ id: current.id, title: 'Changed elsewhere' });
       expect(res.headers.etag).toBe(`"${current.updatedAt.getTime()}"`);
+    });
+
+    it('accepts the weak form of the etag, which a gzipping proxy such as the bundled nginx sends', async () => {
+      const asset = createMockAsset();
+      const version = asset.updatedAt.getTime();
+      vi.mocked(deps.updateAsset).mockResolvedValue({ status: 'updated', asset });
+
+      const res = await request(createApp())
+        .patch('/asset-1')
+        .set('If-Match', `W/"${version}"`)
+        .send({ title: 'Mine' });
+
+      expect(res.status).toBe(200);
+      expect(vi.mocked(deps.updateAsset).mock.calls[0][3]).toEqual([version]);
     });
 
     it('treats If-Match: * as no condition', async () => {

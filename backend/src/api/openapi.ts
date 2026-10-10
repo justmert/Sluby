@@ -1548,7 +1548,9 @@ export const openapiDocument = {
             in: 'header' as const,
             required: false,
             schema: { type: 'string' },
-            description: 'One or more ETags, or `*` for any version. Weak tags never match.',
+            description:
+              'One or more ETags, or `*` for any version. The weak form of an ETag (`W/"…"`, as a ' +
+              'compressing proxy such as the bundled nginx sends it) matches the same version.',
           },
         ],
         requestBody: {

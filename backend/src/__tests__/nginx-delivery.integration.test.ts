@@ -967,6 +967,31 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
       );
     }, 180_000);
 
+    it('takes the etag gzip weakened on the way out back in If-Match', async () => {
+      const url = `${base}/api/v1/assets/${assets.handle.id}`;
+      const got = await fetch(url, { headers: { ...auth, 'Accept-Encoding': 'gzip' } });
+      expect(got.status).toBe(200);
+      expect(got.headers.get('content-encoding')).toBe('gzip');
+      const etag = got.headers.get('etag')!;
+      expect(etag).toMatch(/^W\/"\d+"$/);
+
+      const edit = await fetch(url, {
+        method: 'PATCH',
+        headers: { ...auth, 'Content-Type': 'application/json', 'If-Match': etag },
+        body: JSON.stringify({ title: 'renamed through the proxy' }),
+      });
+      expect(edit.status).toBe(200);
+      expect(((await edit.json()) as { title: string }).title).toBe('renamed through the proxy');
+
+      // the weak tag of a version that has moved on still refuses the edit
+      const stale = await fetch(url, {
+        method: 'PATCH',
+        headers: { ...auth, 'Content-Type': 'application/json', 'If-Match': etag },
+        body: JSON.stringify({ title: 'too late' }),
+      });
+      expect(stale.status).toBe(412);
+    });
+
     it('serves the signed playback of the private asset through the proxy, per request', async () => {
       const signed = await fetch(`${base}/api/v1/playback/${assets.tier.id}/signed`, {
         headers: auth,
