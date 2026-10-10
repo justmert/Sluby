@@ -203,6 +203,47 @@ describe('CommandPalette', () => {
     await waitFor(() => expect(input).not.toHaveAttribute('aria-activedescendant'));
   });
 
+  it('drops an older search that answers after a newer one found nothing', async () => {
+    // the answer for "sintel" is held until the one for "sintelzzzz" is in
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const server = jsonFetch({
+      '/api/v1/assets': async ({ query }: RecordedCall) => {
+        const q = (query.get('search') ?? '').toLowerCase();
+        if (q === 'sintel') await held;
+        const data = library.filter((a) => a.title.toLowerCase().includes(q));
+        return { data, total: data.length, page: 1, limit: 5, next_cursor: null };
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    renderPage(
+      <WithSession>
+        <CommandPalette />
+      </WithSession>,
+      { route: '/studio' },
+    );
+    await openWithKeys();
+    const input = await screen.findByRole('combobox');
+    await screen.findByRole('option', { name: /Big Buck Bunny/ });
+    await userEvent.type(input, 'sintel');
+    await waitFor(() =>
+      expect(server.calls.some((c) => c.query.get('search') === 'sintel')).toBe(true),
+    );
+    await userEvent.type(input, 'zzzz');
+    await waitFor(() =>
+      expect(server.calls.some((c) => c.query.get('search') === 'sintelzzzz')).toBe(true),
+    );
+    await waitFor(() => expect(screen.queryByRole('option')).not.toBeInTheDocument());
+    release();
+    // the late answer has had its turn once a status says what the search found
+    await waitFor(() =>
+      expect(within(screen.getByRole('dialog')).getByRole('status')).toHaveTextContent(
+        /nothing matches/i,
+      ),
+    );
+    expect(screen.queryByRole('option', { name: /Sintel/ })).not.toBeInTheDocument();
+  });
+
   it('switches the theme', async () => {
     setup();
     await openWithKeys();
