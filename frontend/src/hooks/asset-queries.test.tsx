@@ -139,17 +139,25 @@ describe('asset hooks', () => {
   });
 
   it('keeps polling an upload that started a minute ago', async () => {
-    const server = jsonFetch({
-      '/api/v1/assets/a1': assetBody({
-        status: 'uploading',
-        created_at: new Date(Date.now() - 60_000).toISOString(),
-      }),
-    });
-    vi.stubGlobal('fetch', vi.fn(server));
-    const { Wrapper } = wrapper();
-    renderHook(() => useAssetById('a1'), { wrapper: Wrapper });
-    await waitFor(() => expect(server.calls).toHaveLength(1));
-    await waitFor(() => expect(server.calls.length).toBeGreaterThan(1), { timeout: 4_000 });
+    // the poll's own clock, so a loaded machine that runs timers late cannot
+    // make the 3 s interval look like no poll at all
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const server = jsonFetch({
+        '/api/v1/assets/a1': assetBody({
+          status: 'uploading',
+          created_at: new Date(Date.now() - 60_000).toISOString(),
+        }),
+      });
+      vi.stubGlobal('fetch', vi.fn(server));
+      const { Wrapper } = wrapper();
+      renderHook(() => useAssetById('a1'), { wrapper: Wrapper });
+      await waitFor(() => expect(server.calls).toHaveLength(1));
+      await act(async () => vi.advanceTimersByTime(3_000));
+      await waitFor(() => expect(server.calls).toHaveLength(2));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('stops polling the processing job on a 401', async () => {
