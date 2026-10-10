@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure, getConfig } from '@testing-library/react';
 import { MotionGlobalConfig } from 'motion/react';
 import { toast } from 'sonner';
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
 import { unmockedRequests } from './unmocked';
+import { endUserEvents, guardAsyncUtils, guardUserEvent } from './user-event-guard';
 
 // the one switch for motion in tests: every motion animation jumps straight
 // to its end state (enter, exit, layout, NumberTicker counts), so assertions
@@ -12,7 +13,25 @@ import { unmockedRequests } from './unmocked';
 // renderWithMotion supply synchronously through MotionProvider.
 MotionGlobalConfig.skipAnimations = true;
 
-afterEach(() => {
+// every test file gets user-event through the guard, so a call cannot keep
+// typing into the next test after its own timed out
+vi.mock('@testing-library/user-event', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@testing-library/user-event')>();
+  const userEvent = guardUserEvent(real.default);
+  return { ...real, default: userEvent, userEvent };
+});
+
+// after react testing library set its own wrapper, which this one calls
+guardAsyncUtils({ getConfig, configure });
+
+afterEach(async () => {
+  // stop what the test left running before its page goes: user-event calls
+  // first, then fake timers, which would otherwise carry into the next test
+  await endUserEvents();
+  if (vi.isFakeTimers()) {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  }
   cleanup();
   // sonner keeps toasts in module state and replays live ones to the next
   // Toaster, so one test's toasts would show up in the next
