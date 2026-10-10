@@ -22,6 +22,10 @@ export const GRACE_OPTIONS = [
   { value: '604800', label: '7 days' },
 ];
 
+// the dialog asks people to keep the old key working while they update their
+// servers, so the default does; stopping it at once is an explicit choice
+export const DEFAULT_GRACE = '3600';
+
 /** Every event a webhook can subscribe to, in the order they happen. */
 export const WEBHOOK_EVENTS: { value: WebhookEventName; detail: string }[] = [
   { value: 'upload.started', detail: 'An upload started' },

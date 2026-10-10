@@ -23,7 +23,7 @@ import { useRotateApiKey, type ApiKeyRecord, type IssuedKey } from '@/hooks/useA
 import { statusOf } from '@/lib/api-client';
 import { toastError } from '@/lib/toast';
 import { keyLabel } from './key-label';
-import { GRACE_OPTIONS } from './options';
+import { DEFAULT_GRACE, GRACE_OPTIONS } from './options';
 
 /**
  * Issue a new secret for a key, keeping the old one working for a while if
@@ -45,11 +45,11 @@ export function RotateKeyDialog({
   const rotate = useRotateApiKey();
   const open = target !== null;
   const shown = useFrozen(target, open);
-  const [grace, setGrace] = useState('0');
+  const [grace, setGrace] = useState(DEFAULT_GRACE);
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) setGrace('0');
+    if (open) setGrace(DEFAULT_GRACE);
   }
 
   const close = () => {

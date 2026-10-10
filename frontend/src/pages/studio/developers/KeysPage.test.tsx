@@ -377,6 +377,53 @@ describe('renaming, rotating and revoking', () => {
     });
   });
 
+  it('keeps the old key working for 1 hour unless told otherwise, as the dialog says (QF-06)', async () => {
+    const until = new Date(Date.now() + 3_600_000).toISOString();
+    routes['POST /api/v1/keys/k1/rotate'] = () =>
+      reply(
+        201,
+        issued(
+          { id: 'k3', name: 'Production web app' },
+          { rotated_from: 'k1', previous_key_expires_at: until, key: 'sluby_Rotated' },
+        ),
+      );
+    render();
+    await screen.findByText('Production web app');
+    const menu = await openMenu('Production web app');
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Rotate' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Rotate this key?' });
+    expect(within(dialog).getByRole('combobox')).toHaveTextContent('1 hour');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Rotate key' }));
+    const secret = await screen.findByRole('dialog', { name: 'API key rotated' });
+    expect(secret).toHaveTextContent(/The old key keeps working until .* at /);
+    expect(calls('POST', '/api/v1/keys/k1/rotate')[0].body).toEqual({
+      grace_period_seconds: 3600,
+    });
+  });
+
+  it('stops the old key at once only when that is chosen', async () => {
+    routes['POST /api/v1/keys/k1/rotate'] = () =>
+      reply(
+        201,
+        issued(
+          { id: 'k3', name: 'Production web app' },
+          { rotated_from: 'k1', previous_key_expires_at: null, key: 'sluby_Rotated' },
+        ),
+      );
+    render();
+    await screen.findByText('Production web app');
+    const menu = await openMenu('Production web app');
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Rotate' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Rotate this key?' });
+    await userEvent.click(within(dialog).getByRole('combobox'));
+    await userEvent.click(await screen.findByRole('option', { name: 'No, stop it now' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Rotate key' }));
+    await screen.findByRole('dialog', { name: 'API key rotated' });
+    expect(calls('POST', '/api/v1/keys/k1/rotate')[0].body).toEqual({
+      grace_period_seconds: 0,
+    });
+  });
+
   it('closes the rotate dialog and says so when the key is gone', async () => {
     routes['POST /api/v1/keys/k1/rotate'] = reply(404, { error: 'API key not found' });
     render();
