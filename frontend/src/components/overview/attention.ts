@@ -8,6 +8,7 @@ export type AttentionItem =
   | { kind: 'missing'; key: string; count: number; checkedAt: string }
   | { kind: 'failed'; key: string; video: VideoAsset }
   | { kind: 'webhook'; key: string; webhook: WebhookRecord }
+  | { kind: 'paused'; key: string; webhook: WebhookRecord }
   | { kind: 'stalled'; key: string; video: VideoAsset };
 
 export interface AttentionInput {
@@ -51,6 +52,9 @@ export function attentionItems(input: AttentionInput): AttentionItem[] {
     if (webhook.isActive && webhook.lastDeliveryOk === false) {
       items.push({ kind: 'webhook', key: `webhook:${webhook.id}`, webhook });
     }
+  }
+  for (const webhook of input.webhooks ?? []) {
+    if (!webhook.isActive) items.push({ kind: 'paused', key: `paused:${webhook.id}`, webhook });
   }
   for (const video of input.stalled ?? []) items.push({ kind: 'stalled', key: video.id, video });
   return items;

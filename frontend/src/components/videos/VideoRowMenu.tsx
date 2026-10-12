@@ -1,6 +1,7 @@
 import { MoreHorizontal } from 'lucide-react';
 import type { RowAction } from '@/components/shared/DataTable';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,9 +11,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 /**
- * A video's actions as a menu, for the grid cards; the table draws the same
- * list (videoActions) through DataTable's row menu. Destructive items go last,
- * after a separator, and every item has an icon (VIS-23).
+ * A video's actions behind its ⋯ button, in the table, the grid and the
+ * phone cards (videoActions). Destructive items go last, after a separator,
+ * and every item has an icon (VIS-23).
  */
 export function VideoRowMenu({
   actions,
@@ -34,13 +35,13 @@ export function VideoRowMenu({
         <Button
           variant="ghost"
           size="icon-sm"
-          className={className}
+          className={cn('text-secondary-foreground', className)}
           aria-label={`Actions for ${title}`}
         >
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-auto min-w-44">
+      <DropdownMenuContent align="end" className="w-auto min-w-60">
         {normal.map((a) => (
           <DropdownMenuItem key={a.label} onSelect={a.onSelect} disabled={a.disabled}>
             <a.icon aria-hidden="true" />

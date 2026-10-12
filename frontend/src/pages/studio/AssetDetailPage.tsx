@@ -2,12 +2,13 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import * as m from 'motion/react-m';
-import { FileQuestion, Share2 } from 'lucide-react';
+import { FileQuestion } from 'lucide-react';
 import { ConflictError, type AccessTier, type VideoAsset } from '@sluby/sdk';
 import { AccessControl } from '@/components/asset/AccessControl';
 import { ActivityTimeline } from '@/components/asset/ActivityTimeline';
-import { LazyAssetPlayer } from '@/components/asset/LazyAssetPlayer';
+import { AssetDetailLoading } from '@/components/asset/AssetDetailLoading';
 import { EmbedPanel } from '@/components/asset/EmbedPanel';
+import { LazyAssetPlayer } from '@/components/asset/LazyAssetPlayer';
 import { PlaybackIdsCard } from '@/components/asset/PlaybackIdsCard';
 import { ProcessingCard } from '@/components/asset/ProcessingCard';
 import { isInterrupted } from '@/components/asset/processing';
@@ -17,25 +18,15 @@ import { VideoActionsMenu } from '@/components/asset/VideoActionsMenu';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { FadeSwap } from '@/components/motion';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
-import { ScrollFade } from '@/components/shared/ScrollFade';
-import { CopyField } from '@/components/shared/CopyField';
-import { DescriptionItem, DescriptionList } from '@/components/shared/DescriptionList';
-import { InlineEditField, type InlineEditFieldProps } from '@/components/shared/InlineEditField';
-import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
-import { PageHeader } from '@/components/shared/PageHeader';
+import { CopyButton } from '@/components/shared/CopyButton';
+import { InlineEditField } from '@/components/shared/InlineEditField';
 import { PageState } from '@/components/shared/PageState';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
-import { AssetDetailLoading } from '@/components/asset/AssetDetailLoading';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { copyWithToast } from '@/components/videos/video-actions';
 import {
   useAssetRenditions,
   useAssetSiaInfo,
@@ -45,28 +36,30 @@ import {
 } from '@/hooks/asset-detail-queries';
 import { errorStatus, useAssetById, useDeleteAssets, useForgetAsset } from '@/hooks/asset-queries';
 import { usePlaybackIds } from '@/hooks/playback-id-queries';
-import { useMediaQuery } from '@/hooks/use-mobile';
 import { ROUTES } from '@/lib/constants';
+import { primaryEmbed } from '@/lib/embed';
 import { errorText } from '@/lib/errors';
 import {
+  NO_VALUE,
   formatBytes,
+  formatCount,
   formatDate,
   formatDuration,
   formatRelativeTime,
   formatResolution,
   plural,
 } from '@/lib/formatters';
-import { highlight } from '@/lib/motion';
+import { highlight, lateReveal } from '@/lib/motion';
 import { toastError, toastSuccess } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 
 const TITLE_MAX = 200;
 const DESCRIPTION_MAX = 5000;
 
-const LOWER_TABS = ['playback', 'storage', 'renditions', 'activity'] as const;
-type LowerTab = (typeof LOWER_TABS)[number];
-const SIDE_TABS = ['share', 'details'] as const;
-type SideTab = (typeof SIDE_TABS)[number];
+const TABS = ['share', 'playback', 'renditions', 'storage', 'activity'] as const;
+type Tab = (typeof TABS)[number];
+
+const CARD = 'rounded-xl border bg-card';
 
 const pick = <T extends string>(value: string | null, from: readonly T[]): T | undefined =>
   from.includes(value as T) ? (value as T) : undefined;
@@ -84,48 +77,12 @@ function DetailSkeleton() {
   );
 }
 
-function MetaRow({ asset, interrupted }: { asset: VideoAsset; interrupted: boolean }) {
-  const parts: ReactNode[] = [];
-  if (asset.durationMs) parts.push(formatDuration(asset.durationMs));
-  if (asset.resolution) parts.push(formatResolution(asset.resolution));
-  if (asset.status === 'ready' && asset.totalStorageBytes > 0) {
-    parts.push(`${formatBytes(asset.totalStorageBytes)} on Sia`);
-  }
-  if (asset.status === 'ready') {
-    parts.push(
-      <Tooltip key="plays">
-        <TooltipTrigger asChild>
-          <span
-            tabIndex={0}
-            className="rounded-sm underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring"
-          >
-            {plural(asset.playCount, 'play')}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>Counted each time a player loads the video</TooltipContent>
-      </Tooltip>,
-    );
-  }
-  parts.push(`Created ${formatRelativeTime(asset.createdAt)}`);
-  const items: ReactNode[] = [
-    <StatusBadge
-      key="status"
-      kind="asset"
-      status={interrupted ? 'interrupted' : asset.status}
-      busy="spinner"
-      live
-    />,
-    ...parts,
-  ];
-  // the dot ends each item, so a wrapped line never starts with one
+/** One row of the details card: the name on the left, the value right-aligned. */
+function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
-      {items.map((item, i) => (
-        <span key={i} className="inline-flex items-center gap-2">
-          {item}
-          {i < items.length - 1 && <span aria-hidden="true">·</span>}
-        </span>
-      ))}
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 text-right tabular-nums">{children}</dd>
     </>
   );
 }
@@ -144,14 +101,17 @@ function DescriptionValue({ text }: { text: string }) {
     observer.observe(el);
     return () => observer.disconnect();
   }, [text, open]);
-  if (!text) return <p className="text-muted-foreground">No description</p>;
+  if (!text) return <p className="text-muted-foreground">No description yet.</p>;
   return (
     <div>
       <p
         ref={ref}
         id="video-description"
         dir="auto"
-        className={cn('whitespace-pre-wrap wrap-anywhere', !open && 'line-clamp-6')}
+        className={cn(
+          'whitespace-pre-wrap text-secondary-foreground wrap-anywhere',
+          !open && 'line-clamp-6',
+        )}
       >
         {text}
       </p>
@@ -167,56 +127,6 @@ function DescriptionValue({ text }: { text: string }) {
           {open ? 'Show less' : 'Show more'}
         </Button>
       )}
-    </div>
-  );
-}
-
-interface EditProps {
-  asset: VideoAsset;
-  /** saves one field, based on the version the edit started from */
-  save: (patch: Partial<Pick<VideoAsset, 'title' | 'description'>>) => Promise<unknown>;
-  onEditStart: () => void;
-  renderError: NonNullable<InlineEditFieldProps['renderError']>;
-}
-
-function DetailsPanel({ asset, save, onEditStart, renderError }: EditProps) {
-  return (
-    <div className="flex flex-col gap-4">
-      <DescriptionList>
-        <DescriptionItem label="Video ID">
-          <CopyField label="video ID" value={asset.id} truncate={8} />
-        </DescriptionItem>
-        <DescriptionItem label="Main playlist file">
-          {asset.manifestObjectId && (
-            <ObjectIdBadge
-              value={asset.manifestObjectId}
-              truncate={6}
-              copyLabel="Copy main playlist file ID"
-            />
-          )}
-        </DescriptionItem>
-        <DescriptionItem label="Source resolution">
-          {asset.resolution && formatResolution(asset.resolution)}
-        </DescriptionItem>
-        <DescriptionItem label="Created">{formatDate(asset.createdAt)}</DescriptionItem>
-        <DescriptionItem label="Updated">{formatDate(asset.updatedAt)}</DescriptionItem>
-      </DescriptionList>
-      <div className="text-sm">
-        <h3 className="mb-1 font-sans text-sm text-muted-foreground">Description</h3>
-        <InlineEditField
-          label="description"
-          value={asset.description}
-          multiline
-          maxLength={DESCRIPTION_MAX}
-          counterFrom={4500}
-          placeholder="Add a description"
-          draftKey={`video-description:${asset.id}`}
-          onEditStart={onEditStart}
-          renderError={renderError}
-          onSave={(description) => save({ description })}
-          display={(shown) => <DescriptionValue text={shown} />}
-        />
-      </div>
     </div>
   );
 }
@@ -242,8 +152,6 @@ export default function AssetDetailPage() {
   const update = useUpdateVideo();
   const deleteAssets = useDeleteAssets();
   const forgetAsset = useForgetAsset();
-  const wide = useMediaQuery('(min-width: 640px)');
-  const [shareOpen, setShareOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<VideoAsset | null>(null);
   const deletedHere = useRef<string | null>(null);
   // the version an inline edit started from, sent as If-Match (FLW-06)
@@ -318,14 +226,18 @@ export default function AssetDetailPage() {
     );
   }
 
-  const side: SideTab = pick(params.get('panel'), SIDE_TABS) ?? (ready ? 'share' : 'details');
-  const lower: LowerTab = ready ? (pick(params.get('tab'), LOWER_TABS) ?? 'playback') : 'activity';
-  const setParam = (name: string, value: string | null) =>
+  const tabs: Tab[] = ready ? [...TABS] : ['share', 'activity'];
+  // the overview's "Get embed code" link used ?panel=share before the tabs merged
+  const asked =
+    pick(params.get('tab'), tabs) ?? (params.get('panel') === 'share' ? 'share' : undefined);
+  const tab: Tab = asked ?? (ready ? 'share' : 'activity');
+  const setTab = (value: string) =>
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        if (value === null) next.delete(name);
-        else next.set(name, value);
+        next.delete('panel');
+        if (value === (ready ? 'share' : 'activity')) next.delete('tab');
+        else next.set('tab', value);
         return next;
       },
       { replace: true },
@@ -391,17 +303,12 @@ export default function AssetDetailPage() {
     navigate(ROUTES.VIDEOS);
   };
 
-  const editProps = {
-    asset: a,
-    save,
-    onEditStart: () => {
-      editBase.current = a;
-    },
-    renderError,
+  const onEditStart = () => {
+    editBase.current = a;
   };
 
   const objectCount = sia.data?.totals.object_count;
-  const share = <EmbedPanel asset={a} playbackIds={playbackIds.data} />;
+  const qualities = renditions.data?.data.map((r) => r.name);
 
   const player = (
     <FadeSwap swapKey={ready ? 'player' : 'processing'}>
@@ -439,188 +346,264 @@ export default function AssetDetailPage() {
   );
 
   return (
-    <PageContainer>
-      <PageHeader
-        title={a.title}
-        heading={
-          <InlineEditField
-            label="title"
-            value={a.title}
-            requiredMessage="Enter a title."
-            maxLength={TITLE_MAX}
-            draftKey={`video-title:${a.id}`}
-            onEditStart={editProps.onEditStart}
-            renderError={renderError}
-            onSave={(title) => save({ title })}
-            display={(shown) => (
-              <h1 dir="auto" className="line-clamp-3 font-heading text-title wrap-anywhere">
-                {shown}
-              </h1>
-            )}
-            whileEditing={(shown) => <h1 dir="auto">{shown}</h1>}
-          />
-        }
-        meta={<MetaRow asset={a} interrupted={interrupted} />}
-        secondaryActions={
-          <>
-            <AccessControl value={a.accessTier} onChange={setAccess} />
-            <VideoActionsMenu
-              asset={a}
-              onDelete={() => setConfirmDelete(a)}
-              deleting={deleteAssets.isPending}
-            />
-          </>
-        }
-      />
-
-      <div className="grid items-start gap-6 @5xl/page:grid-cols-[minmax(0,1fr)_24rem] @7xl/page:grid-cols-[minmax(0,1fr)_28rem]">
-        <div className="flex min-w-0 flex-col gap-3">
-          {player}
-          {!wide && ready && (
-            <Button variant="outline" className="self-start" onClick={() => setShareOpen(true)}>
-              <Share2 />
-              Share
-            </Button>
+    <PageContainer className="flex flex-col gap-5 text-sm">
+      {/* the title row: the title with its edit button, the status, and the actions */}
+      <div className="flex flex-wrap items-center gap-3">
+        <InlineEditField
+          label="title"
+          value={a.title}
+          requiredMessage="Enter a title."
+          maxLength={TITLE_MAX}
+          draftKey={`video-title:${a.id}`}
+          onEditStart={onEditStart}
+          renderError={renderError}
+          onSave={(title) => save({ title })}
+          className="max-w-full items-center [&_[data-slot=button]]:text-muted-foreground"
+          display={(shown) => (
+            <h1 dir="auto" className="line-clamp-3 font-heading text-title wrap-anywhere">
+              {shown}
+            </h1>
           )}
+          whileEditing={(shown) => <h1 dir="auto">{shown}</h1>}
+        />
+        <StatusBadge kind="asset" status={interrupted ? 'interrupted' : a.status} live />
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Button
+            disabled={!ready}
+            title={ready ? undefined : 'Available once the video is ready'}
+            onClick={() => void copyWithToast(primaryEmbed(a).code, 'Embed code copied')}
+          >
+            Copy embed code
+          </Button>
+          <VideoActionsMenu
+            asset={a}
+            onDelete={() => setConfirmDelete(a)}
+            deleting={deleteAssets.isPending}
+          />
         </div>
-
-        {wide ? (
-          <Tabs
-            value={side}
-            onValueChange={(v) => setParam('panel', v)}
-            className="min-w-0 rounded-xl border bg-card p-4 shadow-xs dark:shadow-none"
-          >
-            <TabsList aria-label="Share and details">
-              <TabsTrigger value="share">Share</TabsTrigger>
-              <TabsTrigger value="details">Details</TabsTrigger>
-            </TabsList>
-            <TabsContent value="share" className="mt-2">
-              <h2 className="sr-only">Share</h2>
-              {share}
-            </TabsContent>
-            <TabsContent value="details" className="mt-2">
-              <h2 className="sr-only">Details</h2>
-              <DetailsPanel {...editProps} />
-            </TabsContent>
-          </Tabs>
-        ) : (
-          <section
-            aria-labelledby="details-heading"
-            className="rounded-xl border bg-card p-4 shadow-xs dark:shadow-none"
-          >
-            <h2 id="details-heading" className="mb-2 font-heading text-heading">
-              Details
-            </h2>
-            <DetailsPanel {...editProps} />
-          </section>
-        )}
       </div>
 
-      <Tabs
-        value={lower}
-        onValueChange={(v) => setParam('tab', v === 'playback' ? null : v)}
-        className="mt-10"
-      >
-        <ScrollFade>
-          <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-            <TabsList
-              aria-label="Video sections"
-              // a tab half outside the strip scrolls into view when it takes focus
-              onFocus={(e) => e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
-            >
-              {ready && (
-                <>
-                  <TabsTrigger value="playback">
-                    Playback IDs
-                    {playbackIds.data && (
-                      <span className="text-muted-foreground tabular-nums">
-                        ({playbackIds.data.length})
-                      </span>
-                    )}
-                  </TabsTrigger>
-                  <TabsTrigger value="storage">Storage on Sia</TabsTrigger>
-                  <TabsTrigger value="renditions">
-                    Renditions
-                    {renditions.data && (
-                      <span className="text-muted-foreground tabular-nums">
-                        ({renditions.data.data.length})
-                      </span>
-                    )}
-                  </TabsTrigger>
-                </>
-              )}
-              <TabsTrigger value="activity">Activity</TabsTrigger>
-            </TabsList>
-          </div>
-        </ScrollFade>
-        {ready && (
-          <>
-            <TabsContent value="playback" className="mt-4">
-              <PlaybackIdsCard asset={a} />
-            </TabsContent>
-            <TabsContent value="storage" className="mt-4">
-              <FadeSwap swapKey={sia.isLoading ? 'loading' : 'ready'}>
-                <SiaStorageBreakdown
-                  info={sia.data}
-                  isLoading={sia.isLoading}
-                  error={sia.error}
-                  onRetry={sia.refetch}
-                  retrying={sia.isFetching}
-                />
-              </FadeSwap>
-            </TabsContent>
-            <TabsContent value="renditions" className="mt-4">
-              <RenditionsTable assetId={a.id} />
-            </TabsContent>
-          </>
-        )}
-        <TabsContent value="activity" className="mt-4">
-          <ActivityTimeline
-            job={job.data}
-            isLoading={job.isLoading}
-            error={job.error}
-            notStarted={a.status === 'created' || a.status === 'uploading'}
-            onRetry={job.refetch}
-            retrying={job.isFetching}
-          />
-        </TabsContent>
-      </Tabs>
+      <div className="flex flex-wrap items-start gap-6">
+        <div className="flex min-w-0 flex-[999_1_520px] flex-col gap-4">
+          {player}
 
-      {!wide && (
-        <Sheet open={shareOpen && ready} onOpenChange={setShareOpen}>
-          <SheetContent side="bottom" className="max-h-[90dvh] overflow-y-auto">
-            <SheetHeader>
-              <SheetTitle>Share</SheetTitle>
-              <SheetDescription>Embed code for this video</SheetDescription>
-            </SheetHeader>
-            <div className="px-4 pb-6">{share}</div>
-          </SheetContent>
-        </Sheet>
-      )}
+          <Tabs value={tab} onValueChange={setTab} className="gap-4">
+            <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+              <TabsList
+                variant="line"
+                aria-label="Video sections"
+                className="w-full min-w-max justify-start"
+                // a tab half outside the strip scrolls into view when it takes focus
+                onFocus={(e) => e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
+              >
+                <TabsTrigger value="share">Share</TabsTrigger>
+                {ready && (
+                  <>
+                    <TabsTrigger value="playback">
+                      Playback IDs
+                      {playbackIds.data && (
+                        <span className="text-muted-foreground tabular-nums">
+                          {playbackIds.data.length}
+                        </span>
+                      )}
+                    </TabsTrigger>
+                    <TabsTrigger value="renditions">
+                      Renditions
+                      {renditions.data && (
+                        <span className="text-muted-foreground tabular-nums">
+                          {renditions.data.data.length}
+                        </span>
+                      )}
+                    </TabsTrigger>
+                    <TabsTrigger value="storage">Storage</TabsTrigger>
+                  </>
+                )}
+                <TabsTrigger value="activity">Activity</TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent value="share">
+              <section aria-label="Share" className={cn(CARD, 'p-5')}>
+                <EmbedPanel asset={a} playbackIds={playbackIds.data} />
+              </section>
+            </TabsContent>
+            {ready && (
+              <>
+                <TabsContent value="playback">
+                  <PlaybackIdsCard asset={a} />
+                </TabsContent>
+                <TabsContent value="renditions">
+                  <RenditionsTable assetId={a.id} />
+                </TabsContent>
+                <TabsContent value="storage">
+                  <FadeSwap swapKey={sia.isLoading ? 'loading' : 'ready'}>
+                    <SiaStorageBreakdown
+                      info={sia.data}
+                      isLoading={sia.isLoading}
+                      error={sia.error}
+                      onRetry={sia.refetch}
+                      retrying={sia.isFetching}
+                    />
+                  </FadeSwap>
+                </TabsContent>
+              </>
+            )}
+            <TabsContent value="activity">
+              <ActivityTimeline
+                job={job.data}
+                isLoading={job.isLoading}
+                error={job.error}
+                notStarted={a.status === 'created' || a.status === 'uploading'}
+                onRetry={job.refetch}
+                retrying={job.isFetching}
+              />
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        <aside
+          aria-label="About this video"
+          className="flex min-w-0 flex-[1_1_300px] flex-col gap-4"
+        >
+          <section aria-labelledby="details-heading" className={cn(CARD, 'px-5 py-4.5')}>
+            <h2 id="details-heading" className="mb-3 font-heading text-heading">
+              Details
+            </h2>
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2.5">
+              <Fact label="Access">
+                <AccessControl value={a.accessTier} onChange={setAccess} />
+              </Fact>
+              <Fact label="Length">{a.durationMs ? formatDuration(a.durationMs) : NO_VALUE}</Fact>
+              <Fact label="Quality">
+                {!ready ? (
+                  NO_VALUE
+                ) : qualities ? (
+                  qualities.length > 0 ? (
+                    qualities.join(', ')
+                  ) : a.resolution ? (
+                    formatResolution(a.resolution)
+                  ) : (
+                    NO_VALUE
+                  )
+                ) : renditions.isError ? (
+                  NO_VALUE
+                ) : (
+                  <Skeleton className={cn('ml-auto h-3.5 w-28', lateReveal)} />
+                )}
+              </Fact>
+              <Fact label="Size">
+                {a.totalStorageBytes > 0 ? formatBytes(a.totalStorageBytes) : NO_VALUE}
+              </Fact>
+              <Fact label="Plays">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      tabIndex={0}
+                      className="rounded-sm underline decoration-dotted underline-offset-4"
+                    >
+                      {formatCount(a.playCount)}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Counted each time a player loads the video. Studio previews do not count.
+                  </TooltipContent>
+                </Tooltip>
+              </Fact>
+              <Fact label="Last played">
+                {a.lastPlayedAt ? (
+                  <time dateTime={a.lastPlayedAt} title={formatDate(a.lastPlayedAt)}>
+                    {formatRelativeTime(a.lastPlayedAt)}
+                  </time>
+                ) : (
+                  'Never'
+                )}
+              </Fact>
+              <Fact label="Uploaded">
+                <time dateTime={a.createdAt}>{formatDate(a.createdAt)}</time>
+              </Fact>
+              <Fact label="Video ID">
+                <span className="inline-flex max-w-full items-center gap-2">
+                  <span className="truncate font-mono text-xs" title={a.id}>
+                    {`${a.id.slice(0, 8)}…${a.id.slice(-4)}`}
+                  </span>
+                  <CopyButton
+                    value={a.id}
+                    label="Copy video ID"
+                    withText
+                    variant="outline"
+                    className="h-6 shrink-0 px-1.5 text-xs [&_svg]:hidden"
+                  />
+                </span>
+              </Fact>
+            </dl>
+          </section>
+
+          <section
+            aria-labelledby="description-heading"
+            className={cn(
+              CARD,
+              // the field's edit button moves up into the heading row, as the board's "Edit"
+              'relative flex flex-col gap-2 px-5 py-4.5 [&_[data-slot=inline-edit]>button]:absolute [&_[data-slot=inline-edit]>button]:top-3.5 [&_[data-slot=inline-edit]>button]:right-4',
+            )}
+          >
+            <h2 id="description-heading" className="font-heading text-heading">
+              Description
+            </h2>
+            <InlineEditField
+              label="description"
+              value={a.description}
+              multiline
+              maxLength={DESCRIPTION_MAX}
+              counterFrom={4500}
+              placeholder="Add a description"
+              draftKey={`video-description:${a.id}`}
+              onEditStart={onEditStart}
+              renderError={renderError}
+              onSave={(description) => save({ description })}
+              className="[&>button]:w-auto [&>button]:px-2.5 [&>button>svg]:hidden [&>button]:after:content-['Edit']"
+              display={(shown) => <DescriptionValue text={shown} />}
+            />
+          </section>
+
+          <section
+            aria-labelledby="delete-heading"
+            className={cn(CARD, 'flex flex-col gap-2 px-5 py-4.5')}
+          >
+            <h2 id="delete-heading" className="font-heading text-heading">
+              Delete video
+            </h2>
+            <p className="text-muted-foreground">Removes it from Sia and stops every embed.</p>
+            <Button
+              variant="destructive-outline"
+              className="self-start"
+              disabled={deleteAssets.isPending}
+              onClick={() => setConfirmDelete(a)}
+            >
+              Delete video
+            </Button>
+          </section>
+        </aside>
+      </div>
 
       <ConfirmDialog
         item={confirmDelete}
         onClose={() => setConfirmDelete(null)}
-        title="Delete this video?"
+        title={(v) => `Delete “${v.title}”?`}
         description={(v) =>
           v.status === 'ready' ? (
             <>
-              <span dir="auto">“{v.title}”</span> is removed from your library now and{' '}
+              It is removed from your library now and{' '}
               {objectCount === undefined
                 ? 'its files are'
                 : objectCount === 1
                   ? 'its 1 file is'
                   : `its ${plural(objectCount, 'file')} are`}{' '}
-              removed from Sia in the background. This cannot be undone.
+              removed from Sia in the background. Every embed stops working. This cannot be undone.
             </>
           ) : (
-            <>
-              <span dir="auto">“{v.title}”</span> is removed from your library now. This cannot be
-              undone.
-            </>
+            <>It is removed from your library now. This cannot be undone.</>
           )
         }
-        confirmLabel="Delete"
+        confirmLabel="Delete video"
         pendingLabel="Deleting…"
         errorTitle="Could not delete the video"
         onConfirm={remove}

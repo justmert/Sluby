@@ -60,33 +60,35 @@ describe('AssetPlayer', () => {
     expect(last.props).toMatchObject({ signed: true, expiresIn: 3600 });
   });
 
-  it('offers the qualities with Auto, and says what plays in plain words', async () => {
+  it('offers the qualities with Auto on the frame, and says what plays in plain words', async () => {
     renderPage(<AssetPlayer assetId="a1" signed={false} />);
     fire(() => last.props!.onQualitiesChange!(levels));
     fire(() => last.props!.onQualityChange!(levels[1]));
-    const group = screen.getByRole('radiogroup', { name: 'Quality' });
-    expect(group.className).toContain('flex-wrap');
+    const picker = screen.getByRole('combobox', { name: 'Quality' });
     expect(
-      within(group)
-        .getAllByRole('radio')
-        .map((b) => b.textContent),
-    ).toEqual(['Auto', '1080p', '720p']);
+      within(picker)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Auto (720p)', '1080p', '720p']);
     expect(
       screen.getByText('Playing 720p (1280 × 720, 2.5 Mbps), picked automatically'),
     ).toBeInTheDocument();
 
-    await userEvent.click(within(group).getByRole('radio', { name: '1080p' }));
+    await userEvent.selectOptions(picker, '1080p');
     expect(setQuality).toHaveBeenCalledWith(0);
     fire(() => last.props!.onQualityChange!(levels[0]));
     expect(screen.getByText('Playing 1080p (1920 × 1080, 5 Mbps)')).toBeInTheDocument();
+    await userEvent.selectOptions(picker, 'Auto');
+    expect(setQuality).toHaveBeenLastCalledWith(-1);
   });
 
-  it('names where the bytes come from', () => {
+  it('names where the bytes come from in a pill on the video', () => {
     renderPage(<AssetPlayer assetId="a1" signed={false} />);
     fire(() => last.props!.onDeliveryChange!('sia'));
-    expect(screen.getByText('Streaming from Sia')).toBeInTheDocument();
+    const pill = screen.getByText('Direct from Sia');
+    expect(pill).toHaveClass('rounded-full');
     fire(() => last.props!.onDeliveryChange!('gateway'));
-    expect(screen.getByText('Streaming through this server')).toBeInTheDocument();
+    expect(screen.getByText('Through this server')).toBeInTheDocument();
   });
 
   it('announces a playback error with the reader sentence for the api error behind it', () => {

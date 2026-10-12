@@ -9,7 +9,15 @@ import { video } from './test-assets';
 import { videoActions } from './video-actions';
 import { VideosTable } from './VideosTable';
 
-function Harness({ assets, onSort }: { assets: VideoAsset[]; onSort?: (s: SortState) => void }) {
+function Harness({
+  assets,
+  onSort,
+  footer,
+}: {
+  assets: VideoAsset[];
+  onSort?: (s: SortState) => void;
+  footer?: React.ReactNode;
+}) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   return (
     <VideosTable
@@ -22,92 +30,105 @@ function Harness({ assets, onSort }: { assets: VideoAsset[]; onSort?: (s: SortSt
       staggerIn={false}
       busy={false}
       rowsKey="k"
+      footer={footer}
     />
   );
 }
 
+const cellUnder = (row: HTMLElement, header: string) => {
+  const th = screen.getByRole('columnheader', { name: new RegExp(`^${header}`) });
+  const index = [...th.parentElement!.children].indexOf(th);
+  return row.children[index];
+};
+
 describe('VideosTable', () => {
-  it('shows each fact in its column and sizes the columns for a fixed layout', () => {
+  it('has the board columns in order, and scrolls sideways in its card when narrow', () => {
+    renderPage(<Harness assets={[video('a1', 'Walkthrough')]} />);
+    const table = screen.getByRole('table', { name: 'Videos' });
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual(['', 'Video', 'Status', 'Access', 'Length', 'Plays', 'Size', 'Uploaded', 'Actions']);
+    expect(table).toHaveClass('min-w-220');
+    expect(table.parentElement).toHaveClass('overflow-x-auto');
+  });
+
+  it('shows each fact in its column, with an en dash for a missing one', () => {
     renderPage(
       <Harness
         assets={[
-          video('a1', 'Walkthrough', { playCount: 128 }),
+          video('a1aaaaaaaa', 'Walkthrough', { playCount: 128 }),
           video('p1', 'Secret', { accessTier: 'private', durationMs: null, totalStorageBytes: 0 }),
         ]}
       />,
     );
-    const table = screen.getByRole('table', { name: 'Videos' });
-    expect(table).toHaveClass('table-fixed');
-    const row = within(table).getByRole('link', { name: 'Walkthrough' }).closest('tr')!;
-    expect(row).toHaveTextContent('1:30');
-    expect(row).toHaveTextContent('3.1 MB');
-    expect(row).toHaveTextContent('128');
-    expect(row).toHaveTextContent('2 hours ago');
-    expect(row).toHaveTextContent('Public');
-    // an empty value is an en dash, never a hyphen or a 0
-    const secret = within(table).getByRole('link', { name: 'Secret' }).closest('tr')!;
-    expect(secret.querySelectorAll('td')[4]).toHaveTextContent('–');
-    expect(within(secret).getAllByText('Private').length).toBeGreaterThan(0);
+    const row = screen.getByRole('link', { name: 'Walkthrough' }).closest('tr')!;
+    expect(cellUnder(row, 'Length')).toHaveTextContent('1:30');
+    expect(cellUnder(row, 'Size')).toHaveTextContent('3.1 MB');
+    expect(cellUnder(row, 'Plays')).toHaveTextContent(/^128$/);
+    expect(cellUnder(row, 'Uploaded')).toHaveTextContent('2 hours ago');
+    expect(cellUnder(row, 'Access')).toHaveTextContent('Public');
+    expect(cellUnder(row, 'Status')).toHaveTextContent('Ready');
+    // the short id under the title
+    expect(within(row).getByText('a1aaaaaa')).toHaveClass('font-mono');
+    const secret = screen.getByRole('link', { name: 'Secret' }).closest('tr')!;
+    expect(cellUnder(secret, 'Length')).toHaveTextContent(/^–$/);
+    expect(cellUnder(secret, 'Size')).toHaveTextContent(/^–$/);
+    expect(cellUnder(secret, 'Access')).toHaveTextContent('Private');
   });
 
-  it('shows the plays the server counted, zero included', () => {
-    renderPage(<Harness assets={[video('a1', 'Walkthrough', { playCount: 0 })]} />);
-    const plays = screen.getByRole('columnheader', { name: 'Plays' });
-    const index = [...plays.parentElement!.children].indexOf(plays);
-    const cell = screen.getByRole('link', { name: 'Walkthrough' }).closest('tr')!.children[index];
-    expect(cell).toHaveTextContent(/^0$/);
-  });
-
-  it('drops columns by its own width and leaves facts the cards repeat out of them', () => {
-    renderPage(<Harness assets={[video('a1', 'Walkthrough')]} />);
-    expect(screen.getByRole('columnheader', { name: 'Plays' })).toHaveClass(
-      '@5xl/table:table-cell',
+  it('shows the plays the server counted, zero included, and none for a video not ready', () => {
+    renderPage(
+      <Harness
+        assets={[
+          video('a1', 'Walkthrough', { playCount: 0 }),
+          video('b1', 'Broken', { status: 'failed' }),
+        ]}
+      />,
     );
-    expect(screen.getByRole('columnheader', { name: /Size/ })).toHaveClass('@5xl/table:table-cell');
-    expect(screen.getByRole('columnheader', { name: /Duration/ })).toHaveClass(
-      '@3xl/table:table-cell',
-    );
-    expect(screen.getByRole('columnheader', { name: /Created/ })).toHaveClass(
-      '@3xl/table:table-cell',
-    );
-    const header = screen.getByRole('columnheader', { name: 'Status' });
-    const index = [...header.parentElement!.children].indexOf(header);
-    const cell = screen.getByRole('link', { name: 'Walkthrough' }).closest('tr')!.children[index];
-    expect(cell).toHaveAttribute('data-card-hidden', 'true');
+    const row = screen.getByRole('link', { name: 'Walkthrough' }).closest('tr')!;
+    expect(cellUnder(row, 'Plays')).toHaveTextContent(/^0$/);
+    const broken = screen.getByRole('link', { name: 'Broken' }).closest('tr')!;
+    expect(cellUnder(broken, 'Plays')).toHaveTextContent(/^–$/);
   });
 
-  it('keeps every cell under its own header in the phone cards (1.3.1)', async () => {
-    renderPage(<Harness assets={[video('a1', 'Walkthrough')]} />);
-    // the summary under the title repeats the hidden cells for the eye only
-    const title = screen.getByRole('link', { name: 'Walkthrough' });
-    const summary = title.closest('td')!.querySelector('.\\@min-\\[40rem\\]\\/table\\:hidden');
-    expect(summary).toHaveAttribute('aria-hidden', 'true');
-    // and the hidden cells leave the cards visually but stay in the table, so
-    // the actions cell is not read out under the Status header
-    const { readFileSync } = await import('node:fs');
-    const path = await import('node:path');
-    const css = readFileSync(path.resolve(__dirname, '../../index.css'), 'utf8');
-    const rule = /td\[data-card-hidden\]\s*\{([^}]*)\}/.exec(css)![1];
-    expect(rule).not.toMatch(/display:\s*none/);
-    expect(rule).toMatch(/clip-path:\s*inset\(50%\)/);
-  });
-
-  it('sorts title, duration, size and created, not status, access or plays', async () => {
+  it('sorts title, length, size and uploaded, with the arrow on the active one only', async () => {
     const onSort = vi.fn();
     renderPage(<Harness assets={[video('a1', 'Walkthrough')]} onSort={onSort} />);
-    for (const name of ['Video', 'Duration', 'Size', 'Created']) {
-      expect(screen.getByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+    for (const name of ['Video', 'Length', 'Size', 'Uploaded']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
     for (const name of ['Status', 'Access', 'Plays']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
-    await userEvent.click(screen.getByRole('button', { name: /^Duration/ }));
+    const uploaded = screen.getByRole('columnheader', { name: 'Uploaded' });
+    expect(uploaded).toHaveAttribute('aria-sort', 'descending');
+    expect(uploaded.querySelector('svg')).not.toBeNull();
+    expect(screen.getByRole('columnheader', { name: 'Length' }).querySelector('svg')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Length' }));
     expect(onSort).toHaveBeenCalledWith({ column: 'duration', direction: 'desc' });
-    await userEvent.click(screen.getByRole('button', { name: /^Created/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Uploaded' }));
     expect(onSort).toHaveBeenLastCalledWith({ column: 'created', direction: 'asc' });
+    await userEvent.click(screen.getByRole('button', { name: 'Video' }));
+    expect(onSort).toHaveBeenLastCalledWith({ column: 'title', direction: 'asc' });
   });
 
-  it('marks an upload that stopped, and names the copy button for its video', () => {
+  it('gives a selected row the neutral fill and selects ranges with shift', async () => {
+    renderPage(<Harness assets={[video('a1', 'One'), video('a2', 'Two'), video('a3', 'Three')]} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select One' }));
+    const row = screen.getByRole('link', { name: 'One' }).closest('tr')!;
+    expect(row).toHaveAttribute('data-state', 'selected');
+    expect(row).toHaveClass('bg-muted');
+    const user = userEvent.setup();
+    await user.keyboard('{Shift>}');
+    await user.click(screen.getByRole('checkbox', { name: 'Select Three' }));
+    await user.keyboard('{/Shift}');
+    expect(screen.getByRole('checkbox', { name: 'Select Two' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Select all on this page' })).toBeChecked();
+  });
+
+  it('marks an upload that stopped and names the row menu for its video', () => {
     renderPage(
       <Harness
         assets={[
@@ -117,8 +138,16 @@ describe('VideosTable', () => {
       />,
     );
     expect(screen.getByText('Upload interrupted')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Copy video ID of Walkthrough' }),
-    ).toBeInTheDocument();
+    expect(screen.getAllByText('Interrupted').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Actions for Walkthrough' })).toBeInTheDocument();
+  });
+
+  it('puts the pager inside its card, under the rows', () => {
+    renderPage(
+      <Harness assets={[video('a1', 'Walkthrough')]} footer={<nav aria-label="Pages">p</nav>} />,
+    );
+    const table = screen.getByRole('table', { name: 'Videos' });
+    const card = table.closest('.rounded-xl')!;
+    expect(card).toContainElement(screen.getByRole('navigation', { name: 'Pages' }));
   });
 });

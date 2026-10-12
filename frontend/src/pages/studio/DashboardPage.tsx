@@ -8,8 +8,7 @@ import {
   rememberedRows,
 } from '@/components/dashboard/dashboard-layout';
 import { routeSkeletonWasVisible } from '@/components/dashboard/live';
-import { UpdatedAgo } from '@/components/dashboard/UpdatedAgo';
-import { AnimatedItem, AnimatedList, Collapse } from '@/components/motion';
+import { Collapse } from '@/components/motion';
 import { attentionItems, attentionTotal } from '@/components/overview/attention';
 import { GetStarted } from '@/components/overview/GetStarted';
 import {
@@ -109,13 +108,12 @@ export default function DashboardPage() {
     stats: s,
     usage: usage.data,
     activeKeys: keys.data?.data.filter((k) => k.isActive).length,
-    webhooks: webhooks.data?.data.length,
     videos: latest.data?.data,
   });
   const complete = doneCount(steps) === REQUIRED_STEPS;
   // a step whose data failed to load is unknown, not undone: the card would
   // tell an account with keys and videos that it has none
-  const known = [stats, system, usage, keys, webhooks].every((q) => q.data !== undefined);
+  const known = [stats, system, usage, keys].every((q) => q.data !== undefined);
   const [shownOpen, setShownOpen] = useState(false);
   if (ready && known && !hidden && !complete && !shownOpen) setShownOpen(true);
   useEffect(() => {
@@ -171,14 +169,17 @@ export default function DashboardPage() {
           <DashboardLoading operator={operator} />
         </div>
       ) : (
-        <div>
-          <Collapse open={showChecklist}>
-            <div className="pb-4">
+        <div className={DASH.page}>
+          {/* the checklist brings its own 24px below, inside the collapse, and
+              cancels the page gap, so hiding it closes the space smoothly */}
+          <div className="-mb-6">
+            <Collapse open={showChecklist} className="pb-6">
               <GetStarted
                 steps={steps}
                 operator={operator}
                 status={system.data}
                 busy={busyVideo(latest.data?.data)}
+                readyCount={s?.by_status.ready}
                 firstReady={firstReady.data}
                 onDismiss={() => {
                   hide('dismissed');
@@ -186,69 +187,52 @@ export default function DashboardPage() {
                   document.getElementById('main-content')?.focus();
                 }}
               />
-            </div>
-          </Collapse>
+            </Collapse>
+          </div>
 
-          <InlineError
-            title={s ? 'Totals are out of date' : 'Could not load your totals'}
-            error={stats.error}
-            note={s ? 'Showing the last figures that loaded.' : undefined}
-            onRetry={() => void stats.refetch()}
-            retrying={stats.isFetching}
-            className="mb-4"
-          />
+          {stats.error && (
+            <InlineError
+              title={s ? 'Totals are out of date' : 'Could not load your totals'}
+              error={stats.error}
+              note={s ? 'Showing the last figures that loaded.' : undefined}
+              onRetry={() => void stats.refetch()}
+              retrying={stats.isFetching}
+            />
+          )}
 
           <OverviewStats
             s={s}
             usage={usage.data}
+            status={system.data}
             failed={stats.isError && !s}
             usageFailed={usage.isError && !usage.data}
             stagger={stagger}
           />
-          <UpdatedAgo
-            className={DASH.updated}
-            updatedAt={stats.dataUpdatedAt}
-            data={s}
-            stale={stats.isError}
-            label="Totals updated"
-          />
 
-          <AnimatedList as="div" initial={stagger ? 'hidden' : false} className={DASH.main}>
-            <AnimatedItem as="div" key="recent" layout={false} className={DASH.recent}>
-              {/* needs attention leads the wide column, so it sits beside the
-                  status card like the design; on a narrow page it comes right
-                  after the totals */}
-              <Collapse open={attention.length > 0}>
-                <div className="pb-4">
-                  <NeedsAttention
-                    items={attention}
-                    total={attentionCount}
-                    operator={operator}
-                    stagger={stagger}
-                  />
-                </div>
-              </Collapse>
-              <RecentVideos
-                videos={recent}
-                error={latest.error}
-                onRetry={() => void latest.refetch()}
-                retrying={latest.isFetching}
-                placeholders={placeholders}
-                stalled={stalledCount}
-              />
-            </AnimatedItem>
-            <AnimatedItem as="div" key="status" layout={false}>
-              <StatusCard
-                status={system.data}
-                error={system.error}
-                onRetry={() => void system.refetch()}
-                retrying={system.isFetching}
-                run={run.data}
-                runFailed={run.isError && run.data === undefined}
-                operator={operator}
-              />
-            </AnimatedItem>
-          </AnimatedList>
+          <div className={DASH.middle}>
+            <NeedsAttention
+              items={attention}
+              total={attentionCount}
+              operator={operator}
+              stagger={stagger}
+            />
+            <StatusCard
+              status={system.data}
+              error={system.error}
+              onRetry={() => void system.refetch()}
+              retrying={system.isFetching}
+              operator={operator}
+            />
+          </div>
+
+          <RecentVideos
+            videos={recent}
+            error={latest.error}
+            onRetry={() => void latest.refetch()}
+            retrying={latest.isFetching}
+            placeholders={placeholders}
+            stalled={stalledCount}
+          />
         </div>
       )}
     </PageContainer>

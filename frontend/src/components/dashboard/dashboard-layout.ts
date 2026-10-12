@@ -1,12 +1,12 @@
-// the grids follow the page container (PageContainer's `page`), which is the
-// content column without the sidebar, not the viewport
+// the overview's layout. the stat grid and the attention row wrap by the
+// room the content column has, not by the viewport
 export const DASH = {
-  stats: 'grid grid-cols-2 gap-4 @3xl/page:grid-cols-4',
-  // recent videos take two of three columns beside the status card
-  main: 'mt-4 grid gap-4 @3xl/page:grid-cols-3',
-  recent: '@3xl/page:col-span-2',
-  updated: 'mt-2 justify-end',
-  top: 'mb-4 flex flex-col gap-4',
+  // the board's sections, 24px apart
+  page: 'flex flex-col gap-6 text-sm',
+  // stat cards of at least 200px, as many to a row as fit
+  stats: 'grid grid-cols-[repeat(auto-fit,minmax(min(100%,12.5rem),1fr))] gap-4',
+  // needs attention takes two parts to status's one, and wraps under it when narrow
+  middle: 'flex flex-wrap gap-4',
 } as const;
 
 /** Rows in Recent videos. */

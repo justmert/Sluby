@@ -1,4 +1,3 @@
-import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
@@ -12,7 +11,11 @@ export function VideosGridSkeleton() {
       aria-hidden="true"
     >
       {Array.from({ length: 8 }, (_, i) => (
-        <Card key={i} className="gap-0 overflow-hidden py-0" data-testid="asset-card-skeleton">
+        <div
+          key={i}
+          className="overflow-hidden rounded-xl border bg-card"
+          data-testid="asset-card-skeleton"
+        >
           <Skeleton className={cn('aspect-video w-full rounded-none', lateReveal)} />
           <div className="p-3">
             <div className="flex h-5 items-center">
@@ -21,9 +24,9 @@ export function VideosGridSkeleton() {
             <div className="mt-0.5 flex h-4 items-center">
               <Skeleton className={cn('h-3 w-1/2', lateReveal)} />
             </div>
-            <Skeleton className={cn('mt-2 h-5 w-16 rounded-full', lateReveal)} />
+            <Skeleton className={cn('mt-2 h-5.5 w-16 rounded-full', lateReveal)} />
           </div>
-        </Card>
+        </div>
       ))}
     </div>
   );

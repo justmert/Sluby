@@ -12,7 +12,11 @@ const props = (over: Partial<BulkBarProps> = {}): BulkBarProps => ({
   selectingAll: false,
   cap: 500,
   changing: null,
+  canMakePrivate: true,
+  canMakePublic: true,
+  canCopyEmbed: true,
   onSelectAll: vi.fn(),
+  onCopyEmbed: vi.fn(),
   onMakePublic: vi.fn(),
   onMakePrivate: vi.fn(),
   onDelete: vi.fn(),
@@ -25,12 +29,13 @@ describe('BulkBar', () => {
     const p = props();
     renderWithMotion(<BulkBar {...p} />);
     const bar = screen.getByRole('toolbar', { name: 'Selected videos' });
-    expect(bar).toHaveTextContent('3 of 24 selected');
+    expect(bar).toHaveTextContent('3 selected');
     for (const [name, fn] of [
       ['Make public', p.onMakePublic],
       ['Make private', p.onMakePrivate],
+      ['Copy embed code', p.onCopyEmbed],
       ['Delete', p.onDelete],
-      ['Clear', p.onClear],
+      ['Clear selection', p.onClear],
     ] as const) {
       await userEvent.click(screen.getByRole('button', { name }));
       expect(fn).toHaveBeenCalledTimes(1);
@@ -38,9 +43,18 @@ describe('BulkBar', () => {
     expect(screen.queryByText(/on this page are selected/)).not.toBeInTheDocument();
   });
 
-  it('shortens the count on the narrowest screens (A11Y-25)', () => {
+  it('offers only the access change that has something to do, and no embed code without a ready video', () => {
+    renderWithMotion(
+      <BulkBar {...props({ canMakePublic: false, canMakePrivate: true, canCopyEmbed: false })} />,
+    );
+    expect(screen.queryByRole('button', { name: 'Make public' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Make private' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Copy embed code' })).toBeDisabled();
+  });
+
+  it('rises in like every new surface', () => {
     renderWithMotion(<BulkBar {...props()} />);
-    expect(screen.getByText('of 24', { exact: false })).toHaveClass('max-[359px]:hidden');
+    expect(screen.getByRole('toolbar')).toHaveClass('animate-enter');
   });
 
   it('wraps its actions at 320 instead of pushing Delete past the screen edge (1.4.10)', () => {
@@ -71,7 +85,8 @@ describe('BulkBar', () => {
     renderWithMotion(<BulkBar {...props({ changing: 'private' })} />);
     expect(screen.getByRole('button', { name: 'Make private' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Clear' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Copy embed code' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Clear selection' })).toBeEnabled();
   });
 
   it('lifts the toasts while it shows and drops the lift when it goes', () => {
