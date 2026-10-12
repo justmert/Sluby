@@ -43,12 +43,25 @@ interface Entry {
 const matches = (term: string, e: Entry) =>
   `${e.label} ${e.keywords ?? ''}`.toLowerCase().includes(term.toLowerCase());
 
+// on the highlighted row only, so the eye finds what enter will run
+function EnterHint() {
+  return (
+    <kbd
+      aria-hidden="true"
+      className="ml-auto hidden font-mono text-xs font-normal text-muted-foreground group-data-selected/command-item:inline"
+    >
+      ↵
+    </kbd>
+  );
+}
+
 function EntryItem({ entry }: { entry: Entry }) {
   const Icon = entry.icon;
   return (
     <CommandItem value={entry.id} onSelect={entry.run} data-checked={entry.checked}>
       <Icon className="text-muted-foreground" />
       {entry.label}
+      <EnterHint />
     </CommandItem>
   );
 }
@@ -298,6 +311,11 @@ function PaletteBody({ close }: { close: () => void }) {
         value={term}
         onValueChange={setTerm}
         placeholder="Search videos, pages and actions…"
+        trailing={
+          <Kbd aria-hidden="true" className="hidden bg-transparent sm:inline-flex">
+            esc
+          </Kbd>
+        }
       />
       <CommandList className="max-h-[min(24rem,calc(100svh-8rem))]">
         <CommandEmpty aria-hidden="true">Nothing matches “{term.trim()}”.</CommandEmpty>
@@ -323,11 +341,11 @@ function PaletteBody({ close }: { close: () => void }) {
       </p>
       <div
         aria-hidden="true"
-        className="hidden items-center gap-3 border-t px-3 py-2 text-xs text-muted-foreground sm:flex"
+        className="-mx-1 -mb-1 hidden items-center gap-3.5 border-t px-3.5 py-2 text-xs text-muted-foreground sm:flex"
       >
         <span>↑↓ to move</span>
-        <span>Enter to open</span>
-        <span>Esc to close</span>
+        <span>↵ to open</span>
+        <span>esc to close</span>
       </div>
     </Command>
   );

@@ -125,9 +125,18 @@ describe('CommandPalette', () => {
     await waitFor(() =>
       expect(server.calls.some((c) => c.query.get('search') === 'sett')).toBe(true),
     );
-    await waitFor(() =>
-      expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Settings']),
-    );
+    await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(1));
+    expect(screen.getByRole('option', { name: 'Settings' })).toBeInTheDocument();
+  });
+
+  it('marks the highlighted row with the enter key, out of its name', async () => {
+    setup();
+    await openWithKeys();
+    await userEvent.type(await screen.findByRole('combobox'), 'sett');
+    const option = await screen.findByRole('option', { name: 'Settings' });
+    await waitFor(() => expect(option).toHaveAttribute('aria-selected', 'true'));
+    expect(option.querySelector('kbd')).toHaveTextContent('↵');
+    expect(option.querySelector('kbd')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('leaves out operator pages for a member', async () => {

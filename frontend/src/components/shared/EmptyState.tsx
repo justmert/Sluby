@@ -20,7 +20,7 @@ export interface EmptyStateProps {
   action?: ReactNode;
   /** a quieter second way forward, such as a link button */
   secondaryAction?: ReactNode;
-  /** `card` (default) fits a card body or a table; `section` adds a dashed frame for an empty page area */
+  /** `card` (default) fits a card body or a table; `section` puts it in its own card, for an empty page area */
   variant?: 'card' | 'section';
   className?: string;
 }
@@ -47,7 +47,7 @@ export function EmptyState({
       data-slot="empty-state"
       className={cn(
         'gap-3 py-8',
-        variant === 'section' && 'border border-dashed bg-muted/20 py-12',
+        variant === 'section' && 'border border-solid bg-card py-12',
         className,
       )}
     >

@@ -280,6 +280,7 @@
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --animate-shimmer: shimmer 2s linear infinite;
   --animate-status-pulse: status-pulse 1.6s ease-in-out infinite;
+  --animate-status-ping: status-ping 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
   --animate-stripes: stripes 1.2s linear infinite;
   --animate-sheen: sheen 1.8s linear infinite;
 
@@ -294,6 +295,19 @@
   @keyframes status-pulse {
     50% {
       opacity: 0.4;
+    }
+  }
+
+  /* a busy status dot sends out a ring that grows and fades; the dot itself
+     stays solid, so its color still reads at any point of the loop */
+  @keyframes status-ping {
+    from {
+      scale: 1;
+      opacity: 0.55;
+    }
+    to {
+      scale: 2.8;
+      opacity: 0;
     }
   }
 

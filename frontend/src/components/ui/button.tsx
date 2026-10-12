@@ -22,11 +22,12 @@ const buttonVariants = cva(
           'hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50',
         // destructive is the confirm: the last, irreversible button in a
         // dialog, so it is solid. destructive-outline is every trigger that
-        // opens such a dialog (page header, table row, bulk bar).
+        // opens such a dialog (page header, table row, bulk bar): a red edge
+        // and red text on the neutral surface, never a red wash.
         destructive:
           'bg-destructive-solid text-destructive-solid-foreground hover:bg-[color-mix(in_oklab,var(--destructive-solid),black_12%)] focus-visible:border-destructive focus-visible:ring-destructive/30',
         'destructive-outline':
-          'border-border bg-background text-destructive dark:focus-visible:border-destructive hover:border-destructive/40 hover:bg-destructive/10 aria-expanded:bg-destructive/10 focus-visible:border-destructive focus-visible:ring-destructive/20 dark:border-border-strong dark:bg-white/5 dark:hover:bg-destructive/20',
+          'border-destructive/40 bg-background text-destructive hover:bg-muted aria-expanded:bg-muted focus-visible:border-destructive focus-visible:ring-destructive/20 dark:bg-white/5 dark:hover:bg-white/10 dark:focus-visible:border-destructive',
         link: 'text-primary underline-offset-4 hover:underline',
       },
       // a finger gets 40px controls (36 small, 44 large) on a touch screen,
