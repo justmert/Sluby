@@ -4,6 +4,7 @@ import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { domMax } from 'motion/react';
 import { MotionProvider } from '@/components/motion/MotionProvider';
+import { ThemeProvider } from '@/components/theme-provider';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { WithSession } from '@/test/session';
@@ -46,23 +47,25 @@ describe('the phone navigation sheet, in a real browser', () => {
     'opens with %s onto the current link without following it',
     async (key) => {
       render(
-        <MotionProvider features={domMax}>
-          <QueryClientProvider client={new QueryClient()}>
-            <TooltipProvider>
-              <MemoryRouter initialEntries={['/studio/videos']}>
-                <WithSession>
-                  <SidebarProvider>
-                    <SidebarTrigger />
-                    <AppSidebar />
-                    <Where />
-                  </SidebarProvider>
-                </WithSession>
-              </MemoryRouter>
-            </TooltipProvider>
-          </QueryClientProvider>
-        </MotionProvider>,
+        <ThemeProvider>
+          <MotionProvider features={domMax}>
+            <QueryClientProvider client={new QueryClient()}>
+              <TooltipProvider>
+                <MemoryRouter initialEntries={['/studio/videos']}>
+                  <WithSession>
+                    <SidebarProvider>
+                      <SidebarTrigger />
+                      <AppSidebar />
+                      <Where />
+                    </SidebarProvider>
+                  </WithSession>
+                </MemoryRouter>
+              </TooltipProvider>
+            </QueryClientProvider>
+          </MotionProvider>
+        </ThemeProvider>,
       );
-      screen.getByRole('button', { name: 'Show or hide sidebar' }).focus();
+      screen.getByRole('button', { name: 'Open menu' }).focus();
       await (await browser()).userEvent.keyboard(key === 'Space' ? ' ' : '{Enter}');
       const sheet = await screen.findByRole('dialog', { name: 'Navigation' });
       await waitFor(() =>

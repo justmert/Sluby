@@ -74,8 +74,8 @@ function Dashboard() {
   );
 }
 
-// the toolbar's controls: 32 px, 40 on touch screens like the real ones
-const control = 'h-8 pointer-coarse:h-10';
+// the toolbar's controls: 36 px, 40 on touch screens like the real ones
+const control = 'h-9 pointer-coarse:h-10';
 
 function Assets() {
   const [params] = useSearchParams();

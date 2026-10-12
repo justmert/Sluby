@@ -37,12 +37,13 @@ interface BadgeViewProps {
   title?: string;
 }
 
+// a chip is its words, its edge and its text colour; only live work adds a
+// mark, the 6px dot whose ring pulses outward while it runs
 function BadgeView({ spec, busy = 'dot', children, className, title }: BadgeViewProps) {
-  const Icon = spec.icon;
   return (
     <Badge variant={VARIANT[spec.tone]} className={className} title={title} data-tone={spec.tone}>
-      {spec.busy ? (
-        busy === 'spinner' ? (
+      {spec.busy &&
+        (busy === 'spinner' ? (
           <Spinner data-icon="inline-start" aria-hidden="true" />
         ) : (
           <span
@@ -50,10 +51,7 @@ function BadgeView({ spec, busy = 'dot', children, className, title }: BadgeView
             aria-hidden="true"
             className="relative size-1.5 shrink-0 rounded-full bg-current after:absolute after:inset-0 after:rounded-full after:bg-current after:opacity-0 motion-safe:after:animate-status-ping"
           />
-        )
-      ) : (
-        Icon && <Icon data-icon="inline-start" aria-hidden="true" />
-      )}
+        ))}
       {children ?? spec.label}
     </Badge>
   );
@@ -106,7 +104,7 @@ export function HttpStatusBadge({
 
 /**
  * Who can watch a video: nothing for public (the default needs no badge), an
- * outline Private badge with a lock otherwise. The same look everywhere a
+ * outline Private badge otherwise. The same look everywhere a
  * video's access shows: grid, list, header, palette.
  */
 export function AccessBadge({

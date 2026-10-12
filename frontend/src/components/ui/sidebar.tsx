@@ -3,17 +3,21 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 import { Slot } from 'radix-ui';
 
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useMediaQuery } from '@/hooks/use-mobile';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { PanelLeftIcon } from 'lucide-react';
+import { MenuIcon } from 'lucide-react';
 
-const SIDEBAR_WIDTH = '16rem';
-const SIDEBAR_WIDTH_MOBILE = '18rem';
+// the design's 248px column, the same in the sheet a phone opens
+const SIDEBAR_WIDTH = '15.5rem';
+const SIDEBAR_WIDTH_MOBILE = '15.5rem';
+// below this the design hides the column and a menu button opens it as a
+// sheet; the same width the top bar's search shrinks to its icon at
+export const SIDEBAR_SHEET_QUERY = '(max-width: 899px)';
 const SIDEBAR_WIDTH_ICON = '3rem';
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b';
 
@@ -51,7 +55,7 @@ function SidebarProvider({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
-  const isMobile = useIsMobile();
+  const isMobile = useMediaQuery(SIDEBAR_SHEET_QUERY);
   const [openMobile, setOpenMobile] = React.useState(false);
 
   // This is the internal state of the sidebar.
@@ -159,21 +163,6 @@ function Sidebar({
   // trigger is not one, so focus fell to the body; remember what opened it
   const opener = React.useRef<HTMLElement | null>(null);
 
-  if (collapsible === 'none') {
-    return (
-      <div
-        data-slot="sidebar"
-        className={cn(
-          'flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground',
-          className,
-        )}
-        {...props}
-      >
-        {children}
-      </div>
-    );
-  }
-
   if (isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
@@ -223,9 +212,28 @@ function Sidebar({
     );
   }
 
+  // the design's column: always open, sticky at the full height of the
+  // window, scrolling on its own when it is taller than that
+  if (collapsible === 'none') {
+    return (
+      <div
+        data-slot="sidebar"
+        data-sidebar="sidebar"
+        data-side={side}
+        className={cn(
+          'sticky top-0 hidden h-svh w-(--sidebar-width) shrink-0 flex-col overflow-y-auto border-r bg-sidebar text-sidebar-foreground min-[900px]:flex',
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div
-      className="group peer hidden text-sidebar-foreground md:block"
+      className="group peer hidden text-sidebar-foreground min-[900px]:block"
       data-state={state}
       data-collapsible={state === 'collapsed' ? collapsible : ''}
       data-variant={variant}
@@ -248,7 +256,7 @@ function Sidebar({
         data-slot="sidebar-container"
         data-side={side}
         className={cn(
-          'fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-out-soft data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] md:flex',
+          'fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-out-soft data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] min-[900px]:flex',
           // Adjust the padding for floating and inset variants.
           variant === 'floating' || variant === 'inset'
             ? 'p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]'
@@ -277,7 +285,7 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       data-sidebar="trigger"
       data-slot="sidebar-trigger"
       variant="ghost"
-      size="icon-sm"
+      size="icon"
       className={cn(className)}
       onClick={(event) => {
         onClick?.(event);
@@ -285,8 +293,8 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       }}
       {...props}
     >
-      <PanelLeftIcon />
-      <span className="sr-only">Show or hide sidebar</span>
+      <MenuIcon className="size-5" />
+      <span className="sr-only">Open menu</span>
     </Button>
   );
 }
@@ -472,7 +480,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<'li'>) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  'peer/menu-button group/menu-button flex w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-1.5 text-left text-sm font-medium text-secondary-foreground ring-sidebar-ring outline-hidden transition-[width,height,padding,color,background-color] duration-150 ease-out-soft group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:min-h-0 group-data-[collapsible=icon]:p-2! hover:bg-muted hover:text-sidebar-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-open:hover:bg-muted data-open:hover:text-sidebar-foreground data-active:bg-sidebar-accent data-active:font-semibold data-active:text-sidebar-accent-foreground data-active:hover:text-sidebar-accent-foreground [&_svg]:size-4.5 [&_svg]:shrink-0 group-data-[collapsible=icon]:[&_svg]:size-4 [&>span:last-child]:truncate',
+  'peer/menu-button group/menu-button flex w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-1.5 text-left text-sm font-medium text-secondary-foreground outline-hidden transition-[width,height,padding,color,background-color] duration-150 ease-design group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:min-h-0 group-data-[collapsible=icon]:p-2! hover:bg-muted hover:text-sidebar-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid active:bg-sidebar-accent active:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-open:hover:bg-muted data-open:hover:text-sidebar-foreground data-active:bg-sidebar-accent data-active:font-semibold data-active:text-sidebar-accent-foreground data-active:hover:text-sidebar-accent-foreground [&_svg]:size-4.5 [&_svg]:shrink-0 group-data-[collapsible=icon]:[&_svg]:size-4 [&>span:last-child]:truncate',
   {
     variants: {
       variant: {
@@ -483,9 +491,10 @@ const sidebarMenuButtonVariants = cva(
           'bg-background shadow-[0_0_0_1px_var(--sidebar-border)] hover:shadow-[0_0_0_1px_var(--sidebar-accent)]',
       },
       size: {
-        // min heights, so text grown by the reader's spacing settings is not
+        // the design's row: 8 by 10 padding, so 37px with one line. min
+        // heights, so text grown by the reader's spacing settings is not
         // clipped (A11Y-45); 44px for a finger (A11Y-47)
-        default: 'min-h-9 text-sm pointer-coarse:min-h-11',
+        default: 'min-h-9 py-2 text-sm pointer-coarse:min-h-11',
         sm: 'min-h-7 py-1 text-xs pointer-coarse:min-h-10',
         lg: 'min-h-12 p-2 text-sm group-data-[collapsible=icon]:p-0!',
       },

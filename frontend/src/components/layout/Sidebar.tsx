@@ -1,195 +1,124 @@
 import { NavLink, useLocation } from 'react-router';
 import * as m from 'motion/react-m';
-import { ArrowUpRight, FileText } from 'lucide-react';
 import {
   Sidebar,
-  SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/brand/Logo';
-import { useSystemStatus } from '@/hooks/useSystemStatus';
-import { isNavActive, LINKS, navGroupsFor, ROUTES, type NavItem } from '@/lib/constants';
-import { errorText } from '@/lib/errors';
+import { isNavActive, navGroupsFor, ROUTES, type NavItem } from '@/lib/constants';
 import { Icons } from '@/lib/icons';
-import { NO_VALUE } from '@/lib/formatters';
 import { spring } from '@/lib/motion';
 import { preloadPage } from '@/lib/page-chunks';
 import { useSession } from '@/lib/session';
 import { NavSignalMark } from './NavHealthDot';
+import { ThemeToggle } from './ThemeToggle';
+import { UserMenu } from './UserMenu';
 import { useNavSignals, type NavSignal } from './nav-signals';
 
+/**
+ * The design's sidebar: the mark and name, the one primary action, the page
+ * groups, and Settings on its own at the bottom. On wide screens it is a
+ * column sticky at the window's full height; below 900px it hides and the
+ * top bar's menu button opens it as a sheet. The server version and the API
+ * reference live in the account menu.
+ */
 export function AppSidebar() {
   const { pathname } = useLocation();
   const { operator } = useSession();
   const groups = navGroupsFor(operator);
   const signals = useNavSignals(operator);
-  // on mobile the sidebar is a sheet over the page; picking a page should
+  // on a phone the sidebar is a sheet over the page; picking a page should
   // close it rather than leave it covering what was just opened
-  const { setOpenMobile } = useSidebar();
+  const { isMobile, setOpenMobile } = useSidebar();
   const closeMobile = () => setOpenMobile(false);
+  const work = groups.filter((g) => g.id !== 'settings');
+  const settings = groups.find((g) => g.id === 'settings');
 
-  return (
-    <Sidebar collapsible="icon">
-      {/* the nav landmark holds the whole sidebar, logo and footer too, so
-          nothing in it sits outside a landmark */}
-      <nav aria-label="Studio" className="flex min-h-0 flex-1 flex-col">
-        <SidebarHeader>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild>
-                <NavLink to={ROUTES.OVERVIEW} onClick={closeMobile}>
-                  {/* the menu button sizes every svg inside it to 16px; the mark keeps its 32 */}
-                  <Logo className="size-8!" />
-                  <div className="grid flex-1 text-left leading-tight">
-                    <span className="truncate font-heading font-semibold">Sluby</span>
-                    <span className="truncate text-xs text-muted-foreground">Studio</span>
-                  </div>
-                </NavLink>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            {/* the studio's one primary action, on every page; NavLink marks it
-                current on the upload page */}
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                tooltip="Upload video"
-                className="mt-2 justify-center bg-primary font-medium text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
-              >
-                <NavLink
-                  to={ROUTES.UPLOAD}
-                  onClick={closeMobile}
-                  onPointerEnter={() => preloadPage(ROUTES.UPLOAD)}
-                  onFocus={() => preloadPage(ROUTES.UPLOAD)}
-                >
-                  <Icons.upload />
-                  <span>Upload video</span>
-                </NavLink>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarHeader>
-        <SidebarContent>
-          <div className="flex flex-1 flex-col">
-            {groups.map((group) => {
-              const labelId = group.label ? `nav-group-${group.id}` : undefined;
-              return (
-                <SidebarGroup
-                  key={group.id}
-                  role={labelId ? 'group' : undefined}
-                  aria-labelledby={labelId}
-                  // settings sits at the bottom, apart from the work pages
-                  className={group.id === 'settings' ? 'mt-auto border-t' : undefined}
-                >
-                  {group.label && (
-                    <SidebarGroupLabel id={labelId} className="gap-2">
-                      {group.label}
-                      {group.operatorOnly && (
-                        <>
-                          <Badge
-                            variant="outline"
-                            aria-hidden="true"
-                            className="h-4 px-1.5 text-kbd"
-                          >
-                            Operator
-                          </Badge>
-                          <span className="sr-only">, operators only</span>
-                        </>
-                      )}
-                    </SidebarGroupLabel>
-                  )}
-                  <SidebarGroupContent>
-                    <SidebarMenu>
-                      {group.items.map((item) => (
-                        <NavEntry
-                          key={item.path}
-                          item={item}
-                          signal={signals[item.path]}
-                          active={isNavActive(item, pathname)}
-                          pathname={pathname}
-                          onNavigate={closeMobile}
-                        />
-                      ))}
-                      {group.id === 'settings' && (
-                        <SidebarMenuItem>
-                          <SidebarMenuButton asChild tooltip="API reference, opens in a new tab">
-                            <a href={LINKS.API_REFERENCE} target="_blank" rel="noopener noreferrer">
-                              <FileText />
-                              <span className="min-w-0 flex-1 truncate">API reference</span>
-                              <ArrowUpRight
-                                aria-hidden="true"
-                                className="text-muted-foreground group-data-[collapsible=icon]:hidden"
-                              />
-                              <span className="sr-only">, opens in a new tab</span>
-                            </a>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      )}
-                    </SidebarMenu>
-                  </SidebarGroupContent>
-                </SidebarGroup>
-              );
-            })}
-          </div>
-        </SidebarContent>
-        <SidebarFooter className="pt-0">
-          <VersionLine />
-        </SidebarFooter>
-      </nav>
-      <SidebarRail />
-    </Sidebar>
+  const entries = (items: NavItem[]) => (
+    <SidebarMenu className="gap-0.5">
+      {items.map((item) => (
+        <NavEntry
+          key={item.path}
+          item={item}
+          signal={signals[item.path]}
+          active={isNavActive(item, pathname)}
+          pathname={pathname}
+          onNavigate={closeMobile}
+        />
+      ))}
+    </SidebarMenu>
   );
-}
 
-/**
- * "v0.2.0 · mainnet": which server this is and which Sia network it stores
- * on. When the status call fails it reads an en dash, and the reason is in
- * its tooltip instead of a silent blank.
- */
-function VersionLine() {
-  const status = useSystemStatus({ poll: true });
-  const line =
-    'px-2 text-xs text-muted-foreground tabular-nums group-data-[collapsible=icon]:hidden';
-  if (status.data) {
-    return (
-      <p className={line}>
-        v{status.data.version} · {status.data.indexer.network}
-      </p>
-    );
-  }
-  if (status.isError) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className={`${line} w-fit rounded-sm text-left`}
-            aria-label={`Server version unavailable. ${errorText(status.error)}`}
-          >
-            {NO_VALUE}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="right" className="max-w-64">
-          {errorText(status.error)}
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
-  // keeps the footer's height while the first answer is on its way
   return (
-    <p className={line} aria-hidden="true">
-      &nbsp;
-    </p>
+    <Sidebar collapsible="none">
+      {/* the nav landmark holds the whole sidebar, logo and settings too, so
+          nothing in it sits outside a landmark */}
+      <nav aria-label="Studio" className="flex min-h-0 flex-1 flex-col gap-6 px-3.5 py-5">
+        <NavLink
+          to={ROUTES.OVERVIEW}
+          onClick={closeMobile}
+          className="flex items-center gap-2.5 rounded-md px-2.5 py-1 text-foreground"
+        >
+          <Logo className="size-7" />
+          <span className="text-[17px] font-bold tracking-[-0.01em]">Sluby Studio</span>
+        </NavLink>
+        {/* the studio's one primary action, on every page; NavLink marks it
+            current on the upload page, and U opens it from anywhere */}
+        <Button asChild>
+          <NavLink
+            to={ROUTES.UPLOAD}
+            onClick={closeMobile}
+            onPointerEnter={() => preloadPage(ROUTES.UPLOAD)}
+            onFocus={() => preloadPage(ROUTES.UPLOAD)}
+            aria-keyshortcuts="U"
+          >
+            <Icons.upload />
+            Upload video
+          </NavLink>
+        </Button>
+        <div className="flex flex-col gap-5">
+          {work.map((group) => {
+            const labelId = group.label ? `nav-group-${group.id}` : undefined;
+            return (
+              <SidebarGroup
+                key={group.id}
+                role={labelId ? 'group' : undefined}
+                aria-labelledby={labelId}
+                className="gap-0 p-0"
+              >
+                {group.label && (
+                  <SidebarGroupLabel
+                    id={labelId}
+                    className="h-auto px-2.5 pt-0 pb-1.5 text-xs font-semibold text-subtle-foreground"
+                  >
+                    {group.label}
+                    {group.operatorOnly && <span className="sr-only">, operators only</span>}
+                  </SidebarGroupLabel>
+                )}
+                <SidebarGroupContent>{entries(group.items)}</SidebarGroupContent>
+              </SidebarGroup>
+            );
+          })}
+        </div>
+        {/* settings sits at the bottom, apart from the work pages */}
+        {settings && <div className="mt-auto">{entries(settings.items)}</div>}
+        {/* a phone's header has no room for the theme and the account, as in
+            the phone board, so they sit at the foot of the menu sheet */}
+        {isMobile && (
+          <div className="-mt-3 flex items-center gap-2 border-t pt-3 sm:hidden">
+            <UserMenu />
+            <ThemeToggle />
+          </div>
+        )}
+      </nav>
+    </Sidebar>
   );
 }
 

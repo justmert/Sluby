@@ -76,7 +76,7 @@ describe('AppShell', () => {
   it('gives focus back to the menu button when the phone sidebar closes', async () => {
     viewport(390);
     renderShell();
-    const toggle = screen.getByRole('button', { name: 'Show or hide sidebar' });
+    const toggle = screen.getByRole('button', { name: 'Open menu' });
     toggle.focus();
     await userEvent.keyboard('{Enter}');
     const sheet = await screen.findByRole('dialog', { name: 'Navigation' });
@@ -88,33 +88,25 @@ describe('AppShell', () => {
     expect(toggle).toHaveFocus();
   });
 
-  it('opens the sidebar on wide screens and starts it as an icon rail on tablets', () => {
-    viewport(1440);
-    const wide = renderShell();
-    expect(wide.container.querySelector('[data-slot="sidebar"]')).toHaveAttribute(
-      'data-state',
-      'expanded',
-    );
-    wide.unmount();
-
-    viewport(1024);
-    const tablet = renderShell();
-    expect(tablet.container.querySelector('[data-slot="sidebar"]')).toHaveAttribute(
-      'data-state',
-      'collapsed',
-    );
-  });
-
-  it('keeps a sidebar the user opened on a tablet open', async () => {
+  it('keeps the sidebar a sticky full-height column from 900px, with the menu button hidden', () => {
     viewport(1024);
     const { container } = renderShell();
+    const column = container.querySelector('[data-slot="sidebar"]');
+    expect(column).toHaveClass('sticky', 'top-0', 'h-svh', 'min-[900px]:flex');
+    expect(
+      within(screen.getByRole('banner')).getByRole('button', { name: 'Open menu' }),
+    ).toHaveClass('min-[900px]:hidden');
+  });
+
+  it('hides the column below 900px and opens the sidebar as a sheet from the menu button', async () => {
+    viewport(800);
+    const { container } = renderShell();
+    expect(container.querySelector('[data-slot="sidebar"]')).not.toBeInTheDocument();
     await userEvent.click(
-      within(screen.getByRole('banner')).getByRole('button', { name: 'Show or hide sidebar' }),
+      within(screen.getByRole('banner')).getByRole('button', { name: 'Open menu' }),
     );
-    expect(container.querySelector('[data-slot="sidebar"]')).toHaveAttribute(
-      'data-state',
-      'expanded',
-    );
+    const sheet = await screen.findByRole('dialog', { name: 'Navigation' });
+    expect(within(sheet).getByRole('link', { name: 'Upload video' })).toBeInTheDocument();
   });
 
   it('names the browser tab after the page', () => {

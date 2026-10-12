@@ -9,14 +9,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { SearchIcon, CheckIcon } from 'lucide-react';
+import { SearchIcon } from 'lucide-react';
 
 function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
     <CommandPrimitive
       data-slot="command"
       className={cn(
-        'flex size-full flex-col overflow-hidden rounded-xl! bg-popover p-1 text-popover-foreground',
+        'flex size-full flex-col overflow-hidden rounded-xl! bg-popover text-popover-foreground',
         className,
       )}
       {...props}
@@ -38,12 +38,13 @@ function CommandDialog({
   showCloseButton?: boolean;
 }) {
   // the palette opens and closes on DialogContent, so it shares the dialog's
-  // duration-200 ease-out-soft timing
+  // entrance. it is a menu surface (12 px corners, the menu shadow, no
+  // padding of its own) anchored near the top, so results grow downward
   return (
     <Dialog {...props}>
       <DialogContent
         className={cn(
-          'top-[max(1rem,15vh)] translate-y-0 overflow-hidden rounded-xl! p-0',
+          'top-[max(1rem,15vh)] bottom-auto mt-0 gap-0 overflow-hidden rounded-xl! p-0 shadow-menu',
           className,
         )}
         showCloseButton={showCloseButton}
@@ -73,13 +74,13 @@ function CommandInput({
   return (
     <div
       data-slot="command-input-wrapper"
-      className="-mx-1 -mt-1 flex h-13 items-center gap-2.5 border-b px-3.5"
+      className="flex h-13 shrink-0 items-center gap-2.5 border-b px-3.5"
     >
-      <SearchIcon aria-hidden="true" className="size-4.5 shrink-0 text-muted-foreground" />
+      <SearchIcon aria-hidden="true" className="size-4.5 shrink-0 text-subtle-foreground" />
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
-          'h-10 min-w-0 flex-1 bg-transparent text-[0.9375rem] outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
+          'h-10 min-w-0 flex-1 bg-transparent text-[0.9375rem] outline-hidden placeholder:text-subtle-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
           className,
         )}
         {...props}
@@ -94,7 +95,7 @@ function CommandList({ className, ...props }: React.ComponentProps<typeof Comman
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        'no-scrollbar max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none',
+        'no-scrollbar max-h-72 scroll-py-1.5 overflow-x-hidden overflow-y-auto p-1.5 outline-none',
         className,
       )}
       {...props}
@@ -123,7 +124,7 @@ function CommandGroup({
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        'overflow-hidden p-1 text-foreground **:[[cmdk-group-heading]]:px-2.5 **:[[cmdk-group-heading]]:pt-2 **:[[cmdk-group-heading]]:pb-1 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-semibold **:[[cmdk-group-heading]]:text-muted-foreground',
+        'overflow-hidden text-foreground **:[[cmdk-group-heading]]:px-2.5 **:[[cmdk-group-heading]]:pt-2 **:[[cmdk-group-heading]]:pb-1 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-semibold **:[[cmdk-group-heading]]:text-subtle-foreground',
         className,
       )}
       {...props}
@@ -153,13 +154,12 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "group/command-item relative flex min-h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm font-medium pointer-coarse:py-2.5 outline-hidden select-none in-data-[slot=dialog-content]:rounded-lg! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-muted data-selected:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-selected:*:[svg]:text-foreground",
+        "group/command-item relative flex min-h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm font-medium pointer-coarse:min-h-11 outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-muted data-selected:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-selected:*:[svg]:text-foreground",
         className,
       )}
       {...props}
     >
       {children}
-      <CheckIcon className="ml-auto opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[checked=true]/command-item:opacity-100" />
     </CommandPrimitive.Item>
   );
 }
@@ -168,10 +168,7 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<'span'>) 
   return (
     <span
       data-slot="command-shortcut"
-      className={cn(
-        'ml-auto text-xs tracking-widest text-muted-foreground group-data-selected/command-item:text-foreground',
-        className,
-      )}
+      className={cn('ml-auto font-mono text-xs font-normal text-subtle-foreground', className)}
       {...props}
     />
   );

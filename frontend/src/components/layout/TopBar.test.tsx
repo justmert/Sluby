@@ -36,13 +36,26 @@ describe('TopBar', () => {
     expect(screen.queryByText('nope')).not.toBeInTheDocument();
   });
 
-  it('centers the short divider by the sidebar toggle instead of stretching it', () => {
-    const { container } = renderAt('/studio');
-    const divider = container.querySelector('header [data-slot="separator"]');
-    expect(divider).toHaveAttribute('data-orientation', 'vertical');
-    // a stretched item with a fixed height sits at the top of the bar, not in the middle
-    expect(divider?.className).not.toMatch(/self-stretch/);
-    expect(divider?.className).toMatch(/data-vertical:self-auto/);
+  it('is a sticky 60px surface bar, with the current page in bold', () => {
+    renderAt('/studio/developers/keys');
+    const header = screen.getByRole('banner');
+    expect(header).toHaveClass('sticky', 'top-0', 'h-15', 'border-b', 'bg-card');
+    expect(screen.getByText('API keys')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByText('API keys')).toHaveClass('font-semibold');
+  });
+
+  it('shows the menu button only below 900px', () => {
+    renderAt('/studio');
+    expect(screen.getByRole('button', { name: 'Open menu' })).toHaveClass('min-[900px]:hidden');
+  });
+
+  it('has a square upload button, only on a phone, and moves theme and account into the sheet there', () => {
+    renderAt('/studio/videos');
+    const upload = screen.getByRole('link', { name: 'Upload video' });
+    expect(upload).toHaveAttribute('href', '/studio/videos/upload');
+    expect(upload).toHaveClass('sm:hidden', 'size-11');
+    expect(screen.getByRole('button', { name: /^Switch to/ })).toHaveClass('max-sm:hidden');
+    expect(screen.getByRole('button', { name: /^Account menu/ })).toHaveClass('max-sm:hidden');
   });
 
   it('keeps the trail on one line on phones: only the page name, with a back link', () => {

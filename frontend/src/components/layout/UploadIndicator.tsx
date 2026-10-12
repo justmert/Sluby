@@ -1,16 +1,12 @@
 import { useState } from 'react';
-import { NavLink } from 'react-router';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
-import { Pause, Upload } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Pause } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { UploadTray } from '@/components/upload/UploadTray';
 import { sentPercent, shortStatus } from '@/components/upload/upload-status';
 import { useUploadEvents } from '@/components/upload/useUploadEvents';
-import { ROUTES } from '@/lib/constants';
 import { scaleIn } from '@/lib/motion';
-import { preloadPage } from '@/lib/page-chunks';
 import { useSession } from '@/lib/session';
 import { uploadStore } from '@/lib/studio-upload';
 import { isTransferring, useUploads, type UploadState, type UploadStore } from '@/lib/upload-store';
@@ -62,10 +58,11 @@ function Ring({ percent, paused }: { percent: number; paused: boolean }) {
 }
 
 /**
- * The top bar's upload control (D-08): "Upload video" goes to the upload
- * page from any page; while uploads run, a progress ring with a count sits next
- * to it and opens a tray. It also raises the ready and failed toasts for
- * uploads started in this browser, wherever the user is.
+ * The top bar's upload progress (D-08): while uploads run, a progress ring
+ * with a count opens a tray. The way to the upload page itself is the
+ * sidebar's primary button (and the phone header's), as in the design. It
+ * also raises the ready and failed toasts for uploads started in this
+ * browser, wherever the user is.
  */
 export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }) {
   const session = useSession();
@@ -99,22 +96,6 @@ export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }
           </m.div>
         )}
       </AnimatePresence>
-      <Button
-        variant="outline"
-        size="sm"
-        className="max-md:size-8 max-md:px-0 max-md:pointer-coarse:size-10"
-        asChild
-      >
-        {/* current on the upload page, like the sidebar's button */}
-        <NavLink
-          to={ROUTES.UPLOAD}
-          onPointerEnter={() => preloadPage(ROUTES.UPLOAD)}
-          onFocus={() => preloadPage(ROUTES.UPLOAD)}
-        >
-          <Upload aria-hidden="true" />
-          <span className="max-md:sr-only">Upload video</span>
-        </NavLink>
-      </Button>
     </div>
   );
 }
@@ -142,10 +123,10 @@ function RingButton({
       ? null
       : `${percent}%`;
   return (
-    <span className="group/ring relative flex h-8 items-center">
+    <span className="group/ring relative flex h-9 items-center">
       <span
         aria-hidden="true"
-        className="pointer-events-none flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-150 group-hover/ring:bg-muted group-hover/ring:text-foreground"
+        className="pointer-events-none flex h-9 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-150 group-hover/ring:bg-muted group-hover/ring:text-foreground"
       >
         <Ring percent={percent} paused={paused} />
         {figure && <span className="hidden tabular-nums sm:inline">{figure}</span>}
@@ -158,7 +139,7 @@ function RingButton({
       <button
         type="button"
         aria-label={label}
-        className="absolute inset-0 rounded-md focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+        className="absolute inset-0 rounded-md outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
         {...props}
       />
     </span>

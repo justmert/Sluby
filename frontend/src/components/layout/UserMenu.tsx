@@ -1,7 +1,5 @@
-import { ArrowUpRight, ChevronDown, FileText, LogOut, Palette, UserRound } from 'lucide-react';
+import { ArrowUpRight, FileText, LogOut, Palette } from 'lucide-react';
 import { toastError } from '@/lib/toast';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,50 +14,75 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { GitHubMark } from '@/components/brand/GitHubMark';
+import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useSignOut } from '@/hooks/useSessions';
 import { LINKS } from '@/lib/constants';
-import { withLead } from '@/lib/errors';
+import { errorText, withLead } from '@/lib/errors';
 import { useSession } from '@/lib/session';
 import { THEME_OPTIONS, useTheme, type Theme } from '@/lib/theme';
+import { cn } from '@/lib/utils';
+import { initialsOf } from './initials';
 
-export function UserMenu() {
+/**
+ * "Sluby 0.2.0 · mainnet": which server this is and which Sia network it
+ * stores on, at the foot of the account menu. When the status call fails it
+ * says so, with the reason.
+ */
+function VersionLine() {
+  const status = useSystemStatus({ poll: true });
+  const line = 'text-xs font-normal text-muted-foreground tabular-nums';
+  if (status.data) {
+    return (
+      <DropdownMenuLabel className={line}>
+        Sluby {status.data.version} · {status.data.indexer.network}
+      </DropdownMenuLabel>
+    );
+  }
+  if (status.isError) {
+    return (
+      <DropdownMenuLabel className={cn(line, 'wrap-anywhere')}>
+        Server version unavailable. {errorText(status.error)}
+      </DropdownMenuLabel>
+    );
+  }
+  // keeps the line's height while the first answer is on its way
+  return (
+    <DropdownMenuLabel className={line} aria-hidden="true">
+      &nbsp;
+    </DropdownMenuLabel>
+  );
+}
+
+/**
+ * The design's account button: a round 36px avatar with the initials. Its
+ * name says what it is and whose it is; the menu holds the details.
+ */
+export function UserMenu({ className }: { className?: string }) {
   const session = useSession();
   const { theme, setTheme } = useTheme();
   const { signOut, signingOut } = useSignOut();
+  const name = [
+    `Account menu, ${session.username}`,
+    session.operator && 'operator',
+    session.authDisabled && 'sign-in off',
+  ]
+    .filter(Boolean)
+    .join(', ');
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        {/* below 24rem (a phone, or a 32px default font) it drops its chevron
-            and side padding so the top bar still fits (A11Y-46) */}
-        <Button variant="outline" size="sm" className="gap-2 max-[24rem]:gap-1 max-[24rem]:px-1.5">
-          {session.provider === 'github' ? (
-            <GitHubMark className="size-3.5" />
-          ) : (
-            <UserRound className="size-3.5" />
+        <button
+          type="button"
+          aria-label={name}
+          title={session.username}
+          className={cn(
+            'grid size-9 shrink-0 cursor-pointer place-items-center rounded-full bg-border text-[13px] font-semibold text-secondary-foreground hover:bg-border-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid pointer-coarse:size-11',
+            className,
           )}
-          <span
-            dir="auto"
-            className="max-w-[140px] truncate font-mono text-xs max-sm:sr-only"
-            title={session.username}
-          >
-            {session.username}
-          </span>
-          {session.operator && <span className="sr-only">, operator</span>}
-          {session.authDisabled && (
-            <>
-              <Badge
-                variant="warning"
-                aria-hidden="true"
-                className="h-4 px-1.5 text-kbd max-sm:hidden"
-              >
-                Sign-in off
-              </Badge>
-              <span className="sr-only">, sign-in off</span>
-            </>
-          )}
-          <ChevronDown className="size-3 text-muted-foreground max-[24rem]:hidden" />
-        </Button>
+        >
+          <span aria-hidden="true">{initialsOf(session.name, session.username)}</span>
+        </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
@@ -108,6 +131,8 @@ export function UserMenu() {
             <ArrowUpRight className="ml-auto text-muted-foreground" aria-hidden="true" />
           </a>
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <VersionLine />
         {!session.authDisabled && (
           <>
             <DropdownMenuSeparator />

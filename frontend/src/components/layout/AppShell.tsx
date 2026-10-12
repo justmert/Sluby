@@ -3,7 +3,6 @@ import { useLocation } from 'react-router';
 import { PortalContainerProvider } from '@/components/ui/portal-container';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { useIsWide } from '@/hooks/use-mobile';
 import { AuthOffBanner } from './AuthOffBanner';
 import { LiveAlerts } from './LiveAlerts';
 import { OfflineBanner } from './OfflineBanner';
@@ -29,21 +28,8 @@ function SkipLink() {
   );
 }
 
-/**
- * The sidebar is open on wide screens and an icon rail below that, so a
- * tablet keeps room for the page. A toggle sticks until the window crosses
- * the breakpoint, then the default for the new width applies again.
- */
-function useSidebarOpen() {
-  const wide = useIsWide();
-  const [choice, setChoice] = useState<{ wide: boolean; open: boolean } | null>(null);
-  const open = choice && choice.wide === wide ? choice.open : wide;
-  return [open, (next: boolean) => setChoice({ wide, open: next })] as const;
-}
-
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
-  const [open, setOpen] = useSidebarOpen();
   const title = routeTitle(useRouteCrumbs());
   // menus, selects and tooltips portal into the main landmark (ui/portal-container)
   const [overlayRoot, setOverlayRoot] = useState<HTMLElement | null>(null);
@@ -77,7 +63,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <PortalContainerProvider container={overlayRoot}>
-      <SidebarProvider open={open} onOpenChange={setOpen}>
+      <SidebarProvider>
         <SkipLink />
         <AppSidebar />
         {/* a div rather than the ui SidebarInset, which is a <main>: the page

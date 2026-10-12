@@ -106,6 +106,24 @@
   /* polled progress bars ease over this long; shorter than the fastest poll
      (2 s), so a bar never trails its number by a whole poll */
   --duration-progress: 1200ms;
+  /* the design's finer steps. *-line is the edge of a status chip or note in
+     that status, primary-ring is the soft ring round a focused field, sunken
+     is the track under a progress fill, subtle-foreground is captions and key
+     hints, border-soft is the rule between rows, media is an empty thumbnail */
+  --success-line: #9bd3ae;
+  --warning-line: #e2b565;
+  --warning-icon: #b45309;
+  --destructive-line: #f1a3a3;
+  --progress-line: #8cc6cf;
+  --primary-ring: #cde7ea;
+  --primary-hover: #0b5260;
+  --sunken: #f0efed;
+  --subtle-foreground: #78716c;
+  /* decoration only (a breadcrumb's slash), never text people must read */
+  --faint: #a8a29e;
+  --border-soft: #f5f5f4;
+  --media: #1c1917;
+  --shadow-tint: rgb(28 25 23 / 0.12);
 }
 
 .dark {
@@ -113,7 +131,7 @@
   --foreground: #f2f0ee;
   --card: #171514;
   --card-foreground: #f2f0ee;
-  --popover: #1d1a18;
+  --popover: #171514;
   --popover-foreground: #f2f0ee;
   --primary: #5bbfcc;
   --primary-foreground: #06262b;
@@ -124,8 +142,8 @@
   --accent: #26221f;
   --accent-foreground: #f2f0ee;
   --destructive: #f58a8a;
-  --destructive-solid: #b91c1c;
-  --destructive-solid-foreground: #ffffff;
+  --destructive-solid: #f58a8a;
+  --destructive-solid-foreground: #2a0909;
   --success: #6bd394;
   --warning: #f2b866;
   --warning-foreground: #f2b866;
@@ -161,6 +179,19 @@
   --bar-warning: #f2b866;
   --bar-destructive: #f58a8a;
   --bar-destructive-border: #7f3030;
+  --success-line: #2b6a42;
+  --warning-line: #6e4e1e;
+  --warning-icon: #f2b866;
+  --destructive-line: #7f3030;
+  --progress-line: #2a6a74;
+  --primary-ring: #1b4950;
+  --primary-hover: #82d2dc;
+  --sunken: #1d1a18;
+  --subtle-foreground: #918a84;
+  --faint: #6b6560;
+  --border-soft: #221f1d;
+  --media: #050505;
+  --shadow-tint: rgb(0 0 0 / 0.5);
 }
 
 /* more contrast on request: stronger secondary text and edges */
@@ -235,20 +266,41 @@
   --color-bar-warning: var(--bar-warning);
   --color-bar-destructive: var(--bar-destructive);
   --color-bar-destructive-border: var(--bar-destructive-border);
-  /* three radii: md for controls, lg for inner surfaces, xl for cards and
-     overlays (plus full for badges and dots). sm is the checkbox and kbd. */
+  --color-success-line: var(--success-line);
+  --color-warning-line: var(--warning-line);
+  --color-warning-icon: var(--warning-icon);
+  --color-destructive-line: var(--destructive-line);
+  --color-progress-line: var(--progress-line);
+  --color-primary-ring: var(--primary-ring);
+  --color-primary-hover: var(--primary-hover);
+  --color-sunken: var(--sunken);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-faint: var(--faint);
+  --color-border-soft: var(--border-soft);
+  --color-media: var(--media);
+  /* the design's shadows: menus and the palette, toasts and the sign-in
+     card, a raised confirm, and a dialog over its scrim */
+  --shadow-menu: 0 12px 32px var(--shadow-tint);
+  --shadow-toast: 0 8px 24px var(--shadow-tint);
+  --shadow-pop: 0 16px 40px var(--shadow-tint);
+  --shadow-dialog: 0 24px 64px rgb(12 10 9 / 0.3);
+  /* the design's radii: md 8 for controls and menu rows, lg 10 for toasts,
+     inner tiles and code, xl 12 for cards and menus, 2xl 14 for dialogs, 3xl
+     16 for the empty-state icon and the sign-in card (plus full for chips
+     and dots). sm 4 is the checkbox and kbd. */
   --radius-sm: calc(var(--radius) * 0.4);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-xl: calc(var(--radius) * 1.2);
+  --radius-2xl: calc(var(--radius) * 1.4);
+  --radius-3xl: calc(var(--radius) * 1.6);
 }
 
 /* type roles on top of the stock scale (text-xs 12, text-sm 14, text-base
    16). each role carries its line height, tracking and weight, so a title is
    one class; the heading family comes from font-heading or an h1 to h3.
    - text-title: page title (h1), figtree 28/36 700
-   - text-heading: section, card, dialog and empty-state titles, 16/24 600
+   - text-heading: section and card titles, 16/24 600
    - text-figure: stat numbers, 28/36 700; pair with font-heading tabular-nums
    - text-figure-sm: small stat tiles, 18/28 600
    - text-kbd: keyboard hints and chart ticks, 11/16 500 */
@@ -259,7 +311,6 @@
   --text-title--font-weight: 700;
   --text-heading: 1rem;
   --text-heading--line-height: 1.5rem;
-  --text-heading--letter-spacing: -0.01em;
   --text-heading--font-weight: 600;
   --text-figure: 1.75rem;
   --text-figure--line-height: 2.25rem;
@@ -286,9 +337,11 @@
   /* the design's one easing and its entrance: toasts, banners, menus and
      dialogs rise 6 px and fade in over 240 ms */
   --ease-design: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --animate-enter: enter 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-enter: rise-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 
-  @keyframes enter {
+  /* not "enter": tw-animate-css owns that name for animate-in, and a
+     second keyframes rule of the same name would replace it */
+  @keyframes rise-in {
     from {
       opacity: 0;
       translate: 0 6px;
@@ -396,12 +449,45 @@
     outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
+  /* fields take the design's soft ring and a petrol edge instead */
+  :where(input, select, textarea):focus-visible {
+    outline: 3px solid var(--primary-ring);
+    outline-offset: 0;
+    border-color: var(--primary);
+  }
+  /* every control eases its colours, edge and ring over 150 ms and a press
+     over 100 ms. zero specificity, so a component's own transition wins */
+  :where(
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    label,
+    summary,
+    [role='tab'],
+    [role='option'],
+    [role='menuitem'],
+    [role='button']
+  ) {
+    transition-property: color, background-color, border-color, box-shadow, scale;
+    transition-duration: 150ms, 150ms, 150ms, 150ms, 100ms;
+    transition-timing-function: var(--ease-design);
+  }
   /* native checkboxes, radios and ranges take the accent instead of the
      browser's blue */
   input,
   select,
   textarea {
     accent-color: var(--primary);
+  }
+  /* links are petrol and darken on hover, with no underline at rest */
+  a:where(:not([class])) {
+    color: var(--primary);
+    text-decoration: none;
+  }
+  a:where(:not([class])):hover {
+    color: var(--primary-hover);
   }
   h1,
   h2,
@@ -689,9 +775,21 @@ body:has([data-sonner-toast]) main {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+/* a toast enters as everything else does: it rises 6 px and fades in over
+   240 ms, instead of sonner's slide up from its own full height */
 [data-sonner-toaster] [data-sonner-toast] {
+  transition-duration: 240ms, 240ms, 240ms, 150ms;
+  transition-timing-function: var(--ease-design);
+}
+/* the exit stays inside the 200 ms sonner waits before it unmounts */
+[data-sonner-toaster] [data-sonner-toast][data-removed='true'] {
   transition-duration: 200ms, 200ms, 200ms, 150ms;
-  transition-timing-function: var(--ease-out-soft);
+}
+[data-sonner-toaster] [data-sonner-toast][data-mounted='false'][data-y-position='bottom'] {
+  --y: translateY(6px);
+}
+[data-sonner-toaster] [data-sonner-toast][data-mounted='false'][data-y-position='top'] {
+  --y: translateY(-6px);
 }
 [data-sonner-toaster] [data-sonner-toast] > * {
   transition-duration: 200ms;

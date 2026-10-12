@@ -21,6 +21,11 @@
  * slowly as the one sign that work goes on. usePrefersReducedMotion covers the
  * cases neither reaches, like counting a number up.
  *
+ * the design adds one easing, cubic-bezier(.2, .8, .2, 1) (ease-design in
+ * index.css), and one entrance: toasts, banners, menus, dialogs and new
+ * notices rise 6px and fade in over 240 ms (animate-enter in css, `enter`
+ * and fadeUp here). colours ease over 150 ms and a press scales to 97%.
+ *
  * the css side mirrors these values: duration-150/200/300 and ease-out-soft
  * in index.css are the same numbers. a css keyframe animation (animate-in)
  * pairs its duration-* class with transition-none: duration-* alone also
@@ -29,17 +34,26 @@
 import { useContext, useSyncExternalStore } from 'react';
 import { MotionConfigContext, type Transition, type Variants } from 'motion/react';
 
-/** durations in seconds, which is what motion takes */
-export const duration = { fast: 0.15, base: 0.2, slow: 0.3 } as const;
+/** durations in seconds, which is what motion takes; enter is the design's entrance */
+export const duration = { fast: 0.15, base: 0.2, enter: 0.24, slow: 0.3 } as const;
 
 /**
  * the same durations in milliseconds, for timers and css. progress is how
  * long a polled progress bar eases (--duration-progress in index.css).
  */
-export const durationMs = { fast: 150, base: 200, slow: 300, progress: 1200 } as const;
+export const durationMs = {
+  fast: 150,
+  base: 200,
+  enter: 240,
+  slow: 300,
+  progress: 1200,
+} as const;
 
 /** a soft ease-out; matches --ease-out-soft in index.css */
 export const easeOut = [0.22, 1, 0.36, 1] as const;
+
+/** the design's one easing; matches --ease-design in index.css */
+export const easeDesign = [0.2, 0.8, 0.2, 1] as const;
 
 /** a quick spring with a hint of settle, for layout and press feedback */
 export const spring: Transition = { type: 'spring', visualDuration: duration.slow, bounce: 0.15 };
@@ -47,6 +61,8 @@ export const spring: Transition = { type: 'spring', visualDuration: duration.slo
 export const transition = {
   fast: { duration: duration.fast, ease: easeOut },
   base: { duration: duration.base, ease: easeOut },
+  /** the design's entrance timing */
+  enter: { duration: duration.enter, ease: easeDesign },
   slow: { duration: duration.slow, ease: easeOut },
 } satisfies Record<string, Transition>;
 
@@ -71,11 +87,15 @@ export const fade: Variants = {
   exit: { opacity: 0, transition: transition.fast },
 };
 
+/** the design's entrance: rise 6px and fade in over 240 ms */
 export const fadeUp: Variants = {
-  hidden: { opacity: 0, y: 8 },
-  visible: { opacity: 1, y: 0, transition: transition.base },
+  hidden: { opacity: 0, y: 6 },
+  visible: { opacity: 1, y: 0, transition: transition.enter },
   exit: { opacity: 0, y: -4, transition: transition.fast },
 };
+
+/** the same entrance under the name the design uses */
+export const enter = fadeUp;
 
 export const scaleIn: Variants = {
   hidden: { opacity: 0, scale: 0.96 },

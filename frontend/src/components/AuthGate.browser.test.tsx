@@ -17,7 +17,7 @@ const unauthorized = () =>
 // FLW-01: when /auth/me answered 401 within the first frames, the loading
 // screen's exit never finished and the sign-in button never mounted
 describe('AuthGate signed out, in a real browser', () => {
-  it('shows "Sign in with GitHub" on every load, however fast the 401 is', async () => {
+  it('shows "Continue with GitHub" on every load, however fast the 401 is', async () => {
     let hangs = 0;
     for (let i = 0; i < 30; i++) {
       const delay = i % 3 === 0 ? -1 : i % 3 === 1 ? 0 : 16;
@@ -40,7 +40,7 @@ describe('AuthGate signed out, in a real browser', () => {
         </StrictMode>,
       );
       const shown = await expect
-        .poll(() => document.body.textContent?.includes('Sign in with GitHub') ?? false, {
+        .poll(() => document.body.textContent?.includes('Continue with GitHub') ?? false, {
           timeout: 2000,
         })
         .toBe(true)

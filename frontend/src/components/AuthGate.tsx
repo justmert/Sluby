@@ -2,12 +2,13 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
-import { RotateCcw, TriangleAlert } from 'lucide-react';
+import { CircleAlert, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { GitHubMark } from '@/components/brand/GitHubMark';
 import { Logo } from '@/components/brand/Logo';
 import { apiClient, statusOf } from '@/lib/api-client';
+import { LINKS } from '@/lib/constants';
 import { describeError, errorText } from '@/lib/errors';
 import { fadeUp, transition } from '@/lib/motion';
 import { loadPage } from '@/lib/navigation';
@@ -104,27 +105,61 @@ function githubLoginUrl() {
 // reload goes straight to the studio without a spinner flashing first
 const LOADING_DELAY = 0.15;
 
+const DOCS_URL = `${LINKS.SOURCE}/blob/main/docs/index.md`;
+
+/**
+ * The server's version for the line under the card, from the public liveness
+ * check (the status endpoint needs a session). Until it answers, or if it
+ * cannot, the line names the product without a number.
+ */
+function useServerVersion(): string | null {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    const ask = new AbortController();
+    fetch('/health', { signal: ask.signal })
+      .then((res) => (res.ok ? (res.json() as Promise<{ version?: unknown }>) : null))
+      .then((body) => {
+        if (typeof body?.version === 'string') setVersion(body.version);
+      })
+      .catch((err: unknown) => {
+        // an abort is this screen going away, not a failure
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          console.warn('could not read the server version from /health', err);
+        }
+      });
+    return () => ask.abort();
+  }, []);
+  return version;
+}
+
 function Screen({
   children,
   contentKey,
   title = 'Sluby Studio',
+  footer,
 }: {
   children: ReactNode;
   contentKey: string;
   title?: string;
+  /** under the card, such as the version and docs line of the sign-in screen */
+  footer?: ReactNode;
 }) {
   return (
+    // the design's sign-in: the mark, the title and one line, a raised card
+    // that rises in, and the version and docs under it, centred on the ground
     <m.div
-      className="fixed inset-0 flex items-center justify-center bg-background"
+      className="fixed inset-0 grid place-items-center overflow-y-auto bg-background px-5 py-12"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ ...transition.base, delay: contentKey === 'loading' ? LOADING_DELAY : 0 }}
     >
-      <main className="flex w-full max-w-100 flex-col items-center gap-6 px-5 text-center">
+      <main className="flex w-full max-w-100 flex-col items-center gap-6 text-center">
         <Logo className="size-12" />
         <div className="flex flex-col items-center gap-1.5">
           <h1 className="font-heading text-title">{title}</h1>
-          <p className="text-sm text-muted-foreground">Self-hosted video, stored on Sia</p>
+          <p className="text-sm text-muted-foreground">
+            Video hosting on your own server, stored on Sia.
+          </p>
         </div>
         {/* the brand stays put while what is below it changes. the old and new
             content share one grid cell instead of waiting for each other:
@@ -145,15 +180,34 @@ function Screen({
                 initial="hidden"
                 animate="visible"
                 exit="exit"
-                className="flex w-full flex-col gap-3.5 rounded-2xl border bg-card p-6 text-left shadow-lg shadow-foreground/5"
+                className="flex w-full flex-col gap-3.5 rounded-3xl border bg-card p-6 text-left shadow-toast"
               >
                 {children}
               </m.div>
             )}
           </AnimatePresence>
         </div>
+        {footer}
       </main>
     </m.div>
+  );
+}
+
+/** "Sluby 0.2.0 · Docs" under the sign-in card. */
+function ProductLine() {
+  const version = useServerVersion();
+  return (
+    <p className="text-[13px] text-subtle-foreground">
+      {version ? `Sluby ${version}` : 'Sluby'} ·{' '}
+      <a
+        href={DOCS_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-primary hover:text-primary-hover"
+      >
+        Docs<span className="sr-only">, opens in a new tab</span>
+      </a>
+    </p>
   );
 }
 
@@ -184,12 +238,9 @@ function SignIn({
       {(message || failure) && (
         <div
           role="alert"
-          className="flex gap-2.5 rounded-lg border border-warning/60 px-3.5 py-3 text-sm"
+          className="flex items-start gap-2.5 rounded-lg border border-warning-line px-3.5 py-3 text-sm"
         >
-          <TriangleAlert
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-warning-foreground"
-          />
+          <CircleAlert aria-hidden="true" className="mt-px size-4.5 shrink-0 text-warning-icon" />
           <div className="flex flex-col gap-1.5">
             {message && <p>{message}</p>}
             {failure && <p dir="auto">{failure}</p>}
@@ -207,13 +258,13 @@ function SignIn({
               setRedirecting(true);
               loadPage(githubLoginUrl());
             }}
-            className="h-11 w-full rounded-lg bg-foreground font-semibold text-background hover:bg-[color-mix(in_oklab,var(--foreground),var(--background)_15%)] pointer-coarse:h-11"
+            className="h-11 w-full gap-2.5 rounded-lg border-foreground bg-foreground font-semibold text-background hover:bg-[color-mix(in_oklab,var(--foreground),var(--background)_15%)] pointer-coarse:h-11"
           >
-            {redirecting ? <Spinner aria-hidden="true" /> : <GitHubMark className="size-4" />}
-            {redirecting ? 'Redirecting to GitHub…' : 'Sign in with GitHub'}
+            {redirecting ? <Spinner aria-hidden="true" /> : <GitHubMark className="size-5" />}
+            {redirecting ? 'Redirecting to GitHub…' : 'Continue with GitHub'}
           </Button>
-          <p className="text-center text-xs text-muted-foreground">
-            Using the API? Create an API key under Developers after you sign in.
+          <p className="text-center text-[13px] text-muted-foreground">
+            Only accounts your operator allows can sign in.
           </p>
         </>
       )}
@@ -360,6 +411,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <Screen
       contentKey={message ? `ended-${state.reason ?? ''}` : 'signedOut'}
       title="Sign in to Sluby Studio"
+      footer={<ProductLine />}
     >
       <SignIn
         message={message}

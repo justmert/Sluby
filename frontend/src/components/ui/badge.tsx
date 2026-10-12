@@ -9,16 +9,16 @@ import { Slot } from 'radix-ui';
 // edge and the text carry the tone, so a row of chips never turns into a row
 // of coloured blocks.
 const badgeVariants = cva(
-  'group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 text-xs font-medium whitespace-nowrap transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&>svg]:pointer-events-none [&>svg]:size-3!',
+  'group/badge inline-flex h-5.5 w-fit shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border border-transparent px-2 text-xs font-semibold whitespace-nowrap transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&>svg]:pointer-events-none [&>svg]:size-3!',
   {
     variants: {
       variant: {
         secondary: 'border-border-strong bg-card text-secondary-foreground [a]:hover:bg-muted',
         outline: 'border-border text-foreground [a]:hover:bg-muted',
-        success: 'border-success/45 bg-card text-success',
-        progress: 'border-progress/45 bg-card text-progress-foreground',
-        warning: 'border-warning/60 bg-card text-warning-foreground',
-        destructive: 'border-destructive/40 bg-card text-destructive',
+        success: 'border-success-line bg-card text-success',
+        progress: 'border-progress-line bg-card text-progress-foreground',
+        warning: 'border-warning-line bg-card text-warning-foreground',
+        destructive: 'border-destructive-line bg-card text-destructive',
         info: 'border-border-strong bg-card text-info',
         code: 'rounded-sm bg-muted px-1.5 font-mono text-kbd text-foreground',
       },
