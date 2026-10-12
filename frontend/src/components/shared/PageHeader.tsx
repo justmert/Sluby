@@ -25,10 +25,11 @@ export interface PageHeaderProps {
 }
 
 /**
- * The title block every page starts with: h1, description, an optional meta
- * row, and the actions. Wide pages put the actions at the end of the title
- * row; narrow ones (by the page container, not the viewport) put them under
- * it. Actions follow one order everywhere: secondary first, primary last.
+ * The title block every page starts with: h1 (28/36 bold), description, an
+ * optional meta row, and the actions. As in the design the title block takes
+ * the row from 320px and the actions sit at its end, bottom aligned; when
+ * there is not room for both, the actions wrap under it. Actions follow one
+ * order everywhere: secondary first, primary last.
  *
  *   <PageHeader
  *     title="Videos"
@@ -53,11 +54,11 @@ export function PageHeader({
     <header
       data-slot="page-header"
       className={cn(
-        'mb-6 flex flex-col gap-4 @xl/page:flex-row @xl/page:items-end @xl/page:justify-between',
+        'mb-6 flex flex-wrap items-end gap-4',
         className,
       )}
     >
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-[1_1_320px]">
         {breadcrumbs && <div className="mb-2 text-sm text-muted-foreground">{breadcrumbs}</div>}
         {/* dir=auto: a right-to-left video title truncates at its end, not its start */}
         {heading ?? (
@@ -77,7 +78,10 @@ export function PageHeader({
         )}
       </div>
       {hasActions && (
-        <div data-slot="page-actions" className="flex shrink-0 flex-wrap items-center gap-2">
+        <div
+          data-slot="page-actions"
+          className="ml-auto flex shrink-0 flex-wrap items-center gap-2"
+        >
           {actions}
           {secondaryActions}
           {primaryAction}

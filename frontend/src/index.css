@@ -119,6 +119,8 @@
   --primary-hover: #0b5260;
   --sunken: #f0efed;
   --subtle-foreground: #78716c;
+  /* decoration only (a breadcrumb's slash), never text people must read */
+  --faint: #a8a29e;
   --border-soft: #f5f5f4;
   --media: #1c1917;
   --shadow-tint: rgb(28 25 23 / 0.12);
@@ -186,6 +188,7 @@
   --primary-hover: #82d2dc;
   --sunken: #1d1a18;
   --subtle-foreground: #918a84;
+  --faint: #6b6560;
   --border-soft: #221f1d;
   --media: #050505;
   --shadow-tint: rgb(0 0 0 / 0.5);
@@ -272,6 +275,7 @@
   --color-primary-hover: var(--primary-hover);
   --color-sunken: var(--sunken);
   --color-subtle-foreground: var(--subtle-foreground);
+  --color-faint: var(--faint);
   --color-border-soft: var(--border-soft);
   --color-media: var(--media);
   /* the design's shadows: menus and the palette, toasts and the sign-in
@@ -296,7 +300,7 @@
    16). each role carries its line height, tracking and weight, so a title is
    one class; the heading family comes from font-heading or an h1 to h3.
    - text-title: page title (h1), figtree 28/36 700
-   - text-heading: section, card, dialog and empty-state titles, 16/24 600
+   - text-heading: section and card titles, 16/24 600
    - text-figure: stat numbers, 28/36 700; pair with font-heading tabular-nums
    - text-figure-sm: small stat tiles, 18/28 600
    - text-kbd: keyboard hints and chart ticks, 11/16 500 */
@@ -307,7 +311,6 @@
   --text-title--font-weight: 700;
   --text-heading: 1rem;
   --text-heading--line-height: 1.5rem;
-  --text-heading--letter-spacing: -0.01em;
   --text-heading--font-weight: 600;
   --text-figure: 1.75rem;
   --text-figure--line-height: 2.25rem;
@@ -455,18 +458,18 @@
   /* every control eases its colours, edge and ring over 150 ms and a press
      over 100 ms. zero specificity, so a component's own transition wins */
   :where(
-      a,
-      button,
-      input,
-      select,
-      textarea,
-      label,
-      summary,
-      [role='tab'],
-      [role='option'],
-      [role='menuitem'],
-      [role='button']
-    ) {
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    label,
+    summary,
+    [role='tab'],
+    [role='option'],
+    [role='menuitem'],
+    [role='button']
+  ) {
     transition-property: color, background-color, border-color, box-shadow, scale;
     transition-duration: 150ms, 150ms, 150ms, 150ms, 100ms;
     transition-timing-function: var(--ease-design);

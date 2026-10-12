@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef } from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { ChevronLeft } from 'lucide-react';
 import {
   Breadcrumb,
@@ -9,9 +9,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { ROUTES } from '@/lib/constants';
+import { isNavActive, NAV_GROUPS, ROUTES } from '@/lib/constants';
 import { Icons } from '@/lib/icons';
 import { preloadPage } from '@/lib/page-chunks';
 import { CommandPalette } from './CommandPalette';
@@ -31,6 +32,11 @@ export function TopBar() {
   const crumbs = useRouteCrumbs();
   // phones show only the page's own name; a detail page gets a way up instead
   const parent = crumbs.length > 2 ? crumbs[crumbs.length - 2] : undefined;
+  const { pathname } = useLocation();
+  const operatorPage = NAV_GROUPS.some(
+    (g) =>
+      g.operatorOnly && g.items.some((item) => isNavActive({ ...item, exact: false }, pathname)),
+  );
 
   // the page's top scroll padding (index.css) follows the bar's height, which
   // grows to two rows when a large default font makes it wrap (1.4.4)
@@ -92,6 +98,8 @@ export function TopBar() {
           })}
         </BreadcrumbList>
       </Breadcrumb>
+      {/* the health board's chip: a deployment-wide page members never see */}
+      {operatorPage && <Badge className="ml-1 shrink-0 max-sm:hidden">Operators only</Badge>}
       {/* on a second row, when the bar wraps, it keeps to the right */}
       <div className="ml-auto flex min-w-0 shrink items-center justify-end gap-2 max-sm:gap-1">
         <UploadIndicator />
