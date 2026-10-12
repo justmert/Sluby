@@ -12,7 +12,7 @@ function Progress({
   /**
    * For a bar that tracks a polled value: it eases over --duration-progress
    * (1200 ms), which is shorter than the fastest poll, so it glides between
-   * readings without trailing the printed number. Off, it moves in 300 ms.
+   * readings without trailing the printed number. Off, it moves in 400 ms.
    */
   smooth?: boolean;
   /**
@@ -26,7 +26,7 @@ function Progress({
     <ProgressPrimitive.Root
       data-slot="progress"
       className={cn(
-        'relative flex h-1 w-full items-center overflow-x-hidden rounded-full bg-muted',
+        'relative flex h-1.5 w-full items-center overflow-x-hidden rounded-full bg-sunken',
         className,
       )}
       value={value}
@@ -37,8 +37,8 @@ function Progress({
         data-smooth={smooth || undefined}
         data-moving={moving || undefined}
         className={cn(
-          'relative size-full flex-1 overflow-hidden bg-progress transition-transform ease-out-soft',
-          smooth ? 'duration-(--duration-progress)' : 'duration-300',
+          'relative size-full flex-1 overflow-hidden rounded-full bg-progress transition-transform ease-design',
+          smooth ? 'duration-(--duration-progress)' : 'duration-400',
           // the light rides on the visible part of the fill: the indicator is
           // shifted left by the part still to do, so its right edge is the tip
           moving &&
