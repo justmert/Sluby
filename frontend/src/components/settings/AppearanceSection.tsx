@@ -10,9 +10,9 @@ const CHOICES = ORDER.map((v) => THEME_OPTIONS.find((o) => o.value === v)!);
 // theme's ground with fixed colors (the --background of :root and the ink of
 // light) instead of tokens, which would follow the current theme
 const PREVIEW: Record<Theme, string> = {
-  system: 'border-[#e7e5e4] bg-[linear-gradient(90deg,#fafaf9_50%,#1c1917_50%)]',
+  system: 'border-[#e7e5e4] bg-[linear-gradient(90deg,#fafaf9_50%,#0c0e0f_50%)]',
   light: 'border-[#e7e5e4] bg-[#fafaf9]',
-  dark: 'border-[#2b2724] bg-[#1c1917]',
+  dark: 'border-[#282d31] bg-[#0c0e0f]',
 };
 
 /** Light, dark or the system's theme, kept in this browser. */

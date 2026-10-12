@@ -68,8 +68,8 @@ describe('quickstart skeleton', () => {
       // the number circle is 28 px whatever the width
       const circle = cards[0].querySelector('span[aria-hidden="true"]')!.getBoundingClientRect();
       expect([circle.width, circle.height]).toEqual([28, 28]);
-      // the column stops at 960 px on a wide screen
-      expect(boxes[0].width).toBeLessThanOrEqual(960);
+      // the column stops at 1280 px on a wide screen
+      expect(boxes[0].width).toBeLessThanOrEqual(1280);
     });
   }
 });

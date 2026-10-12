@@ -27,7 +27,8 @@
 }
 
 /* design tokens. light is the base and .dark overrides; the theme provider
-   puts the class on <html>. neutrals are warm stone, the one accent is petrol.
+   puts the class on <html>. neutrals are warm stone in light and a cool slate in dark, the one accent
+   is petrol.
    every text pair is checked against wcag aa: body and muted text 7:1 or
    more, primary on white 6.2:1, status text 5:1 or more, field edges 3.6:1.
 
@@ -127,20 +128,20 @@
 }
 
 .dark {
-  --background: #0e0d0c;
-  --foreground: #f2f0ee;
-  --card: #171514;
-  --card-foreground: #f2f0ee;
-  --popover: #171514;
-  --popover-foreground: #f2f0ee;
+  --background: #0c0e0f;
+  --foreground: #eef1f2;
+  --card: #14171a;
+  --card-foreground: #eef1f2;
+  --popover: #14171a;
+  --popover-foreground: #eef1f2;
   --primary: #5bbfcc;
   --primary-foreground: #06262b;
-  --secondary: #211e1c;
-  --secondary-foreground: #d6d3d1;
-  --muted: #211e1c;
-  --muted-foreground: #a8a29e;
-  --accent: #26221f;
-  --accent-foreground: #f2f0ee;
+  --secondary: #1c2023;
+  --secondary-foreground: #d2d7da;
+  --muted: #1c2023;
+  --muted-foreground: #a1a9ad;
+  --accent: #22272a;
+  --accent-foreground: #eef1f2;
   --destructive: #f58a8a;
   --destructive-solid: #f58a8a;
   --destructive-solid-foreground: #2a0909;
@@ -149,32 +150,32 @@
   --warning-foreground: #f2b866;
   --progress: #5bbfcc;
   --progress-foreground: #5bbfcc;
-  --info: #d6d3d1;
-  --border: #2b2724;
-  --border-strong: #3d3834;
-  --input: #78716c;
+  --info: #d2d7da;
+  --border: #282d31;
+  --border-strong: #3a4146;
+  --input: #717a80;
   --ring: #5bbfcc;
   --chart-1: #5bbfcc;
   --chart-2: #6bd394;
   --chart-3: #f2b866;
   --chart-4: #f0a0c8;
-  --chart-5: #a8a29e;
-  --sidebar: #171514;
-  --sidebar-foreground: #f2f0ee;
+  --chart-5: #a1a9ad;
+  --sidebar: #14171a;
+  --sidebar-foreground: #eef1f2;
   --sidebar-primary: #5bbfcc;
   --sidebar-primary-foreground: #06262b;
-  --sidebar-accent: #26221f;
+  --sidebar-accent: #22272a;
   --sidebar-accent-foreground: #5bbfcc;
-  --sidebar-border: #2b2724;
+  --sidebar-border: #282d31;
   --sidebar-ring: #5bbfcc;
   --code-keyword: #f0a0c8;
   --code-string: #a7d98a;
   --code-number: #f5b76b;
   --code-fn: #82d2dc;
-  --bar: #2b2724;
-  --bar-foreground: #f2f0ee;
-  --bar-muted: #c9c4bf;
-  --bar-border: #4a443f;
+  --bar: #282d31;
+  --bar-foreground: #eef1f2;
+  --bar-muted: #c4cacd;
+  --bar-border: #454d52;
   --bar-success: #6bd394;
   --bar-warning: #f2b866;
   --bar-destructive: #f58a8a;
@@ -186,10 +187,10 @@
   --progress-line: #2a6a74;
   --primary-ring: #1b4950;
   --primary-hover: #82d2dc;
-  --sunken: #1d1a18;
-  --subtle-foreground: #918a84;
-  --faint: #6b6560;
-  --border-soft: #221f1d;
+  --sunken: #191d20;
+  --subtle-foreground: #8b9499;
+  --faint: #646c71;
+  --border-soft: #1f2326;
   --media: #050505;
   --shadow-tint: rgb(0 0 0 / 0.5);
 }
@@ -202,9 +203,9 @@
     --border: #a8a29e;
   }
   .dark {
-    --muted-foreground: #d6d3d1;
-    --input: #a8a29e;
-    --border: #57534e;
+    --muted-foreground: #d2d7da;
+    --input: #a1a9ad;
+    --border: #535b60;
   }
 }
 

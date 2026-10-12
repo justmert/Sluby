@@ -70,7 +70,7 @@ export default function HealthPage() {
   const overall = status ? OVERALL[status.status] : null;
 
   return (
-    <PageContainer className="max-w-290">
+    <PageContainer className="max-w-400">
       <PageHeader
         title={PAGE_HEADS.health.title}
         className="mb-5"

@@ -6,7 +6,7 @@
  * - className, merged onto the outer element
  *
  * The design's main column: 32px padding (20 by 16 below 900px, where the
- * sidebar hides), at most 1160px wide and centred in the room beside the
+ * sidebar hides), at most 1600px wide and centred in the room beside the
  * sidebar, so a wide window gets even margins instead of one empty half.
  *
  * It is a named size container called `page`, so a page can lay out by the
@@ -17,7 +17,7 @@
  *
  * The stock container sizes apply: @sm 24rem, @md 28rem, @lg 32rem, @xl 36rem,
  * @2xl 42rem, @3xl 48rem, @4xl 56rem, @5xl 64rem, @6xl 72rem, @7xl 80rem. They
- * measure the content box (inside the padding), at most 1160px minus
+ * measure the content box (inside the padding), at most 1600px minus
  * the padding. Nested containers keep working; `/page` always means this one.
  *
  * Container size queries only read the width, so nothing about height or
@@ -62,7 +62,7 @@ export function PageContainer({ children, className }: PageContainerProps) {
       data-slot="page-container"
       data-instant-skeletons={instant || undefined}
       className={cn(
-        '@container/page mx-auto w-full max-w-290 p-8 max-[899px]:px-4 max-[899px]:py-5',
+        '@container/page mx-auto w-full max-w-400 p-8 max-[899px]:px-4 max-[899px]:py-5',
         className,
       )}
     >

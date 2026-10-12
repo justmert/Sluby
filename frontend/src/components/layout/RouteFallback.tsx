@@ -142,10 +142,10 @@ const SKELETONS: Array<[RegExp, () => React.ReactNode, string?]> = [
   [/^\/studio\/developers\/webhooks\/?$/, Webhooks],
   [/^\/studio\/developers\/webhooks\/[^/]+\/?$/, WebhookDetailLoading],
   [/^\/studio\/developers\/explorer\/?$/, ExplorerLoading],
-  [/^\/studio\/deployment\/?$/, Health, 'max-w-290'],
+  [/^\/studio\/deployment\/?$/, Health, 'max-w-400'],
   [/^\/studio\/deployment\/metrics\/?$/, Analytics],
   // settings is one narrow column (SettingsPage)
-  [/^\/studio\/settings\/?$/, Settings, 'max-w-240'],
+  [/^\/studio\/settings\/?$/, Settings, 'max-w-320'],
 ];
 
 /**
