@@ -28,7 +28,8 @@ function AlertDialogOverlay({
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
       className={cn(
-        'fixed inset-0 z-50 bg-black/30 transition-none duration-200 ease-out-soft data-closed:duration-150 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
+        // the same scrim as a dialog
+        'fixed inset-0 z-50 bg-[rgb(12_10_9/0.45)] duration-240 ease-design data-closed:duration-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
         className,
       )}
       {...props}
@@ -55,7 +56,9 @@ function AlertDialogContent({
           data-slot="alert-dialog-content"
           data-size={size}
           className={cn(
-            'group/alert-dialog-content fixed top-[max(1.5rem,12vh)] left-1/2 z-50 grid max-h-[calc(100dvh-max(1.5rem,12vh)-1.5rem)] w-full max-w-[calc(100%-2rem)] overflow-y-auto -translate-x-1/2 gap-4 rounded-xl border bg-popover p-4 text-sm text-popover-foreground shadow-lg transition-none duration-200 ease-out-soft outline-none data-[size=sm]:sm:max-w-xs data-[size=default]:sm:max-w-md data-closed:duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+            // the design's confirm: a raised card, centred by auto margins so
+            // the entrance owns translate
+            'group/alert-dialog-content fixed inset-0 z-50 m-auto grid h-fit max-h-[calc(100dvh-2.5rem)] w-[calc(100%-2rem)] gap-2.5 overflow-y-auto rounded-xl border bg-popover p-4.5 text-sm text-popover-foreground shadow-pop outline-none data-[size=sm]:sm:max-w-xs data-[size=default]:sm:max-w-105 data-closed:duration-150 data-open:animate-enter data-closed:animate-out data-closed:fade-out-0',
             className,
           )}
           {...focus}
@@ -71,7 +74,7 @@ function AlertDialogHeader({ className, ...props }: React.ComponentProps<'div'>)
     <div
       data-slot="alert-dialog-header"
       className={cn(
-        'grid grid-rows-[auto_1fr] place-items-center gap-1.5 text-center has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] has-data-[slot=alert-dialog-media]:gap-x-4 sm:group-data-[size=default]/alert-dialog-content:place-items-start sm:group-data-[size=default]/alert-dialog-content:text-left sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]',
+        'grid grid-rows-[auto_1fr] place-items-center gap-2.5 text-center has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] has-data-[slot=alert-dialog-media]:gap-x-4 sm:group-data-[size=default]/alert-dialog-content:place-items-start sm:group-data-[size=default]/alert-dialog-content:text-left sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]',
         className,
       )}
       {...props}
@@ -84,7 +87,8 @@ function AlertDialogFooter({ className, ...props }: React.ComponentProps<'div'>)
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        '-bottom-4 -mx-4 -mb-4 flex [@media(min-height:30rem)]:sticky flex-col-reverse gap-2 rounded-b-xl border-t bg-[color-mix(in_oklab,var(--muted)_50%,var(--popover))] p-4 group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:justify-end',
+        // no bar: the buttons end the card, sticking on its own surface when it scrolls
+        '-bottom-4.5 -mx-4.5 -mb-4.5 flex [@media(min-height:30rem)]:sticky flex-col-reverse gap-2 rounded-b-xl bg-popover px-4.5 pt-1 pb-4.5 group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:justify-end',
         className,
       )}
       {...props}
@@ -113,7 +117,7 @@ function AlertDialogTitle({
     <AlertDialogPrimitive.Title
       data-slot="alert-dialog-title"
       className={cn(
-        'font-heading text-heading sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2',
+        'font-heading text-base leading-6 font-bold sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2',
         className,
       )}
       {...props}
@@ -129,7 +133,7 @@ function AlertDialogDescription({
     <AlertDialogPrimitive.Description
       data-slot="alert-dialog-description"
       className={cn(
-        'text-sm text-balance text-muted-foreground md:text-pretty *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
+        'text-sm text-muted-foreground md:text-pretty *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
         className,
       )}
       {...props}

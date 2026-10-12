@@ -55,16 +55,18 @@ export function InlineError({
 
   return (
     <Collapse open={present}>
+      {/* the design's error note: a red edge, the icon, the words, and Try
+          again at the end of the row */}
       <div
         role="alert"
         data-slot="inline-error"
         className={cn(
-          'grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 rounded-lg border border-destructive/40 bg-card p-3 text-sm',
+          'grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2.5 gap-y-2 rounded-xl border border-destructive-line bg-card py-2.5 pr-2.5 pl-3.5 text-sm sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center',
           className,
         )}
       >
-        <CircleAlert aria-hidden="true" className="mt-0.5 size-4 text-destructive" />
-        <div className="min-w-0">
+        <CircleAlert aria-hidden="true" className="mt-0.5 size-4.5 text-destructive sm:mt-0" />
+        <div className="min-w-0 py-0.5">
           <p className="font-medium text-foreground">{heading}</p>
           <p className="mt-0.5 text-muted-foreground">
             {info.message}
@@ -77,11 +79,12 @@ export function InlineError({
           />
         </div>
         {canRetry && (
-          <div className="col-start-2 mt-1.5">
+          <div className="col-start-2 sm:col-start-3 sm:row-start-1">
             <Button
               type="button"
               variant="outline"
               size="sm"
+              className="h-7.5 px-2.5"
               onClick={() => void onRetry()}
               disabled={retrying}
             >

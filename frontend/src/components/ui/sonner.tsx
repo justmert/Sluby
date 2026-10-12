@@ -43,7 +43,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           // a bordered circle straddling its corner
           '--toast-close-button-start': 'unset',
           '--toast-close-button-end': '0.5rem',
-          '--toast-close-button-transform': 'translateY(0.875rem)',
+          '--toast-close-button-transform': 'translateY(0.5625rem)',
         } as React.CSSProperties
       }
       // bottom right on a desktop; below 600px sonner spans the width, so on
@@ -65,20 +65,29 @@ const Toaster = ({ ...props }: ToasterProps) => {
         bottom: 'calc(16px + env(safe-area-inset-bottom) + var(--toast-lift, 0px))',
         left: 'calc(16px + env(safe-area-inset-left))',
       }}
-      // long enough to read a sentence; every toast also has a close button
-      duration={8000}
+      // the design's timing: 5 s each, paused while the pointer is on them
+      // (sonner pauses on hover and focus). errors stay until closed, see
+      // lib/toast.ts
+      duration={5000}
+      // stacked open, newest on top, 10 px apart, as in the design, rather
+      // than folded behind each other
+      expand
+      gap={10}
       toastOptions={{
         classNames: {
-          // room on the right for the close button
-          toast: 'cn-toast pr-10! shadow-lg!',
+          // the design's bar: 10 px corners, 12 by 14 padding, 10 px between
+          // icon, words and buttons; room on the right for the close button
+          toast:
+            'cn-toast gap-2.5! rounded-lg! py-3! pr-11! pl-3.5! text-sm! font-normal! shadow-toast!',
           description: 'text-bar-muted!',
           // an outlined button on the bar, like Undo in the design
           actionButton:
-            'border! border-bar-border! bg-transparent! font-semibold! text-bar-foreground! hover:bg-white/10!',
-          cancelButton: 'border! border-bar-border! bg-transparent! text-bar-foreground!',
+            'h-7! rounded-[6px]! border! border-bar-border! bg-transparent! px-2.5! text-[13px]! font-semibold! text-bar-foreground! hover:bg-white/10!',
+          cancelButton:
+            'h-7! rounded-[6px]! border! border-bar-border! bg-transparent! px-2.5! text-[13px]! text-bar-foreground!',
           // a finger needs more than the 20px close button
           closeButton:
-            'border-0! bg-transparent! text-current opacity-60 hover:bg-transparent! hover:opacity-100 pointer-coarse:size-8',
+            'size-7! border-0! bg-transparent! text-current opacity-70 hover:bg-transparent! hover:opacity-100 pointer-coarse:size-9!',
         },
       }}
       {...props}

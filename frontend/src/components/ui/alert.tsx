@@ -2,14 +2,18 @@ import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
+// the design's notes: a card with an 18px icon in the note's colour and
+// plain text beside it. an error also takes a red edge; success and warning
+// keep the neutral edge and let the icon carry the tone
 const alertVariants = cva(
-  "group/alert relative grid w-full gap-0.5 rounded-lg border px-2.5 py-2 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4",
+  "group/alert relative grid w-full gap-0.5 rounded-xl border bg-card px-3.5 py-3 text-left text-sm text-card-foreground has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-24 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2.5 *:[svg]:row-span-2 *:[svg]:mt-px *:[svg:not([class*='size-'])]:size-4.5",
   {
     variants: {
       variant: {
-        default: 'bg-card text-card-foreground',
-        destructive:
-          'bg-card text-destructive *:data-[slot=alert-description]:text-destructive *:[svg]:text-current',
+        default: '*:[svg]:text-muted-foreground',
+        success: '*:[svg]:text-success',
+        warning: '*:[svg]:text-warning-icon',
+        destructive: 'border-destructive-line *:[svg]:text-destructive',
       },
     },
     defaultVariants: {
@@ -38,7 +42,7 @@ function AlertTitle({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="alert-title"
       className={cn(
-        'font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground',
+        'font-semibold group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground',
         className,
       )}
       {...props}
@@ -61,7 +65,11 @@ function AlertDescription({ className, ...props }: React.ComponentProps<'div'>) 
 
 function AlertAction({ className, ...props }: React.ComponentProps<'div'>) {
   return (
-    <div data-slot="alert-action" className={cn('absolute top-2 right-2', className)} {...props} />
+    <div
+      data-slot="alert-action"
+      className={cn('absolute top-1/2 right-2.5 -translate-y-1/2', className)}
+      {...props}
+    />
   );
 }
 

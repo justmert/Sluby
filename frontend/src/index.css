@@ -772,9 +772,21 @@ body:has([data-sonner-toast]) main {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+/* a toast enters as everything else does: it rises 6 px and fades in over
+   240 ms, instead of sonner's slide up from its own full height */
 [data-sonner-toaster] [data-sonner-toast] {
+  transition-duration: 240ms, 240ms, 240ms, 150ms;
+  transition-timing-function: var(--ease-design);
+}
+/* the exit stays inside the 200 ms sonner waits before it unmounts */
+[data-sonner-toaster] [data-sonner-toast][data-removed='true'] {
   transition-duration: 200ms, 200ms, 200ms, 150ms;
-  transition-timing-function: var(--ease-out-soft);
+}
+[data-sonner-toaster] [data-sonner-toast][data-mounted='false'][data-y-position='bottom'] {
+  --y: translateY(6px);
+}
+[data-sonner-toaster] [data-sonner-toast][data-mounted='false'][data-y-position='top'] {
+  --y: translateY(-6px);
 }
 [data-sonner-toaster] [data-sonner-toast] > * {
   transition-duration: 200ms;
