@@ -550,7 +550,7 @@ describe('AssetsPage: search and history', () => {
     expect(
       screen.getByText('Upload a video and it will be ready to stream in a few minutes.'),
     ).toBeInTheDocument();
-    await userEvent.click(screen.getAllByRole('button', { name: 'Upload video' })[1]);
+    await userEvent.click(screen.getByRole('button', { name: 'Upload video' }));
     await waitFor(() => expect(where()).toBe('?upload=1'));
     unmount();
     library();
@@ -929,17 +929,17 @@ describe('AssetsPage: row menu and preview', () => {
       return items;
     };
     expect(await names('Big Buck Bunny')).toEqual([
+      'Copy embed code',
       'Open',
       'Preview',
-      'Copy embed code',
       'Copy stream URL',
       'Copy video ID',
       'Delete',
     ]);
     expect(await names('Sintel')).toEqual([
+      'Copy embed code',
       'Open',
       'Preview',
-      'Copy embed code',
       'Copy video ID',
       'Delete',
     ]);

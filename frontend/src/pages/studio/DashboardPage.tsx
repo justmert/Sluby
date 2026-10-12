@@ -38,8 +38,6 @@ import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useUsage } from '@/hooks/useUsage';
 import { useWebhooks } from '@/hooks/useWebhooks';
 import { useSession } from '@/lib/session';
-import { useUploadSheet } from '@/lib/upload-sheet';
-import { UploadVideoButton } from '@/components/layout/page-actions';
 import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 // enough of the newest videos that six remain once abandoned placeholders are left out
@@ -68,7 +66,6 @@ function useWaited(ms: number, skip: boolean): boolean {
 export default function DashboardPage() {
   const session = useSession();
   const { operator } = session;
-  const sheet = useUploadSheet();
 
   const stats = useAssetStats();
   const system = useSystemStatus({ poll: true });
@@ -166,10 +163,8 @@ export default function DashboardPage() {
 
   return (
     <PageContainer>
-      <PageHeader
-        {...PAGE_HEADS.overview}
-        primaryAction={<UploadVideoButton onClick={() => sheet.open()} />}
-      />
+      {/* no upload button here: the sidebar's Upload video is the one primary action */}
+      <PageHeader {...PAGE_HEADS.overview} />
 
       {!ready ? (
         <div data-instant-skeletons={instant || undefined}>
@@ -190,16 +185,6 @@ export default function DashboardPage() {
                   // the button is gone; keep keyboard users on the page
                   document.getElementById('main-content')?.focus();
                 }}
-              />
-            </div>
-          </Collapse>
-          <Collapse open={attention.length > 0}>
-            <div className="pb-4">
-              <NeedsAttention
-                items={attention}
-                total={attentionCount}
-                operator={operator}
-                stagger={stagger}
               />
             </div>
           </Collapse>
@@ -230,6 +215,19 @@ export default function DashboardPage() {
 
           <AnimatedList as="div" initial={stagger ? 'hidden' : false} className={DASH.main}>
             <AnimatedItem as="div" key="recent" layout={false} className={DASH.recent}>
+              {/* needs attention leads the wide column, so it sits beside the
+                  status card like the design; on a narrow page it comes right
+                  after the totals */}
+              <Collapse open={attention.length > 0}>
+                <div className="pb-4">
+                  <NeedsAttention
+                    items={attention}
+                    total={attentionCount}
+                    operator={operator}
+                    stagger={stagger}
+                  />
+                </div>
+              </Collapse>
               <RecentVideos
                 videos={recent}
                 error={latest.error}

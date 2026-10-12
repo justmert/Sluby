@@ -7,6 +7,7 @@ import { AccountSection } from '@/components/settings/AccountSection';
 import { AppearanceSection } from '@/components/settings/AppearanceSection';
 import { SESSION_COLUMNS } from '@/components/settings/columns';
 import { SessionsHeader } from '@/components/settings/SessionsHeader';
+import { SETTINGS_SECTION } from '@/components/settings/section';
 import { type ColumnFrame, withCells } from '@/components/shared/column-frames';
 import { DataTable } from '@/components/shared/DataTable';
 import { PageHeader, type PageHeaderProps, SectionHeader } from '@/components/shared/PageHeader';
@@ -31,12 +32,7 @@ import {
   TryExplorerLink,
 } from '@/pages/studio/developers/quickstart-parts';
 import { SETUP_DESCRIPTION } from '@/lib/snippet-copy';
-import {
-  AddWebhookButton,
-  CreateKeyButton,
-  StatsLinePlaceholder,
-  UploadVideoButton,
-} from './page-actions';
+import { AddWebhookButton, CreateKeyButton, StatsLinePlaceholder } from './page-actions';
 import { PAGE_HEADS } from './page-heads';
 import { lateReveal } from '@/lib/motion';
 import { PageContainer } from './PageContainer';
@@ -66,7 +62,7 @@ function Dashboard() {
   const { operator } = useSession();
   return (
     <>
-      <Head {...PAGE_HEADS.overview} primaryAction={<UploadVideoButton />} />
+      <Head {...PAGE_HEADS.overview} />
       <DashboardLoading operator={operator} />
     </>
   );
@@ -83,11 +79,7 @@ function Assets() {
     'grid';
   return (
     <>
-      <Head
-        {...PAGE_HEADS.videos}
-        description={<StatsLinePlaceholder />}
-        primaryAction={<UploadVideoButton />}
-      />
+      <Head {...PAGE_HEADS.videos} description={<StatsLinePlaceholder />} />
       {/* the page's toolbar box, control for control (AssetsPage) */}
       <div className="-mx-2 mb-3 flex flex-col gap-2 px-2 py-2 @2xl/page:flex-row @2xl/page:items-center">
         <Skeleton className={cn(control, 'w-full @2xl/page:max-w-sm')} />
@@ -294,10 +286,10 @@ function Settings() {
   return (
     <>
       <Head {...PAGE_HEADS.settings} />
-      <div className="flex flex-col gap-10">
+      <div className="flex flex-col gap-6">
         <AccountSection />
         {!authDisabled && (
-          <section>
+          <section className={SETTINGS_SECTION}>
             <SessionsHeader username={username} />
             <TableSkeleton columns={SESSION_COLUMNS} rows={2} />
           </section>
@@ -320,7 +312,7 @@ const SKELETONS: Array<[RegExp, () => React.ReactNode, string?]> = [
   [/^\/studio\/deployment\/?$/, Health],
   [/^\/studio\/deployment\/metrics\/?$/, Analytics],
   // settings is one narrow column (SettingsPage)
-  [/^\/studio\/settings\/?$/, Settings, 'max-w-3xl'],
+  [/^\/studio\/settings\/?$/, Settings, 'max-w-240'],
 ];
 
 /**

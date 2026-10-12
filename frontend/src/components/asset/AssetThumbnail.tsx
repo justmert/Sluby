@@ -18,7 +18,7 @@ interface AssetThumbnailProps {
    * A video still being made: a striped tile with a thin bar along the
    * bottom, and in the `md` size the stage and percent ("Storing on Sia, 65%").
    */
-  processing?: { label: string; percent: number | null };
+  processing?: { label: string; percent: number | null; moving?: boolean };
   /** Processing failed: a red tint, and "Failed" in the `md` size. */
   failed?: boolean;
   /**
@@ -82,6 +82,7 @@ export function AssetThumbnail({
           {processing.percent !== null && (
             <Progress
               smooth
+              moving={processing.moving}
               value={processing.percent}
               aria-hidden="true"
               className="absolute inset-x-0 bottom-0 h-0.5 rounded-none bg-transparent [&>[data-slot=progress-indicator]]:bg-primary/60"

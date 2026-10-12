@@ -208,6 +208,7 @@ export function ProcessingCard({
       {view?.percent != null && (
         <Progress
           smooth
+          moving={view.busy && !jobError}
           value={view.percent}
           className="mt-3"
           aria-label={`${asset.title}, processing progress`}

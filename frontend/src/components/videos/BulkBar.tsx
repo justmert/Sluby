@@ -35,6 +35,11 @@ export interface BulkBarProps {
 // keep toasts above the bar while it shows (the toaster reads this, D-20)
 const LIFT = '--toast-lift';
 
+// outlined buttons on the dark bar; the ring is the bar's own text color,
+// since the petrol ring would sit too close to the bar's dark fill
+const ON_BAR =
+  'border-bar-border bg-transparent text-bar-foreground hover:bg-white/10 hover:text-bar-foreground focus-visible:border-bar-foreground focus-visible:ring-bar-foreground/50 dark:border-bar-border dark:bg-transparent dark:hover:bg-white/10';
+
 /**
  * What can be done with the selected videos. It sticks to the bottom of the
  * content column, not the window, so it centers on what it acts on (VIS-18).
@@ -87,14 +92,14 @@ export function BulkBar({
       animate={{ opacity: 1, y: 0, transition: spring }}
       exit={{ opacity: 0, y: 16, transition: transition.fast }}
       className={cn(
-        'z-20 mx-auto flex w-fit max-w-full flex-col gap-1 rounded-xl border bg-popover p-1.5 pl-4 text-sm text-popover-foreground shadow-lg',
+        'z-20 mx-auto flex w-fit max-w-full flex-col gap-1 rounded-xl bg-bar p-2 pl-4 text-sm text-bar-foreground shadow-lg',
         className,
       )}
     >
       {/* one row on wider screens; on phones the count and Clear share the
           first row and the actions get the second, instead of a ragged wrap */}
       <div className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-1 sm:flex">
-        <span className="mr-1 whitespace-nowrap tabular-nums">
+        <span className="mr-1 font-semibold whitespace-nowrap tabular-nums">
           {/* the page-level status region announces the count; this is the visible copy */}
           <NumberTicker value={count} format={(n) => formatCount(Math.round(n))} />
           {!acrossPages && (
@@ -103,25 +108,54 @@ export function BulkBar({
           selected
         </span>
         <div className="col-span-2 row-start-2 -ml-2.5 flex flex-wrap items-center gap-1 sm:contents">
-          <Button variant="ghost" size="sm" disabled={busy} onClick={onMakePublic}>
+          <Button
+            variant="outline"
+            size="sm"
+            className={ON_BAR}
+            disabled={busy}
+            onClick={onMakePublic}
+          >
             {changing === 'public' ? <Spinner aria-hidden="true" /> : <Globe />}
             Make public
           </Button>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={onMakePrivate}>
+          <Button
+            variant="outline"
+            size="sm"
+            className={ON_BAR}
+            disabled={busy}
+            onClick={onMakePrivate}
+          >
             {changing === 'private' ? <Spinner aria-hidden="true" /> : <Lock />}
             Make private
           </Button>
-          <Button variant="destructive-outline" size="sm" disabled={busy} onClick={onDelete}>
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              ON_BAR,
+              'border-bar-destructive-border font-semibold text-bar-destructive hover:text-bar-destructive dark:border-bar-destructive-border',
+            )}
+            disabled={busy}
+            onClick={onDelete}
+          >
             <Icons.delete />
             Delete
           </Button>
         </div>
-        <Button variant="ghost" size="sm" className="col-start-2 row-start-1" onClick={onClear}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            ON_BAR,
+            'col-start-2 row-start-1 border-transparent dark:border-transparent',
+          )}
+          onClick={onClear}
+        >
           Clear
         </Button>
       </div>
       {(offerAll || acrossPages) && (
-        <p className="flex flex-wrap items-center gap-x-1 pr-2 pb-1 text-xs text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-x-1 pr-2 pb-1 text-xs text-bar-muted">
           {acrossPages ? (
             <span>
               {count < total
@@ -134,7 +168,7 @@ export function BulkBar({
               <Button
                 variant="link"
                 size="sm"
-                className="h-auto px-0 text-xs"
+                className="h-auto px-0 text-xs text-bar-foreground focus-visible:ring-bar-foreground/50"
                 disabled={selectingAll}
                 onClick={onSelectAll}
               >

@@ -213,7 +213,7 @@ const steps = () =>
     .map((li) => li as HTMLElement);
 
 describe('Overview page', () => {
-  it('is titled Overview with the upload action, and no operator cards for anyone', async () => {
+  it('is titled Overview, leaves the upload action to the sidebar, and shows no operator cards', async () => {
     setup({ '/api/v1/system/status': deploymentStatus });
     render(true);
     expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
@@ -229,8 +229,8 @@ describe('Overview page', () => {
     ]) {
       expect(screen.queryByRole('heading', { name: title })).not.toBeInTheDocument();
     }
-    await userEvent.click(screen.getByRole('button', { name: 'Upload video' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('/studio?upload=1');
+    // the sidebar's Upload video is the primary one; the header has none
+    expect(document.querySelector('[data-slot="page-actions"]')).toBeNull();
   });
 
   describe('stat cards', () => {
@@ -318,6 +318,13 @@ describe('Overview page', () => {
       expect(within(sia).getByText('Connected to Sia mainnet')).toBeInTheDocument();
       expect(within(sia).getByText(', Done')).toBeInTheDocument();
       expect(within(upload).getByText(', Not done')).toBeInTheDocument();
+      // the bar says the same as the count, and the next step gets the petrol edge
+      expect(
+        within(card('Get started')).getByRole('progressbar', { name: 'Get started progress' }),
+      ).toHaveAttribute('aria-valuenow', '25');
+      expect(upload).toHaveAttribute('data-current', 'true');
+      expect(upload).toHaveClass('border-2', 'border-primary');
+      for (const other of [sia, play, key, hook]) expect(other).not.toHaveAttribute('data-current');
       expect(within(play).getByRole('button', { name: 'Get embed code' })).toBeDisabled();
       expect(within(play).getByText('Available once a video is ready.')).toBeInTheDocument();
       expect(within(key).getByRole('link', { name: 'Create key' })).toHaveAttribute(
