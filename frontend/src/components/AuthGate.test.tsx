@@ -79,7 +79,7 @@ describe('AuthGate', () => {
   it('sets the product name in the page title style, not an off-scale size', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
     renderGate();
-    const name = await screen.findByRole('heading', { level: 1, name: 'Sluby Studio' });
+    const name = await screen.findByRole('heading', { level: 1, name: 'Sign in to Sluby Studio' });
     expect(name).toHaveClass('text-title');
     expect(name).not.toHaveClass('text-3xl');
   });
