@@ -1,11 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
-import { ChevronDown, RotateCw } from 'lucide-react';
 import { Collapse } from '@/components/motion';
 import { InlineError } from '@/components/shared/InlineError';
 import { JsonViewer } from '@/components/shared/JsonViewer';
-import { HttpStatusBadge } from '@/components/shared/StatusBadge';
+import { httpSpec } from '@/components/shared/status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ResponsiveCell, ResponsiveTable } from '@/components/ui/responsive-table';
@@ -20,6 +19,8 @@ import { toastError, toastSuccess } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 
 const MotionRow = m.create(TableRow);
+
+const PAUSED_NOTE_ID = 'deliveries-paused-note';
 
 /** A tint that fades out once, so a delivery that just arrived is easy to spot. */
 function ArrivalFlash() {
@@ -37,6 +38,63 @@ function ArrivalFlash() {
 const fullTime = (iso: string) =>
   `${formatDate(iso)}, ${new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 
+const TONE_VARIANT = {
+  success: 'success',
+  warning: 'warning',
+  danger: 'destructive',
+} as const;
+
+/**
+ * "200", "503 · after 3 tries", "No answer". the log has no response time,
+ * so the chip carries the code and, for a retry, which try this was.
+ */
+export function ResultChip({ delivery: d }: { delivery: WebhookDelivery }) {
+  const spec = httpSpec(d.statusCode);
+  // a 2xx the receiver answered too late or malformed still counts as not delivered
+  const tone = d.delivered ? 'success' : spec.tone === 'success' ? 'danger' : spec.tone;
+  const code = d.statusCode == null ? 'No answer' : String(d.statusCode);
+  const tries =
+    d.attempt > 1 ? (d.delivered ? ` · try ${d.attempt}` : ` · after ${d.attempt} tries`) : '';
+  return (
+    <Badge
+      variant={TONE_VARIANT[tone as keyof typeof TONE_VARIANT] ?? 'secondary'}
+      className="tabular-nums"
+    >
+      {code}
+      {tries}
+    </Badge>
+  );
+}
+
+function SendAgain({
+  delivery: d,
+  paused,
+  resending,
+  onResend,
+}: {
+  delivery: WebhookDelivery;
+  paused: boolean;
+  resending: boolean;
+  onResend: () => void;
+}) {
+  return (
+    <Button
+      variant="outline"
+      className="h-7.5 px-2.5"
+      onClick={onResend}
+      disabled={paused || resending}
+      aria-busy={resending || undefined}
+      aria-describedby={paused ? PAUSED_NOTE_ID : undefined}
+    >
+      {resending && <Spinner data-icon="inline-start" aria-hidden="true" />}
+      {resending ? 'Sending…' : 'Send again'}
+      <span className="sr-only">
+        , {d.event}, {formatRelativeTime(d.createdAt)}
+      </span>
+    </Button>
+  );
+}
+
 function DeliveryDetail({
   delivery: d,
   paused,
@@ -49,7 +107,7 @@ function DeliveryDetail({
   resending: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-3 py-3">
+    <div className="flex flex-col gap-3 pb-4">
       <JsonViewer
         value={d.payload}
         label="Payload"
@@ -58,38 +116,27 @@ function DeliveryDetail({
       />
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
         <dt className="text-muted-foreground">Event ID</dt>
-        <dd className="min-w-0 font-mono text-xs leading-5 break-all">{d.eventId ?? '–'}</dd>
+        <dd className="min-w-0 font-mono text-[13px] leading-5 break-all">{d.eventId ?? '–'}</dd>
         <dt className="text-muted-foreground">Error</dt>
         <dd className={cn('min-w-0 wrap-anywhere', d.error && 'text-destructive')}>
           {d.error ?? 'None'}
         </dd>
       </dl>
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onResend}
-          disabled={paused || resending}
-          aria-busy={resending || undefined}
-          aria-describedby={paused ? `resend-paused-${d.id}` : undefined}
-        >
-          {resending ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <RotateCw />}
-          {resending ? 'Resending…' : 'Resend'}
-        </Button>
-        {paused && (
-          <p id={`resend-paused-${d.id}`} className="text-xs text-muted-foreground">
-            Resume the webhook to resend.
-          </p>
-        )}
-      </div>
+      {/* a failed row has Send again on the row itself */}
+      {d.delivered && (
+        <div>
+          <SendAgain delivery={d} paused={paused} resending={resending} onResend={onResend} />
+        </div>
+      )}
     </div>
   );
 }
 
 /**
- * The delivery log of one webhook: newest first, refreshed every 10 seconds
- * while the tab is visible, new rows fading in with a short tint. Each row
- * opens to the payload that was sent and a Resend button (B-05, B-06).
+ * The delivery log of one webhook as a card: newest first, refreshed every
+ * 10 seconds while the tab is visible, new rows fading in with a short tint.
+ * Each row shows its payload on demand, and a failed one can be sent again
+ * (B-05, B-06).
  */
 export function DeliveriesTable({ webhookId, paused }: { webhookId: string; paused: boolean }) {
   const deliveries = useWebhookDeliveries(webhookId);
@@ -140,132 +187,154 @@ export function DeliveriesTable({ webhookId, paused }: { webhookId: string; paus
     }
   };
 
+  let body: React.ReactNode;
   if (!rows) {
-    if (deliveries.isError) {
-      return (
+    body = deliveries.isError ? (
+      <div className="px-5 pb-4">
         <InlineError
           error={deliveries.error}
           title="Could not load deliveries"
           onRetry={() => deliveries.refetch()}
           retrying={deliveries.isFetching}
         />
-      );
-    }
-    return (
-      <div className="flex flex-col gap-2" aria-hidden="true">
+      </div>
+    ) : (
+      <div className="flex flex-col gap-2 px-5 pb-4" aria-hidden="true">
         {[0, 1, 2].map((i) => (
           <Skeleton key={i} className={cn('h-10', lateReveal)} />
         ))}
       </div>
     );
+  } else if (rows.length === 0) {
+    body = (
+      <p className="border-t px-5 py-8 text-center text-sm text-muted-foreground">
+        No deliveries yet.
+      </p>
+    );
+  } else {
+    body = (
+      <ResponsiveTable aria-label="Deliveries" className="max-sm:[&_tbody>tr]:px-5">
+        <TableHeader className="[&_tr]:border-y [&_tr]:bg-background [&_tr]:hover:bg-background">
+          <TableRow>
+            <TableHead className="h-auto px-3 py-2.5 pl-5 font-semibold">Event</TableHead>
+            <TableHead className="h-auto px-3 py-2.5 font-semibold">Result</TableHead>
+            <TableHead className="h-auto px-3 py-2.5 font-semibold">Sent</TableHead>
+            <TableHead className="h-auto px-3 py-2.5 pr-5 text-right">
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <AnimatePresence initial={false}>
+            {rows.map((d) => {
+              const isOpen = open.has(d.id);
+              const fresh = known !== null && !known.has(d.id);
+              const panelId = `delivery-${d.id}`;
+              const when = formatRelativeTime(d.createdAt);
+              return (
+                <Fragment key={d.id}>
+                  <MotionRow
+                    variants={listItem}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                    className="relative border-b-0 not-first:border-t hover:bg-background has-aria-expanded:bg-muted"
+                  >
+                    <ResponsiveCell cell="primary" className="px-3 py-2.5 pl-5">
+                      {fresh && <ArrivalFlash />}
+                      <span className="relative flex flex-wrap items-center gap-1.5">
+                        <span className="font-mono text-[13px]">{d.event}</span>
+                        {d.event === 'webhook.test' && <Badge variant="secondary">Test</Badge>}
+                        {d.manual && <Badge variant="secondary">Resent</Badge>}
+                      </span>
+                    </ResponsiveCell>
+                    <ResponsiveCell label="Result" className="px-3 py-2.5">
+                      <ResultChip delivery={d} />
+                    </ResponsiveCell>
+                    <ResponsiveCell label="Sent" className="px-3 py-2.5 text-muted-foreground">
+                      <time dateTime={d.createdAt} title={fullTime(d.createdAt)}>
+                        {when}
+                      </time>
+                    </ResponsiveCell>
+                    <ResponsiveCell cell="actions" className="px-3 py-2.5 pr-5 text-right">
+                      <span className="inline-flex flex-wrap justify-end gap-2">
+                        {!d.delivered && (
+                          <SendAgain
+                            delivery={d}
+                            paused={paused}
+                            resending={resendingId === d.id}
+                            onResend={() => void resend(d)}
+                          />
+                        )}
+                        <Button
+                          variant="outline"
+                          className="h-7.5 px-2.5"
+                          aria-expanded={isOpen}
+                          aria-controls={panelId}
+                          onClick={() => toggle(d.id)}
+                        >
+                          {isOpen ? 'Hide payload' : 'Show payload'}
+                          <span className="sr-only">
+                            , {d.event}, {when}
+                          </span>
+                        </Button>
+                      </span>
+                    </ResponsiveCell>
+                  </MotionRow>
+                  {mounted.has(d.id) && (
+                    <TableRow className="border-b-0 hover:bg-transparent max-sm:py-0">
+                      <TableCell
+                        colSpan={4}
+                        className="px-5 py-0 whitespace-normal max-sm:[grid-column:1/-1]!"
+                      >
+                        <Collapse open={isOpen} id={panelId}>
+                          <DeliveryDetail
+                            delivery={d}
+                            paused={paused}
+                            onResend={() => void resend(d)}
+                            resending={resendingId === d.id}
+                          />
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
+              );
+            })}
+          </AnimatePresence>
+        </TableBody>
+      </ResponsiveTable>
+    );
   }
 
   return (
-    <section aria-label="Recent deliveries" className="flex flex-col gap-3">
-      {deliveries.isError && (
-        <InlineError
-          error={deliveries.error}
-          title="Could not refresh deliveries"
-          onRetry={() => deliveries.refetch()}
-          retrying={deliveries.isFetching}
-        />
-      )}
-      {rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-          No deliveries yet.
+    <section
+      aria-labelledby="deliveries-title"
+      className="min-w-0 flex-[999_1_35rem] overflow-hidden rounded-xl border bg-card"
+    >
+      <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 px-5 py-4">
+        <h2 id="deliveries-title" className="font-heading text-heading">
+          Deliveries
+        </h2>
+        {/* the log holds the latest attempts, newest first, not a fixed time window */}
+        <span className="text-sm text-muted-foreground">Newest first</span>
+      </div>
+      {paused && (
+        <p id={PAUSED_NOTE_ID} className="-mt-2 px-5 pb-3 text-sm text-muted-foreground">
+          Resume the webhook to send deliveries again.
         </p>
-      ) : (
-        <div className="overflow-hidden rounded-xl border bg-card">
-          <ResponsiveTable aria-label="Deliveries" className="max-sm:[&_tbody>tr]:px-4">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-4">Status</TableHead>
-                <TableHead>Event</TableHead>
-                <TableHead>Attempt</TableHead>
-                <TableHead>Time</TableHead>
-                <TableHead className="w-12 pr-4">
-                  <span className="sr-only">Details</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <AnimatePresence initial={false}>
-                {rows.map((d) => {
-                  const isOpen = open.has(d.id);
-                  const fresh = known !== null && !known.has(d.id);
-                  const panelId = `delivery-${d.id}`;
-                  return (
-                    <Fragment key={d.id}>
-                      <MotionRow
-                        variants={listItem}
-                        initial="hidden"
-                        animate="visible"
-                        exit="exit"
-                        className="relative"
-                      >
-                        <ResponsiveCell cell="primary" className="pl-4">
-                          {fresh && <ArrivalFlash />}
-                          <span className="relative flex flex-wrap items-center gap-1.5">
-                            <HttpStatusBadge code={d.statusCode} />
-                            {d.event === 'webhook.test' && <Badge variant="outline">Test</Badge>}
-                            {d.manual && <Badge variant="outline">Resent</Badge>}
-                          </span>
-                        </ResponsiveCell>
-                        <ResponsiveCell label="Event" className="font-mono text-xs">
-                          {d.event}
-                        </ResponsiveCell>
-                        <ResponsiveCell label="Attempt" className="tabular-nums">
-                          {d.attempt}
-                        </ResponsiveCell>
-                        <ResponsiveCell label="Time" className="text-muted-foreground">
-                          <time dateTime={d.createdAt} title={fullTime(d.createdAt)}>
-                            {formatRelativeTime(d.createdAt)}
-                          </time>
-                        </ResponsiveCell>
-                        <ResponsiveCell cell="actions" className="pr-4 text-right">
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-expanded={isOpen}
-                            aria-controls={panelId}
-                            aria-label={`Details for ${d.event}, ${formatRelativeTime(d.createdAt)}`}
-                            onClick={() => toggle(d.id)}
-                          >
-                            <ChevronDown
-                              aria-hidden="true"
-                              className={cn(
-                                'transition-transform duration-200 ease-out-soft',
-                                isOpen && 'rotate-180',
-                              )}
-                            />
-                          </Button>
-                        </ResponsiveCell>
-                      </MotionRow>
-                      {mounted.has(d.id) && (
-                        <TableRow className="hover:bg-transparent max-sm:py-0">
-                          <TableCell
-                            colSpan={5}
-                            className="px-4 py-0 whitespace-normal max-sm:[grid-column:1/-1]!"
-                          >
-                            <Collapse open={isOpen} id={panelId}>
-                              <DeliveryDetail
-                                delivery={d}
-                                paused={paused}
-                                onResend={() => void resend(d)}
-                                resending={resendingId === d.id}
-                              />
-                            </Collapse>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </AnimatePresence>
-            </TableBody>
-          </ResponsiveTable>
+      )}
+      {rows && deliveries.isError && (
+        <div className="px-5 pb-4">
+          <InlineError
+            error={deliveries.error}
+            title="Could not refresh deliveries"
+            onRetry={() => deliveries.refetch()}
+            retrying={deliveries.isFetching}
+          />
         </div>
       )}
+      {body}
     </section>
   );
 }

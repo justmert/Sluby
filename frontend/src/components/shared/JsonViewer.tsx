@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatBytes, formatCount, plural } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
@@ -39,10 +38,10 @@ const sizeOf = (v: Json[] | { [key: string]: Json }) =>
 const summary = (v: Json[] | { [key: string]: Json }) =>
   Array.isArray(v) ? plural(v.length, 'item') : plural(sizeOf(v), 'key');
 
-const PUNCT = 'text-muted-foreground';
+const PUNCT = 'text-subtle-foreground';
 
 function Leaf({ value }: { value: Json }) {
-  if (value === null) return <span className="text-muted-foreground italic">null</span>;
+  if (value === null) return <span className="text-subtle-foreground italic">null</span>;
   if (typeof value === 'string')
     return <span className="text-code-string">{JSON.stringify(value)}</span>;
   if (typeof value === 'number') return <span className="text-code-number">{String(value)}</span>;
@@ -60,24 +59,20 @@ function Caret({ open, onToggle }: { open: boolean; onToggle: () => void }) {
       tabIndex={-1}
       aria-hidden="true"
       onClick={onToggle}
-      className="grid size-4.5 shrink-0 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:text-foreground"
+      className="grid h-[1.75em] w-4 shrink-0 cursor-pointer place-items-center rounded-sm text-subtle-foreground transition-colors duration-150 ease-design hover:text-foreground"
     >
-      <ChevronRight
-        className={cn(
-          'size-3.5 transition-transform duration-150 ease-out-soft',
-          open && 'rotate-90',
-        )}
-      />
+      {/* the board's small triangles: right when closed, down when open */}
+      {open ? '▾' : '▸'}
     </button>
   );
 }
 
-const Spacer = () => <span aria-hidden="true" className="w-4.5 shrink-0" />;
+const Spacer = () => <span aria-hidden="true" className="w-4 shrink-0" />;
 
 // the ring sits on the item's own line, not around its whole subtree
 const ITEM =
   'outline-none [&:focus-visible>[data-line]]:ring-2 [&:focus-visible>[data-line]]:ring-ring';
-const LINE = 'flex items-start rounded-sm';
+const LINE = 'flex items-start gap-0.5 rounded-sm';
 
 function JsonNode({
   name,
@@ -101,7 +96,7 @@ function JsonNode({
   const key =
     name === undefined ? null : (
       <>
-        <span className="text-code-fn">{JSON.stringify(name)}</span>
+        <span className="text-primary">{JSON.stringify(name)}</span>
         <span className={PUNCT}>:&nbsp;</span>
       </>
     );
@@ -170,7 +165,7 @@ function JsonNode({
           <span className={PUNCT}>{opening}</span>
           {!open && (
             <>
-              <span className="mx-1 rounded-sm border px-1 text-muted-foreground">
+              <span className="mr-0.5 ml-1 rounded-sm border px-1 text-subtle-foreground">
                 {summary(value)}
               </span>
               <span className={PUNCT}>{closing}</span>
@@ -245,6 +240,9 @@ function MoreItem({ path, depth, rest }: { path: string; depth: number; rest: nu
 function utf8Length(s: string) {
   return new TextEncoder().encode(s).length;
 }
+
+/** "412 bytes" for a small document, "1.2 KB" once it is bigger */
+const sizeText = (bytes: number) => (bytes < 1024 ? plural(bytes, 'byte') : formatBytes(bytes));
 
 type Parsed =
   { ok: true; value: Json; pretty: string; bytes: number } | { ok: false; text: string };
@@ -430,14 +428,15 @@ export function JsonViewer(props: JsonViewerProps) {
     >
       <div className="flex flex-wrap items-center gap-2 border-b bg-background py-1.5 pr-1.5 pl-3 text-xs text-muted-foreground">
         <span className="min-w-0">
-          {label} · {formatBytes(parsed.bytes)}
+          {label} · {sizeText(parsed.bytes)}
         </span>
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-2">
           {isContainer(parsed.value) && sizeOf(parsed.value) > 0 && (
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size="xs"
+              className="h-6.5 px-2 text-xs"
               onClick={() => setAll(allOpen ? 'closed' : 'open')}
             >
               {allOpen ? 'Collapse all' : 'Expand all'}
@@ -449,6 +448,7 @@ export function JsonViewer(props: JsonViewerProps) {
             text="Copy JSON"
             variant="outline"
             label={`Copy JSON of ${name}`}
+            className="h-6.5 px-2 text-xs"
           />
         </div>
       </div>
@@ -464,7 +464,7 @@ export function JsonViewer(props: JsonViewerProps) {
               if (item?.dataset.path) setActive(item.dataset.path);
             }}
             // no ligatures, as in CodeBlock: copied json should read as typed
-            className="font-mono text-xs leading-relaxed [font-variant-ligatures:none]"
+            className="font-mono text-[12.5px] leading-[1.75] [font-variant-ligatures:none]"
           >
             <JsonNode value={parsed.value} path={ROOT} depth={0} last label={name} />
           </ul>
