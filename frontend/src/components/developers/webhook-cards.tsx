@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { EventsEditor } from './EventsEditor';
 import { WEBHOOK_EVENTS } from './options';
 
-const CARD = 'flex flex-col gap-2.5 rounded-xl border bg-card px-5 py-4.5';
+const CARD = 'flex flex-col gap-2.5 rounded-xl border bg-card px-5 py-4.5 text-sm';
 
 const sameEvents = (a: string[], b: string[]) =>
   a.length === b.length && a.every((e) => b.includes(e));

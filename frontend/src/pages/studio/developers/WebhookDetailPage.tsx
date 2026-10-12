@@ -191,7 +191,7 @@ export default function WebhookDetailPage() {
         {!hook.isActive && (
           <p
             id={PAUSED_NOTE_ID}
-            className="flex animate-enter items-start gap-3 rounded-xl border bg-card px-4 py-3.5"
+            className="flex animate-enter items-start gap-3 rounded-xl border bg-card px-4 py-3.5 text-sm"
           >
             {/* amber is the attention hue; the card itself stays neutral */}
             <Pause aria-hidden="true" className="mt-0.5 size-4.5 shrink-0 text-warning-icon" />

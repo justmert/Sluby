@@ -310,7 +310,7 @@ export function DeliveriesTable({ webhookId, paused }: { webhookId: string; paus
   return (
     <section
       aria-labelledby="deliveries-title"
-      className="min-w-0 flex-[999_1_35rem] overflow-hidden rounded-xl border bg-card"
+      className="min-w-0 flex-[999_1_35rem] overflow-hidden rounded-xl border bg-card text-sm"
     >
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 px-5 py-4">
         <h2 id="deliveries-title" className="font-heading text-heading">

@@ -346,7 +346,8 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
             {open ? 'Hide details' : 'Details'}
           </Button>
         )}
-        {actions}
+        {/* the buttons wrap as one group, so a narrow row never splits them */}
+        {actions.length > 0 && <div className="ml-auto flex shrink-0 gap-2">{actions}</div>}
       </div>
       {status.detail && <p className="text-xs text-muted-foreground">{status.detail}</p>}
       {s.notice && <p className="text-xs text-muted-foreground">{s.notice}</p>}
