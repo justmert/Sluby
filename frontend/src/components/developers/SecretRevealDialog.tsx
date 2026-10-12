@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { Check } from 'lucide-react';
 import { CodeBlock } from '@/components/shared/CodeBlock';
 import { CopyField } from '@/components/shared/CopyField';
 import { Button } from '@/components/ui/button';
@@ -65,7 +66,17 @@ export function SecretRevealDialog({
         onCloseAutoFocus={onCloseAutoFocus}
       >
         <DialogHeader>
-          <DialogTitle>{shown?.title}</DialogTitle>
+          {/* a neutral surface with a green check in a ring, not a tinted
+              success box: the value below is what needs the attention */}
+          <div className="flex items-center gap-3">
+            <span
+              aria-hidden="true"
+              className="grid size-8 shrink-0 place-items-center rounded-full border-[1.5px] border-success/45"
+            >
+              <Check className="size-4 text-success" strokeWidth={2.4} />
+            </span>
+            <DialogTitle>{shown?.title}</DialogTitle>
+          </div>
           <DialogDescription>{shown?.description}</DialogDescription>
         </DialogHeader>
         {shown && (

@@ -312,7 +312,7 @@ describe('a paused webhook', () => {
     render();
     const send = await screen.findByRole('button', { name: 'Send test' });
     expect(send).toHaveAccessibleDescription(
-      'Paused: no events are sent to this endpoint. Send test still delivers a test request, so you can check your receiver before you resume.',
+      'Paused. No events are sent to this endpoint. Send test still delivers a test request, so you can check your receiver before you resume.',
     );
     await userEvent.click(send);
     expect(

@@ -9,6 +9,7 @@ import { useSignOut } from '@/hooks/useSessions';
 import { withLead } from '@/lib/errors';
 import { useSession } from '@/lib/session';
 import { toastError } from '@/lib/toast';
+import { SETTINGS_HEAD, SETTINGS_SECTION } from './section';
 
 export const AUTH_OFF_SENTENCE = 'Anyone who can open this address has operator access.';
 
@@ -18,8 +19,8 @@ export function AccountSection() {
   const { signOut, signingOut } = useSignOut();
 
   return (
-    <section aria-labelledby="settings-account">
-      <SectionHeader id="settings-account" title="Account" />
+    <section aria-labelledby="settings-account" className={SETTINGS_SECTION}>
+      <SectionHeader id="settings-account" title="Account" className={SETTINGS_HEAD} />
       <Card>
         <CardContent>
           <DescriptionList>

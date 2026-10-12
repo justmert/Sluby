@@ -1,52 +1,63 @@
 import { SectionHeader } from '@/components/shared/PageHeader';
-import { Card, CardContent } from '@/components/ui/card';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { THEME_OPTIONS, useTheme, type Theme } from '@/lib/theme';
+import { cn } from '@/lib/utils';
+import { SETTINGS_HEAD, SETTINGS_SECTION } from './section';
+
+// system first: it is the default, and the other two are its halves
+const ORDER: Theme[] = ['system', 'light', 'dark'];
+const CHOICES = ORDER.map((v) => THEME_OPTIONS.find((o) => o.value === v)!);
+
+// each preview depicts a theme, not the one on screen, so it draws that
+// theme's ground with fixed colors (the --background of :root and the ink of
+// light) instead of tokens, which would follow the current theme
+const PREVIEW: Record<Theme, string> = {
+  system: 'border-[#e7e5e4] bg-[linear-gradient(90deg,#fafaf9_50%,#1c1917_50%)]',
+  light: 'border-[#e7e5e4] bg-[#fafaf9]',
+  dark: 'border-[#2b2724] bg-[#1c1917]',
+};
 
 /** Light, dark or the system's theme, kept in this browser. */
 export function AppearanceSection() {
   const { theme, resolvedTheme, setTheme } = useTheme();
 
   return (
-    <section aria-labelledby="settings-appearance">
+    <section aria-labelledby="settings-appearance" className={SETTINGS_SECTION}>
       <SectionHeader
         id="settings-appearance"
         title="Appearance"
         description="Follows your system by default. Your choice is saved in this browser."
+        className={SETTINGS_HEAD}
       />
-      <Card>
-        <CardContent className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span id="settings-theme" className="text-sm font-medium">
-            Theme
-          </span>
-          <ToggleGroup
-            type="single"
-            variant="segmented"
-            value={theme}
-            // radix sends an empty value when the pressed item is pressed again
-            onValueChange={(v) => v && setTheme(v as Theme)}
-            aria-labelledby="settings-theme"
-            // wraps to a second row at a large text size instead of leaving the card
-            className="max-w-full flex-wrap data-[variant=segmented]:h-auto pointer-coarse:data-[variant=segmented]:h-auto"
-          >
-            {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
-              <ToggleGroupItem
-                key={value}
-                value={value}
-                className="min-h-[26px] gap-1.5 px-2.5 pointer-coarse:min-h-[34px] data-[state=on]:font-medium data-[state=on]:text-foreground"
-              >
-                <Icon aria-hidden="true" />
+      <div className="flex flex-col gap-3">
+        <fieldset className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] gap-3">
+          <legend className="sr-only">Theme</legend>
+          {CHOICES.map(({ value, label }) => (
+            // the chosen card draws a 2px edge and gives back 1px of padding,
+            // so picking one does not nudge the row
+            <label
+              key={value}
+              className="flex cursor-pointer flex-col gap-2.5 rounded-xl border border-border-strong bg-card p-3 text-sm transition-colors duration-150 hover:bg-muted has-checked:border-2 has-checked:border-primary has-checked:p-[11px] has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-ring"
+            >
+              <span aria-hidden="true" className={cn('h-16 rounded-lg border', PREVIEW[value])} />
+              <span className="flex items-center gap-2 font-medium">
+                <input
+                  type="radio"
+                  name="settings-theme"
+                  value={value}
+                  checked={theme === value}
+                  onChange={() => setTheme(value)}
+                  // the card shows the ring; the dot itself does not repeat it
+                  className="size-4 focus-visible:outline-none"
+                />
                 {label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          {theme === 'system' && (
-            <span className="text-sm text-muted-foreground">
-              Matches your system ({resolvedTheme} now)
-            </span>
-          )}
-        </CardContent>
-      </Card>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        {theme === 'system' && (
+          <p className="text-sm text-muted-foreground">Matches your system ({resolvedTheme} now)</p>
+        )}
+      </div>
     </section>
   );
 }

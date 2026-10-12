@@ -367,8 +367,8 @@ describe('renaming, rotating and revoking', () => {
       '“Production web app” (sluby_AbC123…) gets a new key with the same scopes and limit.',
     );
     expect(dialog).toHaveTextContent('POST /api/v1/keys/{id}/rotate');
-    await userEvent.click(within(dialog).getByRole('combobox'));
-    await userEvent.click(await screen.findByRole('option', { name: '24 hours' }));
+    expect(within(dialog).getByRole('group', { name: 'Old key keeps working for' })).toBeVisible();
+    await userEvent.click(within(dialog).getByRole('radio', { name: '24 hours' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Rotate key' }));
     const secret = await screen.findByRole('dialog', { name: 'API key rotated' });
     expect(secret).toHaveTextContent(/The old key keeps working until .* at /);
@@ -392,7 +392,7 @@ describe('renaming, rotating and revoking', () => {
     const menu = await openMenu('Production web app');
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Rotate' }));
     const dialog = await screen.findByRole('dialog', { name: 'Rotate this key?' });
-    expect(within(dialog).getByRole('combobox')).toHaveTextContent('1 hour');
+    expect(within(dialog).getByRole('radio', { name: '1 hour' })).toBeChecked();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Rotate key' }));
     const secret = await screen.findByRole('dialog', { name: 'API key rotated' });
     expect(secret).toHaveTextContent(/The old key keeps working until .* at /);
@@ -415,8 +415,7 @@ describe('renaming, rotating and revoking', () => {
     const menu = await openMenu('Production web app');
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Rotate' }));
     const dialog = await screen.findByRole('dialog', { name: 'Rotate this key?' });
-    await userEvent.click(within(dialog).getByRole('combobox'));
-    await userEvent.click(await screen.findByRole('option', { name: 'No, stop it now' }));
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'Stop now' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Rotate key' }));
     await screen.findByRole('dialog', { name: 'API key rotated' });
     expect(calls('POST', '/api/v1/keys/k1/rotate')[0].body).toEqual({
