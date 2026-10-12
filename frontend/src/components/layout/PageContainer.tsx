@@ -6,8 +6,8 @@
  * - className, merged onto the outer element
  *
  * The design's main column: 32px padding (20 by 16 below 900px, where the
- * sidebar hides), at most 1160px wide, set against the sidebar rather than
- * centred in the window.
+ * sidebar hides), at most 1160px wide and centred in the room beside the
+ * sidebar, so a wide window gets even margins instead of one empty half.
  *
  * It is a named size container called `page`, so a page can lay out by the
  * room it really has instead of the viewport (the sidebar takes 248px of it
@@ -62,7 +62,7 @@ export function PageContainer({ children, className }: PageContainerProps) {
       data-slot="page-container"
       data-instant-skeletons={instant || undefined}
       className={cn(
-        '@container/page w-full max-w-290 p-8 max-[899px]:px-4 max-[899px]:py-5',
+        '@container/page mx-auto w-full max-w-290 p-8 max-[899px]:px-4 max-[899px]:py-5',
         className,
       )}
     >
