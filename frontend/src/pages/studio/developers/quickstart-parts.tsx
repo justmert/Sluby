@@ -22,7 +22,9 @@ export function ServerRow({ label, children }: { label: string; children: React.
 export function KeysRow({ count }: { count: React.ReactNode }) {
   return (
     <>
-      <span className="mr-auto text-sm">{count}</span>
+      {/* its own line on narrow pages, so the buttons stay on one line
+          whether the count is a bar, "No active keys yet" or an error */}
+      <span className="mr-auto text-sm @max-lg/page:basis-full">{count}</span>
       <Button variant="outline" size="sm" asChild>
         <Link to={ROUTES.API_KEYS} onPointerEnter={() => preloadPage(ROUTES.API_KEYS)}>
           Manage keys
