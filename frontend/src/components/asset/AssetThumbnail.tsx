@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { CircleAlert, Film, Lock } from 'lucide-react';
+import { CircleAlert, Lock } from 'lucide-react';
+import { Icons } from '@/lib/icons';
 import { Progress } from '@/components/ui/progress';
 import { siaObjectUrl } from '@/lib/sia';
 import { cn } from '@/lib/utils';
@@ -17,7 +18,7 @@ interface AssetThumbnailProps {
    * A video still being made: a striped tile with a thin bar along the
    * bottom, and in the `md` size the stage and percent ("Storing on Sia, 65%").
    */
-  processing?: { label: string; percent: number | null };
+  processing?: { label: string; percent: number | null; moving?: boolean };
   /** Processing failed: a red tint, and "Failed" in the `md` size. */
   failed?: boolean;
   /**
@@ -81,6 +82,7 @@ export function AssetThumbnail({
           {processing.percent !== null && (
             <Progress
               smooth
+              moving={processing.moving}
               value={processing.percent}
               aria-hidden="true"
               className="absolute inset-x-0 bottom-0 h-0.5 rounded-none bg-transparent [&>[data-slot=progress-indicator]]:bg-primary/60"
@@ -109,7 +111,7 @@ export function AssetThumbnail({
       ) : isPrivate && !md ? (
         lock
       ) : (
-        <Film className="size-5 text-muted-foreground" aria-hidden="true" />
+        <Icons.video className="size-5 text-muted-foreground" aria-hidden="true" />
       )}
       {isPrivate && md && (
         <span className="absolute top-2 right-2 flex items-center gap-1 rounded-full border bg-background/90 px-1.5 py-0.5 text-xs font-medium text-foreground shadow-xs">

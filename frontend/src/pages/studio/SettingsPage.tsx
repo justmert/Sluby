@@ -8,9 +8,9 @@ import { PAGE_HEADS } from '@/components/layout/page-heads';
 export default function SettingsPage() {
   const { authDisabled } = useSession();
   return (
-    <PageContainer className="max-w-3xl">
+    <PageContainer className="max-w-240">
       <PageHeader {...PAGE_HEADS.settings} />
-      <div className="flex flex-col gap-10">
+      <div className="flex flex-col gap-6">
         <AccountSection />
         {/* with sign-in off nobody signs in, so there are no browsers to list */}
         {!authDisabled && <SessionsSection />}

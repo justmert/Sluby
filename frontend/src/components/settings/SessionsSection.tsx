@@ -20,6 +20,7 @@ import { toastError, toastSuccess } from '@/lib/toast';
 import { browserLabel } from '@/lib/user-agent';
 import { SESSION_COLUMNS } from './columns';
 import { SessionsHeader } from './SessionsHeader';
+import { SETTINGS_SECTION } from './section';
 
 const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -115,7 +116,7 @@ export function SessionsSection() {
   const others = rows?.filter((s) => !s.current).length ?? 0;
 
   return (
-    <section ref={sectionRef} aria-labelledby="settings-browsers">
+    <section ref={sectionRef} aria-labelledby="settings-browsers" className={SETTINGS_SECTION}>
       <SessionsHeader username={session.username} onSignOutAll={() => setConfirmAll(true)} />
       <DataTable
         caption="Signed-in browsers"
@@ -130,7 +131,7 @@ export function SessionsSection() {
         what="your signed-in browsers"
       />
       {rows && others === 0 && (
-        <p className="mt-2 text-sm text-muted-foreground">No other browsers are signed in.</p>
+        <p className="text-sm text-muted-foreground">No other browsers are signed in.</p>
       )}
       <ConfirmDialog
         item={confirmAll}

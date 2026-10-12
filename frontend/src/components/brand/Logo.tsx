@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 
 // the same drawing as public/favicon.svg: an s built from two quarter pipes on
-// the brand orange, which stays the same in both themes. keep the two in step.
+// the brand petrol, which stays the same in both themes. keep the two in step.
 export const LOGO_PATH = 'M23 8.75h-9a3.625 3.625 0 0 0 0 7.25h4a3.625 3.625 0 0 1 0 7.25H9';
 
 export function Logo({ className }: { className?: string }) {

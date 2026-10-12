@@ -48,7 +48,7 @@ function BadgeView({ spec, busy = 'dot', children, className, title }: BadgeView
           <span
             data-slot="status-dot"
             aria-hidden="true"
-            className="size-1.5 shrink-0 rounded-full bg-current motion-safe:animate-status-pulse"
+            className="relative size-1.5 shrink-0 rounded-full bg-current after:absolute after:inset-0 after:rounded-full after:bg-current after:opacity-0 motion-safe:after:animate-status-ping"
           />
         )
       ) : (

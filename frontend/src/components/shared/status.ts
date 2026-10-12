@@ -84,7 +84,7 @@ export const STATUS = {
   /** a webhook endpoint */
   webhook: {
     active: spec('Active', 'success'),
-    inactive: spec('Paused', 'neutral', CirclePause),
+    inactive: spec('Paused', 'warning', CirclePause),
   },
   /** one webhook delivery */
   delivery: {

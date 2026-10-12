@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { CirclePause, MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, Pause } from 'lucide-react';
 import { DeliveriesTable } from '@/components/developers/DeliveriesTable';
 import { EventsEditor } from '@/components/developers/EventsEditor';
 import {
@@ -246,11 +246,15 @@ export default function WebhookDetailPage() {
       {!hook.isActive && (
         <p
           id="paused-note"
-          className="-mt-2 mb-6 flex gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+          className="-mt-2 mb-6 flex gap-3 rounded-xl border bg-card px-4 py-3.5 text-sm"
         >
-          <CirclePause aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          Paused: no events are sent to this endpoint. Send test still delivers a test request, so
-          you can check your receiver before you resume.
+          {/* amber is the attention hue; the card itself stays neutral */}
+          <Pause aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
+          <span>
+            <strong className="font-semibold">Paused.</strong> No events are sent to this endpoint.
+            Send test still delivers a test request, so you can check your receiver before you
+            resume.
+          </span>
         </p>
       )}
 

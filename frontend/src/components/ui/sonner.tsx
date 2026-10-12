@@ -10,33 +10,35 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={resolvedTheme}
       className="toaster group"
+      // the icon carries the kind; the bar itself is the same for all of them
       icons={{
-        success: <CircleCheckIcon className="size-4" />,
-        info: <InfoIcon className="size-4" />,
-        warning: <TriangleAlertIcon className="size-4" />,
-        error: <CircleAlertIcon className="size-4" />,
+        success: <CircleCheckIcon className="size-4 text-bar-success" />,
+        info: <InfoIcon className="size-4 text-bar-muted" />,
+        warning: <TriangleAlertIcon className="size-4 text-bar-warning" />,
+        error: <CircleAlertIcon className="size-4 text-bar-destructive" />,
         loading: <Spinner aria-hidden="true" />,
       }}
       style={
         {
-          '--normal-bg': 'var(--popover)',
-          '--normal-text': 'var(--popover-foreground)',
-          '--normal-border': 'var(--border)',
-          '--border-radius': 'var(--radius-xl)',
-          // rich colors from the tokens, so a toast's red and green are the
-          // same as every badge and alert
-          '--success-bg': 'color-mix(in oklab, var(--success) 10%, var(--popover))',
-          '--success-border': 'color-mix(in oklab, var(--success) 30%, var(--popover))',
-          '--success-text': 'var(--success)',
-          '--error-bg': 'color-mix(in oklab, var(--destructive) 10%, var(--popover))',
-          '--error-border': 'color-mix(in oklab, var(--destructive) 30%, var(--popover))',
-          '--error-text': 'var(--destructive)',
-          '--warning-bg': 'color-mix(in oklab, var(--warning) 15%, var(--popover))',
-          '--warning-border': 'color-mix(in oklab, var(--warning) 40%, var(--popover))',
-          '--warning-text': 'var(--warning-foreground)',
-          '--info-bg': 'color-mix(in oklab, var(--info) 10%, var(--popover))',
-          '--info-border': 'color-mix(in oklab, var(--info) 30%, var(--popover))',
-          '--info-text': 'var(--info)',
+          // every toast is the dark bar from the design, in both themes (see
+          // --bar in index.css); rich colors would tint it, so each kind
+          // gets the same bar and its color stays on the icon
+          '--normal-bg': 'var(--bar)',
+          '--normal-text': 'var(--bar-foreground)',
+          '--normal-border': 'var(--bar)',
+          '--border-radius': 'var(--radius-lg)',
+          '--success-bg': 'var(--bar)',
+          '--success-border': 'var(--bar)',
+          '--success-text': 'var(--bar-foreground)',
+          '--error-bg': 'var(--bar)',
+          '--error-border': 'var(--bar)',
+          '--error-text': 'var(--bar-foreground)',
+          '--warning-bg': 'var(--bar)',
+          '--warning-border': 'var(--bar)',
+          '--warning-text': 'var(--bar-foreground)',
+          '--info-bg': 'var(--bar)',
+          '--info-border': 'var(--bar)',
+          '--info-text': 'var(--bar-foreground)',
           // the close button sits inside the toast, top right, instead of as
           // a bordered circle straddling its corner
           '--toast-close-button-start': 'unset',
@@ -68,7 +70,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           // room on the right for the close button
-          toast: 'cn-toast pr-10!',
+          toast: 'cn-toast pr-10! shadow-lg!',
+          description: 'text-bar-muted!',
+          // an outlined button on the bar, like Undo in the design
+          actionButton:
+            'border! border-bar-border! bg-transparent! font-semibold! text-bar-foreground! hover:bg-white/10!',
+          cancelButton: 'border! border-bar-border! bg-transparent! text-bar-foreground!',
           // a finger needs more than the 20px close button
           closeButton:
             'border-0! bg-transparent! text-current opacity-60 hover:bg-transparent! hover:opacity-100 pointer-coarse:size-8',

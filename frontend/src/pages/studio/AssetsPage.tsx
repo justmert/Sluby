@@ -763,7 +763,6 @@ export default function AssetsPage() {
       <PageHeader
         {...PAGE_HEADS.videos}
         description={statsLine ?? <StatsLinePlaceholder className={lateReveal} />}
-        primaryAction={uploadButton}
       />
 
       {/* sticks under the top bar on wider screens that are tall enough for it (A11Y-24) */}

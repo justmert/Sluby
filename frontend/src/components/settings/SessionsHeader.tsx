@@ -1,6 +1,7 @@
 import { LogOut } from 'lucide-react';
 import { SectionHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
+import { SETTINGS_HEAD } from './section';
 
 /**
  * The signed-in browsers heading with its Sign out everywhere button. Its
@@ -16,6 +17,7 @@ export function SessionsHeader({
   return (
     <SectionHeader
       id="settings-browsers"
+      className={SETTINGS_HEAD}
       title="Signed-in browsers"
       description={
         <>

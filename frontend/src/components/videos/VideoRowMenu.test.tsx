@@ -14,9 +14,9 @@ describe('VideoRowMenu and videoActions', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Actions for Walkthrough' }));
     const items = await screen.findAllByRole('menuitem');
     expect(items.map((i) => i.textContent)).toEqual([
+      'Copy embed code',
       'Open',
       'Preview',
-      'Copy embed code',
       'Copy stream URL',
       'Copy video ID',
       'Delete',

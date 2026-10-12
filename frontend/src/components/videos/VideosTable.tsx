@@ -29,7 +29,7 @@ import { useRowJob, videoMeta, type RowProgress } from './video-progress';
 
 const muted = (text: string) => <span className="text-muted-foreground">{text}</span>;
 
-function ProgressLine({ label, percent, checking }: RowProgress) {
+function ProgressLine({ label, percent, checking, moving }: RowProgress) {
   return (
     <span className="flex min-w-0 flex-col gap-1">
       <span className="text-xs font-normal text-muted-foreground tabular-nums">
@@ -37,7 +37,13 @@ function ProgressLine({ label, percent, checking }: RowProgress) {
         {checking && <span>. Checking again in a few seconds</span>}
       </span>
       {percent !== null && (
-        <Progress smooth value={percent} aria-hidden="true" className="h-0.5 max-w-48" />
+        <Progress
+          smooth
+          moving={moving}
+          value={percent}
+          aria-hidden="true"
+          className="h-0.5 max-w-48"
+        />
       )}
     </span>
   );

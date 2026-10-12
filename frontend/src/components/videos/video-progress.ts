@@ -19,6 +19,8 @@ export interface RowProgress {
   percent: number | null;
   /** the last poll failed; the row keeps the stage it last knew */
   checking: boolean;
+  /** work is running right now, so its bar shows the moving sheen */
+  moving: boolean;
 }
 
 export interface RowJob {
@@ -42,11 +44,13 @@ export function useRowJob(asset: VideoAsset): RowJob {
   const failed = asset.status === 'failed';
   const job = useProcessingJob(asset.id, asset.status, processing || failed, ROW_POLL_MS);
   if (processing && job.data) {
+    const view = processingView(job.data);
     return {
       progress: {
         label: jobSummary(job.data),
-        percent: processingView(job.data).percent,
+        percent: view.percent,
         checking: job.isError,
+        moving: view.busy && !job.isError,
       },
     };
   }

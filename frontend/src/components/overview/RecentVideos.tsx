@@ -36,6 +36,7 @@ function RowProgress({ video }: { video: VideoAsset }) {
       {view.percent !== null && (
         <Progress
           smooth
+          moving={view.busy && !job.isError}
           value={view.percent}
           aria-label={`${video.title}, processing progress`}
           // a quiet bar: the percentage beside it is the news, not the bar (VIS-30)

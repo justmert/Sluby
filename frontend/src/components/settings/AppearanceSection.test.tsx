@@ -26,17 +26,19 @@ describe('AppearanceSection', () => {
   it('starts on System and says what the system is now (CPY-35)', () => {
     systemDark(true);
     renderPage(<AppearanceSection />);
-    expect(screen.getByRole('radio', { name: 'System' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'System' })).toBeChecked();
     expect(screen.getByText('Matches your system (dark now)')).toBeInTheDocument();
   });
 
-  it('switches and keeps the choice, in one segmented control named Theme (VIS-28)', async () => {
+  it('switches and keeps the choice, in one group of cards named Theme (VIS-28)', async () => {
     systemDark(false);
     renderPage(<AppearanceSection />);
-    expect(screen.getByRole('radiogroup', { name: 'Theme' })).toHaveAttribute(
-      'data-variant',
-      'segmented',
-    );
+    expect(screen.getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual([
+      'system',
+      'light',
+      'dark',
+    ]);
+    expect(screen.getByRole('group', { name: 'Theme' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('radio', { name: 'Dark' }));
     expect(document.documentElement).toHaveClass('dark');
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
@@ -45,12 +47,10 @@ describe('AppearanceSection', () => {
     expect(document.documentElement).toHaveClass('light');
   });
 
-  it('wraps the theme choices at a large text size instead of leaving the card (1.4.4)', () => {
+  it('wraps the theme cards to fewer columns when they get narrow (1.4.4)', () => {
     renderPage(<AppearanceSection />);
-    expect(screen.getByRole('radiogroup', { name: 'Theme' })).toHaveClass(
-      'flex-wrap',
-      'max-w-full',
-      'data-[variant=segmented]:h-auto',
+    expect(screen.getByRole('group', { name: 'Theme' })).toHaveClass(
+      'grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))]',
     );
   });
 });

@@ -1,4 +1,5 @@
 import {
+  Activity,
   ArrowUpRight,
   CircleAlert,
   Clapperboard,
@@ -6,7 +7,6 @@ import {
   Code,
   Cog,
   Copy,
-  Film,
   KeyRound,
   Link2,
   MemoryStick,
@@ -14,11 +14,11 @@ import {
   RefreshCw,
   RotateCcw,
   RotateCw,
+  SquarePlay,
   Timer,
   Trash2,
   TriangleAlert,
   Upload,
-  Webhook,
 } from 'lucide-react';
 
 /*
@@ -27,7 +27,7 @@ import {
  * everywhere, TriangleAlert is only for warnings.
  */
 export const Icons = {
-  video: Film,
+  video: SquarePlay,
   upload: Upload,
   storeOnSia: CloudUpload,
   processing: Cog,
@@ -35,7 +35,8 @@ export const Icons = {
   uptime: Timer,
   playtime: Clapperboard,
   apiKey: KeyRound,
-  webhook: Webhook,
+  /** a pulse line: a webhook is the stream of events a server sends out */
+  webhook: Activity,
   error: CircleAlert,
   warning: TriangleAlert,
   open: ArrowUpRight,

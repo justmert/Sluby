@@ -92,6 +92,17 @@
   --code-string: #2f6b1e;
   --code-number: #b45309;
   --code-fn: #0f6b7a;
+  /* the dark bar toasts and the videos bulk bar sit on. it stays dark in
+     both themes, a step lighter than the page in dark, so it reads as a
+     layer above whatever is under it */
+  --bar: #1c1917;
+  --bar-foreground: #fafaf9;
+  --bar-muted: #d6d3d1;
+  --bar-border: #44403c;
+  --bar-success: #86efac;
+  --bar-warning: #f2b866;
+  --bar-destructive: #fca5a5;
+  --bar-destructive-border: #f87171;
   /* polled progress bars ease over this long; shorter than the fastest poll
      (2 s), so a bar never trails its number by a whole poll */
   --duration-progress: 1200ms;
@@ -142,6 +153,14 @@
   --code-string: #a7d98a;
   --code-number: #f5b76b;
   --code-fn: #82d2dc;
+  --bar: #2b2724;
+  --bar-foreground: #f2f0ee;
+  --bar-muted: #c9c4bf;
+  --bar-border: #4a443f;
+  --bar-success: #6bd394;
+  --bar-warning: #f2b866;
+  --bar-destructive: #f58a8a;
+  --bar-destructive-border: #7f3030;
 }
 
 /* more contrast on request: stronger secondary text and edges */
@@ -208,6 +227,14 @@
   --color-code-string: var(--code-string);
   --color-code-number: var(--code-number);
   --color-code-fn: var(--code-fn);
+  --color-bar: var(--bar);
+  --color-bar-foreground: var(--bar-foreground);
+  --color-bar-muted: var(--bar-muted);
+  --color-bar-border: var(--bar-border);
+  --color-bar-success: var(--bar-success);
+  --color-bar-warning: var(--bar-warning);
+  --color-bar-destructive: var(--bar-destructive);
+  --color-bar-destructive-border: var(--bar-destructive-border);
   /* three radii: md for controls, lg for inner surfaces, xl for cards and
      overlays (plus full for badges and dots). sm is the checkbox and kbd. */
   --radius-sm: calc(var(--radius) * 0.4);
@@ -220,24 +247,24 @@
 /* type roles on top of the stock scale (text-xs 12, text-sm 14, text-base
    16). each role carries its line height, tracking and weight, so a title is
    one class; the heading family comes from font-heading or an h1 to h3.
-   - text-title: page title (h1), figtree 24/32 700
+   - text-title: page title (h1), figtree 28/36 700
    - text-heading: section, card, dialog and empty-state titles, 16/24 600
-   - text-figure: stat numbers, 24/32 600; pair with font-heading tabular-nums
+   - text-figure: stat numbers, 28/36 700; pair with font-heading tabular-nums
    - text-figure-sm: small stat tiles, 18/28 600
    - text-kbd: keyboard hints and chart ticks, 11/16 500 */
 @theme {
-  --text-title: 1.5rem;
-  --text-title--line-height: 2rem;
-  --text-title--letter-spacing: -0.025em;
+  --text-title: 1.75rem;
+  --text-title--line-height: 2.25rem;
+  --text-title--letter-spacing: -0.02em;
   --text-title--font-weight: 700;
   --text-heading: 1rem;
   --text-heading--line-height: 1.5rem;
   --text-heading--letter-spacing: -0.01em;
   --text-heading--font-weight: 600;
-  --text-figure: 1.5rem;
-  --text-figure--line-height: 2rem;
-  --text-figure--letter-spacing: -0.01em;
-  --text-figure--font-weight: 600;
+  --text-figure: 1.75rem;
+  --text-figure--line-height: 2.25rem;
+  --text-figure--letter-spacing: -0.02em;
+  --text-figure--font-weight: 700;
   --text-figure-sm: 1.125rem;
   --text-figure-sm--line-height: 1.75rem;
   --text-figure-sm--font-weight: 600;
@@ -253,7 +280,9 @@
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --animate-shimmer: shimmer 2s linear infinite;
   --animate-status-pulse: status-pulse 1.6s ease-in-out infinite;
+  --animate-status-ping: status-ping 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
   --animate-stripes: stripes 1.2s linear infinite;
+  --animate-sheen: sheen 1.8s linear infinite;
 
   /* the shimmer is a fixed-width stripe that travels a fixed distance, so
      every skeleton sweeps at the same speed whatever its width */
@@ -269,11 +298,35 @@
     }
   }
 
+  /* a busy status dot sends out a ring that grows and fades; the dot itself
+     stays solid, so its color still reads at any point of the loop */
+  @keyframes status-ping {
+    from {
+      scale: 1;
+      opacity: 0.55;
+    }
+    to {
+      scale: 2.8;
+      opacity: 0;
+    }
+  }
+
   /* the processing tile's diagonal stripes slide by one period, so the loop
      has no seam (28.28px is the 20px stripe pair along the diagonal) */
   @keyframes stripes {
     to {
       background-position: 28.28px 0;
+    }
+  }
+
+  /* a soft light that crosses a progress fill while its work runs; the
+     stripe is as wide as the fill, so it moves at the fill's own scale */
+  @keyframes sheen {
+    from {
+      translate: -100% 0;
+    }
+    to {
+      translate: 100% 0;
     }
   }
 }
@@ -331,6 +384,13 @@
   :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+  /* native checkboxes, radios and ranges take the accent instead of the
+     browser's blue */
+  input,
+  select,
+  textarea {
+    accent-color: var(--primary);
   }
   h1,
   h2,

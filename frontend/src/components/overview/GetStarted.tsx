@@ -3,24 +3,18 @@ import { Link } from 'react-router';
 import type { VideoAsset } from '@sluby/sdk';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
-import { Circle, CircleAlert, CircleCheck, X } from 'lucide-react';
+import { Circle, CircleAlert, CircleCheck } from 'lucide-react';
 import { processingView } from '@/components/asset/processing';
 import { ErrorDetails } from '@/components/shared/ErrorDetails';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useProcessingJob } from '@/hooks/asset-detail-queries';
 import type { SystemStatus } from '@/hooks/useStats';
 import { ROUTES } from '@/lib/constants';
-import { Icons } from '@/lib/icons';
 import { scaleIn } from '@/lib/motion';
+import { cn } from '@/lib/utils';
 import { useUploadSheet } from '@/lib/upload-sheet';
 import { doneCount, REQUIRED_STEPS, type StepId, type StepState } from './get-started';
 
@@ -55,7 +49,15 @@ const COPY: Record<StepId, { title: string; why: string }> = {
   },
 };
 
-function StepIcon({ done, failing }: { done: boolean; failing: boolean }) {
+function StepIcon({
+  done,
+  failing,
+  current,
+}: {
+  done: boolean;
+  failing: boolean;
+  current: boolean;
+}) {
   const state = done ? 'done' : failing ? 'failing' : 'todo';
   return (
     <span className="relative grid size-5 shrink-0 place-items-center" aria-hidden="true">
@@ -74,7 +76,7 @@ function StepIcon({ done, failing }: { done: boolean; failing: boolean }) {
           ) : failing ? (
             <CircleAlert className="size-5 text-destructive" />
           ) : (
-            <Circle className="size-5 text-muted-foreground" />
+            <Circle className={cn('size-5', current ? 'text-primary' : 'text-muted-foreground')} />
           )}
         </m.span>
       </AnimatePresence>
@@ -94,15 +96,21 @@ function UploadProgressLine({ video }: { video: VideoAsset }) {
   );
 }
 
+// step actions are quiet links in the tile, like the artboard's "Get embed code"
+const STEP_ACTION = 'h-auto self-start p-0 font-semibold pointer-coarse:h-auto';
+
 function Row({
   step,
   failing,
+  current,
   line,
   action,
   extra,
 }: {
   step: StepState;
   failing: boolean;
+  /** the first required step not done yet: the one to do next */
+  current: boolean;
   /** what shows under the title: the why, or what is happening */
   line: ReactNode;
   action?: ReactNode;
@@ -110,22 +118,28 @@ function Row({
 }) {
   const copy = COPY[step.id];
   return (
-    <li className="grid grid-cols-[auto_1fr] gap-x-3 py-3 first:pt-0 last:pb-0 @lg/started:grid-cols-[auto_1fr_auto] @lg/started:items-center">
-      <StepIcon done={step.done} failing={failing} />
-      <div className="min-w-0">
-        <p className="flex flex-wrap items-center gap-x-2 text-sm font-medium">
-          {copy.title}
-          {step.optional && <Badge variant="secondary">Optional</Badge>}
-          <span className="sr-only">
-            , {step.done ? 'Done' : step.optional ? 'Not done, optional' : 'Not done'}
-          </span>
-        </p>
-        {line && <p className="text-sm text-muted-foreground">{line}</p>}
-        {extra}
-      </div>
-      {action && (
-        <div className="col-start-2 mt-2 @lg/started:col-start-3 @lg/started:mt-0">{action}</div>
+    <li
+      data-current={current || undefined}
+      // the current step gets a 2px edge instead of a tinted fill; its padding
+      // gives back the extra pixel so the tile's content does not move
+      className={cn(
+        'flex min-w-0 flex-col gap-1.5 rounded-lg border p-3.5',
+        current && 'border-2 p-[13px]',
+        current && (failing ? 'border-destructive' : 'border-primary'),
+        !current && failing && 'border-destructive/40',
       )}
+    >
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
+        <StepIcon done={step.done} failing={failing} current={current} />
+        {copy.title}
+        {step.optional && <Badge variant="secondary">Optional</Badge>}
+        <span className="sr-only">
+          , {step.done ? 'Done' : step.optional ? 'Not done, optional' : 'Not done'}
+        </span>
+      </p>
+      {line && <p className="text-sm text-muted-foreground">{line}</p>}
+      {extra}
+      {action && <div className="mt-auto flex pt-0.5">{action}</div>}
     </li>
   );
 }
@@ -153,23 +167,39 @@ export function GetStarted({
   const probeError =
     status?.scope === 'deployment' && !status.indexer.ok ? status.indexer.error : undefined;
 
+  // the step to do next: the first required one not done yet
+  const current = steps.find((s) => !s.optional && !s.done)?.id;
+
   return (
     <Card className="@container/started">
-      <CardHeader>
+      <CardHeader className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <CardTitle>Get started</CardTitle>
         <CardDescription className="tabular-nums">
           {n} of {REQUIRED_STEPS} done
         </CardDescription>
-        <CardAction>
-          <Button variant="ghost" size="icon-sm" aria-label="Hide get started" onClick={onDismiss}>
-            <X />
-          </Button>
-        </CardAction>
+        <Progress
+          value={(n / REQUIRED_STEPS) * 100}
+          aria-label="Get started progress"
+          className="h-1.5 w-auto max-w-50 min-w-20 flex-1"
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Hide get started"
+          onClick={onDismiss}
+          className="ml-auto text-muted-foreground"
+        >
+          Hide
+        </Button>
       </CardHeader>
       <CardContent>
-        <ol aria-label="Steps" className="flex flex-col divide-y">
+        <ol
+          aria-label="Steps" // tiles of at least 200px, as many to a row as fit
+          className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12.5rem),1fr))] gap-3"
+        >
           <Row
             step={by.sia}
+            current={current === 'sia'}
             failing={siaFailing}
             line={
               by.sia.done && status
@@ -184,7 +214,7 @@ export function GetStarted({
             action={
               siaFailing &&
               (operator ? (
-                <Button variant="outline" size="sm" asChild>
+                <Button variant="link" size="sm" className={STEP_ACTION} asChild>
                   <Link to={ROUTES.DEPLOYMENT}>Open health</Link>
                 </Button>
               ) : (
@@ -194,14 +224,19 @@ export function GetStarted({
           />
           <Row
             step={by.upload}
+            current={current === 'upload'}
             failing={false}
             line={
               busy ? <UploadProgressLine video={busy} /> : by.upload.done ? null : COPY.upload.why
             }
             action={
               !by.upload.done && (
-                <Button variant="outline" size="sm" onClick={() => sheet.open()}>
-                  <Icons.upload />
+                <Button
+                  variant="link"
+                  size="sm"
+                  className={STEP_ACTION}
+                  onClick={() => sheet.open()}
+                >
                   Upload video
                 </Button>
               )
@@ -209,6 +244,7 @@ export function GetStarted({
           />
           <Row
             step={by.play}
+            current={current === 'play'}
             failing={false}
             line={
               by.play.done
@@ -220,11 +256,11 @@ export function GetStarted({
             action={
               !by.play.done &&
               (firstReady ? (
-                <Button variant="outline" size="sm" asChild>
+                <Button variant="link" size="sm" className={STEP_ACTION} asChild>
                   <Link to={`${ROUTES.video(firstReady.id)}?panel=share`}>Get embed code</Link>
                 </Button>
               ) : (
-                <Button variant="outline" size="sm" disabled>
+                <Button variant="link" size="sm" className={STEP_ACTION} disabled>
                   Get embed code
                 </Button>
               ))
@@ -232,11 +268,12 @@ export function GetStarted({
           />
           <Row
             step={by.key}
+            current={current === 'key'}
             failing={false}
             line={by.key.done ? null : COPY.key.why}
             action={
               !by.key.done && (
-                <Button variant="outline" size="sm" asChild>
+                <Button variant="link" size="sm" className={STEP_ACTION} asChild>
                   <Link to={`${ROUTES.API_KEYS}?create=key`}>Create key</Link>
                 </Button>
               )
@@ -244,11 +281,12 @@ export function GetStarted({
           />
           <Row
             step={by.webhook}
+            current={current === 'webhook'}
             failing={false}
             line={by.webhook.done ? null : COPY.webhook.why}
             action={
               !by.webhook.done && (
-                <Button variant="outline" size="sm" asChild>
+                <Button variant="link" size="sm" className={STEP_ACTION} asChild>
                   <Link to={`${ROUTES.WEBHOOKS}?create=webhook`}>Add webhook</Link>
                 </Button>
               )

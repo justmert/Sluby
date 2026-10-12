@@ -26,7 +26,7 @@ interface PageStateProps {
   detail?: string;
   /** buttons or links for the way out; secondary first, primary last */
   actions?: ReactNode;
-  /** `error` tints the icon; set for you when `error` is given */
+  /** `error` draws the icon and its frame in the danger color; set for you when `error` is given */
   tone?: 'default' | 'error';
   /** the error behind a whole-page failure; its words come from lib/errors.ts */
   error?: unknown;
@@ -71,8 +71,11 @@ export function PageState({
         <EmptyHeader>
           {Icon && (
             <m.div variants={scaleIn}>
-              <EmptyMedia variant="icon" className="size-10 rounded-xl">
-                <Icon className={cn('size-5', errorTone && 'text-destructive')} />
+              <EmptyMedia
+                variant="icon"
+                className={cn(errorTone && 'border-destructive/40 text-destructive')}
+              >
+                <Icon />
               </EmptyMedia>
             </m.div>
           )}

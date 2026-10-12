@@ -14,7 +14,7 @@ describe('EmptyState', () => {
         secondaryAction={<a href="/docs">Read the docs</a>}
       />,
     );
-    expect(screen.getByText('No API keys yet')).toHaveClass('text-heading');
+    expect(screen.getByText('No API keys yet')).toHaveClass('text-lg/7', 'font-semibold');
     expect(screen.getByText(/Create a key to use/)).toBeInTheDocument();
     const order = [...document.querySelectorAll('a, button')].map((e) => e.textContent);
     expect(order).toEqual(['Read the docs', 'Create key']);

@@ -18,8 +18,10 @@ export function hostsLine(hosts: HostPool | null): string | null {
   return `${formatCount(hosts.good_for_upload)} of ${formatCount(hosts.total)} accept uploads, in ${plural(hosts.countries, 'country', 'countries')}`;
 }
 
-// the health page's grid, shared with its loading draw so nothing moves when the cards land
+// the health page's grid, shared with its loading draw so nothing moves when
+// the cards land. the cards sit side by side once each gets about 340px and
+// stack below that, whatever the sidebar leaves of the window
 export const HEALTH_GRID = {
-  top: 'grid gap-4 @3xl/page:grid-cols-2',
+  top: 'grid grid-cols-[repeat(auto-fit,minmax(min(100%,21.25rem),1fr))] gap-4',
   row: 'mt-4',
 } as const;
