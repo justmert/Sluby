@@ -19,7 +19,7 @@ describe('CodeBlock', () => {
 
   it('puts the copy button of a single snippet on a solid chip, so a long first line scrolls under it, not through it', () => {
     renderWithMotion(<CodeBlock code={'x'.repeat(200)} language="text" label="snippet" />);
-    expect(screen.getByRole('button', { name: 'Copy snippet' })).toHaveClass('bg-muted');
+    expect(screen.getByRole('button', { name: 'Copy snippet' })).toHaveClass('bg-card');
   });
 
   it('switches languages with tabs and copies the shown one', async () => {

@@ -33,11 +33,11 @@ describe('tokenize', () => {
 
   it('tells json keys from string values', () => {
     expect(types('{"id": "abc", "n": 2, "ok": true}', 'json')).toEqual([
-      'keyword:"id"',
+      'fn:"id"',
       'string:"abc"',
-      'keyword:"n"',
+      'fn:"n"',
       'number:2',
-      'keyword:"ok"',
+      'fn:"ok"',
       'keyword:true',
     ]);
   });

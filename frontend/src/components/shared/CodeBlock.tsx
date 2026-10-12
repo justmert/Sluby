@@ -120,13 +120,13 @@ export function CodeBlock({
     return (
       <div
         data-slot="code-block"
-        className={cn('relative rounded-lg border bg-muted/40', className)}
+        className={cn('relative rounded-lg border bg-card', className)}
       >
         <CopyButton
           value={code ?? ''}
           label={`Copy ${label}`}
           onCopied={onCopied}
-          className="absolute top-2 right-2 bg-muted"
+          className="absolute top-2 right-2 bg-card"
         />
         <Pre code={code ?? ''} language={language} label={label} className={preClassName} />
       </div>
@@ -141,9 +141,9 @@ export function CodeBlock({
         setOwn(next);
         onValueChange?.(next);
       }}
-      className={cn('gap-0 rounded-lg border bg-muted/40', className)}
+      className={cn('gap-0 rounded-lg border bg-card', className)}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-2 py-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-t-lg border-b bg-background px-2 py-1.5">
         <TabsList variant="line" className="h-7" aria-label={tabsLabel}>
           {samples.map((s) => (
             <TabsTrigger key={s.label} value={s.label} className="px-2 text-xs">
