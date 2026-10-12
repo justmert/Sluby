@@ -37,6 +37,7 @@ export function CreateKeyDialog({
   onFormChange,
   limits,
   onIssued,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -44,6 +45,8 @@ export function CreateKeyDialog({
   onFormChange: (form: KeyForm) => void;
   limits?: KeyLimits;
   onIssued: (key: IssuedKey) => void;
+  /** where focus goes once it closes, such as the new key's notice */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const create = useCreateApiKey();
   // errors show once a field was left or a submit was tried, not while typing the first letter
@@ -101,7 +104,7 @@ export function CreateKeyDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <form onSubmit={submit} className="flex flex-col gap-5" noValidate>
           <DialogHeader>
             <DialogTitle>Create API key</DialogTitle>
