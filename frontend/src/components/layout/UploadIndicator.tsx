@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NavLink } from 'react-router';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
 import { Pause, Upload } from 'lucide-react';
@@ -7,10 +8,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { UploadTray } from '@/components/upload/UploadTray';
 import { sentPercent, shortStatus } from '@/components/upload/upload-status';
 import { useUploadEvents } from '@/components/upload/useUploadEvents';
+import { ROUTES } from '@/lib/constants';
 import { scaleIn } from '@/lib/motion';
+import { preloadPage } from '@/lib/page-chunks';
 import { useSession } from '@/lib/session';
 import { uploadStore } from '@/lib/studio-upload';
-import { useUploadSheet } from '@/lib/upload-sheet';
 import { isTransferring, useUploads, type UploadState, type UploadStore } from '@/lib/upload-store';
 import { cn } from '@/lib/utils';
 
@@ -60,14 +62,13 @@ function Ring({ percent, paused }: { percent: number; paused: boolean }) {
 }
 
 /**
- * The top bar's upload control (D-08): "Upload video" opens the upload sheet
- * from any page; while uploads run, a progress ring with a count sits next
+ * The top bar's upload control (D-08): "Upload video" goes to the upload
+ * page from any page; while uploads run, a progress ring with a count sits next
  * to it and opens a tray. It also raises the ready and failed toasts for
  * uploads started in this browser, wherever the user is.
  */
 export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }) {
   const session = useSession();
-  const sheet = useUploadSheet();
   const { uploads, queued } = useUploads(store);
   const region = useUploadEvents(store, session.id);
   const [trayOpen, setTrayOpen] = useState(false);
@@ -91,10 +92,7 @@ export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }
                 <UploadTray
                   uploads={uploads.filter((u) => isActive(u) || u.phase === 'failed')}
                   queued={queued}
-                  onOpen={() => {
-                    setTrayOpen(false);
-                    sheet.open();
-                  }}
+                  onOpen={() => setTrayOpen(false)}
                 />
               </PopoverContent>
             </Popover>
@@ -105,10 +103,17 @@ export function UploadIndicator({ store = uploadStore }: { store?: UploadStore }
         variant="outline"
         size="sm"
         className="max-md:size-8 max-md:px-0 max-md:pointer-coarse:size-10"
-        onClick={() => sheet.open()}
+        asChild
       >
-        <Upload aria-hidden="true" />
-        <span className="max-md:sr-only">Upload video</span>
+        {/* current on the upload page, like the sidebar's button */}
+        <NavLink
+          to={ROUTES.UPLOAD}
+          onPointerEnter={() => preloadPage(ROUTES.UPLOAD)}
+          onFocus={() => preloadPage(ROUTES.UPLOAD)}
+        >
+          <Upload aria-hidden="true" />
+          <span className="max-md:sr-only">Upload video</span>
+        </NavLink>
       </Button>
     </div>
   );

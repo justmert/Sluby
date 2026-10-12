@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import type { VideoAsset } from '@sluby/sdk';
 import { Label } from '@/components/ui/label';
 import {
@@ -9,8 +10,8 @@ import {
 } from '@/components/ui/select';
 import { ErrorDetails } from '@/components/shared/ErrorDetails';
 import { Button } from '@/components/ui/button';
+import { ROUTES } from '@/lib/constants';
 import { errorText } from '@/lib/errors';
-import { useUploadSheet } from '@/lib/upload-sheet';
 import { VideoPickerSkeleton } from './VideoPickerSkeleton';
 
 /**
@@ -33,7 +34,6 @@ export function VideoPicker({
   onRetry: () => unknown;
   retrying?: boolean;
 }) {
-  const upload = useUploadSheet();
   if (selected === undefined) return <VideoPickerSkeleton />;
   if (error && !videos) {
     // the snippets still work with the placeholder; the full reason is under Details
@@ -57,13 +57,12 @@ export function VideoPicker({
     return (
       <p className="text-sm text-muted-foreground">
         The snippets use YOUR_VIDEO_ID until a video is ready.{' '}
-        <button
-          type="button"
-          onClick={() => upload.open()}
+        <Link
+          to={ROUTES.UPLOAD}
           className="rounded-sm font-medium text-foreground underline underline-offset-4 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
         >
           Upload a video
-        </button>
+        </Link>
       </p>
     );
   }

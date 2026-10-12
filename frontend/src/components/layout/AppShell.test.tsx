@@ -1,9 +1,12 @@
+import { useEffect, useRef } from 'react';
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Link, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '@/test/render';
 import { WithSession } from '@/test/session';
 import { AppShell } from './AppShell';
+import { PageContainer } from './PageContainer';
 
 function renderShell(route = '/studio') {
   return renderPage(
@@ -125,6 +128,52 @@ describe('AppShell', () => {
     view.unmount();
     renderShell('/studio/nope');
     expect(document.title).toBe('Not found · Sluby Studio');
+  });
+
+  it('names the upload page tab, not as a video', () => {
+    renderShell('/studio/videos/upload');
+    expect(document.title).toBe('Upload · Sluby Studio');
+  });
+
+  it('moves focus to the new page, and leaves it where the new page put it', async () => {
+    function Focused() {
+      const ref = useRef<HTMLButtonElement>(null);
+      useEffect(() => ref.current?.focus(), []);
+      return <button ref={ref}>Choose files</button>;
+    }
+    renderPage(
+      <WithSession>
+        <AppShell>
+          <Routes>
+            <Route
+              path="/studio"
+              element={
+                <PageContainer>
+                  <Link to="/studio/videos/upload">To upload</Link>
+                  <Link to="/studio/settings">To settings</Link>
+                </PageContainer>
+              }
+            />
+            <Route
+              path="/studio/videos/upload"
+              element={
+                <PageContainer>
+                  <Focused />
+                  <Link to="/studio">Back</Link>
+                </PageContainer>
+              }
+            />
+            <Route path="/studio/settings" element={<PageContainer>Settings</PageContainer>} />
+          </Routes>
+        </AppShell>
+      </WithSession>,
+      { route: '/studio' },
+    );
+    await userEvent.click(screen.getByRole('link', { name: 'To upload' }));
+    expect(screen.getByRole('button', { name: 'Choose files' })).toHaveFocus();
+    await userEvent.click(screen.getByRole('link', { name: 'Back' }));
+    await userEvent.click(screen.getByRole('link', { name: 'To settings' }));
+    expect(screen.getByRole('main')).toHaveFocus();
   });
 
   it('names a video tab by the title the page loaded', async () => {

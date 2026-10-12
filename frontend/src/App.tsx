@@ -6,7 +6,7 @@ import { RouteSuspense } from '@/components/layout/RouteSuspense';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { ROUTES } from '@/lib/constants';
 import { lazyPage, PAGE_CHUNKS } from '@/lib/page-chunks';
-import { LEGACY_PATHS, legacyRedirect } from '@/lib/redirects';
+import { LEGACY_PATHS, legacyRedirect, uploadParamRedirect } from '@/lib/redirects';
 import { useSession } from '@/lib/session';
 
 const NotFoundPage = lazyPage(PAGE_CHUNKS.notFound);
@@ -14,6 +14,7 @@ const NotFoundPage = lazyPage(PAGE_CHUNKS.notFound);
 const Overview = lazyPage(PAGE_CHUNKS.overview);
 const Videos = lazyPage(PAGE_CHUNKS.videos);
 const Video = lazyPage(PAGE_CHUNKS.video);
+const Upload = lazyPage(PAGE_CHUNKS.upload);
 const Quickstart = lazyPage(PAGE_CHUNKS.quickstart);
 const ApiKeys = lazyPage(PAGE_CHUNKS.apiKeys);
 const Webhooks = lazyPage(PAGE_CHUNKS.webhooks);
@@ -36,6 +37,9 @@ function Moved({ fallback = null }: { fallback?: ReactNode }) {
 }
 
 export function App() {
+  const location = useLocation();
+  // the old upload sheet opened over any page with ?upload=1
+  const toUpload = uploadParamRedirect(location);
   return (
     <AppShell>
       {/* outside suspense: one fade per navigation covers the skeleton or the
@@ -44,57 +48,63 @@ export function App() {
       <PageTransition>
         <RouteSuspense>
           {/* case matters, as it does to nginx and the breadcrumbs: /STUDIO is not found */}
-          <Routes>
-            <Route caseSensitive path="/" element={<Navigate to={ROUTES.OVERVIEW} replace />} />
+          {toUpload ? (
+            <Navigate to={toUpload} replace />
+          ) : (
+            <Routes>
+              <Route caseSensitive path="/" element={<Navigate to={ROUTES.OVERVIEW} replace />} />
 
-            <Route caseSensitive path={ROUTES.OVERVIEW} element={<Overview />} />
-            <Route caseSensitive path={ROUTES.VIDEOS} element={<Videos />} />
-            <Route caseSensitive path={`${ROUTES.VIDEOS}/:id`} element={<Video />} />
+              <Route caseSensitive path={ROUTES.OVERVIEW} element={<Overview />} />
+              <Route caseSensitive path={ROUTES.VIDEOS} element={<Videos />} />
+              {/* a static segment, which the router ranks above :id in any order */}
+              <Route caseSensitive path={ROUTES.UPLOAD} element={<Upload />} />
+              <Route caseSensitive path={`${ROUTES.VIDEOS}/:id`} element={<Video />} />
 
-            <Route caseSensitive path={ROUTES.DEVELOPERS} element={<Quickstart />} />
-            <Route caseSensitive path={ROUTES.API_KEYS} element={<ApiKeys />} />
-            <Route caseSensitive path={ROUTES.WEBHOOKS} element={<Webhooks />} />
-            <Route caseSensitive path={`${ROUTES.WEBHOOKS}/:id`} element={<Webhook />} />
-            <Route caseSensitive path={ROUTES.EXPLORER} element={<Explorer />} />
+              <Route caseSensitive path={ROUTES.DEVELOPERS} element={<Quickstart />} />
+              <Route caseSensitive path={ROUTES.API_KEYS} element={<ApiKeys />} />
+              <Route caseSensitive path={ROUTES.WEBHOOKS} element={<Webhooks />} />
+              <Route caseSensitive path={`${ROUTES.WEBHOOKS}/:id`} element={<Webhook />} />
+              <Route caseSensitive path={ROUTES.EXPLORER} element={<Explorer />} />
 
-            <Route
-              caseSensitive
-              path={ROUTES.DEPLOYMENT}
-              element={
-                <OperatorOnly>
-                  <Health />
-                </OperatorOnly>
-              }
-            />
-            <Route
-              caseSensitive
-              path={ROUTES.METRICS}
-              element={
-                <OperatorOnly>
-                  <Metrics />
-                </OperatorOnly>
-              }
-            />
-
-            <Route
-              caseSensitive
-              path={ROUTES.SETTINGS}
-              element={<Moved fallback={<Settings />} />}
-            />
-
-            {/* new pages: add the route here and the chunk in lib/page-chunks.ts */}
-
-            {LEGACY_PATHS.map((path) => (
               <Route
-                key={path}
                 caseSensitive
-                path={path}
-                element={<Moved fallback={<NotFoundPage />} />}
+                path={ROUTES.DEPLOYMENT}
+                element={
+                  <OperatorOnly>
+                    <Health />
+                  </OperatorOnly>
+                }
               />
-            ))}
+              <Route
+                caseSensitive
+                path={ROUTES.METRICS}
+                element={
+                  <OperatorOnly>
+                    <Metrics />
+                  </OperatorOnly>
+                }
+              />
 
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
+              <Route
+                caseSensitive
+                path={ROUTES.SETTINGS}
+                element={<Moved fallback={<Settings />} />}
+              />
+
+              {/* new pages: add the route here and the chunk in lib/page-chunks.ts */}
+
+              {LEGACY_PATHS.map((path) => (
+                <Route
+                  key={path}
+                  caseSensitive
+                  path={path}
+                  element={<Moved fallback={<NotFoundPage />} />}
+                />
+              ))}
+
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          )}
         </RouteSuspense>
       </PageTransition>
     </AppShell>

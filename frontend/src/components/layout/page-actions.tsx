@@ -1,7 +1,10 @@
 import type { ComponentProps } from 'react';
+import { Link } from 'react-router';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ROUTES } from '@/lib/constants';
 import { Icons } from '@/lib/icons';
+import { preloadPage } from '@/lib/page-chunks';
 import { cn } from '@/lib/utils';
 
 // the pages' primary actions and header placeholders, shared with the route
@@ -9,11 +12,28 @@ import { cn } from '@/lib/utils';
 
 type ButtonProps = ComponentProps<typeof Button>;
 
-export function UploadVideoButton(props: ButtonProps) {
+/** A link to the upload page that looks like the page's primary button. */
+export function UploadVideoButton(props: Omit<ButtonProps, 'asChild' | 'children'>) {
   return (
-    <Button {...props}>
-      <Icons.upload />
-      Upload video
+    <Button {...props} asChild>
+      <Link
+        to={ROUTES.UPLOAD}
+        // fetch the page's code while the pointer is on its way
+        onPointerEnter={() => preloadPage(ROUTES.UPLOAD)}
+        onFocus={() => preloadPage(ROUTES.UPLOAD)}
+      >
+        <Icons.upload />
+        Upload video
+      </Link>
+    </Button>
+  );
+}
+
+/** The upload page's way back to the list. */
+export function BackToVideosButton() {
+  return (
+    <Button variant="outline" asChild>
+      <Link to={ROUTES.VIDEOS}>Back to videos</Link>
     </Button>
   );
 }

@@ -6,6 +6,10 @@
 export const PAGE_HEADS = {
   overview: { title: 'Overview', description: 'Your videos and where they are stored' },
   videos: { title: 'Videos' },
+  upload: {
+    title: 'Upload videos',
+    description: 'Uploads keep going if you leave this page. Finished videos show up in Videos.',
+  },
   quickstart: { title: 'Quickstart', description: 'Connect your app to this server' },
   keys: { title: 'API keys', description: 'For the REST API and SDK, shown once when created' },
   webhooks: {

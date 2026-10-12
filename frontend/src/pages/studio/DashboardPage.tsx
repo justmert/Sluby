@@ -38,7 +38,6 @@ import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useUsage } from '@/hooks/useUsage';
 import { useWebhooks } from '@/hooks/useWebhooks';
 import { useSession } from '@/lib/session';
-import { useUploadSheet } from '@/lib/upload-sheet';
 import { UploadVideoButton } from '@/components/layout/page-actions';
 import { PAGE_HEADS } from '@/components/layout/page-heads';
 
@@ -68,7 +67,6 @@ function useWaited(ms: number, skip: boolean): boolean {
 export default function DashboardPage() {
   const session = useSession();
   const { operator } = session;
-  const sheet = useUploadSheet();
 
   const stats = useAssetStats();
   const system = useSystemStatus({ poll: true });
@@ -166,10 +164,7 @@ export default function DashboardPage() {
 
   return (
     <PageContainer>
-      <PageHeader
-        {...PAGE_HEADS.overview}
-        primaryAction={<UploadVideoButton onClick={() => sheet.open()} />}
-      />
+      <PageHeader {...PAGE_HEADS.overview} primaryAction={<UploadVideoButton />} />
 
       {!ready ? (
         <div data-instant-skeletons={instant || undefined}>

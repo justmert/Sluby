@@ -31,6 +31,19 @@ describe('getBreadcrumbs', () => {
     ]);
   });
 
+  it('puts the upload page under videos, not as a video', () => {
+    expect(getBreadcrumbs('/studio/videos/upload', 'Keynote')).toEqual([
+      overview,
+      videos,
+      { label: 'Upload' },
+    ]);
+    expect(getBreadcrumbs('/studio/videos/upload/')).toEqual([
+      overview,
+      videos,
+      { label: 'Upload' },
+    ]);
+  });
+
   it('names a detail page by its record, never its id', () => {
     expect(getBreadcrumbs('/studio/videos/de4c25bb-d71d-4768', 'Keynote')).toEqual([
       overview,

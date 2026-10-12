@@ -34,7 +34,7 @@ function WaitingBar({ label }: { label: string }) {
       role="progressbar"
       aria-label={label}
       aria-valuetext="Waiting"
-      className="relative h-1 overflow-hidden rounded-full bg-muted before:absolute before:inset-y-0 before:w-1/3 before:-translate-x-full before:rounded-full before:bg-progress/60 motion-safe:before:animate-shimmer motion-reduce:before:w-full motion-reduce:before:translate-x-0 motion-reduce:before:bg-progress/30"
+      className="relative h-1.5 overflow-hidden rounded-full bg-muted before:absolute before:inset-y-0 before:w-1/3 before:-translate-x-full before:rounded-full before:bg-progress/60 motion-safe:before:animate-shimmer motion-reduce:before:w-full motion-reduce:before:translate-x-0 motion-reduce:before:bg-progress/30"
     />
   );
 }
@@ -42,7 +42,7 @@ function WaitingBar({ label }: { label: string }) {
 /**
  * A ring that lights up once and fades when an upload lands on ready or
  * failed, with the shared "this just happened" timing (MOT-11). Rows that
- * were already settled when the sheet opened do not flash.
+ * were already settled when the page opened do not flash.
  */
 function SettleFlash({ phase }: { phase: UploadState['phase'] | null }) {
   const tone = phase === 'ready' ? 'ring-success' : phase === 'failed' ? 'ring-destructive' : null;
@@ -52,7 +52,7 @@ function SettleFlash({ phase }: { phase: UploadState['phase'] | null }) {
         <m.span
           key={phase}
           aria-hidden="true"
-          className={cn('pointer-events-none absolute inset-0 rounded-lg ring-2 ring-inset', tone)}
+          className={cn('pointer-events-none absolute inset-0 ring-2 ring-inset', tone)}
           initial={{ opacity: 1 }}
           animate={{ opacity: 0 }}
           transition={highlight}
@@ -73,7 +73,7 @@ function JobLog({ s }: { s: UploadState }) {
       tabIndex={0}
       className="max-h-48 overflow-y-auto rounded-lg bg-muted/50 p-3 font-mono text-xs outline-none focus-visible:ring-3 focus-visible:ring-ring"
     >
-      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 @md/sheet:grid-cols-[auto_auto_1fr]">
+      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 @md/upload:grid-cols-[auto_auto_1fr]">
         {logs.map((line, i) => (
           <div key={i} className="contents">
             <span className="text-muted-foreground tabular-nums">
@@ -82,7 +82,7 @@ function JobLog({ s }: { s: UploadState }) {
             <span className="text-muted-foreground">{stageLabel(line.stage)}</span>
             <span
               className={cn(
-                'col-span-2 wrap-anywhere @md/sheet:col-span-1',
+                'col-span-2 wrap-anywhere @md/upload:col-span-1',
                 i === failedAt && 'text-destructive',
               )}
             >
@@ -105,7 +105,7 @@ export interface UploadRowProps {
 }
 
 /**
- * One upload in the sheet: title, the phase badge, one status line, a bar
+ * One upload in the upload page's file list: title, the phase badge, one status line, a bar
  * while there is a number, and the actions that fit the phase. Details
  * (processing steps, the parts sent, the log) open below.
  */
@@ -243,7 +243,7 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
 
   return (
     <div
-      className="relative flex flex-col gap-2 rounded-lg border bg-card p-3"
+      className="relative flex flex-col gap-2 px-4 py-3.5 sm:px-5"
       data-testid="upload-row"
       data-phase={s.phase}
     >
@@ -297,6 +297,7 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
           <Progress
             value={status.bar}
             smooth={s.phase === 'processing'}
+            className="h-1.5"
             aria-label={
               s.phase === 'processing' ? `${s.title}, processing progress` : `${s.title}, sent`
             }

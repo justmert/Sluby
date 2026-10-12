@@ -35,7 +35,6 @@ import { useSession } from '@/lib/session';
 import { sluby } from '@/lib/sluby';
 import { THEME_OPTIONS, useTheme } from '@/lib/theme';
 import { toastError, toastSuccess } from '@/lib/toast';
-import { useUploadSheet } from '@/lib/upload-sheet';
 
 const isMac = () => /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
 
@@ -144,7 +143,6 @@ function PaletteBody({ close }: { close: () => void }) {
   const navigate = useNavigate();
   const { operator, authDisabled } = useSession();
   const { theme, setTheme } = useTheme();
-  const uploadSheet = useUploadSheet();
   const { signOut } = useSignOut();
 
   const open = (path: string) => {
@@ -165,10 +163,7 @@ function PaletteBody({ close }: { close: () => void }) {
       label: 'Upload video',
       icon: Upload,
       keywords: 'new add file',
-      run: () => {
-        close();
-        uploadSheet.open();
-      },
+      run: () => open(ROUTES.UPLOAD),
     },
     {
       id: 'action-key',

@@ -109,12 +109,12 @@ describe('CommandPalette', () => {
     );
   });
 
-  it('opens the upload sheet on the current page', async () => {
+  it('goes to the upload page from its action', async () => {
     setup();
     await openWithKeys();
     await userEvent.type(await screen.findByRole('combobox'), 'upload');
     await userEvent.click(await screen.findByRole('option', { name: 'Upload video' }));
-    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio\?upload=1$/);
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio\/videos\/upload$/);
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 

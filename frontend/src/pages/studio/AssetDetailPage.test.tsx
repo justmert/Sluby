@@ -742,7 +742,10 @@ describe('AssetDetailPage', () => {
       });
       expect(await screen.findByText('The file is not a readable video.')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Retry processing' })).toBeNull();
-      expect(screen.getByRole('button', { name: 'Upload a different file' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Upload a different file' })).toHaveAttribute(
+        'href',
+        '/studio/videos/upload',
+      );
     });
   });
 

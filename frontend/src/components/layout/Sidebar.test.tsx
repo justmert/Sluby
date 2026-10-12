@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react';
+import { useLocation } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -39,6 +40,7 @@ const render = (operator: boolean, route = '/studio') => {
     <WithSession operator={operator}>
       <SidebarProvider>
         <AppSidebar />
+        <Where />
       </SidebarProvider>
     </WithSession>,
     { route },
@@ -46,6 +48,10 @@ const render = (operator: boolean, route = '/studio') => {
 };
 
 const nav = () => within(screen.getByRole('navigation', { name: 'Studio' }));
+
+function Where() {
+  return <output data-testid="where">{useLocation().pathname}</output>;
+}
 
 describe('AppSidebar', () => {
   it('lists the pages in their groups, without deployment for a member', () => {
@@ -58,6 +64,7 @@ describe('AppSidebar', () => {
         .map((a) => [a.textContent, a.getAttribute('href')]),
     ).toEqual([
       ['SlubyStudio', '/studio'],
+      ['Upload video', '/studio/videos/upload'],
       ['Overview', '/studio'],
       ['Videos', '/studio/videos'],
       ['Quickstart', '/studio/developers'],
@@ -67,6 +74,18 @@ describe('AppSidebar', () => {
       ['Settings', '/studio/settings'],
       ['API reference, opens in a new tab', '/api/v1/docs'],
     ]);
+  });
+
+  it('goes to the upload page from Upload video, which is then the current page', async () => {
+    render(false, '/studio/videos');
+    const upload = nav().getByRole('link', { name: 'Upload video' });
+    expect(upload).not.toHaveAttribute('aria-current');
+    await userEvent.click(upload);
+    expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos/upload');
+    expect(nav().getByRole('link', { name: 'Upload video' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 
   it('shows health and metrics to an operator, under a group marked Operator (RDS-16)', async () => {

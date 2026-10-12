@@ -64,17 +64,22 @@ function setup({
   return { f, store, server, view, tabs };
 }
 
-const dropZone = () => screen.getByRole('button', { name: /drop videos here, or choose files/i });
-const drop = (...files: File[]) => fireEvent.drop(dropZone(), { dataTransfer: { files } });
+const chooseFiles = () => screen.getByRole('button', { name: 'Choose files' });
+const drop = (...files: File[]) =>
+  fireEvent.drop(screen.getByTestId('drop-zone'), { dataTransfer: { files } });
+const files = () => screen.getByRole('region', { name: 'Files' });
+// a draft's row in the file list, by its file name
+const draftRow = (name: string) =>
+  within(files()).getByText(name, { selector: 'span' }).closest('button')!;
 
 async function startUpload(file = video()) {
   drop(file);
-  await userEvent.click(screen.getByRole('button', { name: /^(upload|add to queue)$/i }));
+  await userEvent.click(screen.getByRole('button', { name: 'Start upload' }));
 }
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('upload sheet: picking and starting', () => {
+describe('upload page: picking and starting', () => {
   it('takes a dropped video, prefills and selects the title, and starts a tus upload', async () => {
     const { f } = setup();
     const file = video();
@@ -85,7 +90,12 @@ describe('upload sheet: picking and starting', () => {
     // A11Y-13: focus lands on the title, ready to type over
     await waitFor(() => expect(title).toHaveFocus());
     expect((title as HTMLInputElement).selectionEnd).toBe('my trip video'.length);
-    await userEvent.click(screen.getByRole('button', { name: 'Upload' }));
+    // the file is listed as new and selected, with its details beside the list
+    expect(draftRow('my_trip-video.mp4')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('region', { name: 'my_trip-video.mp4' })).toHaveTextContent(
+      'What happens next',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Start upload' }));
 
     expect(f.upload).toHaveBeenCalledWith(
       file,
@@ -94,19 +104,27 @@ describe('upload sheet: picking and starting', () => {
     act(() => f.current().progress(10 * 1000 * 1000, 20 * 1024 * 1024));
     const row = screen.getByTestId('upload-row');
     expect(within(row).getByText(/^47% · 10 of 21 MB/)).toBeInTheDocument();
+    expect(within(files()).getByText('1 uploading')).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'Pause' })).toBeInTheDocument();
     // A11Y-13: after Upload, focus is on the new row's heading
     await waitFor(() =>
       expect(within(row).getByRole('heading', { name: 'my trip video' })).toHaveFocus(),
     );
     // the drop zone stays, and says that new files wait their turn
-    expect(dropZone()).toHaveAccessibleDescription(/wait until the current upload finishes/);
+    expect(chooseFiles()).toHaveAccessibleDescription(/wait until the current upload finishes/);
+    // the started draft left the details
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
   });
 
-  it('names the drop zone by its visible title and describes it with the formats (A11Y-33)', () => {
-    setup();
-    expect(dropZone()).toHaveAccessibleDescription(
-      'MP4, MOV, M4V, MKV, WebM or AVI. Add several at once and they upload in order. Interrupted uploads can resume.',
+  it('describes Choose files with the drop zone title, the formats and the limit (A11Y-33)', async () => {
+    setup({ options: { readLimit: async () => 12_000_000_000 } });
+    expect(chooseFiles()).toHaveAccessibleDescription(
+      'Drop video files here MP4, MOV, M4V, MKV, WebM or AVI. Add several and they upload in order.',
+    );
+    await waitFor(() =>
+      expect(chooseFiles()).toHaveAccessibleDescription(
+        'Drop video files here MP4, MOV, M4V, MKV, WebM or AVI, up to 12 GB each. Add several and they upload in order.',
+      ),
     );
   });
 
@@ -123,21 +141,32 @@ describe('upload sheet: picking and starting', () => {
     expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
   });
 
-  it('takes several files in order, removes one, and uploads them one at a time', async () => {
+  it('lists several files, shows the one picked, removes one, and uploads the rest in order', async () => {
     const { f } = setup();
     drop(video('a.mp4'), video('b_two.mp4'), video('c.mp4'));
-    expect(screen.getByLabelText('Title for b_two.mp4')).toHaveValue('b two');
-    await userEvent.click(screen.getByRole('button', { name: 'Remove c.mp4' }));
-    // access applies to all of them
+    expect(within(files()).getByText('3 new')).toBeInTheDocument();
+    // the first is selected; picking another shows its own details
+    expect(screen.getByLabelText('Title')).toHaveValue('a');
+    await userEvent.click(draftRow('b_two.mp4'));
+    expect(draftRow('b_two.mp4')).toHaveAttribute('aria-current', 'true');
+    expect(draftRow('a.mp4')).not.toHaveAttribute('aria-current');
+    expect(screen.getByLabelText('Title')).toHaveValue('b two');
+    await userEvent.click(draftRow('c.mp4'));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove file' }));
+    await waitFor(() => expect(within(files()).queryByText('c.mp4')).not.toBeInTheDocument());
+    // the one before it is shown, and focus stays in the list
+    await waitFor(() => expect(draftRow('b_two.mp4')).toHaveFocus());
+    expect(screen.getByLabelText('Title')).toHaveValue('b two');
+    // access belongs to each file
     await userEvent.click(screen.getByRole('radio', { name: 'Private' }));
     await userEvent.click(screen.getByRole('button', { name: 'Upload 2 videos' }));
 
     expect(f.upload).toHaveBeenCalledTimes(1);
-    expect(f.upload.mock.calls[0][1]).toMatchObject({ accessTier: 'private' });
+    expect(f.upload.mock.calls[0][1]).toMatchObject({ title: 'a', accessTier: 'public' });
     expect(await screen.findByText('Uploading 2 videos, one at a time')).toBeInTheDocument();
-    const next = screen.getByRole('region', { name: 'Up next' });
-    expect(within(next).getByText('b two')).toBeInTheDocument();
-    expect(within(next).getByText('Waiting')).toBeInTheDocument();
+    const queuedRow = within(files()).getByRole('heading', { name: 'b two' }).closest('li')!;
+    expect(within(queuedRow).getByText('Waiting')).toBeInTheDocument();
+    expect(queuedRow).toHaveTextContent('next in line');
 
     f.processing.mockResolvedValue(job());
     act(() => {
@@ -152,12 +181,13 @@ describe('upload sheet: picking and starting', () => {
     const { f } = setup();
     await startUpload(video('first.mp4'));
     drop(video('second.mp4'));
-    await userEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Start upload' }));
     expect(f.upload).toHaveBeenCalledTimes(1);
     expect(await screen.findByText('1 video queued after the current upload')).toBeInTheDocument();
+    expect(within(files()).getByText('1 uploading · 1 queued')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Remove second from the queue' }));
     await waitFor(() =>
-      expect(screen.queryByRole('region', { name: 'Up next' })).not.toBeInTheDocument(),
+      expect(within(files()).queryByRole('heading', { name: 'second' })).not.toBeInTheDocument(),
     );
   });
 
@@ -165,9 +195,9 @@ describe('upload sheet: picking and starting', () => {
     const { f } = setup();
     drop(video());
     await userEvent.clear(screen.getByLabelText('Title'));
-    await userEvent.click(screen.getByRole('button', { name: 'Upload' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Start upload' }));
     expect(screen.getByText('Enter a title.')).toBeInTheDocument();
-    expect(screen.getByLabelText('Title')).toHaveFocus();
+    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveFocus());
     expect(f.upload).not.toHaveBeenCalled();
   });
 
@@ -184,13 +214,28 @@ describe('upload sheet: picking and starting', () => {
   it('counts the description from 4,500 characters and stops at 5,000 (FLW-30)', async () => {
     setup();
     drop(video());
-    const field = screen.getByLabelText('Description');
+    const field = screen.getByLabelText('Description optional');
     expect(field).toHaveAttribute('maxLength', '5000');
     fireEvent.change(field, { target: { value: 'x'.repeat(4_812) } });
     expect(screen.getByText('4,812 of 5,000')).toBeInTheDocument();
   });
 
-  it('keeps drafts when the sheet closes and opens again', () => {
+  it('sends each draft with its own description', async () => {
+    const { f } = setup();
+    drop(video('a.mp4'), video('b.mp4'));
+    fireEvent.change(screen.getByLabelText('Description optional'), {
+      target: { value: '  About a  ' },
+    });
+    await userEvent.click(draftRow('b.mp4'));
+    expect(screen.getByLabelText('Description optional')).toHaveValue('');
+    await userEvent.click(draftRow('a.mp4'));
+    await userEvent.click(screen.getByRole('button', { name: 'Start upload' }));
+    expect(f.upload.mock.calls[0][1]).toMatchObject({ title: 'a', description: 'About a' });
+    // b is shown next, still new
+    expect(screen.getByLabelText('Title')).toHaveValue('b');
+  });
+
+  it('keeps drafts when the page is left and opened again', () => {
     const { store, view } = setup();
     drop(video());
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Kept' } });
@@ -207,7 +252,7 @@ describe('upload sheet: picking and starting', () => {
   });
 });
 
-describe('upload sheet: typing straight after picking', () => {
+describe('upload page: typing straight after picking', () => {
   it('keeps every keystroke typed the moment the title appears', async () => {
     setup();
     drop(video('clip.mp4'));
@@ -223,26 +268,34 @@ describe('upload sheet: typing straight after picking', () => {
   it('never takes focus away from a field the person is typing in', async () => {
     setup();
     drop(video('a.mp4'), video('b.mp4'));
-    const second = screen.getByLabelText('Title for b.mp4');
+    await userEvent.click(draftRow('b.mp4'));
+    const second = screen.getByLabelText('Title');
     await userEvent.click(second);
     await userEvent.keyboard('{End} two');
-    // a second drop while typing adds a draft but leaves focus and text alone
+    // a second drop while typing adds a draft but leaves focus, text and the details alone
     drop(video('c.mp4'));
     await userEvent.keyboard(' more');
     await act(() => new Promise((r) => setTimeout(r, 50)));
     expect(second).toHaveFocus();
     expect(second).toHaveValue('b two more');
-    expect(screen.getByLabelText('Title for c.mp4')).toHaveValue('c');
+    expect(draftRow('b.mp4')).toHaveAttribute('aria-current', 'true');
+    // the new one waits in the list, and its title takes focus once it is picked
+    await userEvent.click(draftRow('c.mp4'));
+    expect(screen.getByLabelText('Title')).toHaveValue('c');
+    expect(screen.getByLabelText('Title')).toHaveFocus();
   });
 });
 
-describe('upload sheet: limits, history and other tabs', () => {
+describe('upload page: limits, history and other tabs', () => {
   it('marks a file over the server limit and does not offer to upload it (FLW-45)', async () => {
     setup({ options: { readLimit: async () => 10_000_000 } });
     await act(async () => {});
     drop(video('big.mp4', 20_000_000));
-    expect(screen.getByText("20 MB is over this server's 10 MB limit.")).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeDisabled();
+    expect(screen.getByLabelText('Title')).toHaveAccessibleDescription(
+      "20 MB is over this server's 10 MB limit.",
+    );
+    expect(within(draftRow('big.mp4')).getByText('Too large for this server.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start upload' })).toBeDisabled();
   });
 
   it('says when this file was uploaded before, and links to that video (FLW-47)', () => {
@@ -330,7 +383,7 @@ describe('upload sheet: limits, history and other tabs', () => {
   });
 });
 
-describe('upload sheet: rows', () => {
+describe('upload page: rows', () => {
   it('pauses, shows what was sent once, and resumes', async () => {
     const { f } = setup();
     await startUpload();
@@ -480,7 +533,7 @@ describe('upload sheet: rows', () => {
   });
 });
 
-describe('upload sheet: unfinished uploads from an earlier page load', () => {
+describe('upload page: unfinished uploads from an earlier page load', () => {
   const fingerprint =
     'tus-br-clip.mp4-video/mp4-1000-1700000000000-http://localhost:3000/api/v1/uploads';
   const storageKey = `tus::${fingerprint}-sluby-abc123::42`;

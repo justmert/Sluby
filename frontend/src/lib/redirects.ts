@@ -27,10 +27,8 @@ export function legacyRedirect(place: Place, { operator }: { operator: boolean }
   const asset = /^\/studio\/assets\/([^/]+)$/.exec(path);
   if (asset) return join(ROUTES.video(decodeURIComponent(asset[1])), params, hash);
 
-  if (path === '/studio/upload') {
-    params.set(UPLOAD_PARAM, '1');
-    return join(ROUTES.VIDEOS, params, hash);
-  }
+  // the upload sheet's old address; the sheet's own ?upload=1 is uploadParamRedirect
+  if (path === '/studio/upload') return join(ROUTES.UPLOAD, params, hash);
 
   if (path === '/studio/player') {
     const id = params.get('asset');
@@ -56,6 +54,16 @@ export function legacyRedirect(place: Place, { operator }: { operator: boolean }
   }
 
   return null;
+}
+
+/**
+ * Where a url with the old sheet's `?upload=1` goes now: the upload page. It
+ * worked on any route, so this is checked on every path. The rest of the
+ * search and the hash belonged to the page under the sheet and mean nothing
+ * on the upload page, so they are dropped.
+ */
+export function uploadParamRedirect(place: Pick<Place, 'search'>): string | null {
+  return new URLSearchParams(place.search).get(UPLOAD_PARAM) === '1' ? ROUTES.UPLOAD : null;
 }
 
 /** The old paths, for the route table: each renders a redirect. */

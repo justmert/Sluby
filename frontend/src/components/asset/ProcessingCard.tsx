@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import { CircleAlert, CirclePause, Upload } from 'lucide-react';
 import type { VideoAsset } from '@sluby/sdk';
 import { ErrorDetails } from '@/components/shared/ErrorDetails';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { ROUTES } from '@/lib/constants';
 import { Icons } from '@/lib/icons';
-import { useUploadSheet } from '@/lib/upload-sheet';
 import { cn } from '@/lib/utils';
 import { assetSteps } from './pipeline-states';
 import { PipelineSteps } from './PipelineSteps';
@@ -92,7 +93,6 @@ export function ProcessingCard({
   onDelete,
   className,
 }: ProcessingCardProps) {
-  const uploadSheet = useUploadSheet();
   const deleteButton = (
     <Button
       variant="outline"
@@ -150,10 +150,12 @@ export function ProcessingCard({
               <Button
                 variant="outline"
                 className="h-auto min-h-8 py-1.5 whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-10"
-                onClick={() => uploadSheet.open()}
+                asChild
               >
-                <Upload />
-                Upload a different file
+                <Link to={ROUTES.UPLOAD}>
+                  <Upload />
+                  Upload a different file
+                </Link>
               </Button>
             )}
           </>
