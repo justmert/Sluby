@@ -47,6 +47,17 @@ async function pickTemplate(label: RegExp) {
 }
 
 describe('API explorer', () => {
+  it('puts the request and the response in named sections, each with its heading', () => {
+    render();
+    for (const name of ['Request', 'Response']) {
+      const region = screen.getByRole('region', { name });
+      expect(within(region).getByRole('heading', { level: 2, name })).toBeInTheDocument();
+    }
+    expect(screen.getByRole('region', { name: 'Response' })).toHaveTextContent(
+      'Send a request to see the answer here.',
+    );
+  });
+
   it('sends with Enter in the path, and labels the answer with its request (A11Y-40)', async () => {
     answers['GET /api/v1/assets?limit=20'] = () =>
       respond({ body: { data: [] }, headers: { 'x-ratelimit-remaining': '99' } });
