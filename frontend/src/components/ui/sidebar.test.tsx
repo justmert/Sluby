@@ -16,7 +16,7 @@ describe('SidebarProvider', () => {
         <State />
       </SidebarProvider>,
     );
-    await userEvent.click(screen.getByRole('button', { name: /show or hide sidebar/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
     expect(screen.getByTestId('state')).toHaveTextContent('collapsed');
     expect(document.cookie).not.toContain('sidebar_state');
   });

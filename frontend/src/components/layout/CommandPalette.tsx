@@ -504,7 +504,7 @@ export function CommandPalette({ className }: { className?: string }) {
         // screen readers, since the button shrinks to its icon
         aria-keyshortcuts={mac ? 'Meta+K' : 'Control+K'}
         className={cn(
-          'w-full max-w-70 min-w-0 shrink justify-start gap-2 px-3 text-subtle-foreground hover:text-subtle-foreground max-[899px]:size-9 max-[899px]:shrink-0 max-[899px]:justify-center max-[899px]:p-0 max-[899px]:pointer-coarse:size-11',
+          'min-w-0 flex-[0_1_280px] justify-start gap-2 px-3.5 text-subtle-foreground hover:text-subtle-foreground max-[899px]:size-9 max-[899px]:shrink-0 max-[899px]:justify-center max-[899px]:p-0 max-[899px]:pointer-coarse:size-11',
           className,
         )}
       >

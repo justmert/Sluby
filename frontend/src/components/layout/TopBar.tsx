@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useSyncExternalStore } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { ChevronLeft } from 'lucide-react';
 import {
@@ -10,30 +10,25 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { ROUTES } from '@/lib/constants';
+import { Icons } from '@/lib/icons';
+import { preloadPage } from '@/lib/page-chunks';
 import { CommandPalette } from './CommandPalette';
 import { ThemeToggle } from './ThemeToggle';
 import { UploadIndicator } from './UploadIndicator';
 import { UserMenu } from './UserMenu';
 import { useRouteCrumbs } from './use-route-crumbs';
 
-function subscribeToScroll(onChange: () => void) {
-  window.addEventListener('scroll', onChange, { passive: true });
-  return () => window.removeEventListener('scroll', onChange);
-}
-
-// the bar only draws its edge once content passes under it
-const useScrolled = () =>
-  useSyncExternalStore(
-    subscribeToScroll,
-    () => window.scrollY > 0,
-    () => false,
-  );
-
+/**
+ * The design's header, sticky over every page: the breadcrumb, search with
+ * its label and ⌘K, the theme switch and the account. Below 900px the menu
+ * button opens the sidebar and search shrinks to its icon. On a phone it is
+ * the phone board's header: the menu, the page's name in bold, search and a
+ * square upload button; the theme and the account move into the menu sheet.
+ */
 export function TopBar() {
   const crumbs = useRouteCrumbs();
-  const scrolled = useScrolled();
   // phones show only the page's own name; a detail page gets a way up instead
   const parent = crumbs.length > 2 ? crumbs[crumbs.length - 2] : undefined;
 
@@ -57,24 +52,18 @@ export function TopBar() {
   return (
     <header
       ref={bar}
-      data-scrolled={scrolled}
-      className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur transition-[border-color] duration-150 data-[scrolled=false]:border-transparent max-[24rem]:h-auto max-[24rem]:min-h-14 max-[24rem]:flex-wrap max-[24rem]:py-2"
+      className="sticky top-0 z-20 flex h-15 shrink-0 items-center gap-2 border-b bg-card px-8 max-[899px]:px-3 max-sm:h-14 max-sm:gap-1 max-sm:px-1.5 max-[24rem]:h-auto max-[24rem]:min-h-14 max-[24rem]:flex-wrap max-[24rem]:py-2"
     >
-      <SidebarTrigger className="-ml-1" />
-      {/* the base separator stretches to the row; a fixed height has to drop that or it pins to the top */}
-      <Separator
-        orientation="vertical"
-        className="mr-2 data-vertical:h-4 data-vertical:self-auto"
-      />
+      <SidebarTrigger className="min-[900px]:hidden" />
       {parent?.path && (
-        <Button variant="ghost" size="icon-sm" className="-ml-1 sm:hidden" asChild>
+        <Button variant="ghost" size="icon" className="sm:hidden" asChild>
           <Link to={parent.path} aria-label={`Back to ${parent.label}`}>
             <ChevronLeft />
           </Link>
         </Button>
       )}
       <Breadcrumb className="min-w-0 flex-1">
-        <BreadcrumbList className="flex-nowrap">
+        <BreadcrumbList className="flex-nowrap gap-2 text-sm sm:gap-2">
           {crumbs.map((crumb, i) => {
             const last = i === crumbs.length - 1;
             return (
@@ -83,7 +72,11 @@ export function TopBar() {
                 <BreadcrumbItem className={last ? 'min-w-0' : 'shrink-0 max-sm:hidden'}>
                   {last || !crumb.path ? (
                     // a video title can be right to left; dir keeps its start in view when it truncates
-                    <BreadcrumbPage dir="auto" className="truncate" title={crumb.label}>
+                    <BreadcrumbPage
+                      dir="auto"
+                      className="truncate font-semibold max-sm:text-base max-sm:font-bold"
+                      title={crumb.label}
+                    >
                       {crumb.label}
                     </BreadcrumbPage>
                   ) : (
@@ -100,11 +93,21 @@ export function TopBar() {
         </BreadcrumbList>
       </Breadcrumb>
       {/* on a second row, when the bar wraps, it keeps to the right */}
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div className="ml-auto flex min-w-0 shrink items-center justify-end gap-2 max-sm:gap-1">
         <UploadIndicator />
-        <CommandPalette />
-        <ThemeToggle />
-        <UserMenu />
+        <CommandPalette className="max-sm:size-11 max-sm:border-transparent max-sm:bg-transparent max-sm:text-secondary-foreground max-sm:hover:bg-muted" />
+        <ThemeToggle className="max-sm:hidden" />
+        <UserMenu className="max-sm:hidden" />
+        <Button size="icon-lg" className="sm:hidden" asChild>
+          <Link
+            to={ROUTES.UPLOAD}
+            aria-label="Upload video"
+            onPointerEnter={() => preloadPage(ROUTES.UPLOAD)}
+            onFocus={() => preloadPage(ROUTES.UPLOAD)}
+          >
+            <Icons.upload className="size-5" />
+          </Link>
+        </Button>
       </div>
     </header>
   );
