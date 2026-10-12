@@ -1,4 +1,4 @@
-import { Fingerprint, Link2, MoreHorizontal } from 'lucide-react';
+import { ChevronDown, Fingerprint, Link2 } from 'lucide-react';
 import type { VideoAsset } from '@sluby/sdk';
 import { Button } from '@/components/ui/button';
 import {
@@ -29,8 +29,9 @@ export interface VideoActionsMenuProps {
 }
 
 /**
- * The video page's overflow menu: copy actions, then Delete set apart in
- * red. Delete lives here and not beside the editing controls (D-22).
+ * The video page's More menu beside Copy embed code: the copy actions, then
+ * Delete set apart in red. The Delete video card says the same at the foot
+ * of the side column (D-22).
  */
 export function VideoActionsMenu({ asset, onDelete, deleting = false }: VideoActionsMenuProps) {
   return (
@@ -38,8 +39,9 @@ export function VideoActionsMenu({ asset, onDelete, deleting = false }: VideoAct
     // stays focusable behind the menu (axe aria-hidden-focus)
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon" aria-label="More actions">
-          <MoreHorizontal />
+        <Button variant="outline" aria-label="More actions">
+          More
+          <ChevronDown data-icon="inline-end" className="size-3.5" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-auto min-w-48">
