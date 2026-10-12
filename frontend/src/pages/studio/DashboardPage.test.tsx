@@ -306,7 +306,7 @@ describe('Overview page', () => {
       render();
       await screen.findByRole('list', { name: 'Steps' });
       expect(within(steps()[1]).getByText(', Not done')).toBeInTheDocument();
-      expect(within(steps()[1]).getByRole('button', { name: 'Upload video' })).toBeInTheDocument();
+      expect(within(steps()[1]).getByRole('link', { name: 'Upload video' })).toBeInTheDocument();
     });
 
     it('leads an empty account with the checklist, step 1 read from the real probe', async () => {
@@ -341,12 +341,12 @@ describe('Overview page', () => {
       expect(within(card('Recent videos')).getByText('No videos yet')).toBeInTheDocument();
     });
 
-    it('opens the upload sheet in place from step 2', async () => {
+    it('goes to the upload page from step 2', async () => {
       setup();
       render();
       await screen.findByRole('list', { name: 'Steps' });
-      await userEvent.click(within(steps()[1]).getByRole('button', { name: 'Upload video' }));
-      expect(screen.getByTestId('where')).toHaveTextContent('/studio?upload=1');
+      await userEvent.click(within(steps()[1]).getByRole('link', { name: 'Upload video' }));
+      expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos/upload');
     });
 
     it('tells a member whose server cannot reach Sia to ask the operator', async () => {

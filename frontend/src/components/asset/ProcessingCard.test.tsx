@@ -163,9 +163,10 @@ describe('ProcessingCard', () => {
     });
     expect(screen.getByText('The file is not a readable video.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry processing' })).toBeNull();
-    const reupload = screen.getByRole('button', { name: 'Upload a different file' });
+    const reupload = screen.getByRole('link', { name: 'Upload a different file' });
     // at a large default font the label wraps instead of running out of the card (1.4.4),
     // and on phones both actions take the full width instead of two ragged rows
+    expect(reupload).toHaveAttribute('href', '/studio/videos/upload');
     expect(reupload).toHaveClass('whitespace-normal', 'h-auto', 'pointer-coarse:h-auto');
     expect(reupload.parentElement).toHaveClass('max-sm:flex-col', 'max-sm:items-stretch');
     // which makes it taller than a 16:9 box on phones, so the card grows instead of spilling

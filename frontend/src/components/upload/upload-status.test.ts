@@ -3,11 +3,11 @@ import { job, upload } from '@/test/upload-state';
 import { badgeStatus, endedText, sentOf, shortStatus, statusLine, timeLeft } from './upload-status';
 
 describe('upload status line', () => {
-  it('says percent, bytes and time left while sending, and no time before the speed settles', () => {
+  it('says percent, bytes, speed and time left while sending, and no speed before it settles', () => {
     expect(statusLine(upload({ bytesUploaded: 5_400_000 })).text).toBe('45% · 5.4 of 12 MB');
     expect(
       statusLine(upload({ bytesUploaded: 5_400_000, speed: 220_000, activeMs: 5_000 })).text,
-    ).toBe('45% · 5.4 of 12 MB · about 30 seconds left');
+    ).toBe('45% · 5.4 of 12 MB · 220 KB/s · about 30 seconds left');
   });
 
   it('spells both units out when they differ', () => {

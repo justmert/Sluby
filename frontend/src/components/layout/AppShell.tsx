@@ -3,7 +3,6 @@ import { useLocation } from 'react-router';
 import { PortalContainerProvider } from '@/components/ui/portal-container';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { UploadSheet } from '@/components/upload/UploadSheet';
 import { useIsWide } from '@/hooks/use-mobile';
 import { AuthOffBanner } from './AuthOffBanner';
 import { LiveAlerts } from './LiveAlerts';
@@ -54,7 +53,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [title]);
 
   // after a navigation, focus moves to the new page, so the next Tab starts
-  // there instead of back at the skip link. a sidebar link keeps its focus.
+  // there instead of back at the skip link. a sidebar link keeps its focus,
+  // and so does a field or button the new page focused itself as it mounted
+  // (the upload page starts on Choose files). the old page is gone by now,
+  // so focus inside a page container is the new page's own
   const firstRender = useRef(true);
   useEffect(() => {
     if (firstRender.current) {
@@ -66,7 +68,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       active &&
       active !== document.body &&
       active.isConnected &&
-      active.closest('[data-sidebar=sidebar]')
+      (active.closest('[data-sidebar=sidebar]') || active.closest('[data-slot=page-container]'))
     ) {
       return;
     }
@@ -95,7 +97,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div ref={setOverlayRoot} data-slot="overlay-root" />
           </main>
         </div>
-        <UploadSheet />
         <LiveAlerts />
       </SidebarProvider>
     </PortalContainerProvider>

@@ -4,6 +4,7 @@ import { useLocation } from 'react-router';
 import type { VideoAsset } from '@sluby/sdk';
 import { webhookLabel, type WebhookRecord } from '@/hooks/useWebhooks';
 import { statusOf } from '@/lib/api-client';
+import { isUploadPage } from '@/lib/upload-page';
 import { getBreadcrumbs, type Crumb } from './breadcrumbs';
 
 const VIDEO_PATH = /^\/studio\/videos\/([^/]+)\/?$/;
@@ -18,7 +19,7 @@ const WEBHOOK_PATH = /^\/studio\/developers\/webhooks\/([^/]+)\/?$/;
 export function useRouteCrumbs(): Crumb[] {
   const { pathname } = useLocation();
   const client = useQueryClient();
-  const assetId = VIDEO_PATH.exec(pathname)?.[1];
+  const assetId = isUploadPage(pathname) ? undefined : VIDEO_PATH.exec(pathname)?.[1];
   const webhookId = WEBHOOK_PATH.exec(pathname)?.[1];
   const title = useSyncExternalStore(
     (onChange) => client.getQueryCache().subscribe(onChange),

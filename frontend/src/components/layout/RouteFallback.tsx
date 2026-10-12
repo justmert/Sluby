@@ -16,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { libraryView } from '@/components/videos/library-view';
 import { VideosGridSkeleton } from '@/components/videos/VideosGridSkeleton';
 import { VideosTable } from '@/components/videos/VideosTable';
+import { DropZone } from '@/components/upload/DropZone';
 import { cn } from '@/lib/utils';
 import { AnalyticsLoading } from '@/components/dashboard/analytics-parts';
 import { DashboardLoading } from '@/components/dashboard/dashboard-parts';
@@ -32,7 +33,12 @@ import {
   TryExplorerLink,
 } from '@/pages/studio/developers/quickstart-parts';
 import { SETUP_DESCRIPTION } from '@/lib/snippet-copy';
-import { AddWebhookButton, CreateKeyButton, StatsLinePlaceholder } from './page-actions';
+import {
+  AddWebhookButton,
+  BackToVideosButton,
+  CreateKeyButton,
+  StatsLinePlaceholder,
+} from './page-actions';
 import { PAGE_HEADS } from './page-heads';
 import { lateReveal } from '@/lib/motion';
 import { PageContainer } from './PageContainer';
@@ -114,6 +120,17 @@ function Assets() {
           rowsKey="loading"
         />
       )}
+    </>
+  );
+}
+
+// the upload page's first draw needs nothing from the server: its header and
+// the drop zone, with the limit it has not read yet left out of the hint
+function Upload() {
+  return (
+    <>
+      <Head {...PAGE_HEADS.upload} primaryAction={<BackToVideosButton />} />
+      <DropZone onFiles={() => {}} busy={false} />
     </>
   );
 }
@@ -303,6 +320,8 @@ function Settings() {
 const SKELETONS: Array<[RegExp, () => React.ReactNode, string?]> = [
   [/^\/studio\/?$/, Dashboard],
   [/^\/studio\/videos\/?$/, Assets],
+  // before the video page's pattern, which "upload" would match
+  [/^\/studio\/videos\/upload\/?$/, Upload],
   [/^\/studio\/videos\/[^/]+\/?$/, AssetDetailLoading],
   [/^\/studio\/developers\/?$/, Quickstart],
   [/^\/studio\/developers\/keys\/?$/, Keys],

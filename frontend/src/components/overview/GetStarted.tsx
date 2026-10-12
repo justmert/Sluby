@@ -15,7 +15,6 @@ import type { SystemStatus } from '@/hooks/useStats';
 import { ROUTES } from '@/lib/constants';
 import { scaleIn } from '@/lib/motion';
 import { cn } from '@/lib/utils';
-import { useUploadSheet } from '@/lib/upload-sheet';
 import { doneCount, REQUIRED_STEPS, type StepId, type StepState } from './get-started';
 
 interface GetStartedProps {
@@ -157,7 +156,6 @@ export function GetStarted({
   firstReady,
   onDismiss,
 }: GetStartedProps) {
-  const sheet = useUploadSheet();
   const n = doneCount(steps);
   const by = Object.fromEntries(steps.map((s) => [s.id, s])) as Record<StepId, StepState>;
 
@@ -231,13 +229,8 @@ export function GetStarted({
             }
             action={
               !by.upload.done && (
-                <Button
-                  variant="link"
-                  size="sm"
-                  className={STEP_ACTION}
-                  onClick={() => sheet.open()}
-                >
-                  Upload video
+                <Button variant="link" size="sm" className={STEP_ACTION} asChild>
+                  <Link to={ROUTES.UPLOAD}>Upload video</Link>
                 </Button>
               )
             }

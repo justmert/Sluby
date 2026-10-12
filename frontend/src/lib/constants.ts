@@ -14,6 +14,8 @@ import { Icons } from './icons';
 export const ROUTES = {
   OVERVIEW: '/studio',
   VIDEOS: '/studio/videos',
+  // static, so the router ranks it above /studio/videos/:id
+  UPLOAD: '/studio/videos/upload',
   video: (id: string) => `/studio/videos/${encodeURIComponent(id)}`,
   DEVELOPERS: '/studio/developers',
   API_KEYS: '/studio/developers/keys',
@@ -34,7 +36,7 @@ export const LINKS = {
   SIGN_IN_SETUP: 'https://github.com/justmert/Sluby/blob/main/docs/guide/configuration.md#sign-in',
 } as const;
 
-/** `?upload=1` on any route opens the upload sheet (lib/upload-sheet.ts). */
+/** `?upload=1` on any route once opened the upload sheet; it now redirects to the upload page. */
 export const UPLOAD_PARAM = 'upload';
 
 export interface NavItem {

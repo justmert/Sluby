@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { legacyRedirect } from './redirects';
+import { legacyRedirect, uploadParamRedirect } from './redirects';
 
 const at = (url: string, operator = false) => {
   const u = new URL(url, 'https://studio.example.com');
@@ -13,8 +13,8 @@ describe('legacyRedirect', () => {
     ['/studio/assets?q=Bunny&status=ready&page=2', '/studio/videos?q=Bunny&status=ready&page=2'],
     ['/studio/assets/a1', '/studio/videos/a1'],
     ['/studio/assets/a1?tab=renditions#log', '/studio/videos/a1?tab=renditions#log'],
-    ['/studio/upload', '/studio/videos?upload=1'],
-    ['/studio/upload?view=grid', '/studio/videos?view=grid&upload=1'],
+    ['/studio/upload', '/studio/videos/upload'],
+    ['/studio/upload/', '/studio/videos/upload'],
     ['/studio/player', '/studio/videos?status=ready'],
     ['/studio/player?q=Keynote', '/studio/videos?q=Keynote&status=ready'],
     ['/studio/player?asset=f1', '/studio/videos/f1'],
@@ -43,6 +43,7 @@ describe('legacyRedirect', () => {
       '/studio',
       '/studio/videos',
       '/studio/videos/a1',
+      '/studio/videos/upload',
       '/studio/settings',
       '/studio/settings?tab=x',
       '/studio/developers',
@@ -52,5 +53,18 @@ describe('legacyRedirect', () => {
     ]) {
       expect(at(path)).toBeNull();
     }
+  });
+});
+
+describe('uploadParamRedirect', () => {
+  it('sends the old sheet param on any route to the upload page', () => {
+    expect(uploadParamRedirect({ search: '?upload=1' })).toBe('/studio/videos/upload');
+    expect(uploadParamRedirect({ search: '?view=grid&upload=1' })).toBe('/studio/videos/upload');
+  });
+
+  it('leaves other searches alone', () => {
+    expect(uploadParamRedirect({ search: '' })).toBeNull();
+    expect(uploadParamRedirect({ search: '?upload=0' })).toBeNull();
+    expect(uploadParamRedirect({ search: '?q=upload' })).toBeNull();
   });
 });

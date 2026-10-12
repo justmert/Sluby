@@ -16,6 +16,7 @@ import ExplorerPage from '@/pages/studio/developers/ExplorerPage';
 import HealthPage from '@/pages/studio/deployment/HealthPage';
 import MetricsPage from '@/pages/studio/deployment/MetricsPage';
 import SettingsPage from '@/pages/studio/SettingsPage';
+import UploadPage from '@/pages/studio/UploadPage';
 import { RouteFallback } from './RouteFallback';
 
 // loaded by a specifier typescript does not follow, as in Sidebar.browser.test:
@@ -35,6 +36,7 @@ const PAGES: Array<[string, string, string, ComponentType, Session?]> = [
   ['videos', '/studio/videos', '/studio/videos', AssetsPage],
   ['videos grid', '/studio/videos?view=grid', '/studio/videos', AssetsPage],
   ['a video', '/studio/videos/a1', '/studio/videos/:id', AssetDetailPage],
+  ['upload', '/studio/videos/upload', '/studio/videos/upload', UploadPage],
   ['quickstart', '/studio/developers', '/studio/developers', QuickstartPage],
   ['keys', '/studio/developers/keys', '/studio/developers/keys', KeysPage],
   ['webhooks', '/studio/developers/webhooks', '/studio/developers/webhooks', WebhooksPage],

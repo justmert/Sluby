@@ -21,6 +21,7 @@ import { Logo } from '@/components/brand/Logo';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { isNavActive, LINKS, navGroupsFor, ROUTES, type NavItem } from '@/lib/constants';
 import { errorText } from '@/lib/errors';
+import { Icons } from '@/lib/icons';
 import { NO_VALUE } from '@/lib/formatters';
 import { spring } from '@/lib/motion';
 import { preloadPage } from '@/lib/page-chunks';
@@ -54,6 +55,25 @@ export function AppSidebar() {
                     <span className="truncate font-heading font-semibold">Sluby</span>
                     <span className="truncate text-xs text-muted-foreground">Studio</span>
                   </div>
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            {/* the studio's one primary action, on every page; NavLink marks it
+                current on the upload page */}
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                tooltip="Upload video"
+                className="mt-2 justify-center bg-primary font-medium text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
+              >
+                <NavLink
+                  to={ROUTES.UPLOAD}
+                  onClick={closeMobile}
+                  onPointerEnter={() => preloadPage(ROUTES.UPLOAD)}
+                  onFocus={() => preloadPage(ROUTES.UPLOAD)}
+                >
+                  <Icons.upload />
+                  <span>Upload video</span>
                 </NavLink>
               </SidebarMenuButton>
             </SidebarMenuItem>

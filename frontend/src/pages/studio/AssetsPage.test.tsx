@@ -168,6 +168,7 @@ function renderLibrary(route = '/studio/videos') {
   return renderPage(
     <Routes>
       <Route path="/" element={<p>start page</p>} />
+      <Route path="/studio/videos/upload" element={<p>upload page</p>} />
       <Route path="/studio/videos/:id" element={<p>video page</p>} />
       <Route
         path="/studio/videos"
@@ -550,8 +551,11 @@ describe('AssetsPage: search and history', () => {
     expect(
       screen.getByText('Upload a video and it will be ready to stream in a few minutes.'),
     ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Upload video' }));
-    await waitFor(() => expect(where()).toBe('?upload=1'));
+    const uploads = screen.getAllByRole('link', { name: 'Upload video' });
+    // only the empty state's; the sidebar holds the page's primary upload action
+    expect(uploads).toHaveLength(1);
+    await userEvent.click(uploads[0]);
+    expect(await screen.findByText('upload page')).toBeInTheDocument();
     unmount();
     library();
     renderLibrary('/studio/videos?q=zzz');
@@ -560,7 +564,7 @@ describe('AssetsPage: search and history', () => {
     expect(await screen.findByText('Big Buck Bunny')).toBeInTheDocument();
   });
 
-  it('opens the upload sheet with files dropped anywhere on the page', async () => {
+  it('takes files dropped anywhere on the page to the upload page', async () => {
     library();
     renderLibrary();
     await screen.findByText('Big Buck Bunny');
@@ -572,9 +576,9 @@ describe('AssetsPage: search and history', () => {
     fireEvent.dragEnter(document.body, { dataTransfer });
     expect(await screen.findByText('Drop to upload')).toBeInTheDocument();
     fireEvent.drop(document.body, { dataTransfer });
-    await waitFor(() => expect(where()).toBe('?upload=1'));
+    expect(await screen.findByText('upload page')).toBeInTheDocument();
     expect(screen.queryByText('Drop to upload')).not.toBeInTheDocument();
-    const { takePendingFiles } = await import('@/lib/upload-sheet');
+    const { takePendingFiles } = await import('@/lib/upload-page');
     expect(takePendingFiles().map((f) => f.name)).toEqual(['a.mp4', 'b.mp4']);
   });
 });

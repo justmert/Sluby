@@ -1,13 +1,13 @@
 import { useEffect, useEffectEvent, useRef } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { statusSpec } from '@/components/shared/status';
 import { ROUTES } from '@/lib/constants';
 import { primaryEmbed } from '@/lib/embed';
 import { toastError, toastSuccess, toastWarning } from '@/lib/toast';
 import { rememberUploadOwner } from '@/lib/unfinished-uploads';
 import { recordUpload } from '@/lib/upload-history';
+import { isUploadPage } from '@/lib/upload-page';
 import { endedText } from './upload-status';
-import { useUploadSheet } from '@/lib/upload-sheet';
 import {
   useUploads,
   type UploadPhase,
@@ -39,13 +39,13 @@ async function copyEmbed(u: UploadState) {
  * really continued (FLW-04), and the file remembered for the duplicate hint
  * (FLW-47). Other phase changes are written to the returned live region,
  * once they settle, so a burst of phases is said once; ready and failed are
- * announced by their toasts, or by the region while the sheet is open and
- * the row already shows them.
+ * announced by their toasts, or by the region while the upload page shows
+ * and the row already says so.
  */
 export function useUploadEvents(store: UploadStore, accountId: string) {
   const { uploads } = useUploads(store);
   const navigate = useNavigate();
-  const sheet = useUploadSheet();
+  const onPage = isUploadPage(useLocation().pathname);
   const seen = useRef<Seen | null>(null);
   const region = useRef<HTMLSpanElement>(null);
   // what each upload's last change says, until the region says it
@@ -74,10 +74,10 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
       if (u.phase === 'processing' && u.assetId) {
         recordUpload({ fingerprint: u.fingerprint, title: u.title, assetId: u.assetId, accountId });
       }
-      // with the sheet open the row itself shows it; say it once, without a toast on top
+      // on the upload page the row itself shows it; say it once, without a toast on top
       if (
         (u.phase === 'ready' || u.phase === 'failed') &&
-        sheet.isOpen &&
+        onPage &&
         !u.authFailed &&
         !u.lostConnection
       ) {
@@ -101,7 +101,7 @@ export function useUploadEvents(store: UploadStore, accountId: string) {
         const action =
           u.assetId && u.failedDuring === 'processing'
             ? { label: 'Open video', onClick: () => void navigate(ROUTES.video(u.assetId!)) }
-            : { label: 'Open uploads', onClick: () => sheet.open() };
+            : { label: 'Open uploads', onClick: () => void navigate(ROUTES.UPLOAD) };
         toastError(endedText(u), { action });
       } else {
         said.set(u.key, `“${u.title}”: ${statusSpec('upload', u.phase).label}`);

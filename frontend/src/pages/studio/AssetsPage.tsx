@@ -61,7 +61,7 @@ import { formatCount, plural } from '@/lib/formatters';
 import { Icons } from '@/lib/icons';
 import { lateReveal } from '@/lib/motion';
 import { toastError, toastSuccess } from '@/lib/toast';
-import { useUploadSheet } from '@/lib/upload-sheet';
+import { useOpenUpload } from '@/lib/upload-page';
 import { cn } from '@/lib/utils';
 import { StatsLinePlaceholder, UploadVideoButton } from '@/components/layout/page-actions';
 import { PAGE_HEADS } from '@/components/layout/page-heads';
@@ -207,7 +207,7 @@ export default function AssetsPage() {
   const p = useLibraryParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const uploadSheet = useUploadSheet();
+  const openUpload = useOpenUpload();
   const [searchInput, setSearchInput] = useState(p.q);
   const [syncedQ, setSyncedQ] = useState(p.q);
   const debounced = useDebounce(searchInput, 300);
@@ -522,17 +522,17 @@ export default function AssetsPage() {
     setPendingAccess({ assets: targets, tier });
   };
 
-  // drop files anywhere on the page to upload them (D-08). the open upload
-  // sheet has its own drop zone, so drops go there while it shows
+  // drop files anywhere on the page to upload them (D-08): they land on the
+  // upload page as drafts
   const [dragging, setDragging] = useState(false);
-  const sheet = useRef(uploadSheet);
+  const upload = useRef(openUpload);
   useEffect(() => {
-    sheet.current = uploadSheet;
+    upload.current = openUpload;
   });
   useEffect(() => {
     let depth = 0;
     const hasFiles = (e: DragEvent) =>
-      !sheet.current.isOpen && !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+      !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
     const enter = (e: DragEvent) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
@@ -555,7 +555,7 @@ export default function AssetsPage() {
       depth = 0;
       setDragging(false);
       const files = [...e.dataTransfer!.files];
-      if (files.length > 0) sheet.current.open(files);
+      if (files.length > 0) upload.current(files);
     };
     document.addEventListener('dragenter', enter);
     document.addEventListener('dragover', over);
@@ -603,7 +603,7 @@ export default function AssetsPage() {
     resultsRef.current?.scrollIntoView({ block: 'start' });
   };
 
-  const uploadButton = <UploadVideoButton onClick={() => uploadSheet.open()} />;
+  const uploadButton = <UploadVideoButton />;
 
   // nothing to show at all: the shared page state replaces the whole page,
   // header included, since it carries the page's h1. a failed poll over rows

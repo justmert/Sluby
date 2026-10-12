@@ -33,10 +33,16 @@ function setup(route = '/studio/videos?status=ready') {
 }
 
 describe('UploadIndicator', () => {
-  it('always offers Upload video, which opens the sheet on this page', async () => {
+  it('always offers Upload video, which goes to the upload page and is current there', async () => {
     setup();
-    await userEvent.click(screen.getByRole('button', { name: 'Upload video' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos?status=ready&upload=1');
+    const link = screen.getByRole('link', { name: 'Upload video' });
+    expect(link).not.toHaveAttribute('aria-current');
+    await userEvent.click(link);
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio\/videos\/upload$/);
+    expect(screen.getByRole('link', { name: 'Upload video' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     expect(screen.queryByRole('button', { name: /go to uploads/i })).not.toBeInTheDocument();
   });
 
@@ -56,8 +62,11 @@ describe('UploadIndicator', () => {
     await userEvent.click(ring);
     const tray = await screen.findByRole('dialog', { name: 'Uploads' });
     expect(within(tray).getByText('Keynote')).toBeInTheDocument();
-    await userEvent.click(within(tray).getByRole('button', { name: 'Open uploads' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos?status=ready&upload=1');
+    await userEvent.click(within(tray).getByRole('link', { name: 'Open uploads' }));
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio\/videos\/upload$/);
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Uploads' })).not.toBeInTheDocument(),
+    );
   });
 
   it('says when the transfer is paused, and announces it once', async () => {
@@ -96,7 +105,7 @@ describe('UploadIndicator', () => {
 
   it('keeps the phone icon button at the touch size of every other icon button (A11Y-47)', () => {
     setup();
-    expect(screen.getByRole('button', { name: 'Upload video' })).toHaveClass(
+    expect(screen.getByRole('link', { name: 'Upload video' })).toHaveClass(
       'max-md:pointer-coarse:size-10',
     );
   });
@@ -165,8 +174,8 @@ describe('UploadIndicator', () => {
     expect(await screen.findByText('Continuing “Keynote” from 40%')).toBeInTheDocument();
   });
 
-  it('says a failure in the live region instead of a toast while the sheet shows the row', async () => {
-    const { f, store } = setup('/studio/videos?upload=1');
+  it('says a failure in the live region instead of a toast while the upload page shows the row', async () => {
+    const { f, store } = setup('/studio/videos/upload');
     act(() => {
       store.start(file, { title: 'Keynote' });
     });

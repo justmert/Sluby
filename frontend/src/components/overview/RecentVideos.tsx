@@ -18,7 +18,6 @@ import { ROUTES } from '@/lib/constants';
 import { formatBytes, formatDuration, formatRelativeTime } from '@/lib/formatters';
 import { Icons } from '@/lib/icons';
 import { highlight, lateReveal } from '@/lib/motion';
-import { useUploadSheet } from '@/lib/upload-sheet';
 import { cn } from '@/lib/utils';
 
 /** What a processing video is doing now, with a thin bar along the row's bottom edge. */
@@ -163,7 +162,6 @@ export function RecentVideos({
   retrying: boolean;
   placeholders: number;
 }) {
-  const sheet = useUploadSheet();
   return (
     <RecentFrame>
       {!videos && error ? (
@@ -181,9 +179,11 @@ export function RecentVideos({
           }
           action={
             // outline: the page header already has the one primary upload button
-            <Button variant="outline" onClick={() => sheet.open()}>
-              <Icons.upload />
-              Upload video
+            <Button variant="outline" asChild>
+              <Link to={ROUTES.UPLOAD}>
+                <Icons.upload />
+                Upload video
+              </Link>
             </Button>
           }
         />

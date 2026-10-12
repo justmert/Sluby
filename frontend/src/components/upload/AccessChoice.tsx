@@ -49,7 +49,7 @@ export function AccessChoice({
       <p id={`${id}-legend`} className="text-sm leading-5 font-medium">
         Who can watch
       </p>
-      <div className="grid gap-2 @md/sheet:grid-cols-2">
+      <div className="grid gap-2 @md/upload:grid-cols-2">
         {OPTIONS.map((o) => {
           const checked = value === o.value;
           return (
