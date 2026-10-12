@@ -74,8 +74,8 @@ describe('JsonViewer in a real browser', () => {
       string: 'rgb(167, 217, 138)',
       number: 'rgb(245, 183, 107)',
       boolean: 'rgb(240, 160, 200)',
-      surface: 'rgb(23, 21, 20)',
-      code: 'rgb(23, 21, 20)',
+      surface: 'rgb(20, 23, 26)',
+      code: 'rgb(20, 23, 26)',
     });
   });
 

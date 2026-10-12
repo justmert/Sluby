@@ -71,7 +71,8 @@ export function StatCard({
           <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span className="line-clamp-2 min-w-0">{label}</span>
         </CardDescription>
-        <CardTitle as="p">
+        {/* a div, not a p: the figure swaps through block wrappers */}
+        <CardTitle as="div">
           <FadeSwap swapKey={loading ? 'loading' : 'ready'}>
             {loading ? (
               <StatValue value={undefined} className={lateReveal} />
