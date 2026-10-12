@@ -65,8 +65,15 @@ export function CopyButton({
         title={state === 'failed' ? 'Copy failed: clipboard unavailable' : label}
         data-state={state}
       >
-        {/* both icons share one cell while they swap, so the button keeps its size */}
-        <span className="inline-grid size-4 place-items-center *:col-start-1 *:row-start-1 [&_svg]:size-full">
+        {/* both icons share one cell while they swap, so the button keeps its
+            size. a button with words reads just "Copy" at rest, as in the
+            design, and shows the check or cross only once it has an answer */}
+        <span
+          className={cn(
+            'inline-grid size-4 place-items-center *:col-start-1 *:row-start-1 [&_svg]:size-full',
+            withText && state === 'idle' && 'hidden',
+          )}
+        >
           <AnimatePresence initial={false}>
             <m.span
               key={state}

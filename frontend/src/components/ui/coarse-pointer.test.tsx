@@ -12,7 +12,7 @@ describe('coarse pointer sizes', () => {
     ['default', 'pointer-coarse:h-10'],
     ['sm', 'pointer-coarse:h-9'],
     ['lg', 'pointer-coarse:h-11'],
-    ['icon', 'pointer-coarse:size-10'],
+    ['icon', 'pointer-coarse:size-11'],
     ['icon-sm', 'pointer-coarse:size-10'],
     ['icon-xs', 'pointer-coarse:size-9'],
   ] as const)('button %s grows to %s', (size, cls) => {
@@ -26,7 +26,7 @@ describe('coarse pointer sizes', () => {
         x
       </Button>,
     );
-    expect(screen.getByRole('button')).toHaveClass('size-7', 'pointer-coarse:size-10');
+    expect(screen.getByRole('button')).toHaveClass('size-7', 'pointer-coarse:size-11');
   });
 
   it('grows inputs, toggles and the checkbox hit area', () => {
@@ -37,7 +37,8 @@ describe('coarse pointer sizes', () => {
         <Checkbox aria-label="pick" />
       </>,
     );
-    expect(screen.getByRole('textbox')).toHaveClass('pointer-coarse:h-10');
+    // the design's field is already 40px, a finger's size, everywhere
+    expect(screen.getByRole('textbox')).toHaveClass('h-10');
     expect(screen.getByRole('button', { name: 'bold' })).toHaveClass('pointer-coarse:h-10');
     expect(screen.getByRole('checkbox')).toHaveClass('pointer-coarse:after:-inset-3.5');
   });
