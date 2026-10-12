@@ -106,6 +106,22 @@
   /* polled progress bars ease over this long; shorter than the fastest poll
      (2 s), so a bar never trails its number by a whole poll */
   --duration-progress: 1200ms;
+  /* the design's finer steps. *-line is the edge of a status chip or note in
+     that status, primary-ring is the soft ring round a focused field, sunken
+     is the track under a progress fill, subtle-foreground is captions and key
+     hints, border-soft is the rule between rows, media is an empty thumbnail */
+  --success-line: #9bd3ae;
+  --warning-line: #e2b565;
+  --warning-icon: #b45309;
+  --destructive-line: #f1a3a3;
+  --progress-line: #8cc6cf;
+  --primary-ring: #cde7ea;
+  --primary-hover: #0b5260;
+  --sunken: #f0efed;
+  --subtle-foreground: #78716c;
+  --border-soft: #f5f5f4;
+  --media: #1c1917;
+  --shadow-tint: rgb(28 25 23 / 0.12);
 }
 
 .dark {
@@ -161,6 +177,18 @@
   --bar-warning: #f2b866;
   --bar-destructive: #f58a8a;
   --bar-destructive-border: #7f3030;
+  --success-line: #2b6a42;
+  --warning-line: #6e4e1e;
+  --warning-icon: #f2b866;
+  --destructive-line: #7f3030;
+  --progress-line: #2a6a74;
+  --primary-ring: #1b4950;
+  --primary-hover: #82d2dc;
+  --sunken: #1d1a18;
+  --subtle-foreground: #918a84;
+  --border-soft: #221f1d;
+  --media: #050505;
+  --shadow-tint: rgb(0 0 0 / 0.5);
 }
 
 /* more contrast on request: stronger secondary text and edges */
@@ -235,13 +263,33 @@
   --color-bar-warning: var(--bar-warning);
   --color-bar-destructive: var(--bar-destructive);
   --color-bar-destructive-border: var(--bar-destructive-border);
-  /* three radii: md for controls, lg for inner surfaces, xl for cards and
-     overlays (plus full for badges and dots). sm is the checkbox and kbd. */
+  --color-success-line: var(--success-line);
+  --color-warning-line: var(--warning-line);
+  --color-warning-icon: var(--warning-icon);
+  --color-destructive-line: var(--destructive-line);
+  --color-progress-line: var(--progress-line);
+  --color-primary-ring: var(--primary-ring);
+  --color-primary-hover: var(--primary-hover);
+  --color-sunken: var(--sunken);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border-soft: var(--border-soft);
+  --color-media: var(--media);
+  /* the design's shadows: menus and the palette, toasts and the sign-in
+     card, a raised confirm, and a dialog over its scrim */
+  --shadow-menu: 0 12px 32px var(--shadow-tint);
+  --shadow-toast: 0 8px 24px var(--shadow-tint);
+  --shadow-pop: 0 16px 40px var(--shadow-tint);
+  --shadow-dialog: 0 24px 64px rgb(12 10 9 / 0.3);
+  /* the design's radii: md 8 for controls and menu rows, lg 10 for toasts,
+     inner tiles and code, xl 12 for cards and menus, 2xl 14 for dialogs, 3xl
+     16 for the empty-state icon and the sign-in card (plus full for chips
+     and dots). sm 4 is the checkbox and kbd. */
   --radius-sm: calc(var(--radius) * 0.4);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-xl: calc(var(--radius) * 1.2);
+  --radius-2xl: calc(var(--radius) * 1.4);
+  --radius-3xl: calc(var(--radius) * 1.6);
 }
 
 /* type roles on top of the stock scale (text-xs 12, text-sm 14, text-base
