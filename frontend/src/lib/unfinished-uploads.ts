@@ -91,6 +91,14 @@ function storedEntries(): Array<{ storageKey: string; entry: StoredEntry }> {
   return out;
 }
 
+function sameOrigin(url: string): boolean {
+  try {
+    return new URL(url, location.href).origin === location.origin;
+  } catch {
+    return false;
+  }
+}
+
 function metadataAssetId(header: string | null): string | null {
   if (!header) return null;
   for (const pair of header.split(',')) {
@@ -152,6 +160,15 @@ export async function findUnfinishedUploads(accountId?: string): Promise<Unfinis
   const found: UnfinishedUpload[] = [];
   const owners = readOwners();
   for (const { storageKey, entry } of storedEntries()) {
+    // an upload whose url is on another origin (the server's public url changed
+    // since it started) can never resume from this page: the session cookie
+    // does not go there and the browser blocks the request. asking would only
+    // fail the whole list, so it is forgotten like one the server dropped
+    if (entry?.uploadUrl && !sameOrigin(entry.uploadUrl)) {
+      localStorage.removeItem(storageKey);
+      forgetUploadOwner(uploadIdFromUrl(entry.uploadUrl));
+      continue;
+    }
     const owner = entry?.uploadUrl ? owners[uploadIdFromUrl(entry.uploadUrl)] : undefined;
     if (accountId && owner && owner !== accountId) continue;
     const upload = await check(storageKey, entry);
