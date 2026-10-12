@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { LoadingHead } from '@/components/developers/LoadingHead';
 import { VideoPickerSkeleton } from '@/components/developers/VideoPickerSkeleton';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { CopyButton } from '@/components/shared/CopyButton';
@@ -21,11 +22,21 @@ import {
 // the quickstart's fixed pieces, in their own module (like KeyNote) so the
 // route skeleton draws the same cards, rows and text without loading the page
 
-/** The page's title block and its width: the four steps read as one column. */
-export function QuickstartFrame({ children }: { children: React.ReactNode }) {
+/**
+ * The page's title block and its width: the four steps read as one column.
+ * The route skeleton passes `loading`, so its title is not a second h1.
+ */
+export function QuickstartFrame({
+  children,
+  loading = false,
+}: {
+  children: React.ReactNode;
+  loading?: boolean;
+}) {
+  const Head = loading ? LoadingHead : PageHeader;
   return (
     <div className="flex w-full max-w-240 flex-col">
-      <PageHeader {...PAGE_HEADS.quickstart} description={QUICKSTART_DESCRIPTION} />
+      <Head {...PAGE_HEADS.quickstart} description={QUICKSTART_DESCRIPTION} />
       <ol className="flex flex-col gap-5">{children}</ol>
     </div>
   );
@@ -55,7 +66,7 @@ export function StepCard({
     </h2>
   );
   return (
-    <li className="flex gap-4 rounded-xl border bg-card px-6 py-5 max-sm:px-4">
+    <li className="flex gap-4 rounded-xl border bg-card px-6 py-5 text-sm max-sm:px-4">
       <span
         aria-hidden="true"
         className="grid size-7 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground text-[13px] font-bold tabular-nums"
@@ -205,7 +216,7 @@ export function TryStep() {
  */
 export function QuickstartLoading() {
   return (
-    <QuickstartFrame>
+    <QuickstartFrame loading>
       <StepCard n={1} bodyClassName="gap-2.5">
         <VideoPickerSkeleton />
       </StepCard>

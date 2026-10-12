@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Send, TriangleAlert } from 'lucide-react';
+import { Send, TriangleAlert } from 'lucide-react';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { InlineError } from '@/components/shared/InlineError';
 import { JsonViewer } from '@/components/shared/JsonViewer';
@@ -31,7 +31,8 @@ import {
 import { reportUnauthorized } from '@/lib/session-events';
 import { cn } from '@/lib/utils';
 import { PAGE_HEADS } from '@/components/layout/page-heads';
-import { SMALL_BUTTON } from './quickstart-copy';
+import { NoAnswerYet, RequestIntro } from './explorer-parts';
+import { EXPLORER_CARD, EXPLORER_GRID, EXPLORER_ROW, SMALL_BUTTON } from './quickstart-copy';
 
 const SHOWN_HEADERS = [
   'content-type',
@@ -65,9 +66,6 @@ interface Answer {
 }
 
 type Failure = { method: Method; path: string; error: unknown; timedOut: boolean };
-
-// the board's card: a neutral surface, 20 by 24 px of room, 16 px between parts
-const CARD = 'flex min-w-0 flex-col gap-4 rounded-xl border bg-card px-6 py-5 max-sm:px-4';
 
 const groups = [...new Set(REQUEST_TEMPLATES.map((t) => t.group))];
 const hasBody = (m: Method) => m === 'POST' || m === 'PATCH';
@@ -200,27 +198,9 @@ export default function ExplorerPage() {
   return (
     <PageContainer>
       <PageHeader {...PAGE_HEADS.explorer} />
-      <div className="grid items-start gap-4 @4xl/page:grid-cols-2">
-        <section aria-labelledby="explorer-request" className={CARD}>
-          <div className="flex flex-col gap-1">
-            <h2 id="explorer-request" className="font-heading text-heading">
-              Request
-            </h2>
-            <p className="text-muted-foreground">
-              Sent with your session, so it can change real data. See the{' '}
-              <a
-                href="/api/v1/docs"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded-sm font-medium text-primary underline-offset-4 hover:underline"
-              >
-                API reference
-                <ExternalLink aria-hidden="true" className="size-3" />
-                <span className="sr-only">(opens in a new tab)</span>
-              </a>{' '}
-              for every endpoint.
-            </p>
-          </div>
+      <div className={EXPLORER_GRID}>
+        <section aria-labelledby="explorer-request" className={EXPLORER_CARD}>
+          <RequestIntro />
           <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
             <div className="grid gap-2">
               <Label htmlFor="explorer-template">Template</Label>
@@ -245,7 +225,7 @@ export default function ExplorerPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-1 items-end gap-2 @[16rem]/page:grid-cols-[7rem_minmax(0,1fr)] @lg/page:grid-cols-[7rem_minmax(0,1fr)_auto]">
+            <div className={EXPLORER_ROW}>
               <div className="grid gap-2">
                 <Label htmlFor="explorer-method">Method</Label>
                 <Select
@@ -278,7 +258,8 @@ export default function ExplorerPage() {
                   }}
                   spellCheck={false}
                   autoComplete="off"
-                  className="font-mono text-xs"
+                  // the select and Send beside it are 36px; one height keeps the labels in a row
+                  className="h-9 font-mono text-xs"
                   aria-invalid={problem && !path.includes('{id}') ? true : undefined}
                   aria-describedby={problem ? 'explorer-path-help' : undefined}
                 />
@@ -361,7 +342,7 @@ export default function ExplorerPage() {
         <section
           aria-labelledby="explorer-response-title"
           aria-busy={sending || undefined}
-          className={CARD}
+          className={EXPLORER_CARD}
         >
           <h2 id="explorer-response-title" className="font-heading text-heading">
             Response
@@ -428,11 +409,7 @@ export default function ExplorerPage() {
                 )}
               </div>
             ) : (
-              !failure && (
-                <p className="rounded-[10px] border border-dashed px-4 py-10 text-center text-muted-foreground">
-                  {sending ? 'Waiting for the answer…' : 'Send a request to see the answer here.'}
-                </p>
-              )
+              !failure && <NoAnswerYet sending={sending} />
             )}
           </div>
         </section>

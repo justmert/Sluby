@@ -21,6 +21,7 @@ import { usePersistedDraft } from '@/lib/drafts';
 import {
   NO_VALUE,
   formatCount,
+  plural,
   formatDate,
   formatRelativeTime,
   formatTimeLeft,
@@ -36,6 +37,8 @@ import { RotateKeyDialog } from './RotateKeyDialog';
 import { focusRowMenu, focusTargets, rowFocus, startRowEdit, type RowFocus } from './row-focus';
 import { KeyCreatedNotice, type CreatedKey } from './KeyCreatedNotice';
 import { KEY_SCOPES } from './options';
+import { KEYS_LEAD } from './keys-copy';
+import { KeysDescription } from './KeysLoading';
 import { CreateKeyButton } from '@/components/layout/page-actions';
 import { PAGE_HEADS } from '@/components/layout/page-heads';
 
@@ -131,7 +134,7 @@ export function ApiKeysManager() {
         value={k.name}
         maxLength={KEY_NAME_MAX}
         requiredMessage="Enter a name."
-        displayClassName="whitespace-normal wrap-anywhere"
+        displayClassName="font-semibold whitespace-normal wrap-anywhere"
         onSave={async (name) => {
           await rename.mutateAsync({ id: k.id, name });
           toastSuccess('Key renamed');
@@ -338,9 +341,19 @@ export function ApiKeysManager() {
       <PageHeader
         {...PAGE_HEADS.keys}
         description={
-          limits && rows
-            ? `Keys let your server call the API. ${formatCount(rows.length)} of ${formatCount(limits.maxKeys)} used.`
-            : 'Keys let your server call the API.'
+          keys.isError && !rows ? (
+            KEYS_LEAD
+          ) : (
+            <KeysDescription
+              used={
+                !rows
+                  ? null
+                  : limits
+                    ? `${formatCount(rows.length)} of ${formatCount(limits.maxKeys)} used.`
+                    : `${plural(rows.length, 'key')}.`
+              }
+            />
+          )
         }
         primaryAction={primary}
       />
