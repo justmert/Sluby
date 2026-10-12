@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Send, TriangleAlert } from 'lucide-react';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
-import { CodeBlock } from '@/components/shared/CodeBlock';
 import { InlineError } from '@/components/shared/InlineError';
+import { JsonViewer } from '@/components/shared/JsonViewer';
 import { HttpStatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -155,12 +155,6 @@ export default function ExplorerPage() {
       if (method !== 'GET' && res.status < 300) {
         for (const queryKey of CHANGED_BY_WRITES) void qc.invalidateQueries({ queryKey });
       }
-      let pretty = text;
-      try {
-        pretty = JSON.stringify(JSON.parse(text), null, 2);
-      } catch {
-        // not json, shown as it came
-      }
       setAnswer({
         ...request,
         status: res.status,
@@ -170,7 +164,7 @@ export default function ExplorerPage() {
           const v = res.headers.get(h);
           return v ? [[h, v] as [string, string]] : [];
         }),
-        body: pretty,
+        body: text,
       });
     } catch (err) {
       if (id !== seq.current) return;
@@ -416,12 +410,15 @@ export default function ExplorerPage() {
                     ))}
                   </dl>
                 )}
-                <CodeBlock
-                  code={answer.body || '(empty body)'}
-                  language="json"
-                  label="response"
-                  preClassName="max-h-[32rem]"
-                />
+                {answer.body ? (
+                  <JsonViewer
+                    text={answer.body}
+                    label="Response body"
+                    bodyClassName="max-h-[32rem]"
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">The response has no body.</p>
+                )}
               </div>
             ) : (
               !failure && (

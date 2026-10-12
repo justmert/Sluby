@@ -3,8 +3,8 @@ import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
 import { ChevronDown, RotateCw } from 'lucide-react';
 import { Collapse } from '@/components/motion';
-import { CodeBlock } from '@/components/shared/CodeBlock';
 import { InlineError } from '@/components/shared/InlineError';
+import { JsonViewer } from '@/components/shared/JsonViewer';
 import { HttpStatusBadge } from '@/components/shared/StatusBadge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -50,11 +50,11 @@ function DeliveryDetail({
 }) {
   return (
     <div className="flex flex-col gap-3 py-3">
-      <CodeBlock
-        code={JSON.stringify(d.payload, null, 2)}
-        language="json"
-        label={`${d.event} payload`}
-        preClassName="max-h-80"
+      <JsonViewer
+        value={d.payload}
+        label="Payload"
+        name={`${d.event} payload`}
+        bodyClassName="max-h-80"
       />
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
         <dt className="text-muted-foreground">Event ID</dt>
