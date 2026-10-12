@@ -22,7 +22,7 @@ export function BytesStreamedCard({ metrics }: { metrics?: Metrics }) {
       title="Bytes streamed"
       note={
         <span className="text-muted-foreground">
-          {span ? `Last ${span}` : 'Sampled every 10 s while this page is open'}
+          {span ? `Last ${span}` : 'Sampling every 10 s'}
         </span>
       }
       action={

@@ -28,7 +28,8 @@ function ChartBox({ height, children }: { height: string; children: React.ReactN
   );
 }
 
-const CAPTION = 'flex justify-between gap-3 text-xs text-muted-foreground tabular-nums';
+const CAPTION =
+  'flex h-4.5 items-center justify-between gap-3 text-xs text-muted-foreground tabular-nums';
 
 /**
  * Bytes streamed per sample as bars, oldest on the left: the peak in the
@@ -45,7 +46,7 @@ export function BytesChart({ rates, height = 'h-40' }: { rates: RatePoint[]; hei
           <Spinner aria-hidden="true" />
           Collecting samples
         </ChartBox>
-        <div aria-hidden="true" className={cn(CAPTION, 'h-4.5')} />
+        <div aria-hidden="true" className={CAPTION} />
       </div>
     );
   }
@@ -87,7 +88,7 @@ export function BytesChartLoading({ height = 'h-40' }: { height?: string }) {
   return (
     <div aria-hidden="true" className="flex flex-col gap-3.5">
       <Skeleton className={cn('w-full', height, lateReveal)} />
-      <div className={cn(CAPTION, 'h-4.5 items-center')}>
+      <div className={CAPTION}>
         <Skeleton className={cn('h-3 w-20', lateReveal)} />
         <Skeleton className={cn('h-3 w-24', lateReveal)} />
         <Skeleton className={cn('h-3 w-16', lateReveal)} />

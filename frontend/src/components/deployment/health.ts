@@ -44,6 +44,7 @@ export function hostOf(url: string): string {
 
 /** "2 s", "1 min", "3 h": how long something took. */
 export function shortDuration(ms: number): string {
+  if (ms < 1000) return 'under 1 s';
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return `${s} s`;
   const m = Math.round(s / 60);

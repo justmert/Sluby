@@ -10,7 +10,6 @@ import {
 import { routeSkeletonWasVisible } from '@/components/dashboard/live';
 import { UpdatedAgo } from '@/components/dashboard/UpdatedAgo';
 import { BytesChart, BytesChartLoading } from '@/components/deployment/BytesChart';
-import { sampleSpan } from '@/components/deployment/health';
 import { Panel } from '@/components/deployment/parts';
 import { RequestsBars } from '@/components/deployment/RequestsBars';
 import { FadeSwap } from '@/components/motion';
@@ -40,7 +39,6 @@ export default function MetricsPage() {
   const [stagger] = useState(() => m === undefined);
   const retry = () => void metrics.refetch();
   const failed = !m && metrics.isError;
-  const span = m ? sampleSpan(metrics.rates) : null;
 
   return (
     <PageContainer>
@@ -70,7 +68,7 @@ export default function MetricsPage() {
               <Panel
                 id="metrics-throughput"
                 title={THROUGHPUT_COPY.title}
-                note={<Note>{span ? `Last ${span}` : THROUGHPUT_COPY.description}</Note>}
+                note={<Note>{THROUGHPUT_COPY.description}</Note>}
               >
                 <FadeSwap swapKey={m ? 'ready' : 'loading'}>
                   {m ? (

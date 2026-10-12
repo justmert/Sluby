@@ -171,7 +171,7 @@ describe('MetricsPage', () => {
     expect(chart.closest('.h-56')).not.toBeNull();
     expect(chart.querySelectorAll('[data-slot="bar"]')).toHaveLength(2);
     const card = screen.getByText('Streaming throughput').closest('[data-slot="card"]')!;
-    expect(card).toHaveTextContent('Last 20 seconds');
+    expect(card).toHaveTextContent('20 seconds ago');
     expect(card).toHaveTextContent('Peak 5 KB/s');
   });
 
