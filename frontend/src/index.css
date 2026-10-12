@@ -129,7 +129,7 @@
   --foreground: #f2f0ee;
   --card: #171514;
   --card-foreground: #f2f0ee;
-  --popover: #1d1a18;
+  --popover: #171514;
   --popover-foreground: #f2f0ee;
   --primary: #5bbfcc;
   --primary-foreground: #06262b;
@@ -140,8 +140,8 @@
   --accent: #26221f;
   --accent-foreground: #f2f0ee;
   --destructive: #f58a8a;
-  --destructive-solid: #b91c1c;
-  --destructive-solid-foreground: #ffffff;
+  --destructive-solid: #f58a8a;
+  --destructive-solid-foreground: #2a0909;
   --success: #6bd394;
   --warning: #f2b866;
   --warning-foreground: #f2b866;
@@ -334,9 +334,11 @@
   /* the design's one easing and its entrance: toasts, banners, menus and
      dialogs rise 6 px and fade in over 240 ms */
   --ease-design: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --animate-enter: enter 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-enter: rise-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 
-  @keyframes enter {
+  /* not "enter": tw-animate-css owns that name for animate-in, and a
+     second keyframes rule of the same name would replace it */
+  @keyframes rise-in {
     from {
       opacity: 0;
       translate: 0 6px;
@@ -444,12 +446,45 @@
     outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
+  /* fields take the design's soft ring and a petrol edge instead */
+  :where(input, select, textarea):focus-visible {
+    outline: 3px solid var(--primary-ring);
+    outline-offset: 0;
+    border-color: var(--primary);
+  }
+  /* every control eases its colours, edge and ring over 150 ms and a press
+     over 100 ms. zero specificity, so a component's own transition wins */
+  :where(
+      a,
+      button,
+      input,
+      select,
+      textarea,
+      label,
+      summary,
+      [role='tab'],
+      [role='option'],
+      [role='menuitem'],
+      [role='button']
+    ) {
+    transition-property: color, background-color, border-color, box-shadow, scale;
+    transition-duration: 150ms, 150ms, 150ms, 150ms, 100ms;
+    transition-timing-function: var(--ease-design);
+  }
   /* native checkboxes, radios and ranges take the accent instead of the
      browser's blue */
   input,
   select,
   textarea {
     accent-color: var(--primary);
+  }
+  /* links are petrol and darken on hover, with no underline at rest */
+  a:where(:not([class])) {
+    color: var(--primary);
+    text-decoration: none;
+  }
+  a:where(:not([class])):hover {
+    color: var(--primary-hover);
   }
   h1,
   h2,
