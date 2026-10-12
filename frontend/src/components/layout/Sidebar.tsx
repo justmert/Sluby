@@ -18,6 +18,8 @@ import { spring } from '@/lib/motion';
 import { preloadPage } from '@/lib/page-chunks';
 import { useSession } from '@/lib/session';
 import { NavSignalMark } from './NavHealthDot';
+import { ThemeToggle } from './ThemeToggle';
+import { UserMenu } from './UserMenu';
 import { useNavSignals, type NavSignal } from './nav-signals';
 
 /**
@@ -34,7 +36,7 @@ export function AppSidebar() {
   const signals = useNavSignals(operator);
   // on a phone the sidebar is a sheet over the page; picking a page should
   // close it rather than leave it covering what was just opened
-  const { setOpenMobile } = useSidebar();
+  const { isMobile, setOpenMobile } = useSidebar();
   const closeMobile = () => setOpenMobile(false);
   const work = groups.filter((g) => g.id !== 'settings');
   const settings = groups.find((g) => g.id === 'settings');
@@ -107,6 +109,14 @@ export function AppSidebar() {
         </div>
         {/* settings sits at the bottom, apart from the work pages */}
         {settings && <div className="mt-auto">{entries(settings.items)}</div>}
+        {/* a phone's header has no room for the theme and the account, as in
+            the phone board, so they sit at the foot of the menu sheet */}
+        {isMobile && (
+          <div className="-mt-3 flex items-center gap-2 border-t pt-3 sm:hidden">
+            <UserMenu />
+            <ThemeToggle />
+          </div>
+        )}
       </nav>
     </Sidebar>
   );

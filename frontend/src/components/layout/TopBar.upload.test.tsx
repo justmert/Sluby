@@ -1,19 +1,16 @@
 import { screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { renderPage } from '@/test/render';
 import { WithSession } from '@/test/session';
 import { TopBar } from './TopBar';
 
-// P3's UploadIndicator always renders the top bar's "Upload video" button;
-// stand it in, so the test pins what TopBar itself adds: no second one
-vi.mock('./UploadIndicator', () => ({
-  UploadIndicator: () => <button type="button">Upload video</button>,
-}));
-
+// the design's header has no upload button of its own on a wide screen: the
+// sidebar's primary button is the way in. only the phone header adds one,
+// as the phone board does, and the upload progress ring adds none
 describe('TopBar upload control', () => {
   it.each(['/studio', '/studio/videos', '/studio/settings', '/studio/videos/a1'])(
-    'has exactly one Upload video button on %s, the indicator’s',
+    'has exactly one Upload video link on %s, for phones only',
     (route) => {
       renderPage(
         <WithSession>
@@ -23,7 +20,10 @@ describe('TopBar upload control', () => {
         </WithSession>,
         { route },
       );
-      expect(screen.getAllByRole('button', { name: /upload video/i })).toHaveLength(1);
+      const links = screen.getAllByRole('link', { name: /upload video/i });
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveClass('sm:hidden');
+      expect(screen.queryByRole('button', { name: /upload video/i })).not.toBeInTheDocument();
     },
   );
 });

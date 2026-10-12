@@ -33,17 +33,11 @@ function setup(route = '/studio/videos?status=ready') {
 }
 
 describe('UploadIndicator', () => {
-  it('always offers Upload video, which goes to the upload page and is current there', async () => {
+  it('shows nothing but its live region while no upload runs: the sidebar is the way to upload', () => {
     setup();
-    const link = screen.getByRole('link', { name: 'Upload video' });
-    expect(link).not.toHaveAttribute('aria-current');
-    await userEvent.click(link);
-    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio\/videos\/upload$/);
-    expect(screen.getByRole('link', { name: 'Upload video' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    expect(screen.queryByRole('link', { name: 'Upload video' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /go to uploads/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('follows a transfer with a ring, and opens a tray of uploads', async () => {
@@ -101,13 +95,6 @@ describe('UploadIndicator', () => {
     });
     await waitFor(() => expect(region).toHaveTextContent('“Keynote”: Processing'));
     expect(said).toEqual(['“Keynote”: Processing']);
-  });
-
-  it('keeps the phone icon button at the touch size of every other icon button (A11Y-47)', () => {
-    setup();
-    expect(screen.getByRole('link', { name: 'Upload video' })).toHaveClass(
-      'max-md:pointer-coarse:size-10',
-    );
   });
 
   it('counts files waiting in the queue', () => {
