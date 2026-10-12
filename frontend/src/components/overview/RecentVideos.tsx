@@ -82,10 +82,15 @@ function VideoRow({ video }: { video: VideoAsset }) {
 const ROW =
   'border-t border-border-soft transition-colors duration-150 ease-design hover:bg-background';
 
-function Table({ children }: { children: ReactNode }) {
+function Table({ loading = false, children }: { loading?: boolean; children: ReactNode }) {
   return (
     <div className="overflow-x-auto">
-      <table aria-label="Recent videos" className="w-full min-w-160 border-collapse">
+      <table
+        // the placeholder rows are for the eye; the card's own status says it loads
+        aria-label={loading ? undefined : 'Recent videos'}
+        aria-hidden={loading || undefined}
+        className="w-full min-w-160 border-collapse"
+      >
         <thead>
           <tr className="bg-background text-left text-xs text-muted-foreground">
             <th scope="col" className={cn(CELL, FIRST, 'font-semibold')}>
@@ -113,8 +118,8 @@ function Table({ children }: { children: ReactNode }) {
 
 export function RecentLoading({ count }: { count: number }) {
   return (
-    <Table>
-      <tbody aria-hidden="true">
+    <Table loading>
+      <tbody>
         {Array.from({ length: count }, (_, i) => (
           <tr key={i} className="border-t border-border-soft">
             <td className={cn(CELL, FIRST)}>

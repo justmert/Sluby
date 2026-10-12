@@ -15,16 +15,28 @@ describe('VideoRowMenu and videoActions', () => {
     const items = await screen.findAllByRole('menuitem');
     expect(items.map((i) => i.textContent)).toEqual([
       'Copy embed code',
-      'Open',
+      'Open video',
       'Preview',
       'Copy stream URL',
       'Copy video ID',
-      'Delete',
+      'Delete…',
     ]);
     expect(items.every((i) => i.querySelector('svg'))).toBe(true);
     expect(screen.getByRole('separator')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('menuitem', { name: 'Preview' }));
     expect(on.preview).toHaveBeenCalledWith(a);
+  });
+
+  it('offers the access change the video does not have yet, when the page can ask for it', async () => {
+    const access = vi.fn();
+    const on = { open: vi.fn(), preview: vi.fn(), delete: vi.fn(), access };
+    const pub = videoActions(video('a1', 'Walkthrough'), on);
+    expect(pub.map((x) => x.label)).toContain('Make private');
+    pub.find((x) => x.label === 'Make private')!.onSelect();
+    expect(access).toHaveBeenCalledWith(expect.objectContaining({ id: 'a1' }), 'private');
+    const priv = videoActions(video('p1', 'Secret', { accessTier: 'private' }), on);
+    expect(priv.map((x) => x.label)).toContain('Make public');
+    expect(priv.map((x) => x.label)).not.toContain('Make private');
   });
 
   it('copies a stream url that plays a public video, and the signing code for a private one', async () => {

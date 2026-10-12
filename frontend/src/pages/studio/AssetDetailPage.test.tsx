@@ -206,23 +206,8 @@ function Where() {
   return <output data-testid="where">{useLocation().search}</output>;
 }
 
-/** jsdom has no layout; the page asks for 640px and up to show the side panel. */
-function viewport(wide: boolean) {
-  vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: wide && query.includes('min-width: 640px'),
-    media: query,
-    onchange: null,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => false,
-  }));
-}
-
 beforeEach(() => {
   ifMatch = [];
-  viewport(true);
   setQuality.mockClear();
   playerProps.mockClear();
 });
@@ -248,19 +233,68 @@ describe('AssetDetailPage', () => {
   });
 
   describe('a ready video', () => {
-    it('titles the page with the video and shows its facts in one meta row', async () => {
+    it('puts the title, its edit button, the status and the two actions in one row', async () => {
       render();
-      expect(
-        await screen.findByRole('heading', { level: 1, name: 'Big Buck Bunny' }),
-      ).toBeInTheDocument();
-      expect(screen.getByText('Ready')).toBeInTheDocument();
-      expect(screen.getByText('9:56')).toBeInTheDocument();
-      expect(screen.getByText('1280 × 720')).toBeInTheDocument();
-      expect(screen.getByText('9 MB on Sia')).toBeInTheDocument();
-      expect(screen.getByText('128 plays')).toBeInTheDocument();
-      expect(screen.getByText(/^Created /)).toBeInTheDocument();
+      const h1 = await screen.findByRole('heading', { level: 1, name: 'Big Buck Bunny' });
+      const row = h1.closest('[data-slot="inline-edit"]')!.parentElement!;
+      expect(within(row).getByRole('button', { name: 'Edit title' })).toBeInTheDocument();
+      expect(within(row).getByText('Ready')).toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: 'Copy embed code' })).toBeEnabled();
+      expect(within(row).getByRole('button', { name: 'More actions' })).toHaveTextContent('More');
       // no back link: the breadcrumb does that (VIS-19)
       expect(screen.queryByRole('link', { name: /videos/i })).toBeNull();
+    });
+
+    it('copies the embed code from the title row', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      render(asset({ access_tier: 'public' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Copy embed code' }));
+      expect(writeText.mock.lastCall![0]).toContain("streamUrl('a1')");
+      expect(await screen.findByText('Embed code copied')).toBeInTheDocument();
+    });
+
+    it('lists the details in the side card, with the access control and a copyable ID', async () => {
+      render(asset({ last_played_at: new Date(Date.now() - 3 * 3600_000).toISOString() }));
+      const details = (await screen.findByRole('heading', { level: 2, name: 'Details' })).closest(
+        'section',
+      )!;
+      expect(
+        within(details)
+          .getAllByRole('term')
+          .map((t) => t.textContent),
+      ).toEqual([
+        'Access',
+        'Length',
+        'Quality',
+        'Size',
+        'Plays',
+        'Last played',
+        'Uploaded',
+        'Video ID',
+      ]);
+      const value = (term: string) =>
+        within(details).getByText(term, { selector: 'dt' }).nextElementSibling as HTMLElement;
+      expect(
+        within(value('Access')).getByRole('radiogroup', { name: 'Who can watch' }),
+      ).toBeInTheDocument();
+      expect(value('Length')).toHaveTextContent('9:56');
+      expect(await within(details).findByText('720p')).toBeInTheDocument();
+      expect(value('Size')).toHaveTextContent('9 MB');
+      expect(value('Plays')).toHaveTextContent('128');
+      expect(value('Last played')).toHaveTextContent('3 hours ago');
+      expect(value('Uploaded')).toHaveTextContent('Oct 1, 2026');
+      expect(
+        within(value('Video ID')).getByRole('button', { name: 'Copy video ID' }),
+      ).toBeVisible();
+    });
+
+    it('says a video nobody played was never played', async () => {
+      render();
+      const details = (await screen.findByRole('heading', { level: 2, name: 'Details' })).closest(
+        'section',
+      )!;
+      expect(within(details).getByText('Never')).toBeInTheDocument();
     });
 
     it('plays a private video signed, named after its title, with qualities', async () => {
@@ -269,15 +303,15 @@ describe('AssetDetailPage', () => {
       expect(playerProps).toHaveBeenLastCalledWith(
         expect.objectContaining({ assetId: 'a1', signed: true, expiresIn: 3600 }),
       );
-      expect(screen.getByText('Streaming from Sia')).toBeInTheDocument();
-      await userEvent.click(screen.getByRole('radio', { name: '360p' }));
+      expect(screen.getByText('Direct from Sia')).toBeInTheDocument();
+      await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Quality' }), '360p');
       expect(setQuality).toHaveBeenLastCalledWith(1);
     });
 
     it('opens on Share with the signing code first for a private video (RDS-01)', async () => {
       render();
-      const panel = await screen.findByRole('tablist', { name: 'Share and details' });
-      expect(within(panel).getByRole('tab', { name: 'Share' })).toHaveAttribute(
+      const sections = await screen.findByRole('tablist', { name: 'Video sections' });
+      expect(within(sections).getByRole('tab', { name: 'Share' })).toHaveAttribute(
         'aria-selected',
         'true',
       );
@@ -301,15 +335,22 @@ describe('AssetDetailPage', () => {
       expect(share.textContent).toContain("streamUrl('a1')");
     });
 
-    it('opens the panel and the section named in the url, and keeps the choice there', async () => {
-      render(undefined, {}, '/studio/videos/a1?panel=details&tab=renditions');
-      expect(await screen.findByRole('tabpanel', { name: 'Details' })).toBeInTheDocument();
-      expect(screen.getByRole('tabpanel', { name: /Renditions/ })).toBeInTheDocument();
-      await userEvent.click(screen.getByRole('tab', { name: 'Storage on Sia' }));
-      expect(screen.getByTestId('where')).toHaveTextContent('panel=details&tab=storage');
+    it('opens the section named in the url and keeps the choice there', async () => {
+      render(undefined, {}, '/studio/videos/a1?tab=renditions');
+      expect(await screen.findByRole('tabpanel', { name: /Renditions/ })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('tab', { name: 'Storage' }));
+      expect(screen.getByTestId('where')).toHaveTextContent('?tab=storage');
+      // Share is the default, so it leaves the url clean
+      await userEvent.click(screen.getByRole('tab', { name: 'Share' }));
+      expect(screen.getByTestId('where')).toBeEmptyDOMElement();
     });
 
-    it('names both tab lists and counts playback IDs and renditions', async () => {
+    it('still opens Share from the old ?panel=share links', async () => {
+      render(undefined, {}, '/studio/videos/a1?panel=share');
+      expect(await screen.findByRole('tabpanel', { name: 'Share' })).toBeInTheDocument();
+    });
+
+    it('has one row of section tabs in the board order, counting playback IDs and renditions', async () => {
       render();
       const sections = await screen.findByRole('tablist', { name: 'Video sections' });
       await waitFor(() =>
@@ -317,8 +358,9 @@ describe('AssetDetailPage', () => {
           within(sections)
             .getAllByRole('tab')
             .map((t) => t.textContent),
-        ).toEqual(['Playback IDs(0)', 'Storage on Sia', 'Renditions(1)', 'Activity']),
+        ).toEqual(['Share', 'Playback IDs0', 'Renditions1', 'Storage', 'Activity']),
       );
+      expect(screen.getAllByRole('tablist', { name: 'Video sections' })).toHaveLength(1);
     });
 
     it('scrolls a tab that is cut off by its sideways strip into view when it takes focus (2.4.11)', async () => {
@@ -333,30 +375,33 @@ describe('AssetDetailPage', () => {
       expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
     });
 
-    it('fades the side of the section tabs that runs past a phone', async () => {
+    it('lets the section tabs scroll sideways on a phone', async () => {
       render();
       const sections = await screen.findByRole('tablist', { name: 'Video sections' });
-      expect(sections.closest('[data-slot="scroll-fade"]')).not.toBeNull();
+      expect(sections.parentElement).toHaveClass('overflow-x-auto');
     });
 
-    it('shows the details with copyable IDs and the description', async () => {
-      render(undefined, {}, '/studio/videos/a1?panel=details');
-      const details = await screen.findByRole('tabpanel', { name: 'Details' });
-      expect(within(details).getByText('Video ID')).toBeInTheDocument();
-      expect(within(details).getByRole('button', { name: /Copy video ID/ })).toBeInTheDocument();
-      expect(within(details).getByText('Main playlist file')).toBeInTheDocument();
-      expect(within(details).getByText('A bunny')).toHaveClass('line-clamp-6', 'wrap-anywhere');
+    it('shows the description in its own card with an Edit button, clamped to six lines', async () => {
+      render();
+      const card = (await screen.findByRole('heading', { level: 2, name: 'Description' })).closest(
+        'section',
+      )!;
+      expect(within(card).getByText('A bunny')).toHaveClass('line-clamp-6', 'wrap-anywhere');
+      expect(within(card).getByRole('button', { name: 'Edit description' })).toBeInTheDocument();
     });
 
-    it('sets the description label and text like the other details, not as a heading', async () => {
-      // the global h3 rule gave it the heading family at 400, and the text took
-      // the 16px body size on phones while every other value is 14px
-      render(undefined, {}, '/studio/videos/a1?panel=details');
-      const details = await screen.findByRole('tabpanel', { name: 'Details' });
-      expect(within(details).getByRole('heading', { name: 'Description' })).toHaveClass(
-        'font-sans',
-      );
-      expect(within(details).getByText('A bunny').closest('.text-sm')).not.toBeNull();
+    it('ends the side column with a Delete video card whose outlined button asks first', async () => {
+      render();
+      const card = (await screen.findByRole('heading', { level: 2, name: 'Delete video' })).closest(
+        'section',
+      )!;
+      expect(card).toHaveTextContent('Removes it from Sia and stops every embed.');
+      const button = within(card).getByRole('button', { name: 'Delete video' });
+      expect(button).toHaveAttribute('data-variant', 'destructive-outline');
+      await userEvent.click(button);
+      expect(
+        await screen.findByRole('alertdialog', { name: 'Delete “Big Buck Bunny”?' }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -417,8 +462,7 @@ describe('AssetDetailPage', () => {
               })
             : asset({ ...(body as object), title: 'Renamed in tab B' }),
       });
-      await userEvent.click(await screen.findByRole('tab', { name: 'Details' }));
-      await userEvent.click(screen.getByRole('button', { name: 'Edit description' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit description' }));
       const box = screen.getByRole('textbox', { name: 'Edit description' });
       await userEvent.clear(box);
       await userEvent.type(box, 'Mine{Control>}{Enter}{/Control}');
@@ -458,22 +502,21 @@ describe('AssetDetailPage', () => {
           return reply(401, { error: 'Not signed in', reason: 'revoked' });
         },
       });
-      await userEvent.click(await screen.findByRole('tab', { name: 'Details' }));
-      await userEvent.click(screen.getByRole('button', { name: 'Edit description' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit description' }));
       const box = screen.getByRole('textbox', { name: 'Edit description' });
       await userEvent.clear(box);
       await userEvent.type(box, 'Written before the session ended{Control>}{Enter}{/Control}');
       await waitFor(() => expect(ifMatch).toHaveLength(1));
       first.unmount();
 
-      render(undefined, {}, '/studio/videos/a1?panel=details');
+      render();
       expect(await screen.findByRole('textbox', { name: 'Edit description' })).toHaveValue(
         'Written before the session ended',
       );
     });
 
     it('caps the description and counts from 4,500 characters (FLW-30)', async () => {
-      render(asset({ description: 'x'.repeat(4500) }), {}, '/studio/videos/a1?panel=details');
+      render(asset({ description: 'x'.repeat(4500) }));
       await userEvent.click(await screen.findByRole('button', { name: 'Edit description' }));
       const box = screen.getByRole('textbox', { name: 'Edit description' });
       expect(box).toHaveAttribute('maxLength', '5000');
@@ -509,13 +552,13 @@ describe('AssetDetailPage', () => {
       await screen.findByTestId('player');
       await userEvent.click(screen.getByRole('button', { name: 'More actions' }));
       await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete video' }));
-      const dialog = await screen.findByRole('alertdialog', { name: 'Delete this video?' });
+      const dialog = await screen.findByRole('alertdialog', { name: 'Delete “Big Buck Bunny”?' });
       await waitFor(() =>
         expect(dialog).toHaveTextContent(
-          '“Big Buck Bunny” is removed from your library now and its 2 files are removed from Sia in the background. This cannot be undone.',
+          'It is removed from your library now and its 2 files are removed from Sia in the background. Every embed stops working. This cannot be undone.',
         ),
       );
-      await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Delete video' }));
 
       expect(await screen.findByText('Library')).toBeInTheDocument();
       expect(await screen.findByText('Video deleted')).toBeInTheDocument();
@@ -535,7 +578,9 @@ describe('AssetDetailPage', () => {
       await userEvent.click(screen.getByRole('button', { name: 'More actions' }));
       await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete video' }));
       await userEvent.click(
-        within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }),
+        within(await screen.findByRole('alertdialog')).getByRole('button', {
+          name: 'Delete video',
+        }),
       );
       expect(
         await screen.findByText(/^Could not delete the video\. The server ran into a problem/),
@@ -585,7 +630,7 @@ describe('AssetDetailPage', () => {
   });
 
   describe('before the video is ready', () => {
-    it('shows the running step and percent, opens on Details and Activity', async () => {
+    it('shows the running step and percent, and opens on Activity with Share waiting', async () => {
       render(asset({ status: 'processing', manifest_object_id: null }), {
         '/api/v1/assets/a1/processing': job({
           status: 'processing',
@@ -596,12 +641,16 @@ describe('AssetDetailPage', () => {
       const card = await screen.findByRole('region', { name: 'Processing' });
       expect(await within(card).findByText('Storing on Sia')).toBeInTheDocument();
       expect(within(card).getByText('72%')).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
       expect(
         within(screen.getByRole('tablist', { name: 'Video sections' }))
           .getAllByRole('tab')
           .map((t) => t.textContent),
-      ).toEqual(['Activity']);
+      ).toEqual(['Share', 'Activity']);
+      expect(screen.getByRole('button', { name: 'Copy embed code' })).toBeDisabled();
       expect(screen.getByRole('region', { name: 'Processing log' })).toBeInTheDocument();
       await userEvent.click(screen.getByRole('tab', { name: 'Share' }));
       expect(screen.getByText('Available once the video is ready.')).toBeInTheDocument();
@@ -632,12 +681,10 @@ describe('AssetDetailPage', () => {
       // no processing job exists for an upload that never finished, and the log says so
       expect(server.calls.some((c) => c.path.endsWith('/processing'))).toBe(false);
       expect(screen.getByText('Nothing has run yet')).toBeInTheDocument();
-      await userEvent.click(screen.getByRole('button', { name: 'Delete video' }));
+      await userEvent.click(screen.getAllByRole('button', { name: 'Delete video' })[0]);
       expect(
-        await screen.findByRole('alertdialog', { name: 'Delete this video?' }),
-      ).toHaveTextContent(
-        '“Big Buck Bunny” is removed from your library now. This cannot be undone.',
-      );
+        await screen.findByRole('alertdialog', { name: 'Delete “Big Buck Bunny”?' }),
+      ).toHaveTextContent('It is removed from your library now. This cannot be undone.');
     });
 
     it('keeps an old upload that another tab of this browser is sending as Uploading', async () => {
@@ -799,16 +846,20 @@ describe('AssetDetailPage', () => {
     });
   });
 
-  describe('on a phone', () => {
-    it('puts the share panel in a bottom sheet and the details under the player', async () => {
-      viewport(false);
+  describe('layout', () => {
+    it('keeps the player and tabs first and the side cards after them, so a phone stacks them in that order', async () => {
       render(asset({ access_tier: 'public' }));
       await screen.findByTestId('player');
-      expect(screen.queryByRole('tablist', { name: 'Share and details' })).toBeNull();
-      expect(screen.getByRole('heading', { level: 2, name: 'Details' })).toBeInTheDocument();
-      await userEvent.click(screen.getByRole('button', { name: 'Share' }));
-      const sheet = await screen.findByRole('dialog', { name: 'Share' });
-      expect(sheet.textContent).toContain("streamUrl('a1')");
+      const tabs = screen.getByRole('tablist', { name: 'Video sections' });
+      const aside = screen.getByRole('complementary', { name: 'About this video' });
+      expect(tabs.compareDocumentPosition(aside) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(
+        within(aside)
+          .getAllByRole('heading', { level: 2 })
+          .map((h) => h.textContent),
+      ).toEqual(['Details', 'Description', 'Delete video']);
+      // both columns wrap: the side one drops under the player when there is no room
+      expect(aside.parentElement).toHaveClass('flex-wrap');
     });
   });
 });

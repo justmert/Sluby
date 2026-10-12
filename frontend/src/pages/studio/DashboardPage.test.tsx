@@ -205,7 +205,7 @@ function render(operator = false) {
 const card = (title: string) =>
   screen
     .getByRole('heading', { level: 2, name: title })
-    .closest('[data-slot="card"]') as HTMLElement;
+    .closest('section, [data-slot="card"]') as HTMLElement;
 
 const steps = () =>
   within(screen.getByRole('list', { name: 'Steps' }))
@@ -217,7 +217,9 @@ describe('Overview page', () => {
     setup({ '/api/v1/system/status': deploymentStatus });
     render(true);
     expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
-    expect(screen.getByText('Your videos and where they are stored')).toBeInTheDocument();
+    expect(
+      screen.getByText('Your videos, plays and what needs your attention.'),
+    ).toBeInTheDocument();
     await screen.findByRole('heading', { level: 2, name: 'Recent videos' });
     for (const title of [
       'Sia account',
@@ -239,20 +241,29 @@ describe('Overview page', () => {
       render();
       expect(await screen.findByText('7', readable)).toBeInTheDocument();
       expect(
-        screen.getByText('3 ready, 1 failed, 1 processing, 2 waiting for file'),
+        screen.getByText('3 ready · 1 failed · 1 processing · 2 waiting for file'),
       ).toBeInTheDocument();
       expect(screen.getByText('545 MB', readable)).toBeInTheDocument();
-      expect(screen.getByText("Your files' size, before Sia adds redundancy")).toBeInTheDocument();
+      expect(screen.getByText('before Sia adds redundancy')).toBeInTheDocument();
       expect(screen.getByText('Playable time')).toBeInTheDocument();
       expect(screen.getByText('0:29', readable)).toBeInTheDocument();
+      expect(screen.getByText('across ready videos')).toBeInTheDocument();
       expect(screen.getByText('Plays, last 30 days')).toBeInTheDocument();
       expect(screen.getByText('128', readable)).toBeInTheDocument();
-      // the sparkline is decoration; the figure carries the number
-      expect(document.querySelector('[data-slot="plays-sparkline"]')).toHaveAttribute(
-        'aria-hidden',
-        'true',
-      );
-      expect(screen.queryByText('Files on Sia')).not.toBeInTheDocument();
+      expect(screen.getByText('from your sites')).toBeInTheDocument();
+      // four cards in one list, in the board's order
+      expect(
+        within(screen.getByRole('list', { name: 'Totals' }))
+          .getAllByRole('listitem')
+          .map((li) => li.querySelector('p')?.textContent),
+      ).toEqual(['Videos', 'Stored on Sia', 'Playable time', 'Plays, last 30 days']);
+    });
+
+    it('shows the Sia account limit to an operator under Stored on Sia', async () => {
+      setup({ '/api/v1/system/status': deploymentStatus });
+      render(true);
+      await screen.findByText('545 MB', readable);
+      expect(screen.getByText('of 50 GB')).toBeInTheDocument();
     });
 
     it('lets the totals be retried after they fail, in a sentence', async () => {
@@ -267,13 +278,6 @@ describe('Overview page', () => {
       await waitFor(() =>
         expect(screen.queryByText('Could not load your totals')).not.toBeInTheDocument(),
       );
-    });
-
-    it('says when the totals last updated', async () => {
-      setup();
-      render();
-      await screen.findByText('7', readable);
-      expect(screen.getByText(/Totals updated just now/)).toBeInTheDocument();
     });
 
     it('polls the totals faster while uploads are still moving', async () => {
@@ -314,8 +318,9 @@ describe('Overview page', () => {
       render();
       const list = await screen.findByRole('list', { name: 'Steps' });
       expect(card('Get started')).toHaveTextContent('1 of 4 done');
-      const [sia, upload, play, key, hook] = steps();
-      expect(within(sia).getByText('Connected to Sia mainnet')).toBeInTheDocument();
+      const [sia, upload, play, key, ...rest] = steps();
+      expect(rest).toEqual([]);
+      expect(within(sia).getByText('Storage account ready.')).toBeInTheDocument();
       expect(within(sia).getByText(', Done')).toBeInTheDocument();
       expect(within(upload).getByText(', Not done')).toBeInTheDocument();
       // the bar says the same as the count, and the next step gets the petrol edge
@@ -324,18 +329,18 @@ describe('Overview page', () => {
       ).toHaveAttribute('aria-valuenow', '25');
       expect(upload).toHaveAttribute('data-current', 'true');
       expect(upload).toHaveClass('border-2', 'border-primary');
-      for (const other of [sia, play, key, hook]) expect(other).not.toHaveAttribute('data-current');
+      for (const other of [sia, play, key]) expect(other).not.toHaveAttribute('data-current');
+      // done is a green tick, the rest a hollow ring, and a done step has no action
+      expect(sia.querySelector('svg.text-success')).not.toBeNull();
+      expect(key.querySelector('span.rounded-full.border-border-strong')).not.toBeNull();
+      expect(within(sia).queryByRole('link')).toBeNull();
       expect(within(play).getByRole('button', { name: 'Get embed code' })).toBeDisabled();
       expect(within(play).getByText('Available once a video is ready.')).toBeInTheDocument();
       expect(within(key).getByRole('link', { name: 'Create key' })).toHaveAttribute(
         'href',
         '/studio/developers/keys?create=key',
       );
-      expect(within(hook).getByText('Optional')).toBeInTheDocument();
-      expect(within(hook).getByRole('link', { name: 'Add webhook' })).toHaveAttribute(
-        'href',
-        '/studio/developers/webhooks?create=webhook',
-      );
+      expect(within(key).getByText('Optional, for your server.')).toBeInTheDocument();
       expect(list.tagName).toBe('OL');
       // the empty library says what to do
       expect(within(card('Recent videos')).getByText('No videos yet')).toBeInTheDocument();
@@ -420,7 +425,7 @@ describe('Overview page', () => {
       render();
       await screen.findByRole('list', { name: 'Steps' });
       await waitFor(() =>
-        expect(steps()[1]).toHaveTextContent('Processing “Product walkthrough”, 65%'),
+        expect(steps()[1]).toHaveTextContent('Storing on Sia “Product walkthrough”, 65%'),
       );
       expect(within(steps()[1]).getByText(', Done')).toBeInTheDocument();
     });
@@ -439,7 +444,8 @@ describe('Overview page', () => {
       await screen.findByRole('list', { name: 'Steps' });
       expect(
         await within(steps()[2]).findByRole('link', { name: 'Get embed code' }),
-      ).toHaveAttribute('href', '/studio/videos/r1?panel=share');
+      ).toHaveAttribute('href', '/studio/videos/r1?tab=share');
+      expect(steps()[1]).toHaveTextContent('1 video ready to play.');
 
       server = jsonFetch({
         ...routes,
@@ -470,7 +476,7 @@ describe('Overview page', () => {
       render();
       await screen.findByRole('list', { name: 'Steps' });
       expect(
-        await within(steps()[2]).findByText(/previews in the Studio do not count/),
+        await within(steps()[2]).findByText('Paste the embed code. Studio previews do not count.'),
       ).toBeInTheDocument();
     });
 
@@ -605,11 +611,14 @@ describe('Overview page', () => {
       expect(card('Needs attention')).toHaveTextContent('12');
     });
 
-    it('is not drawn when nothing needs attention', async () => {
+    it('keeps its place beside Status and says so when nothing needs attention', async () => {
       setup();
       render();
-      await screen.findByRole('heading', { level: 2, name: 'Recent videos' });
-      expect(screen.queryByRole('heading', { name: 'Needs attention' })).not.toBeInTheDocument();
+      const c = (await screen.findByText('Nothing needs your attention.')).closest('section')!;
+      expect(screen.queryByRole('list', { name: 'Needs attention' })).not.toBeInTheDocument();
+      // the two cards share a row, two parts to one
+      expect(c.parentElement).toBe(card('Status').parentElement);
+      expect(c).toHaveClass('flex-[2_1_520px]');
     });
 
     it('lists a failed video with its reason, missing files, a failing webhook and a stalled upload', async () => {
@@ -660,30 +669,61 @@ describe('Overview page', () => {
       const rows = () => within(attention).getAllByRole('listitem');
       await waitFor(() => expect(rows()).toHaveLength(4));
       const text = rows().map((r) => r.textContent);
-      expect(text[0]).toContain('2 files are missing from Sia');
-      expect(text[1]).toContain('“Broken upload” failed');
+      expect(text[0]).toContain('Missing2 files are missing from Sia');
+      // each row leads with its chip, then the title and why, then its action
+      expect(text[1]).toMatch(/^FailedBroken upload/);
       expect(
         await within(rows()[1]).findByText('The file is not a readable video.'),
       ).toBeInTheDocument();
-      expect(
-        within(rows()[1]).getByRole('link', { name: 'Open video Broken upload' }),
-      ).toHaveAttribute('href', '/studio/videos/f1');
-      expect(text[2]).toContain('Deliveries to example.com/hooks/sluby are failing');
-      expect(text[2]).toContain('Last attempt 5 minutes ago');
-      // named after its endpoint, like the video rows, so several read apart
+      expect(within(rows()[1]).getByRole('link', { name: 'Broken upload' })).toHaveAttribute(
+        'href',
+        '/studio/videos/f1',
+      );
+      // retrying cannot fix a file that is not a video, so it offers a new upload
+      expect(within(rows()[1]).getByRole('link', { name: 'Upload again' })).toHaveAttribute(
+        'href',
+        '/studio/videos/upload',
+      );
+      expect(text[2]).toMatch(/^Failingexample\.com\/hooks\/sluby/);
+      expect(text[2]).toContain('Deliveries are failing. Last attempt 5 minutes ago.');
+      // named after its endpoint, so several read apart
       expect(
         within(rows()[2]).getByRole('link', { name: 'Open webhook example.com/hooks/sluby' }),
       ).toHaveAttribute('href', '/studio/developers/webhooks/w1');
-      // wraps at a large text size instead of running out of the card (1.4.4)
-      expect(
-        within(rows()[2]).getByRole('link', { name: 'Open webhook example.com/hooks/sluby' }),
-      ).toHaveClass('whitespace-normal', 'shrink', 'pointer-coarse:h-auto');
-      expect(text[3]).toContain('“Lost upload” did not finish uploading');
+      expect(text[3]).toMatch(/^InterruptedLost upload/);
+      expect(text[3]).toContain('The upload did not finish.');
       expect(attention.textContent).not.toContain('Just started');
       // a member cannot open health
       expect(
         within(attention).queryByRole('link', { name: 'Open health' }),
       ).not.toBeInTheDocument();
+    });
+
+    it('lists a paused webhook, whose events are not being sent', async () => {
+      setup({
+        '/api/v1/webhooks': {
+          data: [
+            {
+              id: 'w2',
+              url: 'https://hooks.example.com/sluby',
+              events: ['video.ready'],
+              is_active: false,
+              created_at: minutesAgo(60),
+              last_delivery_at: null,
+              last_delivery_ok: null,
+            },
+          ],
+        },
+      });
+      render();
+      const attention = await screen.findByRole('list', { name: 'Needs attention' });
+      const [row] = within(attention).getAllByRole('listitem');
+      expect(row).toHaveTextContent('Paused');
+      expect(row).toHaveTextContent('Webhook paused. Events are not being sent.');
+      expect(
+        within(row).getByRole('link', { name: 'Open webhook hooks.example.com/sluby' }),
+      ).toHaveAttribute('href', '/studio/developers/webhooks/w2');
+      expect(card('Needs attention')).toHaveTextContent('Items: 1');
     });
 
     it('puts a service that is down first, with Health for operators', async () => {
@@ -716,9 +756,9 @@ describe('Overview page', () => {
         }),
       });
       render();
-      const recent = await screen.findByRole('list', { name: 'Recent videos' });
+      const recent = await screen.findByRole('table', { name: 'Recent videos' });
       const link = await within(recent).findByRole('link', { name: /Teaser/ });
-      expect(link.querySelector('[data-state="failed"]')).not.toBeNull();
+      expect(link.closest('tr')!.querySelector('[data-state="failed"]')).not.toBeNull();
     });
 
     it('offers Retry processing on a failed video that retrying can fix', async () => {
@@ -737,7 +777,7 @@ describe('Overview page', () => {
       render();
       const attention = await screen.findByRole('list', { name: 'Needs attention' });
       await userEvent.click(
-        await within(attention).findByRole('button', { name: 'Retry processing' }),
+        await within(attention).findByRole('button', { name: 'Retry processing Teaser' }),
       );
       expect(await screen.findByText(/^“Teaser”: processing restarted from/)).toBeInTheDocument();
     });
@@ -780,26 +820,43 @@ describe('Overview page', () => {
       const stale = video({ title: 'Abandoned', status: 'created', created_at: minutesAgo(30) });
       setup({ '/api/v1/assets': assetsRoute({}, [stale, ...rows]) });
       render();
-      const list = await screen.findByRole('list', { name: 'Recent videos' });
-      expect(within(list).getAllByRole('listitem')).toHaveLength(6);
-      expect(list).not.toHaveTextContent('Abandoned');
-      expect(within(list).getByRole('link', { name: /Clip 0/ })).toHaveAttribute(
+      const table = await screen.findByRole('table', { name: 'Recent videos' });
+      expect(
+        within(table)
+          .getAllByRole('columnheader')
+          .map((h) => h.textContent),
+      ).toEqual(['Video', 'Status', 'Access', 'Plays', 'Uploaded']);
+      // a header row and six videos
+      expect(within(table).getAllByRole('row')).toHaveLength(7);
+      expect(table).not.toHaveTextContent('Abandoned');
+      expect(within(table).getByRole('link', { name: /Clip 0/ })).toHaveAttribute(
         'href',
         `/studio/videos/${rows[0].id}`,
       );
+      const first = within(table)
+        .getByRole('link', { name: /Clip 0/ })
+        .closest('tr')!;
+      expect(first).toHaveTextContent('Ready');
+      expect(first).toHaveTextContent('Public');
+      expect(screen.getByRole('link', { name: 'All videos' })).toHaveAttribute(
+        'href',
+        '/studio/videos',
+      );
     });
 
-    it('shows where a processing video is, with a calm dot instead of a spinner', async () => {
+    it('shows where a processing video is in its chip, with a pulsing dot and a moving bar', async () => {
       const busy = video({ id: 'p1', title: 'Big Buck Bunny', status: 'processing' });
       setup({ '/api/v1/assets': assetsRoute({}, [busy]), '/api/v1/assets/p1/processing': job() });
       render();
-      expect(await screen.findByText(/Storing on Sia, 65%/)).toBeInTheDocument();
-      expect(
-        screen.getByRole('progressbar', { name: 'Big Buck Bunny, processing progress' }),
-      ).toHaveAttribute('aria-valuenow', '65');
-      const row = screen.getByRole('link', { name: /Big Buck Bunny/ });
+      expect(await screen.findByText('Storing on Sia · 65%')).toBeInTheDocument();
+      const bar = screen.getByRole('progressbar', { name: 'Big Buck Bunny, Storing on Sia' });
+      expect(bar).toHaveAttribute('aria-valuenow', '65');
+      expect(bar.querySelector('[data-moving]')).not.toBeNull();
+      const row = screen.getByRole('link', { name: /Big Buck Bunny/ }).closest('tr')!;
       expect(row.querySelector('[data-slot="status-dot"]')).not.toBeNull();
       expect(row.querySelector('[data-slot="spinner"], .animate-spin')).toBeNull();
+      // nothing has played yet
+      expect(row).toHaveTextContent('–');
     });
 
     it('lets a title wrap to two lines and set its own direction', async () => {
@@ -810,7 +867,7 @@ describe('Overview page', () => {
       expect(title).toHaveClass('line-clamp-2', 'wrap-anywhere');
     });
 
-    it('retries a failed video that retrying can fix, with the toast in plain words', async () => {
+    it('retries a failed video from Needs attention, with the toast in plain words', async () => {
       const failed = video({ id: 'f1', title: 'Big Buck Bunny', status: 'failed' });
       setup({
         '/api/v1/assets': assetsRoute({ failed: [failed] }, [failed]),
@@ -824,6 +881,9 @@ describe('Overview page', () => {
         'POST /api/v1/assets/f1/retry': reply(202, { stage: 'upload-segments' }),
       });
       render();
+      const table = await screen.findByRole('table', { name: 'Recent videos' });
+      // the recent list is for looking; the action lives under Needs attention
+      expect(within(table).queryByRole('button', { name: /Retry/ })).toBeNull();
       await userEvent.click(
         await screen.findByRole('button', { name: 'Retry processing Big Buck Bunny' }),
       );
@@ -844,11 +904,12 @@ describe('Overview page', () => {
         }),
       });
       render();
-      await screen.findByRole('link', { name: /^Broken/ });
+      await screen.findAllByRole('link', { name: /^Broken/ });
       await waitFor(() =>
         expect(server.calls.some((c) => c.path === '/api/v1/assets/f1/processing')).toBe(true),
       );
       expect(screen.queryByRole('button', { name: /Retry processing/ })).not.toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: 'Upload again' })).toBeInTheDocument();
     });
 
     it('never asks the gateway for a private thumbnail', async () => {
@@ -856,7 +917,7 @@ describe('Overview page', () => {
       const pub = video({ title: 'Open clip', thumbnail_object_ids: ['t2'] });
       setup({ '/api/v1/assets': assetsRoute({}, [priv, pub]) });
       const { container } = render();
-      const row = await screen.findByRole('link', { name: /Secret/ });
+      const row = (await screen.findByRole('link', { name: /Secret/ })).closest('tr')!;
       expect(
         within(row).getByRole('img', { name: 'Private video, no preview' }),
       ).toBeInTheDocument();
@@ -873,26 +934,44 @@ describe('Overview page', () => {
   });
 
   describe('status', () => {
-    it('folds the database and job queue into one row for a member, and says the files are on Sia', async () => {
+    it('lists the database, the queue and Sia storage under one verdict', async () => {
       setup();
       render();
-      await screen.findByText('218 ms');
+      await screen.findByText('OK · 218 ms');
       const c = card('Status');
-      expect(within(c).getByText('Operational')).toBeInTheDocument();
-      expect(within(c).getByText('Sia storage')).toBeInTheDocument();
-      expect(within(c).getByText('218 ms')).toBeInTheDocument();
-      expect(within(c).getByText('This server')).toBeInTheDocument();
-      expect(within(c).getByText('7 ms')).toBeInTheDocument();
-      expect(within(c).getByText('Your files on Sia')).toBeInTheDocument();
-      expect(within(c).getByText('All on Sia (checked 3 minutes ago)')).toBeInTheDocument();
-      expect(within(c).queryByText(/Redis|Job queue|Database/)).not.toBeInTheDocument();
+      expect(within(c).getByText('All working')).toBeInTheDocument();
+      expect(
+        within(c)
+          .getAllByRole('term')
+          .map((t) => t.textContent),
+      ).toEqual(['Database', 'Queue', 'Sia storage']);
+      expect(within(c).getByText('OK · 3 ms')).toBeInTheDocument();
+      expect(within(c).getByText('OK · 7 ms')).toBeInTheDocument();
+      expect(within(c).queryByText(/Redis/)).not.toBeInTheDocument();
+      // members have no Health page to open
       expect(within(c).queryByRole('link', { name: 'Open health' })).not.toBeInTheDocument();
+    });
+
+    it('says which service stopped answering', async () => {
+      setup({
+        '/api/v1/system/status': {
+          ...accountStatus,
+          status: 'degraded',
+          redis: { ok: false, latency_ms: 0 },
+        },
+      });
+      render();
+      const value = await screen.findByText('Not responding');
+      expect(value).toHaveClass('text-destructive');
+      const c = value.closest('section')!;
+      expect(within(c).getByText('Degraded')).toBeInTheDocument();
+      expect(value.previousElementSibling).toHaveTextContent('Queue');
     });
 
     it('gives an operator a way to Health', async () => {
       setup({ '/api/v1/system/status': deploymentStatus });
       render(true);
-      await screen.findByText('218 ms');
+      await screen.findByText('OK · 218 ms');
       const c = card('Status');
       expect(within(c).getByRole('link', { name: 'Open health' })).toHaveAttribute(
         'href',
@@ -904,19 +983,6 @@ describe('Overview page', () => {
       setup({ '/api/v1/system/status': reply(500, { error: 'Internal Server Error' }) });
       render();
       expect(await screen.findByText('Could not load the status')).toBeInTheDocument();
-    });
-
-    it('says the storage check could not load instead of claiming it never ran', async () => {
-      setup({ '/api/v1/reconciliation': reply(500, { error: 'boom' }) });
-      render();
-      expect(await screen.findByText('Could not load the storage check')).toBeInTheDocument();
-      expect(screen.queryByText('Not checked yet')).not.toBeInTheDocument();
-    });
-
-    it('says a check has not run yet', async () => {
-      setup({ '/api/v1/reconciliation': reply(404, { error: 'none' }) });
-      render();
-      expect(await screen.findByText('Not checked yet')).toBeInTheDocument();
     });
   });
 

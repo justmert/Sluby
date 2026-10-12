@@ -999,6 +999,33 @@ export default function AssetsPage() {
 
       {toolbar}
 
+      {/* first in the tab order after the filters, last on screen: it sticks
+          to the bottom of the content column (A11Y-15, VIS-18) */}
+      {hasSelection && (
+        <BulkBar
+          className="sticky bottom-[max(1.5rem,env(safe-area-inset-bottom))] order-last"
+          count={selected.size}
+          onPage={assets.length}
+          total={total}
+          acrossPages={acrossPages}
+          selectingAll={selectingAll}
+          cap={SELECT_ALL_CAP}
+          changing={changing}
+          canMakePrivate={selectedAssets.some((a) => a.accessTier !== 'private')}
+          canMakePublic={selectedAssets.some((a) => a.accessTier === 'private')}
+          canCopyEmbed={selectedAssets.some((a) => a.status === 'ready')}
+          onSelectAll={() => void selectAllResults()}
+          onMakePublic={() => askAccess('public')}
+          onMakePrivate={() => askAccess('private')}
+          onCopyEmbed={copySelectedEmbeds}
+          onDelete={() => setPendingDelete({ assets: selectedAssets, fromBar: true })}
+          onClear={() => {
+            clearSelection();
+            focusSelectAll();
+          }}
+        />
+      )}
+
       <div
         ref={resultsRef}
         className={cn(
@@ -1034,33 +1061,6 @@ export default function AssetsPage() {
           </p>
         )}
       </div>
-
-      {/* last in the page, so it is reached after the rows it acts on; it
-          sticks to the bottom of the content column (A11Y-15, VIS-18) */}
-      {hasSelection && (
-        <BulkBar
-          className="sticky bottom-[max(1.5rem,env(safe-area-inset-bottom))]"
-          count={selected.size}
-          onPage={assets.length}
-          total={total}
-          acrossPages={acrossPages}
-          selectingAll={selectingAll}
-          cap={SELECT_ALL_CAP}
-          changing={changing}
-          canMakePrivate={selectedAssets.some((a) => a.accessTier !== 'private')}
-          canMakePublic={selectedAssets.some((a) => a.accessTier === 'private')}
-          canCopyEmbed={selectedAssets.some((a) => a.status === 'ready')}
-          onSelectAll={() => void selectAllResults()}
-          onMakePublic={() => askAccess('public')}
-          onMakePrivate={() => askAccess('private')}
-          onCopyEmbed={copySelectedEmbeds}
-          onDelete={() => setPendingDelete({ assets: selectedAssets, fromBar: true })}
-          onClear={() => {
-            clearSelection();
-            focusSelectAll();
-          }}
-        />
-      )}
 
       <p className="sr-only" role="status">
         {announcement}
