@@ -131,7 +131,7 @@ function Settings() {
   );
 }
 
-const SKELETONS: Array<[RegExp, () => React.ReactNode, string?]> = [
+const SKELETONS: Array<[RegExp, () => React.ReactNode]> = [
   [/^\/studio\/?$/, Dashboard],
   [/^\/studio\/videos\/?$/, VideosLoading],
   // before the video page's pattern, which "upload" would match
@@ -142,10 +142,9 @@ const SKELETONS: Array<[RegExp, () => React.ReactNode, string?]> = [
   [/^\/studio\/developers\/webhooks\/?$/, Webhooks],
   [/^\/studio\/developers\/webhooks\/[^/]+\/?$/, WebhookDetailLoading],
   [/^\/studio\/developers\/explorer\/?$/, ExplorerLoading],
-  [/^\/studio\/deployment\/?$/, Health, 'max-w-400'],
+  [/^\/studio\/deployment\/?$/, Health],
   [/^\/studio\/deployment\/metrics\/?$/, Analytics],
-  // settings is one narrow column (SettingsPage)
-  [/^\/studio\/settings\/?$/, Settings, 'max-w-320'],
+  [/^\/studio\/settings\/?$/, Settings],
 ];
 
 /**
@@ -157,7 +156,7 @@ export function RouteFallback() {
   const { pathname } = useLocation();
   // every page draws its own placeholders where these were (PageContainer)
   useRouteSkeletonVisibility();
-  const [, Shape, width] = SKELETONS.find(([pattern]) => pattern.test(pathname)) ?? [];
+  const [, Shape] = SKELETONS.find(([pattern]) => pattern.test(pathname)) ?? [];
   return (
     <div data-slot="route-fallback" aria-busy="true" className={lateReveal}>
       {/* the page's own h1 replaces this one once its code arrives */}
@@ -166,7 +165,7 @@ export function RouteFallback() {
         Loading page
       </span>
       {Shape && (
-        <PageContainer className={width}>
+        <PageContainer>
           {/* real headings and table headers take part in the shapes; the
               status above is what assistive tech gets */}
           <div aria-hidden="true" inert>

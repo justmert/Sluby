@@ -8,7 +8,7 @@ import { PAGE_HEADS } from '@/components/layout/page-heads';
 export default function SettingsPage() {
   const { authDisabled } = useSession();
   return (
-    <PageContainer className="max-w-320">
+    <PageContainer>
       <PageHeader
         title={PAGE_HEADS.settings.title}
         description="Your account, where you are signed in, and how the Studio looks."

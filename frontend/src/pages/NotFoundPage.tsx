@@ -8,7 +8,7 @@ import { ROUTES } from '@/lib/constants';
 // a title, one sentence and the way back
 export default function NotFoundPage() {
   return (
-    <PageContainer className="flex min-h-[60vh] max-w-160 items-center">
+    <PageContainer className="flex min-h-[60vh] items-center">
       <section
         aria-labelledby="not-found-title"
         className="flex w-full flex-col items-center gap-3 rounded-xl border bg-card px-7 py-10 text-center text-sm motion-safe:animate-enter"

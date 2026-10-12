@@ -97,9 +97,8 @@ describe('RouteFallback', () => {
     expect(shapeAt('/studio/settings')).toHaveClass('delay-150', 'fill-mode-backwards');
   });
 
-  it('draws settings as its one narrow column of three sections, two with sign-in off', () => {
+  it('draws settings as three sections, two with sign-in off', () => {
     const on = shapeAt('/studio/settings');
-    expect(on.querySelector('[data-slot="page-container"]')).toHaveClass('max-w-320');
     expect(on.querySelectorAll('section[class]')).toHaveLength(3);
     const view = renderPage(
       <WithSession authDisabled>

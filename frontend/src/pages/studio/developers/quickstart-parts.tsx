@@ -35,7 +35,7 @@ export function QuickstartFrame({
 }) {
   const Head = loading ? LoadingHead : PageHeader;
   return (
-    <div className="mx-auto flex w-full max-w-320 flex-col">
+    <div className="flex w-full flex-col">
       <Head {...PAGE_HEADS.quickstart} description={QUICKSTART_DESCRIPTION} />
       <ol className="flex flex-col gap-5">{children}</ol>
     </div>
