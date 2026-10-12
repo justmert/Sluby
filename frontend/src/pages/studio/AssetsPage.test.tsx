@@ -1121,3 +1121,66 @@ describe('AssetsPage: versioned edits', () => {
     expect(headers).toEqual([`"${Date.parse(OLD)}"`, `"${Date.parse(OLD)}"`]);
   });
 });
+
+describe('AssetsPage: on a phone', () => {
+  beforeEach(() => {
+    // jsdom has no layout; the page asks for the phone width through matchMedia
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('max-width: 639px'),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }));
+  });
+
+  it('shows the status pills with their counts and a card per video, no table', async () => {
+    library([bunny, sintel, failedOne, asset('p1', 'Cooking', 'processing')]);
+    renderLibrary();
+    const cards = await screen.findByRole('list', { name: 'Videos' });
+    expect(screen.queryByRole('table')).toBeNull();
+    const pills = screen.getByRole('radiogroup', { name: 'Filter by status' });
+    await waitFor(() =>
+      expect(
+        within(pills)
+          .getAllByRole('radio')
+          .map((p) => p.textContent),
+      ).toEqual(['All4', 'Ready2', 'Processing1', 'Failed1']),
+    );
+    expect(within(pills).getByRole('radio', { name: 'All4' })).toBeChecked();
+    const card = within(cards).getByRole('link', { name: 'Big Buck Bunny' }).closest('li')!;
+    expect(card).toHaveTextContent('Ready');
+    expect(card).toHaveTextContent('1:30 · Public');
+    expect(within(card).getByRole('button', { name: 'Actions for Big Buck Bunny' })).toHaveClass(
+      'size-11',
+    );
+    // the board has no page head on a phone; the heading stays for screen readers
+    expect(screen.getByRole('heading', { level: 1, name: 'Videos' }).closest('header')).toHaveClass(
+      'sr-only',
+    );
+  });
+
+  it('filters by a pill and keeps the choice in the url', async () => {
+    const server = library();
+    renderLibrary();
+    await screen.findByRole('list', { name: 'Videos' });
+    await userEvent.click(await screen.findByRole('radio', { name: /^Failed/ }));
+    await waitFor(() => expect(where()).toBe('?status=failed'));
+    expect(listCalls(server).at(-1)!.query.get('status')).toBe('failed');
+    await userEvent.click(screen.getByRole('radio', { name: /^All/ }));
+    await waitFor(() => expect(where()).toBe(''));
+  });
+
+  it('shows a search or access filter set elsewhere, and takes it off in one tap', async () => {
+    library();
+    renderLibrary('/studio/videos?q=Bunny&tier=public');
+    await screen.findByText('Big Buck Bunny');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove search “Bunny”' }));
+    await waitFor(() => expect(where()).toBe('?tier=public'));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove the public filter' }));
+    await waitFor(() => expect(where()).toBe(''));
+  });
+});
