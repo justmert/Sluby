@@ -1,9 +1,7 @@
 import { useRef, useState } from 'react';
-import { LogOut, Monitor, Smartphone } from 'lucide-react';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
-import { DataTable } from '@/components/shared/DataTable';
-import { withCells } from '@/components/shared/column-frames';
-import { StatusBadge } from '@/components/shared/StatusBadge';
+import { InlineError } from '@/components/shared/InlineError';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import {
@@ -14,38 +12,86 @@ import {
 } from '@/hooks/useSessions';
 import { statusOf } from '@/lib/api-client';
 import { withLead } from '@/lib/errors';
-import { formatDate, formatRelativeTime, NO_VALUE } from '@/lib/formatters';
+import { formatDate, formatRelativeTime } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { toastError, toastSuccess } from '@/lib/toast';
 import { browserLabel } from '@/lib/user-agent';
-import { SESSION_COLUMNS } from './columns';
-import { SessionsHeader } from './SessionsHeader';
+import {
+  SESSION_ROW,
+  SessionsHeader,
+  SessionsLoading,
+  SignOutEverywhereButton,
+} from './SessionsHeader';
 import { SETTINGS_SECTION } from './section';
 
-const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
-/** When a browser was last used; this one is in use right now. */
-function lastActive(s: StudioSession): string {
-  if (s.current) return 'Just now';
-  return s.lastSeenAt ? sentence(formatRelativeTime(s.lastSeenAt)) : NO_VALUE;
+/** "Oct 10" this year, "Oct 10, 2025" before it. */
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return formatDate(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
 }
 
-function BrowserCell({ session }: { session: StudioSession }) {
-  const { label, mobile } = browserLabel(session.userAgent);
-  const Icon = mobile ? Smartphone : Monitor;
+/** "Active now · signed in Oct 10" */
+function activity(s: StudioSession): string {
+  const active = s.current
+    ? 'Active now'
+    : s.lastSeenAt
+      ? `Active ${formatRelativeTime(s.lastSeenAt)}`
+      : 'Not seen since signing in';
+  return `${active} · signed in ${shortDate(s.createdAt)}`;
+}
+
+function SessionRow({
+  session: s,
+  pending,
+  onEnd,
+}: {
+  session: StudioSession;
+  pending: boolean;
+  onEnd: () => void;
+}) {
+  const { label } = browserLabel(s.userAgent);
   return (
-    // nowrap: the icon never sits alone on a line above a long name
-    <span className="flex min-w-0 flex-nowrap items-center gap-2">
-      <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <span className="min-w-0 truncate" title={session.userAgent ?? undefined}>
-        {label}
-      </span>
-      {session.current && <StatusBadge kind="session" status="current" className="shrink-0" />}
-    </span>
+    <li className={SESSION_ROW}>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold">
+          <span className="min-w-0 wrap-anywhere" title={s.userAgent ?? undefined}>
+            {label}
+          </span>
+          {s.current && (
+            <Badge variant="success" className="ml-1 h-5.5 font-semibold">
+              This browser
+            </Badge>
+          )}
+        </div>
+        <div className="text-muted-foreground" title={`Expires ${formatDate(s.expiresAt)}`}>
+          {activity(s)}
+        </div>
+      </div>
+      {/* this browser signs out from the account menu, which also leaves the page */}
+      {!s.current && (
+        <Button
+          variant="outline"
+          className="h-8 pointer-coarse:h-10"
+          disabled={pending}
+          aria-label={`End session on ${label}`}
+          data-sign-out={s.id}
+          onClick={onEnd}
+        >
+          {pending && <Spinner aria-hidden="true" />}
+          End session
+        </Button>
+      )}
+    </li>
   );
 }
 
-/** The browsers signed in as this account, each with Sign out, and Sign out everywhere. */
+/** The browsers signed in as this account, each with End session, and Sign out everywhere. */
 export function SessionsSection() {
   const session = useSession();
   const sessions = useSessions(true);
@@ -56,7 +102,7 @@ export function SessionsSection() {
   const rows = sessions.data;
 
   // the row leaves at once, and its button with it; keep focus in the list
-  // (the next browser's Sign out), or on Sign out everywhere when none are left
+  // (the next browser's End session), or on Sign out everywhere when none are left
   const keepFocus = (failedId?: string) =>
     requestAnimationFrame(() => {
       const section = sectionRef.current;
@@ -66,7 +112,7 @@ export function SessionsSection() {
       (again || next || section.querySelector<HTMLElement>('[data-sign-out-all]'))?.focus();
     });
 
-  const signOutOther = async (s: StudioSession) => {
+  const endSession = async (s: StudioSession) => {
     const hadFocus = document.activeElement?.getAttribute('data-sign-out') === s.id;
     if (hadFocus) keepFocus();
     try {
@@ -82,57 +128,43 @@ export function SessionsSection() {
     }
   };
 
-  const columns = withCells<StudioSession>(SESSION_COLUMNS, {
-    browser: (s) => <BrowserCell session={s} />,
-    created: (s) => <span title={formatRelativeTime(s.createdAt)}>{formatDate(s.createdAt)}</span>,
-    seen: (s) => (
-      <span title={s.lastSeenAt ? formatDate(s.lastSeenAt) : undefined}>{lastActive(s)}</span>
-    ),
-    // "in 6 days" rather than "in 5 days 23 hours": the exact time is in the
-    // tooltip, and the long form pushed Sign out out of the card at 768
-    expires: (s) => <span title={formatDate(s.expiresAt)}>{formatRelativeTime(s.expiresAt)}</span>,
-    action: (s) => {
-      // this browser signs out from Account above, which also leaves the page
-      if (s.current) return null;
-      const pending = revoke.isPending && revoke.variables === s.id;
-      const { label } = browserLabel(s.userAgent);
-      return (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-destructive hover:text-destructive"
-          disabled={pending}
-          aria-label={`Sign out ${label}`}
-          data-sign-out={s.id}
-          onClick={() => void signOutOther(s)}
-        >
-          {pending ? <Spinner aria-hidden="true" /> : <LogOut aria-hidden="true" />}
-          Sign out
-        </Button>
-      );
-    },
-  });
-
   const others = rows?.filter((s) => !s.current).length ?? 0;
 
   return (
     <section ref={sectionRef} aria-labelledby="settings-browsers" className={SETTINGS_SECTION}>
-      <SessionsHeader username={session.username} onSignOutAll={() => setConfirmAll(true)} />
-      <DataTable
-        caption="Signed-in browsers"
-        columns={columns}
-        rows={rows}
-        getRowId={(s) => s.id}
-        getRowLabel={(s) => browserLabel(s.userAgent).label}
-        loadingRows={2}
-        error={sessions.error}
-        onRetry={() => sessions.refetch()}
-        retrying={sessions.isFetching}
-        what="your signed-in browsers"
-      />
-      {rows && others === 0 && (
-        <p className="text-sm text-muted-foreground">No other browsers are signed in.</p>
-      )}
+      <SessionsHeader />
+      <div className="flex flex-col gap-3">
+        {sessions.isPending ? (
+          <SessionsLoading />
+        ) : sessions.isError && !rows ? (
+          <InlineError
+            what="your signed-in browsers"
+            error={sessions.error}
+            onRetry={() => void sessions.refetch()}
+            retrying={sessions.isFetching}
+          />
+        ) : (
+          <>
+            <ul
+              aria-label="Signed-in browsers"
+              className="overflow-hidden rounded-xl border bg-card text-sm"
+            >
+              {rows?.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  pending={revoke.isPending && revoke.variables === s.id}
+                  onEnd={() => void endSession(s)}
+                />
+              ))}
+            </ul>
+            {others === 0 && (
+              <p className="text-sm text-muted-foreground">No other browsers are signed in.</p>
+            )}
+          </>
+        )}
+        <SignOutEverywhereButton onClick={() => setConfirmAll(true)} />
+      </div>
       <ConfirmDialog
         item={confirmAll}
         onClose={() => setConfirmAll(false)}
