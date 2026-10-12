@@ -1,12 +1,4 @@
-import {
-  ChartColumn,
-  CodeXml,
-  Compass,
-  HeartPulse,
-  House,
-  Settings,
-  type LucideIcon,
-} from 'lucide-react';
+import { ChartColumn, Code, Compass, Heart, House, Settings, type LucideIcon } from 'lucide-react';
 import { Icons } from './icons';
 
 // the code says "asset" where the api does; the url bar is ui, so routes say
@@ -68,7 +60,7 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'developers',
     label: 'Developers',
     items: [
-      { label: 'Quickstart', path: ROUTES.DEVELOPERS, icon: CodeXml, exact: true },
+      { label: 'Quickstart', path: ROUTES.DEVELOPERS, icon: Code, exact: true },
       { label: 'API keys', path: ROUTES.API_KEYS, icon: Icons.apiKey },
       { label: 'Webhooks', path: ROUTES.WEBHOOKS, icon: Icons.webhook },
       { label: 'API explorer', path: ROUTES.EXPLORER, icon: Compass },
@@ -79,7 +71,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Deployment',
     operatorOnly: true,
     items: [
-      { label: 'Health', path: ROUTES.DEPLOYMENT, icon: HeartPulse, exact: true },
+      { label: 'Health', path: ROUTES.DEPLOYMENT, icon: Heart, exact: true },
       { label: 'Metrics', path: ROUTES.METRICS, icon: ChartColumn },
     ],
   },

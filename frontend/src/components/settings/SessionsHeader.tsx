@@ -6,11 +6,9 @@ import { SETTINGS_SECTION, SectionLabel } from './section';
 
 /**
  * The signed-in browsers label column. Its own module so the settings route
- * skeleton draws the same lines. The route skeleton still passes the props
- * of the old header (the username and the sign out handler); they are
- * accepted and unused until it switches to SessionsSectionLoading.
+ * skeleton draws the same lines.
  */
-export function SessionsHeader(_: { username?: string; onSignOutAll?: () => void }) {
+export function SessionsHeader() {
   return (
     <SectionLabel id="settings-browsers" title="Signed-in browsers">
       End a session you do not recognise.

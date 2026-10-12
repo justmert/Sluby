@@ -125,6 +125,6 @@ describe('RouteFallback', () => {
       container.querySelectorAll('[data-slot="card"]').length,
     );
     expect(container.querySelectorAll('[data-slot="card"]').length).toBeGreaterThan(0);
-    expect(fallback.querySelector('.rounded-full.w-28')).not.toBeNull();
+    expect(fallback.querySelector('.rounded-full.w-44')).not.toBeNull();
   });
 });
