@@ -71,10 +71,22 @@ describe('SettingsPage', () => {
       </WithSession>,
     );
 
+  it('puts each section in a label column beside its content, under a rule', async () => {
+    renderSettings();
+    for (const name of ['Account', 'Signed-in browsers', 'Appearance']) {
+      const section = screen.getByRole('region', { name });
+      expect(section).toHaveClass('flex', 'flex-wrap', 'border-t', 'py-6');
+      expect(section.firstElementChild?.querySelector('h2')).toHaveTextContent(name);
+    }
+    await screen.findByText('Safari on iPhone');
+  });
+
   it('has the account, browsers and appearance sections and no API keys', async () => {
     renderSettings();
     expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByText('Your account, browsers and appearance')).toBeInTheDocument();
+    expect(
+      screen.getByText('Your account, where you are signed in, and how the Studio looks.'),
+    ).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
       'Account',
       'Signed-in browsers',
@@ -97,7 +109,7 @@ describe('SettingsPage', () => {
 
   it('leaves out signed-in browsers and sign out when sign-in is off', async () => {
     renderSettings({ authDisabled: true, username: 'dev', provider: 'local', operator: true });
-    expect(screen.getByText('Sign-in is off on this server')).toBeInTheDocument();
+    expect(screen.getByText('Sign-in is off on this server.')).toBeInTheDocument();
     expect(screen.queryByText('Signed-in browsers')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
     expect(calls('GET', '/api/v1/auth/sessions')).toHaveLength(0);

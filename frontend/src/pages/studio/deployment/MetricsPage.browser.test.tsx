@@ -48,7 +48,7 @@ const throughputCard = () =>
 
 describe('MetricsPage throughput card', () => {
   for (const width of [1200, 390]) {
-    it(`keeps its height at ${width} px when the first samples turn into a line`, async () => {
+    it(`keeps its height at ${width} px when the first samples turn into bars`, async () => {
       await (await browser()).page.viewport(width, 900);
       renderPage(
         <WithSession operator>
@@ -63,7 +63,9 @@ describe('MetricsPage throughput card', () => {
       await waitFor(() => expect(screen.queryByText('Collecting samples')).toBeNull(), {
         timeout: 10_000,
       });
-      await waitFor(() => expect(throughputCard().querySelector('svg')).not.toBeNull());
+      await waitFor(() =>
+        expect(throughputCard().querySelector('[data-slot="bytes-chart"]')).not.toBeNull(),
+      );
       expect(throughputCard().getBoundingClientRect().height).toBe(sampling);
     });
   }

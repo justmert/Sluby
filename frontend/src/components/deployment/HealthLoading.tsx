@@ -1,8 +1,8 @@
-import { ServicesCard } from './ServicesCard';
-import { SiaAccountCard } from './SiaAccountCard';
-import { StorageCheckLoading } from './StorageCheckCard';
-import { StreamCacheCard } from './StreamCacheCard';
+import { BytesStreamedCard } from './BytesStreamedCard';
 import { HEALTH_GRID } from './health';
+import { ServiceCardsLoading } from './ServiceCards';
+import { SiaAccountLoading } from './SiaAccountCard';
+import { StorageCheckLoading } from './StorageCheckCard';
 
 /**
  * Health as it first draws, before any answer: what the page shows until its
@@ -11,17 +11,13 @@ import { HEALTH_GRID } from './health';
  */
 export function HealthLoading() {
   return (
-    <>
-      <div className={HEALTH_GRID.top}>
-        <ServicesCard />
-        <SiaAccountCard />
-      </div>
-      <div className={HEALTH_GRID.row}>
+    <div className={HEALTH_GRID.stack}>
+      <ServiceCardsLoading />
+      <div className={HEALTH_GRID.pair}>
+        <SiaAccountLoading />
         <StorageCheckLoading />
       </div>
-      <div className={HEALTH_GRID.row}>
-        <StreamCacheCard />
-      </div>
-    </>
+      <BytesStreamedCard />
+    </div>
   );
 }

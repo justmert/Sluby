@@ -16,11 +16,19 @@ function systemDark(dark: boolean) {
 }
 
 describe('AppearanceSection', () => {
-  it('says the default and that a choice is kept in this browser (FLW-55)', () => {
+  it('says the choice is kept in this browser (FLW-55)', () => {
     renderPage(<AppearanceSection />);
-    expect(
-      screen.getByText('Follows your system by default. Your choice is saved in this browser.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Saved in this browser.')).toBeInTheDocument();
+  });
+
+  it('draws three theme cards with previews, the chosen one with a 2px accent edge', () => {
+    renderPage(<AppearanceSection />);
+    const labels = screen.getAllByRole('radio').map((r) => r.closest('label')!);
+    expect(labels.map((l) => l.textContent)).toEqual(['System', 'Light', 'Dark']);
+    for (const label of labels) {
+      expect(label).toHaveClass('has-checked:border-2', 'has-checked:border-primary');
+      expect(label.querySelector('[aria-hidden="true"]')).toHaveClass('h-16');
+    }
   });
 
   it('starts on System and says what the system is now (CPY-35)', () => {

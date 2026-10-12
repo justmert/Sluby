@@ -9,13 +9,15 @@ export default function SettingsPage() {
   const { authDisabled } = useSession();
   return (
     <PageContainer className="max-w-240">
-      <PageHeader {...PAGE_HEADS.settings} />
-      <div className="flex flex-col gap-6">
-        <AccountSection />
-        {/* with sign-in off nobody signs in, so there are no browsers to list */}
-        {!authDisabled && <SessionsSection />}
-        <AppearanceSection />
-      </div>
+      <PageHeader
+        title={PAGE_HEADS.settings.title}
+        description="Your account, where you are signed in, and how the Studio looks."
+        className="mb-2"
+      />
+      <AccountSection />
+      {/* with sign-in off nobody signs in, so there are no browsers to list */}
+      {!authDisabled && <SessionsSection />}
+      <AppearanceSection />
     </PageContainer>
   );
 }

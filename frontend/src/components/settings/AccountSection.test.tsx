@@ -1,78 +1,61 @@
-import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { replacePage } from '@/lib/navigation';
+import { screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AuthSession } from '@/lib/session';
-import { jsonFetch, renderPage, reply } from '@/test/render';
+import { jsonFetch, renderPage } from '@/test/render';
 import { WithSession } from '@/test/session';
 import { AccountSection } from './AccountSection';
 
-vi.mock('@/lib/navigation', () => ({ loadPage: vi.fn(), replacePage: vi.fn() }));
-
-beforeEach(() => vi.mocked(replacePage).mockClear());
 afterEach(() => vi.unstubAllGlobals());
 
-function setup(session: Partial<AuthSession> = {}, routes: Record<string, unknown> = {}) {
-  const fetch = jsonFetch(routes);
+function setup(session: Partial<AuthSession> = {}) {
+  const fetch = jsonFetch({});
   vi.stubGlobal('fetch', fetch);
-  return renderPage(
+  renderPage(
     <WithSession {...session}>
       <AccountSection />
     </WithSession>,
   );
+  return fetch;
 }
 
-const valueOf = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling;
+const card = () => screen.getByRole('region', { name: 'Account' }).lastElementChild as HTMLElement;
 
 describe('AccountSection', () => {
-  it('names the account, how it signed in and an operator role with what it means (CPY-23)', () => {
-    setup({ operator: true });
-    // the section is already called Account; the row names what it shows
-    expect(screen.queryByText('Account', { selector: 'dt' })).not.toBeInTheDocument();
-    expect(valueOf('Username')).toHaveTextContent('alice');
-    expect(valueOf('Signed in with')).toHaveTextContent('GitHub');
-    expect(valueOf('Role')).toHaveTextContent('OperatorCan see server status, storage and metrics');
+  it('shows the avatar initials, the name, the handle with its provider and an operator chip (CPY-23)', () => {
+    const fetch = setup({ name: 'Mert Köklü', username: 'justmert', operator: true });
+    expect(screen.getByText('From your GitHub sign-in.')).toBeInTheDocument();
+    expect(card()).toHaveTextContent('MKMert Köklü@justmert on GitHubOperator');
+    const chip = screen.getByText('Operator');
+    expect(chip).toHaveAttribute('data-variant', 'progress');
+    // what the role means, for whoever wonders
+    expect(chip).toHaveAttribute('title', 'Can see server status, storage and metrics');
+    // the initials are decoration; the name next to them is read
+    expect(screen.getByText('MK')).toHaveAttribute('aria-hidden', 'true');
+    // it needs nothing from the server
+    expect(fetch.calls).toHaveLength(0);
   });
 
   it('calls a non-operator a member', () => {
     setup();
-    expect(valueOf('Role')).toHaveTextContent(/^Member$/);
+    expect(card()).toHaveTextContent('ALAlice@alice on GitHubMember');
+    expect(screen.queryByText('Operator')).not.toBeInTheDocument();
   });
 
-  it('says sign-in is off, and offers no sign out then', () => {
-    setup({ authDisabled: true, username: 'dev', provider: 'local', operator: true });
-    expect(valueOf('Sign-in')).toHaveTextContent(
-      'Sign-in is off on this serverAnyone who can open this address has operator access.',
-    );
-    expect(screen.queryByText('Signed in with')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
+  it('takes two letters from a one-word name', () => {
+    setup({ name: 'dev' });
+    expect(card()).toHaveTextContent(/^DEdev/);
   });
 
-  it('signs out by clearing the cache and replacing the page', async () => {
-    const { client } = setup({}, { 'POST /api/v1/auth/logout': { success: true } });
-    client.setQueryData(['keys'], [{ id: 'k1' }]);
-    let cached: unknown = 'not called';
-    vi.mocked(replacePage).mockImplementation(() => {
-      cached = client.getQueryData(['keys']);
+  it('says sign-in is off, and what that means', () => {
+    setup({
+      authDisabled: true,
+      name: 'Local',
+      username: 'dev',
+      provider: 'local',
+      operator: true,
     });
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-    await waitFor(() => expect(replacePage).toHaveBeenCalledWith('/studio'));
-    expect(cached).toBeUndefined();
-  });
-
-  it('treats a 401 as signed out (FLW-13)', async () => {
-    setup({}, { 'POST /api/v1/auth/logout': reply(401, { error: 'Not signed in' }) });
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-    await waitFor(() => expect(replacePage).toHaveBeenCalledWith('/studio'));
-  });
-
-  it('stays and says why when sign out fails', async () => {
-    setup({}, { 'POST /api/v1/auth/logout': reply(500, { error: 'Internal Server Error' }) });
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-    expect(
-      await screen.findByText(/^Could not sign out\. The server ran into a problem/),
-    ).toBeInTheDocument();
-    expect(replacePage).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
+    expect(screen.getByText('Sign-in is off on this server.')).toBeInTheDocument();
+    expect(card()).toHaveTextContent('Anyone who can open this address has operator access.');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });

@@ -1,10 +1,8 @@
-import { useId, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import { ChevronRight } from 'lucide-react';
-import { Collapse } from '@/components/motion';
+import { CopyButton } from '@/components/shared/CopyButton';
 import { ErrorDetails } from '@/components/shared/ErrorDetails';
 import { InlineError } from '@/components/shared/InlineError';
-import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
@@ -15,104 +13,100 @@ import {
 } from '@/hooks/useStats';
 import { withLead } from '@/lib/errors';
 import { ROUTES } from '@/lib/constants';
-import { formatCount, formatRelativeTime, plural } from '@/lib/formatters';
-import { Icons } from '@/lib/icons';
+import { formatCount, plural, truncateMiddle } from '@/lib/formatters';
 import { lateReveal } from '@/lib/motion';
 import { toastError, toastSuccess } from '@/lib/toast';
 import { cn } from '@/lib/utils';
-import { HealthCard } from './parts';
+import { shortAgo, shortDuration, useNow, type Tone } from './health';
+import { ACCENT_LINK, Panel, ToneChip } from './parts';
 
+const ID = 'health-storage-check';
 const TITLE = 'Storage check';
-const DESCRIPTION = "Confirms every video's files are still on Sia";
+const ABOUT = 'Compares your videos with what Sia holds.';
 
-/** The card as the page first draws it, before the check result is in. */
-export function StorageCheckLoading() {
-  return (
-    <HealthCard title={TITLE} description={DESCRIPTION} action={<CheckNowButton disabled />}>
-      <CheckLoading />
-    </HealthCard>
-  );
-}
+const VERDICT: Record<DeploymentReconciliation['status'], { label: string; tone: Tone }> = {
+  ok: { label: 'All present', tone: 'ok' },
+  drift: { label: 'Needs attention', tone: 'warn' },
+  failed: { label: 'Check failed', tone: 'bad' },
+};
 
-/** What the latest run found, in a sentence; the figures above it give the counts. */
-function verdict(run: DeploymentReconciliation): string {
-  if (run.missing_count > 0) {
-    return `${plural(run.missing_count, 'file is', 'files are')} missing from Sia. Videos that use them may not play.`;
-  }
-  if (run.orphan_count > 0) {
-    return `Nothing is missing. Sia holds ${plural(run.orphan_count, 'file')} no video uses, usually left by an interrupted upload. They use storage but break nothing.`;
-  }
-  return 'Every file the videos use is on Sia.';
-}
-
-function Figure({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="font-heading text-figure-sm tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
-/** A button that shows or hides what it is given under it. */
-function Disclosure({
-  label,
-  count,
-  children,
+export function CheckNowButton({
+  onClick,
+  pending = false,
+  disabled = false,
 }: {
-  label: string;
-  count: number;
-  children: ReactNode;
+  onClick?: () => void;
+  pending?: boolean;
+  disabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const id = useId();
-  if (count === 0) return null;
   return (
-    <div>
-      <Button
-        variant="ghost"
-        size="sm"
-        // wraps at a large text size instead of running out of the card
-        className="-ml-2 h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9"
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => setOpen((o) => !o)}
+    <Button
+      variant="outline"
+      className="h-8 pointer-coarse:h-10"
+      onClick={onClick}
+      disabled={disabled || pending}
+    >
+      {pending && <Spinner data-icon="inline-start" aria-hidden="true" />}
+      Check now
+    </Button>
+  );
+}
+
+/** A count in a bordered tile; the edge turns to the tone when the count is not zero. */
+function Tile({ value, label, tone }: { value: number; label: string; tone: 'warn' | 'bad' }) {
+  const on = value > 0;
+  return (
+    <div
+      data-slot="check-tile"
+      data-tone={on ? tone : undefined}
+      className={cn(
+        'rounded-[10px] border p-3',
+        on && tone === 'warn' && 'border-warning/60',
+        on && tone === 'bad' && 'border-destructive/40',
+      )}
+    >
+      <div
+        className={cn(
+          'text-[22px] leading-7 font-bold tabular-nums',
+          on && tone === 'warn' && 'text-warning-foreground',
+          on && tone === 'bad' && 'text-destructive',
+        )}
       >
-        <ChevronRight
-          aria-hidden="true"
-          className={cn('transition-transform duration-150', open && 'rotate-90')}
-        />
-        {open ? 'Hide' : 'Show'} {label} ({formatCount(count)})
-      </Button>
-      <Collapse open={open} id={id}>
-        {children}
-      </Collapse>
+        {formatCount(value)}
+      </div>
+      <div className="text-muted-foreground">{label}</div>
     </div>
   );
 }
 
-const LIST =
-  'mt-1 max-h-60 overflow-y-auto rounded-lg border bg-muted/40 p-2 text-xs text-muted-foreground';
-const IDS = 'font-mono break-all';
+/** A native disclosure: the summary in the accent, the list under it. */
+function Disclosure({ summary, children }: { summary: string; children: ReactNode }) {
+  return (
+    <details className="group/disclosure">
+      <summary className={cn(ACCENT_LINK, 'w-fit cursor-pointer')}>{summary}</summary>
+      <div className="mt-2">{children}</div>
+    </details>
+  );
+}
 
-/** File IDs, one per line. */
+// a scroller with nothing focusable inside: Safari can scroll it from the
+// keyboard only if the list itself takes focus
+const LIST =
+  'max-h-60 overflow-y-auto rounded-sm pl-4.5 font-mono text-xs leading-5 text-secondary-foreground list-disc';
+
+/** File IDs, one per line, shortened; the whole set copies in one go. */
 function IdList({ label, ids }: { label: string; ids: string[] }) {
   return (
-    <Disclosure label={label} count={ids.length}>
-      {/* a scroller with nothing focusable inside: Safari can scroll it from
-          the keyboard only if the list itself takes focus */}
-      <ul
-        aria-label={label.charAt(0).toUpperCase() + label.slice(1)}
-        tabIndex={0}
-        className={cn(LIST, IDS, 'outline-none focus-visible:ring-3 focus-visible:ring-ring')}
-      >
-        {ids.map((x) => (
-          <li key={x} className="py-0.5">
-            {x}
+    <div className="flex items-start gap-2">
+      <ul aria-label={label} tabIndex={0} className={cn(LIST, 'min-w-0 flex-1')}>
+        {ids.map((id) => (
+          <li key={id} title={id}>
+            {truncateMiddle(id, 8)}
           </li>
         ))}
       </ul>
-    </Disclosure>
+      <CopyButton value={ids.join('\n')} label={`Copy ${label.toLowerCase()} IDs`} />
+    </div>
   );
 }
 
@@ -131,73 +125,79 @@ function MissingList({ objects }: { objects: MissingObject[] }) {
   }
   const ordered = [...groups].sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : 0));
   return (
-    <Disclosure label="missing files" count={objects.length}>
-      <ul aria-label="Missing files" className={cn(LIST, 'flex flex-col gap-2')}>
+    <div className="flex items-start gap-2">
+      <ul
+        aria-label="Missing files"
+        tabIndex={0}
+        className="flex max-h-60 min-w-0 flex-1 flex-col gap-2 overflow-y-auto rounded-sm text-xs"
+      >
         {ordered.map(([videoId, g]) => (
           <li key={videoId ?? 'none'} className="flex flex-col gap-0.5">
             <span className="flex flex-wrap items-baseline gap-x-2">
               {videoId ? (
-                <Link
-                  to={ROUTES.video(videoId)}
-                  dir="auto"
-                  className="font-medium text-foreground underline-offset-2 hover:underline"
-                >
+                <Link to={ROUTES.video(videoId)} dir="auto" className={ACCENT_LINK}>
                   {g.title || 'Untitled video'}
                 </Link>
               ) : (
-                <span className="font-medium text-foreground">Video not found</span>
+                <span className="font-semibold">Video not found</span>
               )}
-              <span>{plural(g.ids.length, 'file')}</span>
+              <span className="text-muted-foreground">{plural(g.ids.length, 'file')}</span>
             </span>
-            <span className={IDS}>{g.ids.join(' ')}</span>
+            <span className="font-mono leading-5 break-all text-secondary-foreground">
+              {g.ids.join(' ')}
+            </span>
           </li>
         ))}
       </ul>
-    </Disclosure>
-  );
-}
-
-export function CheckLoading() {
-  return (
-    <div aria-hidden="true" className="flex flex-col gap-4">
-      <div className="flex h-5.5 items-center justify-between gap-4">
-        <Skeleton className={cn('h-5.5 w-28 rounded-full', lateReveal)} />
-        <Skeleton className={cn('h-3.5 w-32', lateReveal)} />
-      </div>
-      <div className="grid grid-cols-2 gap-4 @2xl/page:grid-cols-4">
-        {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="flex flex-col gap-1">
-            <Skeleton className={cn('h-4 w-20', lateReveal)} />
-            <Skeleton className={cn('h-7 w-12', lateReveal)} />
-          </div>
-        ))}
-      </div>
-      <Skeleton className={cn('h-4 w-3/4', lateReveal)} />
+      <CopyButton
+        value={objects.map((o) => o.object_id).join('\n')}
+        label="Copy missing file IDs"
+      />
     </div>
   );
 }
 
-export function CheckNowButton({
-  onClick,
-  pending = false,
-  disabled = false,
-}: {
-  onClick?: () => void;
-  pending?: boolean;
-  disabled?: boolean;
-}) {
+/** The card's body before the result is in, at the height of a finished check. */
+export function CheckLoading() {
   return (
-    // wraps at a large text size instead of running out of the card
-    <Button
-      variant="outline"
-      size="sm"
-      className="h-auto min-h-7 py-1 whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9"
-      onClick={onClick}
-      disabled={disabled || pending}
-    >
-      {pending ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <Icons.refresh />}
-      Check now
-    </Button>
+    <div aria-hidden="true" className="flex flex-col gap-3">
+      <div className="flex h-5.5 items-center">
+        <Skeleton className={cn('h-3.5 w-4/5', lateReveal)} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {[0, 1].map((i) => (
+          <div key={i} className="flex flex-col gap-1.5 rounded-[10px] border p-3">
+            <Skeleton className={cn('h-6 w-8', lateReveal)} />
+            <Skeleton className={cn('h-3.5 w-24', lateReveal)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The card as the page first draws it, before the check result is in. */
+export function StorageCheckLoading() {
+  return (
+    <Panel id={ID} title={TITLE} action={<CheckNowButton disabled />}>
+      <CheckLoading />
+    </Panel>
+  );
+}
+
+function RunLine({ run }: { run: DeploymentReconciliation }) {
+  const now = useNow(15_000);
+  const took = Date.parse(run.finished_at) - Date.parse(run.started_at);
+  return (
+    <p className="text-muted-foreground">
+      {ABOUT} Last run{' '}
+      <time dateTime={run.finished_at} title={new Date(run.finished_at).toLocaleString()}>
+        {shortAgo(now - Date.parse(run.finished_at))}
+      </time>
+      {Number.isFinite(took) && `, took ${shortDuration(took)}`}.
+      {run.status !== 'failed' &&
+        ` It compared ${plural(run.db_object_count, 'known file')} with ${plural(run.indexer_object_count, 'file')} on Sia.`}
+    </p>
   );
 }
 
@@ -216,11 +216,14 @@ export function StorageCheckCard() {
     }
   };
 
+  const verdict = r ? VERDICT[r.status] : null;
   return (
-    <HealthCard
+    <Panel
+      id={ID}
       title={TITLE}
-      description={DESCRIPTION}
+      note={verdict && <ToneChip tone={verdict.tone}>{verdict.label}</ToneChip>}
       action={<CheckNowButton onClick={() => void checkNow()} pending={start.isPending} />}
+      className="gap-3"
     >
       {run.isPending ? (
         <CheckLoading />
@@ -232,39 +235,32 @@ export function StorageCheckCard() {
           retrying={run.isFetching}
         />
       ) : !r ? (
-        <p className="text-sm text-muted-foreground">
-          No check has run yet. Start one to compare every video&apos;s files with Sia.
+        <p className="text-muted-foreground">
+          {ABOUT} No check has run yet. Start one to compare every video&apos;s files with Sia.
         </p>
       ) : (
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-            <StatusBadge kind="check" status={r.status} />
-            <span className="text-sm text-muted-foreground">
-              Checked {formatRelativeTime(r.finished_at)}
-            </span>
-          </div>
+        <>
+          <RunLine run={r} />
           {r.status === 'failed' ? (
-            <div className="text-sm">
+            <div>
               <p>The check stopped before it finished. Start it again.</p>
               <ErrorDetails detail={r.error_message ?? undefined} className="mt-1.5" />
             </div>
           ) : (
             <>
-              <dl className="grid grid-cols-2 gap-4 @2xl/page:grid-cols-4">
-                <Figure label="Present" value={formatCount(r.in_sync_count)} />
-                <Figure label="Missing from Sia" value={formatCount(r.missing_count)} />
-                <Figure label="Unused files on Sia" value={formatCount(r.orphan_count)} />
-                <Figure label="Files on Sia" value={formatCount(r.indexer_object_count)} />
-              </dl>
-              <p className="text-sm text-muted-foreground">
-                {verdict(r)} Compared {plural(r.db_object_count, 'known file')} with{' '}
-                {plural(r.indexer_object_count, 'file')} on Sia.
-              </p>
-              {(r.missing_ids.length > 0 || r.orphaned_ids.length > 0) && (
-                <div className="flex flex-col gap-1">
+              <div className="grid grid-cols-2 gap-3">
+                <Tile value={r.missing_count} label="missing files" tone="bad" />
+                <Tile value={r.orphan_count} label="unused files still stored" tone="warn" />
+              </div>
+              {r.missing_objects.length > 0 && (
+                <Disclosure summary="Show missing files">
                   <MissingList objects={r.missing_objects} />
-                  <IdList label="unused files on Sia" ids={r.orphaned_ids} />
-                </div>
+                </Disclosure>
+              )}
+              {r.orphaned_ids.length > 0 && (
+                <Disclosure summary="Show unused files">
+                  <IdList label="Unused files" ids={r.orphaned_ids} />
+                </Disclosure>
               )}
             </>
           )}
@@ -276,8 +272,8 @@ export function StorageCheckCard() {
               retrying={run.isFetching}
             />
           )}
-        </div>
+        </>
       )}
-    </HealthCard>
+    </Panel>
   );
 }

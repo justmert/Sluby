@@ -140,33 +140,42 @@ describe('MetricsPage', () => {
     expect(container.querySelector('.recharts-cartesian-axis')).toBeNull();
   });
 
-  it('holds the drawn throughput chart’s boxes while it collects its first samples, so nothing grows seconds later', async () => {
+  it('holds the throughput chart box and caption row while it collects its first samples, so nothing grows seconds later', async () => {
     render();
     const collecting = await screen.findByText('Collecting samples');
     const card = screen.getByText('Streaming throughput').closest('[data-slot="card"]')!;
-    // the chart's own height, and a line where the now and peak figure goes
+    // the chart's own height, and the caption row held empty under it
     expect(collecting.closest('.h-56')).not.toBeNull();
-    expect(card.querySelector('[data-slot="throughput-figure"]')).not.toBeNull();
+    expect(card.querySelector('[aria-hidden="true"].h-4\\.5')).not.toBeNull();
     expect(card.querySelector('.min-h-40')).toBeNull();
-    // no figure for a line that is not drawn yet
-    expect(screen.queryByText(/^Now/)).not.toBeInTheDocument();
+    // no peak for bars that are not drawn yet
+    expect(screen.queryByText(/^Peak/)).not.toBeInTheDocument();
   });
 
-  it('draws the requests as an image that says its numbers, with labels on the bars', async () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
-      new DOMRect(0, 0, 358, 224),
-    );
-    // recharts shows the labels once its bar animation ends, which jsdom never runs;
-    // under reduced motion the chart does not animate
-    vi.spyOn(window, 'matchMedia').mockImplementation(
-      (query: string) =>
-        ({
-          matches: query.includes('reduce'),
-          media: query,
-          addEventListener: () => {},
-          removeEventListener: () => {},
-        }) as unknown as MediaQueryList,
-    );
+  it('draws the throughput as bars once there are samples, with the span in the heading', async () => {
+    let bytes = 0;
+    let at = Date.parse('2026-10-07T12:00:00.000Z');
+    routes['/api/v1/metrics'] = () => {
+      at += 10_000;
+      bytes += 50_000;
+      return json({
+        timestamp: new Date(at).toISOString(),
+        metrics: [counter('sluby_bandwidth_bytes_total', [{ value: bytes }])],
+      });
+    };
+    const { client } = render();
+    await screen.findByText('Collecting samples');
+    await act(() => client.refetchQueries({ queryKey: ['metrics'] }));
+    await act(() => client.refetchQueries({ queryKey: ['metrics'] }));
+    const chart = await screen.findByRole('img', { name: /^Bytes streamed per second/ });
+    expect(chart.closest('.h-56')).not.toBeNull();
+    expect(chart.querySelectorAll('[data-slot="bar"]')).toHaveLength(2);
+    const card = screen.getByText('Streaming throughput').closest('[data-slot="card"]')!;
+    expect(card).toHaveTextContent('Last 20 seconds');
+    expect(card).toHaveTextContent('Peak 5 KB/s');
+  });
+
+  it('draws the requests as an image that says its numbers, with each count beside its bar', async () => {
     routes['/api/v1/metrics'] = () =>
       json({
         ...metrics,
@@ -179,19 +188,17 @@ describe('MetricsPage', () => {
           ]),
         ],
       });
-    const { container } = render();
+    render();
     const chart = await screen.findByRole('img', {
       name: 'Streaming requests: Video segments 1,204, Playlists 30, Other files 2',
     });
     // not an unnamed application widget with its own tab stop
     expect(chart).not.toHaveAttribute('tabindex');
-    await vi.waitFor(
-      () =>
-        expect(
-          [...container.querySelectorAll('.recharts-label-list text')].map((t) => t.textContent),
-        ).toEqual(['1,204', '30', '2']),
-      { timeout: 3000 },
-    );
+    expect(chart).toHaveTextContent('Video segments1,204Playlists30Other files2');
+    const bars = chart.querySelectorAll('[data-slot="bar"]');
+    // the largest in the accent, the rest in its light tone
+    expect(bars[0]).toHaveAttribute('data-peak');
+    expect(bars[1]).toHaveClass('bg-primary/45', 'hover:bg-primary');
   });
 
   it('takes the first samples quickly so the throughput line shows within seconds', async () => {
