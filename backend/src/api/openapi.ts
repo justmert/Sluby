@@ -239,7 +239,8 @@ export const openapiDocument = {
           retryAfter: {
             type: 'integer',
             deprecated: true,
-            description: 'Old spelling of retry_after, removed in the next release.',
+            description:
+              'Older spelling of retry_after, kept so clients written for 0.1.0 keep working.',
           },
         },
       },
@@ -981,17 +982,20 @@ export const openapiDocument = {
           providerLabel: {
             type: ['string', 'null'],
             deprecated: true,
-            description: 'Old spelling of provider_label, removed in the next release.',
+            description:
+              'Older spelling of provider_label, kept so clients written for 0.1.0 keep working.',
           },
           authDisabled: {
             type: 'boolean',
             deprecated: true,
-            description: 'Old spelling of auth_disabled, removed in the next release.',
+            description:
+              'Older spelling of auth_disabled, kept so clients written for 0.1.0 keep working.',
           },
           expiresAt: {
             type: 'integer',
             deprecated: true,
-            description: 'Old unix-seconds form of expires_at, removed in the next release.',
+            description:
+              'Older unix-seconds form of expires_at, kept so clients written for 0.1.0 keep working.',
           },
         },
       },
