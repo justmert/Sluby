@@ -2,19 +2,20 @@ import { useEffect, useState } from 'react';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { BytesStreamedCard } from '@/components/deployment/BytesStreamedCard';
 import { HEALTH_GRID, OVERALL, shortAgo, useNow } from '@/components/deployment/health';
-import { HealthLoading } from '@/components/deployment/HealthLoading';
+import {
+  HealthCheckedLoading,
+  HealthChipLoading,
+  HealthLoading,
+} from '@/components/deployment/HealthLoading';
 import { ToneChip } from '@/components/deployment/parts';
 import { ServiceCards } from '@/components/deployment/ServiceCards';
 import { SiaAccountCard } from '@/components/deployment/SiaAccountCard';
 import { StorageCheckCard } from '@/components/deployment/StorageCheckCard';
 import { InlineError } from '@/components/shared/InlineError';
-import { Skeleton } from '@/components/ui/skeleton';
 import { usePlatformMetrics } from '@/hooks/usePlatformMetrics';
 import { useReconciliation, type SystemStatus } from '@/hooks/useStats';
 import { formatUptime } from '@/lib/formatters';
 import { SYSTEM_STATUS_POLL_MS, useSystemStatus } from '@/hooks/useSystemStatus';
-import { lateReveal } from '@/lib/motion';
-import { cn } from '@/lib/utils';
 import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 // how long the page holds its first draw for the status and the check, so
@@ -79,7 +80,7 @@ export default function HealthPage() {
           ) : failed ? (
             PAGE_HEADS.health.description
           ) : (
-            <Skeleton className={cn('my-0.75 h-3.5 w-64', lateReveal)} />
+            <HealthCheckedLoading />
           )
         }
         secondaryActions={
@@ -88,7 +89,7 @@ export default function HealthPage() {
               <span role="status">{overall.label}</span>
             </ToneChip>
           ) : failed ? null : (
-            <Skeleton className={cn('h-7 w-44 rounded-full', lateReveal)} />
+            <HealthChipLoading />
           )
         }
       />

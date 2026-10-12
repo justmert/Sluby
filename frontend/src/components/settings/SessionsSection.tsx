@@ -16,7 +16,12 @@ import { formatDate, formatRelativeTime } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { toastError, toastSuccess } from '@/lib/toast';
 import { browserLabel } from '@/lib/user-agent';
-import { SESSION_ROW, SessionsHeader, SessionsLoading } from './SessionsHeader';
+import {
+  SESSION_ROW,
+  SessionsHeader,
+  SessionsLoading,
+  SignOutEverywhereButton,
+} from './SessionsHeader';
 import { SETTINGS_SECTION } from './section';
 
 /** "Oct 10" this year, "Oct 10, 2025" before it. */
@@ -158,15 +163,7 @@ export function SessionsSection() {
             )}
           </>
         )}
-        {/* always there, and it signs this browser out too, so it works with no others listed */}
-        <Button
-          variant="destructive-outline"
-          className="self-start"
-          data-sign-out-all
-          onClick={() => setConfirmAll(true)}
-        >
-          Sign out everywhere
-        </Button>
+        <SignOutEverywhereButton onClick={() => setConfirmAll(true)} />
       </div>
       <ConfirmDialog
         item={confirmAll}
