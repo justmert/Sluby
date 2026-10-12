@@ -3,19 +3,15 @@ import { AssetDetailLoading } from '@/components/asset/AssetDetailLoading';
 import { KEY_COLUMNS, WEBHOOK_COLUMNS } from '@/components/developers/columns';
 import { VideoPickerSkeleton } from '@/components/developers/VideoPickerSkeleton';
 import { WebhookDetailLoading } from '@/components/developers/WebhookDetailLoading';
+import { AccountSection } from '@/components/settings/AccountSection';
+import { AppearanceSection } from '@/components/settings/AppearanceSection';
 import { SESSION_COLUMNS } from '@/components/settings/columns';
+import { SessionsHeader } from '@/components/settings/SessionsHeader';
 import { type ColumnFrame, withCells } from '@/components/shared/column-frames';
 import { DataTable } from '@/components/shared/DataTable';
-import { DescriptionItem, DescriptionList } from '@/components/shared/DescriptionList';
-import { SectionHeader } from '@/components/shared/PageHeader';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { PageHeader, type PageHeaderProps, SectionHeader } from '@/components/shared/PageHeader';
+import { CopyField } from '@/components/shared/CopyField';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { libraryView } from '@/components/videos/library-view';
 import { VideosGridSkeleton } from '@/components/videos/VideosGridSkeleton';
 import { VideosTable } from '@/components/videos/VideosTable';
@@ -27,29 +23,40 @@ import { useRouteSkeletonVisibility } from '@/components/dashboard/live';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/session';
 import { KeyNote } from '@/pages/studio/developers/KeyNote';
+import {
+  KeysCountLoading,
+  KeysRow,
+  ReferenceLinks,
+  ServerRow,
+  TryExplorerLink,
+} from '@/pages/studio/developers/quickstart-parts';
+import { SETUP_DESCRIPTION } from '@/lib/snippet-copy';
+import {
+  AddWebhookButton,
+  CreateKeyButton,
+  StatsLinePlaceholder,
+  UploadVideoButton,
+} from './page-actions';
+import { PAGE_HEADS } from './page-heads';
 import { lateReveal } from '@/lib/motion';
 import { PageContainer } from './PageContainer';
 
 // shaped like each page's first screen, so the page lands where the skeleton
 // was instead of pushing everything down. the grids repeat the pages' own.
 
-function Header({
-  action = false,
-  meta = false,
-}: {
-  action?: boolean;
-  /** a status badge under the description, as Health has */
-  meta?: boolean;
-}) {
+// the page's own header, title and description as the page writes them, so
+// they wrap the same. the title is not an h1: the only h1 while the code
+// loads is the "Loading page" one below, and the page brings its own
+function Head(props: PageHeaderProps) {
   return (
-    <div className="mb-6 flex flex-col gap-4 @xl/page:flex-row @xl/page:items-end @xl/page:justify-between">
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-8 w-44" />
-        <Skeleton className="h-4 w-72 max-w-full" />
-        {meta && <Skeleton className="h-5.5 w-28 rounded-full" />}
-      </div>
-      {action && <Skeleton className="h-8 w-28 pointer-coarse:h-10" />}
-    </div>
+    <PageHeader
+      {...props}
+      heading={
+        <div dir="auto" className="truncate font-heading text-title">
+          {props.title}
+        </div>
+      }
+    />
   );
 }
 
@@ -59,7 +66,7 @@ function Dashboard() {
   const { operator } = useSession();
   return (
     <>
-      <Header action />
+      <Head {...PAGE_HEADS.overview} primaryAction={<UploadVideoButton />} />
       <DashboardLoading operator={operator} />
     </>
   );
@@ -76,7 +83,11 @@ function Assets() {
     'grid';
   return (
     <>
-      <Header action />
+      <Head
+        {...PAGE_HEADS.videos}
+        description={<StatsLinePlaceholder />}
+        primaryAction={<UploadVideoButton />}
+      />
       {/* the page's toolbar box, control for control (AssetsPage) */}
       <div className="-mx-2 mb-3 flex flex-col gap-2 px-2 py-2 @2xl/page:flex-row @2xl/page:items-center">
         <Skeleton className={cn(control, 'w-full @2xl/page:max-w-sm')} />
@@ -130,39 +141,29 @@ function TableSkeleton({ columns, rows }: { columns: readonly ColumnFrame[]; row
   );
 }
 
-// a row of the quickstart's server card (QuickstartPage)
-function ServerRow({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="grid gap-1.5 py-3 first:pt-0 last:pb-0 @2xl/page:grid-cols-[10rem_1fr] @2xl/page:items-center @2xl/page:gap-4">
-      <Skeleton className="my-0.5 h-4 w-24" />
-      <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>
-    </div>
-  );
-}
-
+// the quickstart's own rows, links and text (quickstart-parts), with bars
+// only where the page waits for data
 function Quickstart() {
   return (
     <>
-      <Header />
+      <Head {...PAGE_HEADS.quickstart} />
       <Card>
         <CardContent>
-          <div className="divide-y">
-            <ServerRow>
-              <Skeleton className={cn(control, 'w-full max-w-md')} />
+          <dl className="divide-y">
+            <ServerRow label="API base URL">
+              <CopyField
+                label="API base URL"
+                value={window.location.origin}
+                className="w-full max-w-md"
+              />
             </ServerRow>
-            <ServerRow>
-              <Skeleton className="mr-auto h-4 w-24" />
-              <Skeleton className="h-7 w-28 pointer-coarse:h-9" />
-              <Skeleton className="h-7 w-24 pointer-coarse:h-9" />
+            <ServerRow label="API keys">
+              <KeysRow count={<KeysCountLoading />} />
             </ServerRow>
-            <ServerRow>
-              <div className="flex flex-wrap gap-x-5 gap-y-2">
-                {['w-26', 'w-24', 'w-32'].map((w) => (
-                  <Skeleton key={w} className={cn('my-0.5 h-4', w)} />
-                ))}
-              </div>
+            <ServerRow label="Reference">
+              <ReferenceLinks />
             </ServerRow>
-          </div>
+          </dl>
         </CardContent>
       </Card>
       <SectionHeader title="Code" description="Snippets for this server, ready to copy" />
@@ -175,58 +176,79 @@ function Quickstart() {
             <VideoPickerSkeleton />
             <KeyNote />
           </div>
-          <div className="flex flex-col gap-3">
-            <Skeleton className="my-0.5 h-4 w-96 max-w-full" />
+          <div className="flex min-w-0 flex-col gap-3">
+            <p className="text-sm text-muted-foreground">{SETUP_DESCRIPTION}</p>
             <Skeleton className="h-80 rounded-lg" />
           </div>
         </CardContent>
       </Card>
+      <TryExplorerLink />
     </>
   );
 }
 
-// a list page with one table: keys, webhooks
-function ListPage({ columns }: { columns: readonly ColumnFrame[] }) {
+function Keys() {
   return (
     <>
-      <Header action />
-      <TableSkeleton columns={columns} rows={3} />
+      <Head {...PAGE_HEADS.keys} primaryAction={<CreateKeyButton />} />
+      <TableSkeleton columns={KEY_COLUMNS} rows={3} />
     </>
   );
 }
 
+function Webhooks() {
+  return (
+    <>
+      <Head {...PAGE_HEADS.webhooks} primaryAction={<AddWebhookButton />} />
+      <TableSkeleton columns={WEBHOOK_COLUMNS} rows={3} />
+    </>
+  );
+}
+
+// the type of a form label (ui/label), without the label code
+const LABEL = 'flex items-center gap-2 text-sm leading-5 font-medium';
+
+// the explorer's form as it first draws (ExplorerPage): its labels and text,
+// with bars for the controls
 function Explorer() {
   return (
     <>
-      <Header />
+      <Head {...PAGE_HEADS.explorer} />
       <div className="grid items-start gap-4 @4xl/page:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Request</CardTitle>
             <CardDescription>
               Sent with your session, so it can change real data. See the{' '}
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1 underline underline-offset-4">
                 API reference
                 <span className="size-3" />
               </span>{' '}
               for every endpoint.
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="grid gap-2">
-              <Skeleton className="my-0.5 h-4 w-20" />
-              <Skeleton className={control} />
-            </div>
-            <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-end gap-2 @lg/page:grid-cols-[7rem_minmax(0,1fr)_auto]">
+          <CardContent>
+            <div className="flex flex-col gap-4">
               <div className="grid gap-2">
-                <Skeleton className="my-0.5 h-4 w-16" />
+                <div className={LABEL}>Template</div>
                 <Skeleton className={control} />
               </div>
-              <div className="grid gap-2">
-                <Skeleton className="my-0.5 h-4 w-12" />
-                <Skeleton className={control} />
+              <div className="grid grid-cols-1 items-end gap-2 @[16rem]/page:grid-cols-[7rem_minmax(0,1fr)] @lg/page:grid-cols-[7rem_minmax(0,1fr)_auto]">
+                <div className="grid gap-2">
+                  <div className={LABEL}>Method</div>
+                  <Skeleton className={control} />
+                </div>
+                <div className="grid min-w-0 gap-2">
+                  <div className={LABEL}>Path</div>
+                  <Skeleton className={control} />
+                </div>
+                <Skeleton
+                  className={cn(
+                    control,
+                    '@[16rem]/page:col-span-2 @lg/page:col-span-1 @lg/page:w-24',
+                  )}
+                />
               </div>
-              <Skeleton className={cn(control, 'col-span-2 @lg/page:col-span-1 @lg/page:w-24')} />
             </div>
           </CardContent>
         </Card>
@@ -234,10 +256,10 @@ function Explorer() {
           <CardHeader>
             <CardTitle>Response</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex justify-center py-8">
-              <Skeleton className="my-0.5 h-4 w-64 max-w-full" />
-            </div>
+          <CardContent className="flex flex-col gap-3">
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Send a request to see the answer here.
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -249,7 +271,7 @@ function Explorer() {
 function Health() {
   return (
     <>
-      <Header meta />
+      <Head {...PAGE_HEADS.health} meta={<Skeleton className="h-5.5 w-28 rounded-full" />} />
       <HealthLoading />
     </>
   );
@@ -259,76 +281,28 @@ function Analytics() {
   const { operator } = useSession();
   return (
     <>
-      <Header />
+      <Head {...PAGE_HEADS.metrics} />
       <AnalyticsLoading operator={operator} />
     </>
   );
 }
 
-// account, signed-in browsers and appearance (SettingsPage), each a heading
-// over a card, with the same lines of text
+// settings as the page draws it (SettingsPage): the account and appearance
+// sections need nothing from the server, and the browsers list waits on it
 function Settings() {
-  const { authDisabled, operator, username } = useSession();
-  const twoLines = (
-    <span className="flex flex-col gap-0.5">
-      <Skeleton className="my-0.5 h-4 w-48" />
-      <Skeleton className="my-0.5 h-3 w-64 max-w-full" />
-    </span>
-  );
+  const { authDisabled, username } = useSession();
   return (
     <>
-      <Header />
+      <Head {...PAGE_HEADS.settings} />
       <div className="flex flex-col gap-10">
-        <section>
-          <SectionHeader title="Account" />
-          <Card>
-            <CardContent>
-              <DescriptionList>
-                <DescriptionItem label="Account">
-                  <Skeleton className="my-1 h-3 w-24" />
-                </DescriptionItem>
-                <DescriptionItem label={authDisabled ? 'Sign-in' : 'Signed in with'}>
-                  {authDisabled ? twoLines : <Skeleton className="my-0.5 h-4 w-16" />}
-                </DescriptionItem>
-                <DescriptionItem label="Role">
-                  {operator ? twoLines : <Skeleton className="my-0.5 h-4 w-16" />}
-                </DescriptionItem>
-              </DescriptionList>
-            </CardContent>
-            {!authDisabled && (
-              <CardFooter>
-                <Skeleton className="h-7 w-24 pointer-coarse:h-9" />
-              </CardFooter>
-            )}
-          </Card>
-        </section>
+        <AccountSection />
         {!authDisabled && (
           <section>
-            <SectionHeader
-              title="Signed-in browsers"
-              description={
-                <>
-                  Where you are signed in as <span dir="auto">{username}</span>.
-                </>
-              }
-              action={<Skeleton className="h-7 w-40 pointer-coarse:h-9" />}
-            />
+            <SessionsHeader username={username} />
             <TableSkeleton columns={SESSION_COLUMNS} rows={2} />
           </section>
         )}
-        <section>
-          <SectionHeader
-            title="Appearance"
-            description="Follows your system by default. Your choice is saved in this browser."
-          />
-          <Card>
-            <CardContent className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <Skeleton className="my-0.5 h-4 w-12" />
-              <Skeleton className={cn(control, 'w-60')} />
-              <Skeleton className="my-0.5 h-4 w-44" />
-            </CardContent>
-          </Card>
-        </section>
+        <AppearanceSection />
       </div>
     </>
   );
@@ -339,8 +313,8 @@ const SKELETONS: Array<[RegExp, () => React.ReactNode, string?]> = [
   [/^\/studio\/videos\/?$/, Assets],
   [/^\/studio\/videos\/[^/]+\/?$/, AssetDetailLoading],
   [/^\/studio\/developers\/?$/, Quickstart],
-  [/^\/studio\/developers\/keys\/?$/, () => <ListPage columns={KEY_COLUMNS} />],
-  [/^\/studio\/developers\/webhooks\/?$/, () => <ListPage columns={WEBHOOK_COLUMNS} />],
+  [/^\/studio\/developers\/keys\/?$/, Keys],
+  [/^\/studio\/developers\/webhooks\/?$/, Webhooks],
   [/^\/studio\/developers\/webhooks\/[^/]+\/?$/, WebhookDetailLoading],
   [/^\/studio\/developers\/explorer\/?$/, Explorer],
   [/^\/studio\/deployment\/?$/, Health],

@@ -14,6 +14,7 @@ import { useReconciliation } from '@/hooks/useStats';
 import { healthOf, useSystemStatus } from '@/hooks/useSystemStatus';
 import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
+import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 // how long the page holds its first draw for the status and the check, so
 // the cards land at once instead of growing one by one
@@ -41,8 +42,7 @@ export default function HealthPage() {
   return (
     <PageContainer>
       <PageHeader
-        title="Health"
-        description="Whether this server and its Sia storage are working"
+        {...PAGE_HEADS.health}
         meta={
           status ? (
             <>

@@ -23,7 +23,6 @@ import { NeedsAttention } from '@/components/overview/NeedsAttention';
 import { RecentVideos } from '@/components/overview/RecentVideos';
 import { StatusCard } from '@/components/overview/StatusCard';
 import { InlineError } from '@/components/shared/InlineError';
-import { Button } from '@/components/ui/button';
 import { useStaleUploadCount } from '@/hooks/asset-queries';
 import { useApiKeys } from '@/hooks/useApiKeys';
 import {
@@ -38,9 +37,10 @@ import { useAssetStats, useReconciliation } from '@/hooks/useStats';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useUsage } from '@/hooks/useUsage';
 import { useWebhooks } from '@/hooks/useWebhooks';
-import { Icons } from '@/lib/icons';
 import { useSession } from '@/lib/session';
 import { useUploadSheet } from '@/lib/upload-sheet';
+import { UploadVideoButton } from '@/components/layout/page-actions';
+import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 // enough of the newest videos that six remain once abandoned placeholders are left out
 const RECENT_FETCH = 20;
@@ -167,14 +167,8 @@ export default function DashboardPage() {
   return (
     <PageContainer>
       <PageHeader
-        title="Overview"
-        description="Your videos and where they are stored"
-        primaryAction={
-          <Button onClick={() => sheet.open()}>
-            <Icons.upload />
-            Upload video
-          </Button>
-        }
+        {...PAGE_HEADS.overview}
+        primaryAction={<UploadVideoButton onClick={() => sheet.open()} />}
       />
 
       {!ready ? (

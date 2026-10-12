@@ -3,7 +3,6 @@ import { LogOut, Monitor, Smartphone } from 'lucide-react';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DataTable } from '@/components/shared/DataTable';
 import { withCells } from '@/components/shared/column-frames';
-import { SectionHeader } from '@/components/shared/PageHeader';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -20,6 +19,7 @@ import { useSession } from '@/lib/session';
 import { toastError, toastSuccess } from '@/lib/toast';
 import { browserLabel } from '@/lib/user-agent';
 import { SESSION_COLUMNS } from './columns';
+import { SessionsHeader } from './SessionsHeader';
 
 const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -116,23 +116,7 @@ export function SessionsSection() {
 
   return (
     <section ref={sectionRef} aria-labelledby="settings-browsers">
-      <SectionHeader
-        id="settings-browsers"
-        title="Signed-in browsers"
-        description={
-          <>
-            Where you are signed in as <span dir="auto">{session.username}</span>.
-          </>
-        }
-        // always there, so the header does not grow when the list lands;
-        // it signs this browser out too, so it works with no others listed
-        action={
-          <Button variant="outline" size="sm" data-sign-out-all onClick={() => setConfirmAll(true)}>
-            <LogOut aria-hidden="true" />
-            Sign out everywhere
-          </Button>
-        }
-      />
+      <SessionsHeader username={session.username} onSignOutAll={() => setConfirmAll(true)} />
       <DataTable
         caption="Signed-in browsers"
         columns={columns}

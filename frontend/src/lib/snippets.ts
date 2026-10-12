@@ -7,6 +7,8 @@
 // (YOUR_VIDEO_ID until there is a ready video). the play snippets come from
 // lib/embed.ts, so the quickstart and the share panel hand out the same code.
 
+import { SETUP_DESCRIPTION } from './snippet-copy';
+
 export interface Snippet {
   id: string;
   title: string;
@@ -67,7 +69,7 @@ const sluby = new SlubyClient({
     {
       id: 'setup',
       title: 'Set up',
-      description: 'Install the SDK and create a client. Every request carries your API key.',
+      description: SETUP_DESCRIPTION,
       js: {
         lang: 'ts',
         code: `// npm install @sluby/sdk

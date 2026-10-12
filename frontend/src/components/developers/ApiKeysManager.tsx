@@ -36,6 +36,8 @@ import { keyLabel } from './key-label';
 import { RotateKeyDialog } from './RotateKeyDialog';
 import { focusRowMenu, focusTargets, rowFocus, startRowEdit, type RowFocus } from './row-focus';
 import { SecretRevealDialog, type RevealedSecret } from './SecretRevealDialog';
+import { CreateKeyButton } from '@/components/layout/page-actions';
+import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 const TABLE = 'API keys';
 const CREATE_BUTTON_ID = 'create-key-button';
@@ -156,16 +158,13 @@ export function ApiKeysManager() {
   });
 
   const createButton = (
-    <Button
+    <CreateKeyButton
       id={CREATE_BUTTON_ID}
       onClick={openCreate}
       aria-disabled={atCap || undefined}
       aria-describedby={atCap ? CAP_REASON_ID : undefined}
       className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-    >
-      <Plus />
-      Create key
-    </Button>
+    />
   );
   const capReason = limits
     ? `You have ${formatCount(limits.maxKeys)} keys, the most allowed. Revoke one to create another.`
@@ -318,11 +317,7 @@ export function ApiKeysManager() {
 
   return (
     <>
-      <PageHeader
-        title="API keys"
-        description="For the REST API and SDK, shown once when created"
-        primaryAction={primary}
-      />
+      <PageHeader {...PAGE_HEADS.keys} primaryAction={primary} />
       {table}
       {dialogs}
     </>

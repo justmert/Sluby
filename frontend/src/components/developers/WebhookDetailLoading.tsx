@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
+import { OptionListLoading } from './OptionListLoading';
 import { WEBHOOK_EVENTS } from './options';
 
 /**
@@ -44,18 +45,13 @@ export function WebhookDetailLoading() {
       </Card>
       <SectionHeader title="Events" description="What this server sends to the endpoint" />
       <Card>
-        <CardContent>
-          <div className="grid gap-3 @3xl/page:grid-flow-col @3xl/page:grid-rows-3">
-            {WEBHOOK_EVENTS.map((e) => (
-              <div key={e.value} className="flex items-start gap-3">
-                <Skeleton className={cn('mt-0.5 size-4', lateReveal)} />
-                <div className="grid gap-0.5">
-                  <Skeleton className={cn('my-0.5 h-4 w-32', lateReveal)} />
-                  <Skeleton className={cn('my-0.5 h-3 w-40', lateReveal)} />
-                </div>
-              </div>
-            ))}
-          </div>
+        {/* the events card as the page draws it (WebhookDetailPage), names and all */}
+        <CardContent className="flex flex-col gap-4">
+          <OptionListLoading
+            options={WEBHOOK_EVENTS}
+            barClassName={lateReveal}
+            className="@3xl/page:grid-flow-col @3xl/page:grid-rows-3"
+          />
         </CardContent>
       </Card>
       <SectionHeader title="Deliveries" description="The latest attempts, newest first" />

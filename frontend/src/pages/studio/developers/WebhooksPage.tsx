@@ -42,6 +42,8 @@ import { usePersistedDraft } from '@/lib/drafts';
 import { plural } from '@/lib/formatters';
 import { Icons } from '@/lib/icons';
 import { toastSuccess } from '@/lib/toast';
+import { AddWebhookButton } from '@/components/layout/page-actions';
+import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 const TABLE = 'Webhooks';
 const ADD_BUTTON_ID = 'add-webhook-button';
@@ -72,14 +74,8 @@ export default function WebhooksPage() {
   return (
     <PageContainer>
       <PageHeader
-        title="Webhooks"
-        description="Requests this server sends you when a video changes"
-        primaryAction={
-          <Button id={ADD_BUTTON_ID} onClick={openCreate}>
-            <Plus />
-            Add webhook
-          </Button>
-        }
+        {...PAGE_HEADS.webhooks}
+        primaryAction={<AddWebhookButton id={ADD_BUTTON_ID} onClick={openCreate} />}
       />
       <DataTable
         caption={TABLE}

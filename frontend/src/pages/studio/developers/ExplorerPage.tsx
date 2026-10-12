@@ -31,6 +31,7 @@ import {
 } from '@/lib/explorer-templates';
 import { reportUnauthorized } from '@/lib/session-events';
 import { cn } from '@/lib/utils';
+import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 const SHOWN_HEADERS = [
   'content-type',
@@ -201,7 +202,7 @@ export default function ExplorerPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="API explorer" description="Send requests to this server as you" />
+      <PageHeader {...PAGE_HEADS.explorer} />
       <div className="grid items-start gap-4 @4xl/page:grid-cols-2">
         <Card>
           <CardHeader>

@@ -1,6 +1,4 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router';
-import { ArrowRight, ExternalLink, Plus } from 'lucide-react';
 import { useReadyVideos } from '@/components/developers/use-ready-videos';
 import { VideoPicker } from '@/components/developers/VideoPicker';
 import { PageContainer, PageHeader, SectionHeader } from '@/components/layout/PageContainer';
@@ -9,15 +7,20 @@ import { ScrollFade } from '@/components/shared/ScrollFade';
 import { CopyField } from '@/components/shared/CopyField';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { isReplaced, useApiKeys } from '@/hooks/useApiKeys';
-import { ROUTES } from '@/lib/constants';
 import { embedSamples, needsSigning } from '@/lib/embed';
 import { plural } from '@/lib/formatters';
-import { preloadPage } from '@/lib/page-chunks';
 import { buildSnippets, VIDEO_ID_PLACEHOLDER } from '@/lib/snippets';
 import { KeyNote } from './KeyNote';
+import {
+  KeysCountLoading,
+  KeysRow,
+  ReferenceLinks,
+  ServerRow,
+  TryExplorerLink,
+} from './quickstart-parts';
+import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 interface Tab {
   id: string;
@@ -27,29 +30,14 @@ interface Tab {
   samples: CodeSample[];
 }
 
-const LINKS = [
-  { label: 'API reference', href: '/api/v1/docs' },
-  { label: 'SDK on npm', href: 'https://www.npmjs.com/package/@sluby/sdk' },
-  { label: 'Source on GitHub', href: 'https://github.com/justmert/Sluby' },
-];
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="grid gap-1.5 py-3 first:pt-0 last:pb-0 @2xl/page:grid-cols-[10rem_1fr] @2xl/page:items-center @2xl/page:gap-4">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="flex min-w-0 flex-wrap items-center gap-2">{children}</dd>
-    </div>
-  );
-}
-
 function KeysSummary() {
   const keys = useApiKeys();
   const rows = keys.data?.data;
   const active = rows?.filter((k) => !isReplaced(k)).length;
   return (
-    <>
-      <span className="mr-auto text-sm">
-        {active === undefined ? (
+    <KeysRow
+      count={
+        active === undefined ? (
           keys.isError ? (
             <span className="inline-flex flex-wrap items-center gap-x-2 text-muted-foreground">
               Could not load your API keys.
@@ -64,29 +52,15 @@ function KeysSummary() {
               </Button>
             </span>
           ) : (
-            <Skeleton className="inline-block h-4 w-24 align-middle" />
+            <KeysCountLoading />
           )
         ) : active === 0 ? (
           'No active keys yet'
         ) : (
           `${plural(active, 'active key')}`
-        )}
-      </span>
-      <Button variant="outline" size="sm" asChild>
-        <Link to={ROUTES.API_KEYS} onPointerEnter={() => preloadPage(ROUTES.API_KEYS)}>
-          Manage keys
-        </Link>
-      </Button>
-      <Button size="sm" asChild>
-        <Link
-          to={`${ROUTES.API_KEYS}?create=key`}
-          onPointerEnter={() => preloadPage(ROUTES.API_KEYS)}
-        >
-          <Plus />
-          Create key
-        </Link>
-      </Button>
-    </>
+        )
+      }
+    />
   );
 }
 
@@ -131,36 +105,21 @@ export default function QuickstartPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Quickstart" description="Connect your app to this server" />
+      <PageHeader {...PAGE_HEADS.quickstart} />
 
       <Card>
         <CardContent>
           <h2 className="sr-only">Your server</h2>
           <dl className="divide-y">
-            <Row label="API base URL">
+            <ServerRow label="API base URL">
               <CopyField label="API base URL" value={origin} className="w-full max-w-md" />
-            </Row>
-            <Row label="API keys">
+            </ServerRow>
+            <ServerRow label="API keys">
               <KeysSummary />
-            </Row>
-            <Row label="Reference">
-              <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
-                {LINKS.map((l) => (
-                  <li key={l.href}>
-                    <a
-                      href={l.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded-sm font-medium underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-                    >
-                      {l.label}
-                      <ExternalLink aria-hidden="true" className="size-3.5 text-muted-foreground" />
-                      <span className="sr-only">(opens in a new tab)</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </Row>
+            </ServerRow>
+            <ServerRow label="Reference">
+              <ReferenceLinks />
+            </ServerRow>
           </dl>
         </CardContent>
       </Card>
@@ -216,18 +175,7 @@ export default function QuickstartPage() {
         </CardContent>
       </Card>
 
-      <div className="mt-6">
-        <Button
-          variant="outline"
-          className="h-auto min-h-8 py-1.5 whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-10"
-          asChild
-        >
-          <Link to={ROUTES.EXPLORER} onPointerEnter={() => preloadPage(ROUTES.EXPLORER)}>
-            Try a request in the API explorer
-            <ArrowRight />
-          </Link>
-        </Button>
-      </div>
+      <TryExplorerLink />
     </PageContainer>
   );
 }

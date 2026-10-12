@@ -63,6 +63,8 @@ import { lateReveal } from '@/lib/motion';
 import { toastError, toastSuccess } from '@/lib/toast';
 import { useUploadSheet } from '@/lib/upload-sheet';
 import { cn } from '@/lib/utils';
+import { StatsLinePlaceholder, UploadVideoButton } from '@/components/layout/page-actions';
+import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 const PAGE_SIZE = 24;
 
@@ -601,12 +603,7 @@ export default function AssetsPage() {
     resultsRef.current?.scrollIntoView({ block: 'start' });
   };
 
-  const uploadButton = (
-    <Button onClick={() => uploadSheet.open()}>
-      <Icons.upload />
-      Upload video
-    </Button>
-  );
+  const uploadButton = <UploadVideoButton onClick={() => uploadSheet.open()} />;
 
   // nothing to show at all: the shared page state replaces the whole page,
   // header included, since it carries the page's h1. a failed poll over rows
@@ -764,16 +761,8 @@ export default function AssetsPage() {
   return (
     <PageContainer className="flex flex-col">
       <PageHeader
-        title="Videos"
-        description={
-          statsLine ?? (
-            // a placeholder of the line's size; a p cannot hold the skeleton's div
-            <span
-              aria-hidden="true"
-              className={cn('inline-block h-4 w-32 rounded-md bg-muted align-middle', lateReveal)}
-            />
-          )
-        }
+        {...PAGE_HEADS.videos}
+        description={statsLine ?? <StatsLinePlaceholder className={lateReveal} />}
         primaryAction={uploadButton}
       />
 

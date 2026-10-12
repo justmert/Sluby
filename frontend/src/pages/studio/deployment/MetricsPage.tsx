@@ -32,6 +32,7 @@ import { formatBytes, formatCount, plural } from '@/lib/formatters';
 import { usePrefersReducedMotion } from '@/lib/motion';
 import type { MetricsSnapshot } from '@/lib/metrics';
 import { cn } from '@/lib/utils';
+import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 // the reader's own clock format, with seconds: samples are 10 s apart
 const clock = (t: number) =>
@@ -238,7 +239,7 @@ export default function MetricsPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Metrics" description="Server activity since it last started" />
+      <PageHeader {...PAGE_HEADS.metrics} />
       <div data-instant-skeletons={instant || undefined}>
         {failed ? (
           <InlineError

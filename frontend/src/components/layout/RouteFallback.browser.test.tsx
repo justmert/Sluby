@@ -136,7 +136,10 @@ beforeAll(() => {
 afterEach(() => cleanup());
 
 describe('route skeletons', () => {
-  for (const width of [1200, 768, 390]) {
+  // 320 is the narrowest width the studio supports: page descriptions and
+  // help text wrap there in every engine, so a skeleton that draws text as
+  // fixed bars shows up whatever the scrollbar takes
+  for (const width of [1200, 768, 390, 320]) {
     for (const [name, url, pattern, Page, session = OPERATOR_SIGN_IN_OFF] of PAGES) {
       it(`put ${name} at ${width} px in the boxes the page draws while it loads`, async () => {
         const { skeleton, loading } = await shapes(url, pattern, Page, width, session);
