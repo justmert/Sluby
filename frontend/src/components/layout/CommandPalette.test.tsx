@@ -74,7 +74,7 @@ describe('CommandPalette', () => {
   it('opens from the top bar button and jumps to a page', async () => {
     setup();
     // named by its visible word, so voice control users can say it (A11Y-34)
-    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Search videos and pages' }));
     await userEvent.type(screen.getByRole('combobox'), 'sett');
     await userEvent.click(await screen.findByRole('option', { name: 'Settings' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/studio/settings');

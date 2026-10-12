@@ -1,17 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import {
-  FileText,
-  Film,
-  KeyRound,
-  Link2,
-  LogOut,
-  Search,
-  Upload,
-  Webhook,
-  type LucideIcon,
-} from 'lucide-react';
+import { FileText, KeyRound, Link2, LogOut, Search, Upload, type LucideIcon } from 'lucide-react';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
 import { AccessBadge } from '@/components/shared/StatusBadge';
 import { Kbd } from '@/components/ui/kbd';
@@ -31,6 +21,7 @@ import { useSignOut } from '@/hooks/useSessions';
 import { LINKS, navItemsFor, ROUTES } from '@/lib/constants';
 import { withLead } from '@/lib/errors';
 import { formatDuration, plural } from '@/lib/formatters';
+import { Icons } from '@/lib/icons';
 import { useSession } from '@/lib/session';
 import { sluby } from '@/lib/sluby';
 import { THEME_OPTIONS, useTheme } from '@/lib/theme';
@@ -121,7 +112,7 @@ function Videos({
           onSelect={() => open(ROUTES.video(asset.id))}
           className={typing ? 'opacity-60' : undefined}
         >
-          <Film className="text-muted-foreground" />
+          <Icons.video className="text-muted-foreground" />
           <span dir="auto" className="min-w-0 flex-1 truncate">
             {asset.title || 'Untitled'}
           </span>
@@ -180,7 +171,7 @@ function PaletteBody({ close }: { close: () => void }) {
     {
       id: 'action-webhook',
       label: 'Add a webhook',
-      icon: Webhook,
+      icon: Icons.webhook,
       keywords: 'new create events developers',
       run: () => open(`${ROUTES.WEBHOOKS}?create=webhook`),
     },
@@ -365,17 +356,18 @@ export function CommandPalette() {
     <>
       <Button
         variant="outline"
-        size="sm"
         onClick={() => setOpen(true)}
-        // named by its visible word, "Search"; below md the word is only for
-        // screen readers, since the button shrinks to its icon
+        // named by its visible words; below md they are only for screen
+        // readers, since the button shrinks to its icon
         aria-keyshortcuts={mac ? 'Meta+K' : 'Control+K'}
-        className="size-8 justify-start gap-2 p-0 text-muted-foreground max-md:justify-center max-md:pointer-coarse:size-10 md:w-44 md:px-2.5 md:pointer-coarse:h-10 xl:w-60"
+        className="size-8 justify-start gap-2 p-0 text-muted-foreground max-md:justify-center max-md:pointer-coarse:size-10 md:w-56 md:px-2.5 md:pointer-coarse:h-10 lg:w-72"
       >
         <Search />
-        <span className="flex-1 text-left font-normal max-md:sr-only">Search</span>
+        <span className="flex-1 truncate text-left font-normal max-md:sr-only">
+          Search videos and pages
+        </span>
         {/* the shortcut is exposed through aria-keyshortcuts */}
-        <Kbd aria-hidden="true" className="hidden md:inline-flex">
+        <Kbd aria-hidden="true" className="hidden bg-transparent md:inline-flex">
           {mac ? '⌘K' : 'Ctrl K'}
         </Kbd>
       </Button>

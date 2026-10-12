@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { CommandPalette } from './CommandPalette';
+import { ThemeToggle } from './ThemeToggle';
 import { UploadIndicator } from './UploadIndicator';
 import { UserMenu } from './UserMenu';
 import { useRouteCrumbs } from './use-route-crumbs';
@@ -102,6 +103,7 @@ export function TopBar() {
       <div className="ml-auto flex shrink-0 items-center gap-1">
         <UploadIndicator />
         <CommandPalette />
+        <ThemeToggle />
         <UserMenu />
       </div>
     </header>

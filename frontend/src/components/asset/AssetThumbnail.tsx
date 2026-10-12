@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { CircleAlert, Film, Lock } from 'lucide-react';
+import { CircleAlert, Lock } from 'lucide-react';
+import { Icons } from '@/lib/icons';
 import { Progress } from '@/components/ui/progress';
 import { siaObjectUrl } from '@/lib/sia';
 import { cn } from '@/lib/utils';
@@ -109,7 +110,7 @@ export function AssetThumbnail({
       ) : isPrivate && !md ? (
         lock
       ) : (
-        <Film className="size-5 text-muted-foreground" aria-hidden="true" />
+        <Icons.video className="size-5 text-muted-foreground" aria-hidden="true" />
       )}
       {isPrivate && md && (
         <span className="absolute top-2 right-2 flex items-center gap-1 rounded-full border bg-background/90 px-1.5 py-0.5 text-xs font-medium text-foreground shadow-xs">

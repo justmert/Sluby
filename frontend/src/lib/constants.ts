@@ -1,15 +1,13 @@
 import {
-  Activity,
-  BookOpen,
-  ChartLine,
+  ChartColumn,
+  CodeXml,
   Compass,
-  Film,
-  KeyRound,
-  LayoutDashboard,
+  HeartPulse,
+  House,
   Settings,
-  Webhook,
   type LucideIcon,
 } from 'lucide-react';
+import { Icons } from './icons';
 
 // the code says "asset" where the api does; the url bar is ui, so routes say
 // videos (plan D-02). old paths redirect, see lib/redirects.ts
@@ -60,17 +58,17 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'main',
     items: [
-      { label: 'Overview', path: ROUTES.OVERVIEW, icon: LayoutDashboard, exact: true },
-      { label: 'Videos', path: ROUTES.VIDEOS, icon: Film },
+      { label: 'Overview', path: ROUTES.OVERVIEW, icon: House, exact: true },
+      { label: 'Videos', path: ROUTES.VIDEOS, icon: Icons.video },
     ],
   },
   {
     id: 'developers',
     label: 'Developers',
     items: [
-      { label: 'Quickstart', path: ROUTES.DEVELOPERS, icon: BookOpen, exact: true },
-      { label: 'API keys', path: ROUTES.API_KEYS, icon: KeyRound },
-      { label: 'Webhooks', path: ROUTES.WEBHOOKS, icon: Webhook },
+      { label: 'Quickstart', path: ROUTES.DEVELOPERS, icon: CodeXml, exact: true },
+      { label: 'API keys', path: ROUTES.API_KEYS, icon: Icons.apiKey },
+      { label: 'Webhooks', path: ROUTES.WEBHOOKS, icon: Icons.webhook },
       { label: 'API explorer', path: ROUTES.EXPLORER, icon: Compass },
     ],
   },
@@ -79,8 +77,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Deployment',
     operatorOnly: true,
     items: [
-      { label: 'Health', path: ROUTES.DEPLOYMENT, icon: Activity, exact: true },
-      { label: 'Metrics', path: ROUTES.METRICS, icon: ChartLine },
+      { label: 'Health', path: ROUTES.DEPLOYMENT, icon: HeartPulse, exact: true },
+      { label: 'Metrics', path: ROUTES.METRICS, icon: ChartColumn },
     ],
   },
   {

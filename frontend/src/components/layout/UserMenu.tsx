@@ -76,7 +76,8 @@ export function UserMenu() {
           </DropdownMenuLabel>
         )}
         <DropdownMenuSeparator />
-        {/* the theme lives here, in settings and in the palette; not in the top bar */}
+        {/* all three themes live here, in settings and in the palette; the top
+            bar toggle only flips between light and dark */}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <Palette />

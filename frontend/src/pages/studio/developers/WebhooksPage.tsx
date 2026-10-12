@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Plus, Webhook } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { AddWebhookDialog } from '@/components/developers/AddWebhookDialog';
 import { emptyWebhookForm, type WebhookForm } from '@/components/developers/forms';
 import { useCreateParam } from '@/components/developers/create-param';
@@ -142,7 +142,7 @@ export default function WebhooksPage() {
         ]}
         empty={
           <EmptyState
-            icon={Webhook}
+            icon={Icons.webhook}
             title="No webhooks yet"
             description="Get a request on your server when a video is ready or fails."
             action={

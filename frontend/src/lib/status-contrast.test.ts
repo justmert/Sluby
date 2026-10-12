@@ -65,6 +65,22 @@ describe('the edge of an empty field keeps 3:1', () => {
   }
 });
 
+describe('text on the dark bar (toasts, bulk bar) keeps 4.5:1', () => {
+  for (const scope of [':root', '.dark']) {
+    for (const text of [
+      'bar-foreground',
+      'bar-muted',
+      'bar-success',
+      'bar-warning',
+      'bar-destructive',
+    ]) {
+      it(`${scope} ${text} on bar`, () => {
+        expect(ratio(token(scope, text), token(scope, 'bar'))).toBeGreaterThanOrEqual(4.5);
+      });
+    }
+  }
+});
+
 describe('text on solid fills keeps 4.5:1', () => {
   for (const scope of [':root', '.dark']) {
     it(`${scope} primary-foreground on primary`, () => {
