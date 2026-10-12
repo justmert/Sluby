@@ -118,10 +118,7 @@ export function CodeBlock({
 
   if (!samples || samples.length === 0) {
     return (
-      <div
-        data-slot="code-block"
-        className={cn('relative rounded-lg border bg-card', className)}
-      >
+      <div data-slot="code-block" className={cn('relative rounded-lg border bg-card', className)}>
         <CopyButton
           value={code ?? ''}
           label={`Copy ${label}`}
