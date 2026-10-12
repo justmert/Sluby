@@ -61,19 +61,21 @@ export function DropZone({
       data-testid="drop-zone"
       data-dragging={dragging || undefined}
       className={cn(
-        'flex cursor-pointer flex-col items-center justify-center gap-2.5 rounded-xl border-[1.5px] border-dashed bg-card px-6 py-8 text-center transition-[border-color,box-shadow] duration-150',
-        dragging ? 'border-primary ring-4 ring-ring/20' : 'border-primary/40 hover:border-primary',
+        'flex cursor-pointer flex-col items-center justify-center gap-2.5 rounded-2xl border-[1.5px] border-dashed bg-card px-6 py-8 text-center transition-[border-color,box-shadow] duration-150 ease-design',
+        dragging
+          ? 'border-primary ring-3 ring-primary-ring'
+          : 'border-progress-line hover:border-primary',
       )}
     >
       <m.div
         animate={{ y: dragging ? -3 : 0 }}
         transition={spring}
         className={cn(
-          'flex size-12 shrink-0 items-center justify-center rounded-full border-[1.5px] text-primary transition-colors duration-150',
-          dragging ? 'border-primary' : 'border-primary/40',
+          'grid size-12 shrink-0 place-items-center rounded-full border-[1.5px] text-primary transition-colors duration-150 ease-design',
+          dragging ? 'border-primary' : 'border-progress-line',
         )}
       >
-        <Upload className="size-5" aria-hidden="true" />
+        <Upload className="size-5.5" strokeWidth={1.8} aria-hidden="true" />
       </m.div>
       <p id={`${id}-title`} className="text-base font-semibold">
         {dragging ? 'Drop to add' : 'Drop video files here'}
@@ -81,7 +83,7 @@ export function DropZone({
       <p id={`${id}-hint`} className="text-sm text-muted-foreground">
         {busy
           ? 'Files you add now wait until the current upload finishes.'
-          : `${VIDEO_TYPES}${each}. Add several and they upload in order.`}
+          : `${VIDEO_TYPES}${each}. Add as many as you like.`}
       </p>
       <Button
         type="button"
