@@ -219,9 +219,9 @@ describe('deliveries', () => {
     await userEvent.click(toggle);
     await waitFor(() => expect(toggle).toHaveAttribute('aria-expanded', 'true'));
     const panel = document.getElementById(toggle.getAttribute('aria-controls')!)!;
-    expect(
-      within(panel).getByRole('region', { name: 'asset.errored payload code' }),
-    ).toHaveTextContent('"vid_1"');
+    expect(within(panel).getByRole('tree', { name: 'asset.errored payload' })).toHaveTextContent(
+      '"vid_1"',
+    );
     expect(panel).toHaveTextContent('Your endpoint answered 500');
     expect(panel).toHaveTextContent('evt_1');
     await userEvent.click(within(panel).getByRole('button', { name: 'Resend' }));

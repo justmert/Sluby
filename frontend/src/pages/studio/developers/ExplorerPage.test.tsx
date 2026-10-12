@@ -60,6 +60,30 @@ describe('API explorer', () => {
     expect(response()).toHaveTextContent('x-ratelimit-remaining99');
   });
 
+  it('shows a JSON answer as a tree, other text as it came, and says when there is no body', async () => {
+    answers['GET /api/v1/assets?limit=20'] = () =>
+      respond({ body: { data: [{ id: 'a1' }], has_more: false } });
+    render();
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    const tree = await within(await screen.findByTestId('explorer-response')).findByRole('tree', {
+      name: 'Response body',
+    });
+    expect(within(tree).getByText('false')).toHaveClass('text-code-keyword');
+    expect(within(tree).getByRole('treeitem', { name: 'data, 1 item' })).toBeInTheDocument();
+
+    answers['GET /api/v1/assets?limit=20'] = () =>
+      respond({ status: 502, body: '<h1>Bad gateway</h1>' });
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(response()).toHaveTextContent('Not valid JSON, shown as text.'));
+    expect(
+      within(response()).getByRole('region', { name: 'Response body code' }),
+    ).toHaveTextContent('<h1>Bad gateway</h1>');
+
+    answers['GET /api/v1/assets?limit=20'] = () => respond({ body: '' });
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(response()).toHaveTextContent('The response has no body.'));
+  });
+
   it('says the status of the answer in a status region, since focus stays on Send', async () => {
     answers['GET /api/v1/assets?limit=20'] = () => respond({ body: { data: [] } });
     render();
