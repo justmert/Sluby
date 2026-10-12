@@ -169,10 +169,7 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<'span'>) 
   return (
     <span
       data-slot="command-shortcut"
-      className={cn(
-        'ml-auto font-mono text-xs font-normal text-subtle-foreground',
-        className,
-      )}
+      className={cn('ml-auto font-mono text-xs font-normal text-subtle-foreground', className)}
       {...props}
     />
   );

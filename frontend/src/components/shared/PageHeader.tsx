@@ -53,10 +53,7 @@ export function PageHeader({
   return (
     <header
       data-slot="page-header"
-      className={cn(
-        'mb-6 flex flex-wrap items-end gap-4',
-        className,
-      )}
+      className={cn('mb-6 flex flex-wrap items-end gap-4', className)}
     >
       <div className="min-w-0 flex-[1_1_320px]">
         {breadcrumbs && <div className="mb-2 text-sm text-muted-foreground">{breadcrumbs}</div>}
