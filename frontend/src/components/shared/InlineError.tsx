@@ -59,7 +59,7 @@ export function InlineError({
         role="alert"
         data-slot="inline-error"
         className={cn(
-          'grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm',
+          'grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 rounded-lg border border-destructive/40 bg-card p-3 text-sm',
           className,
         )}
       >

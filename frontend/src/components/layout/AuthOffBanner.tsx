@@ -36,9 +36,12 @@ export function AuthOffBanner() {
       <div
         role="region"
         aria-label="Sign-in is off"
-        className="flex items-start gap-2 border-b border-warning/40 bg-warning/15 px-4 py-2 text-sm text-warning-foreground sm:items-center sm:px-8"
+        className="flex items-start gap-2 border-b border-warning/60 bg-card px-4 py-2 text-sm text-foreground sm:items-center sm:px-8"
       >
-        <TriangleAlert className="mt-0.5 size-4 shrink-0 sm:mt-0" aria-hidden="true" />
+        <TriangleAlert
+          className="mt-0.5 size-4 shrink-0 text-warning-foreground sm:mt-0"
+          aria-hidden="true"
+        />
         <p className="min-w-0 flex-1">
           Sign-in is off. Anyone who can open this address has operator access.{' '}
           <a
@@ -54,7 +57,7 @@ export function AuthOffBanner() {
         <Button
           variant="ghost"
           size="icon-xs"
-          className="-my-1 shrink-0 text-warning-foreground hover:bg-warning/20 hover:text-warning-foreground"
+          className="-my-1 shrink-0 text-muted-foreground"
           aria-label="Hide this warning until the next visit"
           onClick={() => {
             writeDismissed();

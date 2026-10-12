@@ -47,14 +47,7 @@ export default defineConfig(({ mode }) => {
   const proxy = { target, changeOrigin: false, xfwd: true };
 
   return {
-    plugins: [
-      react(),
-      tailwindcss(),
-      preloadFonts([
-        /dm-sans-latin-wght-normal-[^/]*\.woff2$/,
-        /sora-latin-wght-normal-[^/]*\.woff2$/,
-      ]),
-    ],
+    plugins: [react(), tailwindcss(), preloadFonts([/figtree-latin-wght-normal-[^/]*\.woff2$/])],
     resolve: {
       alias: {
         '@': here('./src'),

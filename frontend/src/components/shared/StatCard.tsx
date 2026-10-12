@@ -47,7 +47,7 @@ function EmptyFigure({ reason }: { reason?: string }) {
 
 /**
  * A small card with one figure: an icon and label, the figure in the figure
- * type role (sora 24/32, tabular), and an optional hint line.
+ * type role (figtree 24/32, tabular), and an optional hint line.
  *
  *   <StatCard icon={Film} label="Videos" value={stats?.total} hint="1 failed" />
  * Loading, the figure and the hint keep the

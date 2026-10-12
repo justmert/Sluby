@@ -33,7 +33,7 @@ describe('VideosGrid', () => {
     expect(card).toHaveClass('ring-2', 'ring-primary', 'transition-[box-shadow]');
   });
 
-  it('tints a failed tile and marks a private one in a corner chip', () => {
+  it('edges a failed tile in red and marks a private one in a corner chip', () => {
     renderPage(
       <Harness
         assets={[
@@ -42,7 +42,7 @@ describe('VideosGrid', () => {
         ]}
       />,
     );
-    expect(document.querySelector('[data-state="failed"]')).toHaveClass('bg-destructive/10');
+    expect(document.querySelector('[data-state="failed"]')).toHaveClass('border-destructive/40');
     expect(screen.getByLabelText('Private video, no preview')).toBeInTheDocument();
     expect(document.querySelector('img')).toBeNull();
   });

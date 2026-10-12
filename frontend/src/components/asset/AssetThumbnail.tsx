@@ -63,7 +63,7 @@ export function AssetThumbnail({
       data-state={processing ? 'processing' : failed ? 'failed' : undefined}
       className={cn(
         'relative flex aspect-video shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted',
-        failed && 'bg-destructive/10 text-destructive',
+        failed && 'border border-destructive/40 bg-card text-destructive',
         className,
       )}
     >

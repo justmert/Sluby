@@ -57,7 +57,7 @@ export function AccessChoice({
               key={o.value}
               className={cn(
                 'relative flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors duration-150 has-focus-visible:ring-3 has-focus-visible:ring-ring',
-                checked ? 'border-primary bg-primary/5' : 'hover:border-border-strong',
+                checked ? 'border-primary ring-1 ring-primary' : 'hover:border-border-strong',
               )}
             >
               <input

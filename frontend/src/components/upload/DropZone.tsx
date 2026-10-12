@@ -59,7 +59,7 @@ export function DropZone({
         'flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed px-4 transition-[border-color,background-color,box-shadow] duration-150 has-focus-visible:border-ring',
         compact ? 'py-4' : 'flex-col justify-center py-10 text-center sm:py-12',
         dragging
-          ? 'border-primary bg-primary/5 ring-4 ring-primary/15'
+          ? 'border-primary ring-4 ring-primary/15'
           : 'hover:border-primary/50 hover:bg-muted/40 active:bg-muted/60',
       )}
     >
@@ -67,9 +67,9 @@ export function DropZone({
         animate={{ y: dragging ? -3 : 0 }}
         transition={spring}
         className={cn(
-          'flex shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary transition-colors duration-150',
+          'flex shrink-0 items-center justify-center rounded-full border border-primary/40 text-primary transition-colors duration-150',
           compact ? 'size-9' : 'size-12',
-          dragging && 'bg-primary text-primary-foreground',
+          dragging && 'border-primary bg-primary text-primary-foreground',
         )}
       >
         <Upload className={compact ? 'size-4' : 'size-5'} aria-hidden="true" />

@@ -327,7 +327,7 @@ export default function ExplorerPage() {
               {confirming && (
                 <div
                   role="alert"
-                  className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm"
+                  className="flex flex-col gap-3 rounded-lg border border-warning/60 bg-card p-3 text-sm"
                 >
                   <p className="flex gap-2">
                     <TriangleAlert
