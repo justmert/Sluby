@@ -69,7 +69,8 @@ describe('JsonViewer in a real browser', () => {
       surface: background(viewer),
       code: background(code),
     }).toEqual({
-      key: 'rgb(130, 210, 220)',
+      // keys are the accent, as on the board, in both themes
+      key: 'rgb(91, 191, 204)',
       string: 'rgb(167, 217, 138)',
       number: 'rgb(245, 183, 107)',
       boolean: 'rgb(240, 160, 200)',
@@ -101,8 +102,9 @@ describe('JsonViewer in a real browser', () => {
     const line = data.querySelector('[data-line]')!;
     expect(getComputedStyle(line).boxShadow).not.toBe('none');
     expect(getComputedStyle(root.querySelector('[data-line]')!).boxShadow).toBe('none');
-    // the caret turns with a short transition
-    const caret = data.querySelector('svg')!;
+    // the twisty is the board's triangle, and its colour eases on hover
+    const caret = data.querySelector('button')!;
+    expect(caret.textContent).toBe('▾');
     expect(getComputedStyle(caret).transitionDuration).toBe('0.15s');
     await userEvent.keyboard('{ArrowLeft}');
     expect(data).toHaveAttribute('aria-expanded', 'false');

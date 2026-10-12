@@ -18,7 +18,7 @@ export const DEFAULT_RATE_LIMIT = 100;
 export const GRACE_OPTIONS = [
   { value: '0', label: 'Stop now' },
   { value: '3600', label: '1 hour' },
-  { value: '86400', label: '24 hours' },
+  { value: '86400', label: '1 day' },
   { value: '604800', label: '7 days' },
 ];
 

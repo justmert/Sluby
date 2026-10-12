@@ -103,7 +103,16 @@ describe('upload page: picking and starting', () => {
     );
     act(() => f.current().progress(10 * 1000 * 1000, 20 * 1024 * 1024));
     const row = screen.getByTestId('upload-row');
-    expect(within(row).getByText(/^47% · 10 of 21 MB/)).toBeInTheDocument();
+    expect(within(row).getByText(/^10 of 21 MB/)).toBeInTheDocument();
+    // the running bar carries a sheen and the chip a pulsing dot, only while it runs
+    expect(
+      within(row)
+        .getByRole('progressbar', { name: 'my trip video upload' })
+        .querySelector('[data-slot="progress-indicator"]'),
+    ).toHaveAttribute('data-moving', 'true');
+    expect(
+      within(row).getByText('Uploading').querySelector('[data-slot="status-dot"]'),
+    ).not.toBeNull();
     expect(within(files()).getByText('1 uploading')).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'Pause' })).toBeInTheDocument();
     // A11Y-13: after Upload, focus is on the new row's heading
@@ -119,11 +128,11 @@ describe('upload page: picking and starting', () => {
   it('describes Choose files with the drop zone title, the formats and the limit (A11Y-33)', async () => {
     setup({ options: { readLimit: async () => 12_000_000_000 } });
     expect(chooseFiles()).toHaveAccessibleDescription(
-      'Drop video files here MP4, MOV, M4V, MKV, WebM or AVI. Add several and they upload in order.',
+      'Drop video files here MP4, MOV, M4V, MKV, WebM or AVI. Add as many as you like.',
     );
     await waitFor(() =>
       expect(chooseFiles()).toHaveAccessibleDescription(
-        'Drop video files here MP4, MOV, M4V, MKV, WebM or AVI, up to 12 GB each. Add several and they upload in order.',
+        'Drop video files here MP4, MOV, M4V, MKV, WebM or AVI, up to 12 GB each. Add as many as you like.',
       ),
     );
   });
@@ -149,6 +158,9 @@ describe('upload page: picking and starting', () => {
     expect(screen.getByLabelText('Title')).toHaveValue('a');
     await userEvent.click(draftRow('b_two.mp4'));
     expect(draftRow('b_two.mp4')).toHaveAttribute('aria-current', 'true');
+    expect(draftRow('b_two.mp4')).toHaveTextContent(
+      /^b_two\.mp4New · .+Add a title, then start the upload\.$/,
+    );
     expect(draftRow('a.mp4')).not.toHaveAttribute('aria-current');
     expect(screen.getByLabelText('Title')).toHaveValue('b two');
     await userEvent.click(draftRow('c.mp4'));
@@ -165,8 +177,8 @@ describe('upload page: picking and starting', () => {
     expect(f.upload.mock.calls[0][1]).toMatchObject({ title: 'a', accessTier: 'public' });
     expect(await screen.findByText('Uploading 2 videos, one at a time')).toBeInTheDocument();
     const queuedRow = within(files()).getByRole('heading', { name: 'b two' }).closest('li')!;
-    expect(within(queuedRow).getByText('Waiting')).toBeInTheDocument();
-    expect(queuedRow).toHaveTextContent('next in line');
+    expect(within(queuedRow).getByText('Queued, 2nd')).toBeInTheDocument();
+    expect(queuedRow).toHaveTextContent('Starts when a finishes.');
 
     f.processing.mockResolvedValue(job());
     act(() => {
@@ -207,7 +219,7 @@ describe('upload page: picking and starting', () => {
     const group = screen.getByRole('radiogroup', { name: 'Who can watch' });
     expect(within(group).getByRole('radio', { name: 'Public' })).toBeChecked();
     expect(within(group).getByRole('radio', { name: 'Private' })).toHaveAccessibleDescription(
-      'Plays only through signed URLs your server creates.',
+      'Only with signed links',
     );
   });
 
@@ -483,7 +495,7 @@ describe('upload page: rows', () => {
     expect(f.retry).toHaveBeenCalledWith('a1');
   });
 
-  it('offers the embed code and the video once it is ready', async () => {
+  it('turns a ready upload into one line: the title links to the video, with the embed code', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     // userEvent.setup() installs a getter-only clipboard, so define it instead of assigning
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
@@ -496,10 +508,9 @@ describe('upload page: rows', () => {
     });
     const row = await screen.findByTestId('upload-row');
     await waitFor(() => expect(row).toHaveAttribute('data-phase', 'ready'));
-    expect(within(row).getByRole('link', { name: 'Open video' })).toHaveAttribute(
-      'href',
-      '/studio/videos/a1',
-    );
+    const title = within(row).getByRole('heading', { level: 3 });
+    expect(within(title).getByRole('link')).toHaveAttribute('href', '/studio/videos/a1');
+    expect(within(row).queryByRole('progressbar')).not.toBeInTheDocument();
     await userEvent.click(within(row).getByRole('button', { name: 'Copy embed code' }));
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('a1'));
   });

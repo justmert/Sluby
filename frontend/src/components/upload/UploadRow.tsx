@@ -2,8 +2,7 @@ import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
-import { ChevronDown, Pause, Play, RotateCcw, X } from 'lucide-react';
-import { EmbedPanel } from '@/components/asset/EmbedPanel';
+import { Check, ChevronDown, RotateCcw, X } from 'lucide-react';
 import { PipelineSteps } from '@/components/asset/PipelineSteps';
 import { uploadSteps } from '@/components/asset/pipeline-states';
 import { failureInfo, stageLabel } from '@/components/asset/processing';
@@ -27,6 +26,9 @@ import { badgeStatus, statusLine } from './upload-status';
 
 const ButtonSpinner = () => <Spinner role={undefined} aria-hidden="true" />;
 
+// the board's row buttons are 30px, a step under the page's 36px buttons
+const SMALL = 'h-7.5 gap-1.5 px-2.5 text-sm pointer-coarse:h-9';
+
 /** A bar with no number yet: a slow sweep, or a still fill under reduced motion (MOT-06). */
 function WaitingBar({ label }: { label: string }) {
   return (
@@ -34,7 +36,7 @@ function WaitingBar({ label }: { label: string }) {
       role="progressbar"
       aria-label={label}
       aria-valuetext="Waiting"
-      className="relative h-1.5 overflow-hidden rounded-full bg-muted before:absolute before:inset-y-0 before:w-1/3 before:-translate-x-full before:rounded-full before:bg-progress/60 motion-safe:before:animate-shimmer motion-reduce:before:w-full motion-reduce:before:translate-x-0 motion-reduce:before:bg-progress/30"
+      className="relative h-1.5 overflow-hidden rounded-full bg-sunken before:absolute before:inset-y-0 before:w-1/3 before:-translate-x-full before:rounded-full before:bg-progress/60 motion-safe:before:animate-shimmer motion-reduce:before:w-full motion-reduce:before:translate-x-0 motion-reduce:before:bg-progress/30"
     />
   );
 }
@@ -122,7 +124,10 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
       : null;
   const detail = info?.detail ?? s.errorDetail;
   const showChunks = isTransferring(s) && Math.ceil(s.bytesTotal / CHUNK_SIZE) > 1;
-  const hasDetails = s.phase !== 'cancelled' || !!detail;
+  // a running transfer shows its bar, line and buttons only, like the board;
+  // the steps, parts sent and log open once it pauses, processes or stops
+  const hasDetails =
+    s.phase !== 'uploading' && s.phase !== 'finishing' && (s.phase !== 'cancelled' || !!detail);
 
   const run = async (kind: 'pause' | 'cleanup', action: () => Promise<void>) => {
     setPending(kind);
@@ -136,31 +141,35 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
   const actions: React.ReactNode[] = [];
   if (s.phase === 'uploading' || s.phase === 'paused') {
     actions.push(
-      <Button key="cancel" variant="outline" size="sm" onClick={() => void store.cancel(s.key)}>
-        Cancel
-      </Button>,
       s.phase === 'uploading' ? (
         <Button
           key="pause"
           variant="outline"
-          size="sm"
+          className={SMALL}
           disabled={pending === 'pause'}
           onClick={() => void run('pause', () => store.pause(s.key))}
         >
-          {pending === 'pause' ? <ButtonSpinner /> : <Pause />}
+          {pending === 'pause' && <ButtonSpinner />}
           {pending === 'pause' ? 'Pausing…' : 'Pause'}
         </Button>
       ) : (
-        <Button key="resume" size="sm" onClick={() => store.resume(s.key)}>
-          <Play />
+        <Button key="resume" className={SMALL} onClick={() => store.resume(s.key)}>
           Resume
         </Button>
       ),
+      <Button
+        key="cancel"
+        variant="outline"
+        className={SMALL}
+        onClick={() => void store.cancel(s.key)}
+      >
+        Cancel
+      </Button>,
     );
   }
   if (s.phase === 'processing' && s.pollStopped && !s.authFailed) {
     actions.push(
-      <Button key="check" variant="outline" size="sm" onClick={() => store.refresh(s.key)}>
+      <Button key="check" variant="outline" className={SMALL} onClick={() => store.refresh(s.key)}>
         <Icons.refresh />
         Check again
       </Button>,
@@ -172,7 +181,7 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
     assetLink
   ) {
     actions.push(
-      <Button key="open" variant="outline" size="sm" asChild>
+      <Button key="open" variant="outline" className={SMALL} asChild>
         <Link to={ROUTES.video(assetLink)}>Open video</Link>
       </Button>,
     );
@@ -181,12 +190,11 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
     actions.push(
       <Button
         key="resume-upload"
-        size="sm"
+        className={SMALL}
         disabled={busy}
         aria-describedby={busy ? `${id}-busy` : undefined}
         onClick={() => store.resumeTransfer(s.key)}
       >
-        <Play />
         Resume upload
       </Button>,
     );
@@ -197,6 +205,7 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
         <RetryProcessingButton
           key="retry"
           size="sm"
+          className={SMALL}
           asset={{ id: s.assetId!, title: s.title }}
           // through the store, so this row follows the new run; the row shows how it went
           onRetry={() => store.retryProcessing(s.key)}
@@ -204,8 +213,7 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
       );
     } else if (info.action === 'reupload') {
       actions.push(
-        <Button key="reupload" size="sm" onClick={onReupload}>
-          <Icons.upload />
+        <Button key="reupload" className={SMALL} onClick={onReupload}>
           Upload a different file
         </Button>,
       );
@@ -215,8 +223,8 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
     actions.push(
       <Button
         key="cleanup"
-        size="sm"
         variant="outline"
+        className={SMALL}
         disabled={pending === 'cleanup'}
         onClick={() => void run('cleanup', () => store.retryCleanup(s.key))}
       >
@@ -225,62 +233,97 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
       </Button>,
     );
   }
+
+  const dismiss = dismissable && (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      className="-mr-1 shrink-0 text-muted-foreground"
+      aria-label={`Dismiss ${s.title}`}
+      onClick={() => store.dismiss(s.key)}
+    >
+      <X />
+    </Button>
+  );
+
+  // a finished upload is one line: a check, the title as a link to the
+  // video, and the embed code, which is what people come back here for
   if (s.phase === 'ready' && assetLink) {
-    actions.push(
-      <CopyButton
-        key="embed"
-        value={primaryEmbed({ id: assetLink, accessTier: s.accessTier }).code}
-        label="Copy embed code"
-        text="Copy embed code"
-        withText
-        variant="outline"
-      />,
-      <Button key="open" variant="outline" size="sm" asChild>
-        <Link to={ROUTES.video(assetLink)}>Open video</Link>
-      </Button>,
+    return (
+      <div
+        className="relative flex items-center gap-2.5 px-4.5 py-3.5"
+        data-testid="upload-row"
+        data-phase={s.phase}
+      >
+        <SettleFlash phase={s.phase} />
+        <Check className="size-4.5 shrink-0 text-success" strokeWidth={2.2} aria-hidden="true" />
+        <h3
+          id={rowTitleId(s.key)}
+          tabIndex={-1}
+          className="min-w-0 flex-1 truncate rounded-sm text-sm font-semibold outline-none focus-visible:ring-3 focus-visible:ring-ring"
+        >
+          <Link
+            to={ROUTES.video(assetLink)}
+            dir="auto"
+            title={`${s.title}, ${status.text}`}
+            className="text-foreground underline-offset-4 hover:underline"
+          >
+            {s.title}
+          </Link>
+        </h3>
+        <span className="sr-only">Ready.</span>
+        <CopyButton
+          value={primaryEmbed({ id: assetLink, accessTier: s.accessTier }).code}
+          label="Copy embed code"
+          text="Copy embed code"
+          withText
+          variant="outline"
+          className={SMALL}
+        />
+        {dismiss}
+      </div>
     );
   }
 
   return (
     <div
-      className="relative flex flex-col gap-2 px-4 py-3.5 sm:px-5"
+      className="relative flex flex-col gap-2 px-4.5 py-3.5"
       data-testid="upload-row"
       data-phase={s.phase}
     >
       <SettleFlash phase={s.assetGone ? null : s.phase} />
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <h3
-            id={rowTitleId(s.key)}
-            tabIndex={-1}
-            dir="auto"
-            title={s.title}
-            className="truncate rounded-sm text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring"
-          >
-            {s.title}
-          </h3>
-          <p className="truncate text-xs text-muted-foreground" title={s.fileName}>
-            <span dir="auto">{s.fileName}</span>
-          </p>
-        </div>
+      <div className="flex items-center gap-2.5">
+        <h3
+          id={rowTitleId(s.key)}
+          tabIndex={-1}
+          dir="auto"
+          title={`${s.title} (${s.fileName})`}
+          className="min-w-0 flex-1 truncate rounded-sm text-sm font-semibold outline-none focus-visible:ring-3 focus-visible:ring-ring"
+        >
+          {s.title}
+        </h3>
         <StatusBadge kind="upload" status={badgeStatus(s)} className="shrink-0" />
-        {dismissable && (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="-mr-1 shrink-0 text-muted-foreground"
-            aria-label={`Dismiss ${s.title}`}
-            onClick={() => store.dismiss(s.key)}
-          >
-            <X />
-          </Button>
-        )}
+        {dismiss}
       </div>
 
-      <div className="flex flex-col gap-1.5">
+      {status.bar === 'waiting' ? (
+        <WaitingBar label={`${s.title}, progress`} />
+      ) : status.bar !== null ? (
+        <Progress
+          value={status.bar}
+          smooth={s.phase === 'processing'}
+          moving={s.phase === 'uploading' || s.phase === 'processing'}
+          className="h-1.5 bg-sunken"
+          aria-label={
+            s.phase === 'processing' ? `${s.title}, processing progress` : `${s.title} upload`
+          }
+        />
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
         <p
           className={cn(
-            'text-xs tabular-nums',
+            'min-w-0 flex-1 basis-48 text-sm tabular-nums',
             status.tone === 'danger' ? 'text-destructive' : 'text-muted-foreground',
           )}
         >
@@ -289,45 +332,25 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
           )}
           {status.text}
         </p>
-        {status.detail && <p className="text-xs text-muted-foreground">{status.detail}</p>}
-        {s.notice && <p className="text-xs text-muted-foreground">{s.notice}</p>}
-        {status.bar === 'waiting' ? (
-          <WaitingBar label={`${s.title}, progress`} />
-        ) : status.bar !== null ? (
-          <Progress
-            value={status.bar}
-            smooth={s.phase === 'processing'}
-            className="h-1.5"
-            aria-label={
-              s.phase === 'processing' ? `${s.title}, processing progress` : `${s.title}, sent`
-            }
-          />
-        ) : null}
+        {hasDetails && (
+          <Button
+            variant="ghost"
+            className={cn(SMALL, 'text-muted-foreground')}
+            aria-expanded={open}
+            aria-controls={`${id}-details`}
+            onClick={() => setOpen((o) => !o)}
+          >
+            <ChevronDown
+              className={cn('transition-transform duration-200 ease-design', open && 'rotate-180')}
+            />
+            {open ? 'Hide details' : 'Details'}
+          </Button>
+        )}
+        {/* the buttons wrap as one group, so a narrow row never splits them */}
+        {actions.length > 0 && <div className="ml-auto flex shrink-0 gap-2">{actions}</div>}
       </div>
-
-      {(actions.length > 0 || hasDetails) && (
-        <div className="flex flex-wrap items-center gap-2">
-          {hasDetails && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="-ml-2 text-muted-foreground"
-              aria-expanded={open}
-              aria-controls={`${id}-details`}
-              onClick={() => setOpen((o) => !o)}
-            >
-              <ChevronDown
-                className={cn(
-                  'transition-transform duration-200 ease-out-soft',
-                  open && 'rotate-180',
-                )}
-              />
-              {open ? 'Hide details' : 'Details'}
-            </Button>
-          )}
-          <div className="ml-auto flex flex-wrap justify-end gap-2">{actions}</div>
-        </div>
-      )}
+      {status.detail && <p className="text-xs text-muted-foreground">{status.detail}</p>}
+      {s.notice && <p className="text-xs text-muted-foreground">{s.notice}</p>}
       {busy && s.phase === 'failed' && s.canResume && (
         <p id={`${id}-busy`} className="text-xs text-muted-foreground">
           Another upload is running. Wait for it to finish.
@@ -335,19 +358,13 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
       )}
 
       <Collapse open={open} id={`${id}-details`} className="flex flex-col gap-4 pt-2">
-        {s.phase === 'ready' && assetLink && (
-          <EmbedPanel
-            asset={{ id: assetLink, accessTier: s.accessTier, status: 'ready' }}
-            compact
-          />
-        )}
         <PipelineSteps steps={uploadSteps(s)} orientation="vertical" size="sm" />
         {showChunks && (
           <ChunkStrip
             bytesUploaded={s.bytesUploaded}
             bytesTotal={s.bytesTotal}
             chunkSize={CHUNK_SIZE}
-            active={s.phase === 'uploading'}
+            active={false}
           />
         )}
         <JobLog s={s} />

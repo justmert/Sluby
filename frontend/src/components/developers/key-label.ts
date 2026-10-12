@@ -9,3 +9,11 @@ export function keyLabel(k: Pick<ApiKeyRecord, 'id' | 'name' | 'prefix'>): strin
   const tag = k.prefix ? `${k.prefix}…` : `ID ${k.id.slice(0, 8)}`;
   return `“${k.name}” (${tag})`;
 }
+
+/** The copy button of a key's notice, where focus goes as the notice appears. */
+export const keyCopyButton = (id: string) =>
+  document.querySelector<HTMLButtonElement>(`[data-key-copy="${CSS.escape(id)}"] button`);
+
+/** "sluby_7Hq2…f0Kd": enough to tell keys apart, not enough to use one. */
+export const maskKey = (key: string) =>
+  key.length > 16 ? `${key.slice(0, 10)}…${key.slice(-4)}` : key;

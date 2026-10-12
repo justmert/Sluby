@@ -64,12 +64,13 @@ export const pauseIcon = (hook: WebhookRecord) => (hook.isActive ? CirclePause :
 export const pauseLabel = (hook: WebhookRecord) => (hook.isActive ? 'Pause' : 'Resume');
 export const TestIcon = Send;
 
-/** What the secret dialog shows for a new webhook or a rotated signing secret. */
-export const webhookSecret = (secret: string, rotated = false): RevealedSecret => ({
-  title: rotated ? 'Signing secret rotated' : 'Webhook added',
-  description: rotated
-    ? 'Copy the new signing secret now. You will not be able to see it again.'
-    : 'Copy the signing secret now. You will not be able to see it again.',
+/**
+ * What the secret dialog shows for a new webhook. A rotated secret shows in
+ * the webhook page's signing secret card instead.
+ */
+export const webhookSecret = (secret: string): RevealedSecret => ({
+  title: 'Webhook added',
+  description: 'Copy the signing secret now. You will not be able to see it again.',
   value: secret,
   label: 'signing secret',
   envName: 'SLUBY_WEBHOOK_SECRET',

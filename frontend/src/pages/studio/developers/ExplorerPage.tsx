@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Send, TriangleAlert } from 'lucide-react';
+import { Send, TriangleAlert } from 'lucide-react';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { InlineError } from '@/components/shared/InlineError';
 import { JsonViewer } from '@/components/shared/JsonViewer';
 import { HttpStatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -32,6 +31,8 @@ import {
 import { reportUnauthorized } from '@/lib/session-events';
 import { cn } from '@/lib/utils';
 import { PAGE_HEADS } from '@/components/layout/page-heads';
+import { NoAnswerYet, RequestIntro } from './explorer-parts';
+import { EXPLORER_CARD, EXPLORER_GRID, EXPLORER_ROW, SMALL_BUTTON } from './quickstart-copy';
 
 const SHOWN_HEADERS = [
   'content-type',
@@ -197,169 +198,156 @@ export default function ExplorerPage() {
   return (
     <PageContainer>
       <PageHeader {...PAGE_HEADS.explorer} />
-      <div className="grid items-start gap-4 @4xl/page:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Request</CardTitle>
-            <CardDescription>
-              Sent with your session, so it can change real data. See the{' '}
-              <a
-                href="/api/v1/docs"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded-sm underline underline-offset-4 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-              >
-                API reference
-                <ExternalLink aria-hidden="true" className="size-3" />
-                <span className="sr-only">(opens in a new tab)</span>
-              </a>{' '}
-              for every endpoint.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+      <div className={EXPLORER_GRID}>
+        <section aria-labelledby="explorer-request" className={EXPLORER_CARD}>
+          <RequestIntro />
+          <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+            <div className="grid gap-2">
+              <Label htmlFor="explorer-template">Template</Label>
+              <Select key={templateKey} value={template} onValueChange={load}>
+                <SelectTrigger id="explorer-template" className="w-full min-w-0">
+                  <SelectValue placeholder="Start from a template" />
+                </SelectTrigger>
+                <SelectContent>
+                  {groups.map((g) => (
+                    <SelectGroup key={g}>
+                      <SelectLabel>{g}</SelectLabel>
+                      {REQUEST_TEMPLATES.filter((t) => t.group === g).map((t) => (
+                        <SelectItem key={t.label} value={t.label}>
+                          <span className="w-14 font-mono text-xs text-muted-foreground">
+                            {t.method}
+                          </span>
+                          {t.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className={EXPLORER_ROW}>
               <div className="grid gap-2">
-                <Label htmlFor="explorer-template">Template</Label>
-                <Select key={templateKey} value={template} onValueChange={load}>
-                  <SelectTrigger id="explorer-template" className="w-full min-w-0">
-                    <SelectValue placeholder="Start from a template" />
+                <Label htmlFor="explorer-method">Method</Label>
+                <Select
+                  value={method}
+                  onValueChange={(v) => {
+                    edited();
+                    setMethod(v as Method);
+                  }}
+                >
+                  <SelectTrigger id="explorer-method" className="w-full font-mono text-xs">
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {groups.map((g) => (
-                      <SelectGroup key={g}>
-                        <SelectLabel>{g}</SelectLabel>
-                        {REQUEST_TEMPLATES.filter((t) => t.group === g).map((t) => (
-                          <SelectItem key={t.label} value={t.label}>
-                            <span className="w-14 font-mono text-xs text-muted-foreground">
-                              {t.method}
-                            </span>
-                            {t.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
+                    {METHODS.map((m) => (
+                      <SelectItem key={m} value={m} className="font-mono text-xs">
+                        {m}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-1 items-end gap-2 @[16rem]/page:grid-cols-[7rem_minmax(0,1fr)] @lg/page:grid-cols-[7rem_minmax(0,1fr)_auto]">
-                <div className="grid gap-2">
-                  <Label htmlFor="explorer-method">Method</Label>
-                  <Select
-                    value={method}
-                    onValueChange={(v) => {
-                      edited();
-                      setMethod(v as Method);
-                    }}
-                  >
-                    <SelectTrigger id="explorer-method" className="w-full font-mono text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {METHODS.map((m) => (
-                        <SelectItem key={m} value={m} className="font-mono text-xs">
-                          {m}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid min-w-0 gap-2">
-                  <Label htmlFor="explorer-path">Path</Label>
-                  <Input
-                    id="explorer-path"
-                    value={path}
-                    onChange={(e) => {
-                      edited();
-                      setPath(e.target.value);
-                    }}
-                    spellCheck={false}
-                    autoComplete="off"
-                    className="font-mono text-xs"
-                    aria-invalid={problem && !path.includes('{id}') ? true : undefined}
-                    aria-describedby={problem ? 'explorer-path-help' : undefined}
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  disabled={!!problem || !!bodyProblem || sending}
-                  aria-busy={sending || undefined}
-                  className="@[16rem]/page:col-span-2 @lg/page:col-span-1 @lg/page:min-w-24"
-                >
-                  {sending ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <Send />}
-                  {sending ? 'Sending…' : 'Send'}
-                </Button>
+              <div className="grid min-w-0 gap-2">
+                <Label htmlFor="explorer-path">Path</Label>
+                <Input
+                  id="explorer-path"
+                  value={path}
+                  onChange={(e) => {
+                    edited();
+                    setPath(e.target.value);
+                  }}
+                  spellCheck={false}
+                  autoComplete="off"
+                  // the select and Send beside it are 36px; one height keeps the labels in a row
+                  className="h-9 font-mono text-xs"
+                  aria-invalid={problem && !path.includes('{id}') ? true : undefined}
+                  aria-describedby={problem ? 'explorer-path-help' : undefined}
+                />
               </div>
-              {problem && (
-                <p id="explorer-path-help" className="-mt-2 text-xs text-muted-foreground">
-                  {problem}
-                </p>
-              )}
-              {hasBody(method) && (
-                <div className="grid gap-2">
-                  <Label htmlFor="explorer-body">JSON body</Label>
-                  <Textarea
-                    id="explorer-body"
-                    value={body}
-                    onChange={(e) => {
-                      edited();
-                      setBody(e.target.value);
-                    }}
-                    rows={6}
-                    spellCheck={false}
-                    className="font-mono text-xs"
-                    placeholder="{}"
-                    aria-invalid={bodyProblem ? true : undefined}
-                    aria-describedby={bodyProblem ? 'explorer-body-help' : undefined}
-                  />
-                  {bodyProblem && (
-                    <p id="explorer-body-help" className="text-xs text-destructive">
-                      {bodyProblem}
-                    </p>
-                  )}
-                </div>
-              )}
-              {confirming && (
-                <div
-                  role="alert"
-                  className="flex flex-col gap-3 rounded-lg border border-warning/60 bg-card p-3 text-sm"
-                >
-                  <p className="flex gap-2">
-                    <TriangleAlert
-                      aria-hidden="true"
-                      className="mt-0.5 size-4 shrink-0 text-warning-foreground"
-                    />
-                    <span className="min-w-0 wrap-anywhere">
-                      This changes real data on this server. Send{' '}
-                      <span className="font-mono text-xs">
-                        {method} {path}
-                      </span>
-                      ?
-                    </span>
+              <Button
+                type="submit"
+                disabled={!!problem || !!bodyProblem || sending}
+                aria-busy={sending || undefined}
+                className="@[16rem]/page:col-span-2 @lg/page:col-span-1 @lg/page:min-w-24"
+              >
+                {sending ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <Send />}
+                {sending ? 'Sending…' : 'Send'}
+              </Button>
+            </div>
+            {problem && (
+              <p id="explorer-path-help" className="-mt-2 text-xs text-muted-foreground">
+                {problem}
+              </p>
+            )}
+            {hasBody(method) && (
+              <div className="grid gap-2">
+                <Label htmlFor="explorer-body">JSON body</Label>
+                <Textarea
+                  id="explorer-body"
+                  value={body}
+                  onChange={(e) => {
+                    edited();
+                    setBody(e.target.value);
+                  }}
+                  rows={6}
+                  spellCheck={false}
+                  className="font-mono text-xs"
+                  placeholder="{}"
+                  aria-invalid={bodyProblem ? true : undefined}
+                  aria-describedby={bodyProblem ? 'explorer-body-help' : undefined}
+                />
+                {bodyProblem && (
+                  <p id="explorer-body-help" className="text-xs text-destructive">
+                    {bodyProblem}
                   </p>
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setConfirming(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button ref={confirmRef} type="submit" size="sm">
-                      Send
-                    </Button>
-                  </div>
+                )}
+              </div>
+            )}
+            {confirming && (
+              <div
+                role="alert"
+                className="flex animate-enter flex-col gap-3 rounded-[10px] border bg-card px-3.5 py-3"
+              >
+                <p className="flex gap-2">
+                  <TriangleAlert
+                    aria-hidden="true"
+                    className="mt-px size-4.5 shrink-0 text-warning-icon"
+                  />
+                  <span className="min-w-0 wrap-anywhere">
+                    This changes real data on this server. Send{' '}
+                    <span className="font-mono text-xs">
+                      {method} {path}
+                    </span>
+                    ?
+                  </span>
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={SMALL_BUTTON}
+                    onClick={() => setConfirming(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button ref={confirmRef} type="submit" className={SMALL_BUTTON}>
+                    Send
+                  </Button>
                 </div>
-              )}
-            </form>
-          </CardContent>
-        </Card>
+              </div>
+            )}
+          </form>
+        </section>
 
-        <Card aria-busy={sending || undefined}>
-          <CardHeader>
-            <CardTitle>Response</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
+        <section
+          aria-labelledby="explorer-response-title"
+          aria-busy={sending || undefined}
+          className={EXPLORER_CARD}
+        >
+          <h2 id="explorer-response-title" className="font-heading text-heading">
+            Response
+          </h2>
+          <div className="flex min-w-0 flex-col gap-3">
             {/* focus stays on Send, so the answer is said here; a failure is an alert */}
             <p className="sr-only" role="status">
               {answer && !sending
@@ -384,8 +372,8 @@ export default function ExplorerPage() {
                   sending && 'opacity-60',
                 )}
               >
-                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                  <span className="min-w-0 font-mono text-xs wrap-anywhere">
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="min-w-0 font-mono text-[13px] wrap-anywhere">
                     {answer.method} {answer.path}
                   </span>
                   <span aria-hidden="true" className="text-muted-foreground">
@@ -401,7 +389,7 @@ export default function ExplorerPage() {
                   <span className="text-muted-foreground tabular-nums">{answer.ms} ms</span>
                 </p>
                 {answer.headers.length > 0 && (
-                  <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-xs text-muted-foreground">
+                  <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 rounded-[10px] border bg-background px-3.5 py-2.5 font-mono text-xs text-muted-foreground">
                     {answer.headers.map(([h, v]) => (
                       <div key={h} className="contents">
                         <dt>{h}</dt>
@@ -417,18 +405,14 @@ export default function ExplorerPage() {
                     bodyClassName="max-h-[32rem]"
                   />
                 ) : (
-                  <p className="text-sm text-muted-foreground">The response has no body.</p>
+                  <p className="text-muted-foreground">The response has no body.</p>
                 )}
               </div>
             ) : (
-              !failure && (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  {sending ? 'Waiting for the answer…' : 'Send a request to see the answer here.'}
-                </p>
-              )
+              !failure && <NoAnswerYet sending={sending} />
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       </div>
     </PageContainer>
   );

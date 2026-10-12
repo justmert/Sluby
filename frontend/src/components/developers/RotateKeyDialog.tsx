@@ -83,14 +83,17 @@ export function RotateKeyDialog({
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
       <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
-          <DialogTitle>Rotate this key?</DialogTitle>
+          <DialogTitle>
+            Rotate “<span dir="auto">{shown?.name}</span>”?
+          </DialogTitle>
           <DialogDescription>
-            {shown && <>{keyLabel(shown)} gets a new key with the same scopes and limit. </>}
-            Keep the old one working while you update your servers.
+            You get a new key with the same name and permissions. The old one keeps working while
+            your servers switch.
+            {shown && <span className="sr-only"> This is {keyLabel(shown)}.</span>}
           </DialogDescription>
         </DialogHeader>
         <fieldset className="flex min-w-0 flex-col gap-2" disabled={rotate.isPending}>
-          <legend className="mb-2 text-sm font-medium">Old key keeps working for</legend>
+          <legend className="mb-2 text-sm font-semibold">Old key keeps working for</legend>
           <div className="flex flex-wrap gap-2">
             {PILLS.map((o) => (
               // the selected pill draws a 2px edge and gives back 1px of
@@ -113,11 +116,6 @@ export function RotateKeyDialog({
             ))}
           </div>
         </fieldset>
-        <p className="text-xs text-muted-foreground">
-          Your server can also rotate a key with{' '}
-          <code className="font-mono">POST /api/v1/keys/{'{id}'}/rotate</code>, using a key with the
-          manage scope.
-        </p>
         <InlineError error={rotate.error} title="Could not rotate the key" />
         <DialogFooter>
           <Button variant="outline" onClick={close} disabled={rotate.isPending}>

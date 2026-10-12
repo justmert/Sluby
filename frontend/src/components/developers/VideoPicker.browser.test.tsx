@@ -16,8 +16,10 @@ const video = { id: 'v1', title: 'Product walkthrough', accessTier: 'public' } a
 
 async function heightOf(selected: VideoAsset | undefined) {
   const view = renderPage(
-    <div style={{ width: 'min(100%, 640px)' }}>
+    <div style={{ width: 'min(100%, 640px)' }} className="flex flex-col gap-2.5">
+      <h2 id="pick">Pick a video</h2>
       <VideoPicker
+        labelledBy="pick"
         videos={selected ? [selected] : undefined}
         selected={selected}
         error={null}

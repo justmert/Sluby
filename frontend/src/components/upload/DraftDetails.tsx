@@ -1,7 +1,7 @@
-import { useEffect, useId, useLayoutEffect, useRef } from 'react';
+import { Fragment, useEffect, useId, useLayoutEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, WifiOff } from 'lucide-react';
+import { WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
@@ -9,13 +9,20 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { statusOf } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
-import { formatBytes, formatCount, formatRelativeTime, plural } from '@/lib/formatters';
+import {
+  formatBytes,
+  formatCount,
+  formatDuration,
+  formatRelativeTime,
+  plural,
+} from '@/lib/formatters';
 import { sluby } from '@/lib/sluby';
 import { forgetUpload, type UploadRecord } from '@/lib/upload-history';
 import { overLimit, type Draft, type DraftDetails as Details } from '@/lib/upload-store';
 import { cn } from '@/lib/utils';
 import { AccessChoice } from './AccessChoice';
 import { draftTitleId } from './ids';
+import { useVideoMeta } from './video-meta';
 
 export const TITLE_MAX = 200;
 export const DESCRIPTION_MAX = 5_000;
@@ -88,12 +95,17 @@ export function DraftDetails({
   const errorId = `${titleId}-error`;
   const limitId = `${titleId}-limit`;
   const descriptionLength = d.description.length;
+  const meta = useVideoMeta(d.file);
+  const facts = [
+    formatBytes(d.file.size),
+    ...(meta ? [`${meta.height}p`, formatDuration(meta.durationMs)] : []),
+  ];
 
   return (
     <Card
       role="region"
       aria-labelledby={`${id}-heading`}
-      className="@container/upload min-w-0 flex-[999_1_27.5rem] gap-4 px-5 py-5 sm:px-6"
+      className="@container/upload min-w-0 flex-[999_1_27.5rem] gap-4 px-5 py-5 shadow-none sm:px-6"
     >
       <form
         noValidate
@@ -112,16 +124,17 @@ export function DraftDetails({
           >
             {d.file.name}
           </h2>
-          <span className="text-sm text-muted-foreground tabular-nums">
-            {formatBytes(d.file.size)}
-          </span>
+          <span className="text-sm text-muted-foreground tabular-nums">{facts.join(' · ')}</span>
         </div>
 
         <Field data-invalid={invalid || undefined} className="gap-1.5">
-          <FieldLabel htmlFor={titleId}>Title</FieldLabel>
+          <FieldLabel htmlFor={titleId} className="font-semibold">
+            Title
+          </FieldLabel>
           <Input
             ref={input}
             id={titleId}
+            className="h-10"
             aria-invalid={invalid || undefined}
             aria-describedby={cn(invalid && errorId, tooLarge && limitId) || undefined}
             dir="auto"
@@ -144,8 +157,8 @@ export function DraftDetails({
         </Field>
 
         <Field className="gap-1.5">
-          <FieldLabel htmlFor={`${id}-description`}>
-            Description <span className="font-normal text-muted-foreground">optional</span>
+          <FieldLabel htmlFor={`${id}-description`} className="font-semibold">
+            Description <span className="font-normal text-subtle-foreground">optional</span>
           </FieldLabel>
           <Textarea
             id={`${id}-description`}
@@ -166,26 +179,32 @@ export function DraftDetails({
         <AccessChoice value={d.accessTier} onChange={(accessTier) => onChange({ accessTier })} />
 
         <div className="flex flex-col gap-2">
-          <p id={`${id}-next`} className="text-sm leading-5 font-medium">
+          <p id={`${id}-next`} className="text-sm font-semibold">
             What happens next
           </p>
           <ol
             aria-labelledby={`${id}-next`}
-            className="flex flex-wrap items-center gap-x-2.5 gap-y-2 text-sm text-muted-foreground"
+            className="flex flex-wrap items-center gap-2.5 text-sm text-muted-foreground"
           >
             {NEXT_STEPS.map((step, i) => (
-              <li key={step} className="flex items-center gap-2.5">
-                {i > 0 && <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />}
-                <span className="flex items-center gap-2">
+              <Fragment key={step}>
+                {/* the separators are list items of their own, hidden from
+                    screen readers, so each step reads as just its name */}
+                {i > 0 && (
+                  <li aria-hidden="true" className="text-subtle-foreground">
+                    ›
+                  </li>
+                )}
+                <li className="flex items-center gap-2">
                   <span
                     aria-hidden="true"
-                    className="grid size-5.5 shrink-0 place-items-center rounded-full border-[1.5px] border-border-strong text-xs font-semibold tabular-nums"
+                    className="grid size-5.5 shrink-0 place-items-center rounded-full border-[1.5px] border-border-strong text-xs font-bold tabular-nums"
                   >
                     {i + 1}
                   </span>
                   {step}
-                </span>
-              </li>
+                </li>
+              </Fragment>
             ))}
           </ol>
         </div>
@@ -197,7 +216,7 @@ export function DraftDetails({
           </p>
         )}
 
-        <div className="flex flex-wrap items-center gap-2 border-t pt-4">
+        <div className="flex flex-wrap items-center gap-2 border-t border-border-soft pt-4">
           <Button type="button" variant="outline" onClick={onRemove}>
             Remove file
           </Button>

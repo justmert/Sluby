@@ -22,12 +22,12 @@ describe('JsonViewer', () => {
   it('colors keys, strings, numbers, booleans and null by type', () => {
     renderWithMotion(<JsonViewer value={payload} label="Payload" />);
     const tree = screen.getByRole('tree', { name: 'Payload' });
-    expect(within(tree).getByText('"duration_ms"')).toHaveClass('text-code-fn');
+    expect(within(tree).getByText('"duration_ms"')).toHaveClass('text-primary');
     expect(within(tree).getByText('"vid_1"')).toHaveClass('text-code-string');
     expect(within(tree).getByText('30000')).toHaveClass('text-code-number');
     expect(within(tree).getByText('true')).toHaveClass('text-code-keyword');
-    expect(within(tree).getByText('null')).toHaveClass('text-muted-foreground', 'italic');
-    expect(within(tree).getAllByText(',')[0]).toHaveClass('text-muted-foreground');
+    expect(within(tree).getByText('null')).toHaveClass('text-subtle-foreground', 'italic');
+    expect(within(tree).getAllByText(',')[0]).toHaveClass('text-subtle-foreground');
   });
 
   it('opens the first two levels and folds deeper ones to a count', () => {
@@ -132,7 +132,7 @@ describe('JsonViewer', () => {
 
   it('shows the label and the size of the JSON in the header', () => {
     renderWithMotion(<JsonViewer text={'{"a": 1}'} label="Response body" />);
-    expect(screen.getByText('Response body · 8 B')).toBeInTheDocument();
+    expect(screen.getByText('Response body · 8 bytes')).toBeInTheDocument();
     expect(screen.getByRole('tree', { name: 'Response body' })).toBeInTheDocument();
   });
 

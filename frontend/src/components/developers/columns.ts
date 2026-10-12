@@ -4,7 +4,7 @@ export const KEY_COLUMNS: readonly ColumnFrame[] = [
   { id: 'name', header: 'Name', primary: true, className: 'max-w-64 min-w-36 whitespace-normal' },
   { id: 'key', header: 'Key' },
   // shown from lg: at tablet width the table keeps name, key, last use and status
-  { id: 'scopes', header: 'Scopes', className: 'max-lg:hidden!' },
+  { id: 'scopes', header: 'Can', label: 'Can', className: 'max-lg:hidden!' },
   { id: 'last-used', header: 'Last used', className: 'max-sm:hidden! whitespace-nowrap' },
   {
     id: 'created',

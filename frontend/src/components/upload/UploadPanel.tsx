@@ -115,16 +115,20 @@ const isActive = (u: UploadState) => isTransferring(u) || u.phase === 'processin
 function RemoteRow({ upload: u }: { upload: RemoteUpload }) {
   const percent = Math.floor(sentPercent(u));
   return (
-    <li className="flex flex-col gap-1.5 border-t px-4 py-3.5 sm:px-5">
+    <li className="flex flex-col gap-2 border-t border-border-soft px-4.5 py-3.5">
       <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 truncate text-sm font-medium" dir="auto" title={u.title}>
+        <p className="min-w-0 flex-1 truncate text-sm font-semibold" dir="auto" title={u.title}>
           {u.title}
         </p>
-        <span className="text-xs text-muted-foreground tabular-nums">
+        <span className="text-sm text-muted-foreground tabular-nums">
           {u.paused ? `Paused at ${percent}%` : `${percent}%`}
         </span>
       </div>
-      <Progress value={percent} className="h-1.5" aria-label={`${u.title}, sent in another tab`} />
+      <Progress
+        value={percent}
+        className="h-1.5 bg-sunken"
+        aria-label={`${u.title}, sent in another tab`}
+      />
     </li>
   );
 }
@@ -148,22 +152,23 @@ function DraftRow({
       aria-current={selected || undefined}
       onClick={onSelect}
       className={cn(
-        'flex w-full flex-col gap-1 px-4 py-3.5 text-left outline-none transition-colors duration-150 focus-visible:ring-3 focus-visible:ring-ring focus-visible:ring-inset sm:px-5',
-        selected ? 'bg-accent shadow-[inset_3px_0_0_var(--color-primary)]' : 'hover:bg-muted',
+        'flex w-full flex-col gap-2 px-4.5 py-3.5 text-left outline-none transition-colors duration-150 ease-design focus-visible:ring-3 focus-visible:ring-ring focus-visible:ring-inset',
+        selected ? 'bg-accent shadow-[inset_3px_0_0_var(--color-primary)]' : 'hover:bg-background',
       )}
     >
       <span className="flex w-full items-center gap-2.5">
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold" dir="auto" title={d.title}>
-          {d.title.trim() || d.file.name}
+        <span
+          className="min-w-0 flex-1 truncate text-sm font-semibold"
+          dir="auto"
+          title={d.file.name}
+        >
+          {d.file.name}
         </span>
-        <Badge variant="secondary" className="shrink-0">
-          New
+        <Badge variant="secondary" className="shrink-0 tabular-nums">
+          New · {formatBytes(d.file.size)}
         </Badge>
       </span>
-      <span className="truncate text-xs text-muted-foreground">
-        <span dir="auto">{d.file.name}</span>, {formatBytes(d.file.size)}
-      </span>
-      <span className={cn('text-xs', tooLarge ? 'text-destructive' : 'text-muted-foreground')}>
+      <span className={cn('text-sm', tooLarge ? 'text-destructive' : 'text-muted-foreground')}>
         {tooLarge ? 'Too large for this server.' : 'Add a title, then start the upload.'}
       </span>
     </button>
@@ -350,11 +355,13 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
   };
 
   const active = uploads.filter(isActive);
+  // the upload the first queued file waits for
+  const running = uploads.find(isTransferring) ?? null;
   const ended = uploads.filter((u) => !isActive(u));
   const listed = uploads.length + drafts.length + queued.length > 0;
 
   const uploadRow = (u: UploadState) => (
-    <AnimatedItem key={u.key} className="border-t">
+    <AnimatedItem key={u.key} className="border-t border-border-soft">
       <UploadRow
         store={store}
         upload={u}
@@ -381,18 +388,18 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
           <Card
             role="region"
             aria-labelledby="upload-files"
-            className="@container/upload min-w-0 flex-[1_1_23.75rem] gap-0 py-0"
+            className="@container/upload min-w-0 flex-[1_1_23.75rem] gap-0 py-0 shadow-none"
           >
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-4 sm:px-5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4.5 py-4">
               <h2 id="upload-files" className="font-heading text-heading">
                 Files
               </h2>
-              <p className="ml-auto text-sm text-muted-foreground tabular-nums">
+              <p className="ml-auto text-[13px] text-muted-foreground tabular-nums">
                 {filesSummary(uploads, drafts.length, queued.length)}
               </p>
             </div>
             {queueHeld && (
-              <Alert className="mx-4 mb-3 w-auto sm:mx-5">
+              <Alert className="mx-4.5 mb-3 w-auto">
                 <CircleAlert />
                 <AlertTitle>Queue paused</AlertTitle>
                 <AlertDescription>
@@ -412,7 +419,7 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
               </Alert>
             )}
             {offline && queued.length > 0 && (
-              <p className="flex items-center gap-2 px-4 pb-3 text-xs text-muted-foreground sm:px-5">
+              <p className="flex items-center gap-2 px-4.5 pb-3 text-xs text-muted-foreground">
                 <WifiOff className="size-3.5 shrink-0" aria-hidden="true" />
                 You are offline. Uploads start when the connection is back.
               </p>
@@ -420,7 +427,7 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
             <AnimatedList as="ul" aria-labelledby="upload-files">
               {active.map(uploadRow)}
               {drafts.map((d) => (
-                <AnimatedItem key={d.id} className="border-t">
+                <AnimatedItem key={d.id} className="border-t border-border-soft">
                   <DraftRow
                     draft={d}
                     selected={d === selected}
@@ -432,33 +439,44 @@ export function UploadPanel({ store, tabs }: { store: UploadStore; tabs: UploadT
               {queued.map((q, i) => (
                 <AnimatedItem
                   key={q.key}
-                  className="flex items-center gap-3 border-t px-4 py-3.5 sm:px-5"
+                  className="flex flex-col gap-2 border-t border-border-soft px-4.5 py-3.5"
                 >
-                  <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2.5">
                     <h3
                       id={rowTitleId(q.key)}
                       tabIndex={-1}
                       dir="auto"
-                      title={q.title}
-                      className="truncate rounded-sm text-sm font-semibold outline-none focus-visible:ring-3 focus-visible:ring-ring"
+                      title={`${q.title} (${q.fileName}, ${formatBytes(q.bytesTotal)})`}
+                      className="min-w-0 flex-1 truncate rounded-sm text-sm font-semibold outline-none focus-visible:ring-3 focus-visible:ring-ring"
                     >
                       {q.title}
                     </h3>
-                    <p className="truncate text-xs text-muted-foreground" title={q.fileName}>
-                      <span dir="auto">{q.fileName}</span>, {formatBytes(q.bytesTotal)}
-                      {i === 0 ? ', next in line' : `, ${ordinal(i + 1)} in line`}
-                    </p>
+                    <StatusBadge kind="upload" status="queued" className="shrink-0">
+                      Queued, {ordinal(i + 1 + (running ? 1 : 0))}
+                    </StatusBadge>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="-mr-1 text-muted-foreground"
+                      aria-label={`Remove ${q.title} from the queue`}
+                      onClick={() => store.removeQueued(q.key)}
+                    >
+                      <X />
+                    </Button>
                   </div>
-                  <StatusBadge kind="upload" status="queued" />
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="text-muted-foreground"
-                    aria-label={`Remove ${q.title} from the queue`}
-                    onClick={() => store.removeQueued(q.key)}
-                  >
-                    <X />
-                  </Button>
+                  <p className="text-sm text-muted-foreground">
+                    {i > 0 ? (
+                      <>
+                        Starts after <span dir="auto">{queued[i - 1].title}</span>.
+                      </>
+                    ) : running ? (
+                      <>
+                        Starts when <span dir="auto">{running.title}</span> finishes.
+                      </>
+                    ) : (
+                      'Starts next.'
+                    )}
+                  </p>
                 </AnimatedItem>
               ))}
               {ended.map(uploadRow)}

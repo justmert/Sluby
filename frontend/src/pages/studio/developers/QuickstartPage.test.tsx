@@ -1,4 +1,4 @@
-import { act, screen, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { jsonFetch, renderPage, reply } from '@/test/render';
@@ -67,15 +67,38 @@ const render = () =>
     </WithSession>,
   );
 
-// the snippet's panel; the language panel sits inside it
-const code = () => screen.getAllByRole('tabpanel')[0];
+// the panel of the selected snippet
+const code = () => screen.getByRole('tabpanel');
+const picker = () => screen.findByRole('combobox', { name: 'Pick a video' });
 
 describe('Quickstart', () => {
-  it('shows this server’s base URL, the key count and the reference links', async () => {
+  it('lays the page out as four numbered steps', async () => {
     render();
     expect(screen.getByRole('heading', { level: 1, name: 'Quickstart' })).toBeInTheDocument();
-    expect(screen.getByText('Connect your app to this server')).toBeInTheDocument();
+    expect(
+      screen.getByText('Play a video on your site, then automate uploads from your server.'),
+    ).toBeInTheDocument();
+    const headings = screen.getAllByRole('heading', { level: 2 });
+    expect(headings.map((h) => h.textContent)).toEqual([
+      'Pick a video',
+      'Your API',
+      'Copy a snippet',
+      'Try a request',
+    ]);
+    // an ordered list, so each step is announced with its number
+    expect(headings.map((h) => h.closest('li')?.parentElement?.tagName)).toEqual([
+      'OL',
+      'OL',
+      'OL',
+      'OL',
+    ]);
+    expect(await picker()).toBeInTheDocument();
+  });
+
+  it('shows this server’s base URL with Copy, the key count and where to manage keys', async () => {
+    render();
     expect(screen.getByText(window.location.origin)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy base URL' })).toBeInTheDocument();
     expect(await screen.findByText('1 active key')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Create key' })).toHaveAttribute(
       'href',
@@ -85,65 +108,68 @@ describe('Quickstart', () => {
       'href',
       '/studio/developers/keys',
     );
-    expect(screen.getByRole('link', { name: /API reference/ })).toHaveAttribute(
-      'href',
-      '/api/v1/docs',
-    );
-    expect(screen.getByRole('link', { name: /SDK on npm/ })).toHaveAttribute(
-      'href',
-      'https://www.npmjs.com/package/@sluby/sdk',
-    );
+    expect(
+      screen.getByText(
+        'Keys are server secrets. Never put one in browser code; the embed snippets need none.',
+      ),
+    ).toBeInTheDocument();
   });
 
-  it('fades the side of the snippet tabs that runs past a phone', () => {
-    render();
-    const snippets = screen.getByRole('tablist', { name: 'Snippets' });
-    expect(snippets.closest('[data-slot="scroll-fade"]')).not.toBeNull();
-  });
-
-  it('names the snippet and language tab lists (A11Y-36)', async () => {
+  it('offers the four snippets as a named tab list', () => {
     render();
     const snippets = screen.getByRole('tablist', { name: 'Snippets' });
     expect(
       within(snippets)
         .getAllByRole('tab')
         .map((t) => t.textContent),
-    ).toEqual([
-      'Set up',
-      'Upload',
-      'Track',
-      'Search',
-      'Play',
-      'Private',
-      'Direct from Sia',
-      'Storage',
-      'Webhooks',
-    ]);
-    expect(screen.getByRole('tablist', { name: 'Snippet language' })).toBeInTheDocument();
-    expect(
-      screen.getByText('A video is called an asset in the API.', { exact: false }),
-    ).toBeInTheDocument();
-  });
-
-  it('scrolls a tab that is cut off by its sideways strip into view when it takes focus (2.4.11)', async () => {
-    render();
-    const scrolled = vi.fn();
-    Element.prototype.scrollIntoView = scrolled;
-    const tabs = within(await screen.findByRole('tablist', { name: 'Snippets' })).getAllByRole(
-      'tab',
+    ).toEqual(['Play in React', 'Upload from Node', 'Verify a webhook', 'curl']);
+    expect(screen.getByRole('tab', { name: 'Play in React' })).toHaveAttribute(
+      'aria-selected',
+      'true',
     );
-    act(() => tabs[tabs.length - 1].focus());
-    expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
   });
 
-  it('fills the newest ready video’s ID into the snippets, and another one when picked', async () => {
+  it('moves between the snippets with the arrow keys', async () => {
     render();
-    await screen.findByRole('combobox', { name: 'Video' });
-    await userEvent.click(screen.getByRole('tab', { name: 'Track' }));
-    expect(code()).toHaveTextContent(`const assetId = '${VID}';`);
-    await userEvent.click(screen.getByRole('combobox', { name: 'Video' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Board meeting' }));
-    expect(code()).toHaveTextContent("const assetId = 'vid-private';");
+    await userEvent.click(screen.getByRole('tab', { name: 'Play in React' }));
+    await userEvent.keyboard('{ArrowRight}');
+    const next = screen.getByRole('tab', { name: 'Upload from Node' });
+    expect(next).toHaveFocus();
+    expect(next).toHaveAttribute('aria-selected', 'true');
+    expect(code()).toHaveTextContent('upload.ts');
+  });
+
+  it('heads each snippet with its file name and a Copy button for that snippet', async () => {
+    render();
+    expect(within(code()).getByText('App.tsx')).toBeInTheDocument();
+    expect(
+      within(code()).getByRole('button', { name: 'Copy Play in React snippet' }),
+    ).toBeInTheDocument();
+    for (const [tab, file, text] of [
+      ['Upload from Node', 'upload.ts', 'sluby.uploads.upload(file'],
+      ['Verify a webhook', 'webhook.ts', 'webhooks.verifyRequest(body, req.headers, secret)'],
+      ['curl', 'request.sh', 'curl -s'],
+    ]) {
+      await userEvent.click(screen.getByRole('tab', { name: tab }));
+      expect(within(code()).getByText(file)).toBeInTheDocument();
+      expect(code()).toHaveTextContent(text);
+    }
+  });
+
+  it('fills the newest ready video’s ID into the player, and another one when picked', async () => {
+    render();
+    await userEvent.click(await picker());
+    expect(
+      await screen.findByRole('option', { name: 'Product walkthrough · Public' }),
+    ).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    expect(code()).toHaveTextContent(`streamUrl('${VID}')`);
+    expect(code()).toHaveTextContent('Public videos need no key.');
+    await userEvent.click(await picker());
+    await userEvent.click(await screen.findByRole('option', { name: 'Board meeting · Private' }));
+    // a private video plays through a url your server signs
+    expect(code()).toHaveTextContent('This video is private');
+    expect(code()).toHaveTextContent('refreshSrc={signedUrl}');
   });
 
   it('keeps YOUR_VIDEO_ID and says why when no video is ready', async () => {
@@ -152,8 +178,11 @@ describe('Quickstart', () => {
     expect(
       await screen.findByText(/The snippets use YOUR_VIDEO_ID until a video is ready/),
     ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: 'Track' }));
-    expect(code()).toHaveTextContent("const assetId = 'YOUR_VIDEO_ID';");
+    expect(screen.getByRole('link', { name: 'Upload a video' })).toHaveAttribute(
+      'href',
+      '/studio/videos/upload',
+    );
+    expect(code()).toHaveTextContent("streamUrl('YOUR_VIDEO_ID')");
   });
 
   it('keeps the placeholder when the videos do not load, and says so', async () => {
@@ -169,46 +198,16 @@ describe('Quickstart', () => {
     ).toBeInTheDocument();
   });
 
-  it('plays a public video with the share panel’s code, and signs a private one', async () => {
+  it('links to the explorer and the API reference', () => {
     render();
-    await screen.findByRole('combobox', { name: 'Video' });
-    await userEvent.click(screen.getByRole('tab', { name: 'Play' }));
-    const langs = () =>
-      within(code())
-        .getAllByRole('tab')
-        .map((t) => t.textContent);
-    expect(langs()).toEqual(['React', 'HTML', 'Stream URL']);
-    expect(code()).toHaveTextContent(`streamUrl('${VID}')`);
-    await userEvent.click(screen.getByRole('combobox', { name: 'Video' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Board meeting' }));
-    expect(langs()[0]).toBe('Server');
-    expect(code()).toHaveTextContent('This video is private');
-  });
-
-  it('says which snippets need the manage scope (FLW-56)', async () => {
-    render();
-    await userEvent.click(screen.getByRole('tab', { name: 'Webhooks' }));
-    expect(within(code()).getByText('Needs a key with the manage scope.')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: 'Search' }));
-    expect(
-      within(code()).queryByText('Needs a key with the manage scope.'),
-    ).not.toBeInTheDocument();
-  });
-
-  it('remembers the language from one snippet to the next', async () => {
-    render();
-    await userEvent.click(screen.getByRole('tab', { name: 'curl' }));
-    await userEvent.click(screen.getByRole('tab', { name: 'Search' }));
-    expect(screen.getByRole('tab', { name: 'curl' })).toHaveAttribute('aria-selected', 'true');
-    expect(code()).toHaveTextContent('curl -s');
-  });
-
-  it('links to the explorer', () => {
-    render();
-    expect(screen.getByRole('link', { name: 'Try a request in the API explorer' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Open the API explorer' })).toHaveAttribute(
       'href',
       '/studio/developers/explorer',
     );
+    const reference = screen.getByRole('link', { name: /API reference/ });
+    expect(reference).toHaveAttribute('href', '/api/v1/docs');
+    expect(reference).toHaveAttribute('target', '_blank');
+    expect(reference).toHaveTextContent('(opens in a new tab)');
   });
 
   it('offers Try again when the keys do not load, and keeps the rest of the page (D-25)', async () => {
@@ -237,18 +236,10 @@ describe('Quickstart', () => {
       has_more: false,
     };
     render();
-    await userEvent.click(await screen.findByRole('combobox', { name: 'Video' }));
-    const option = await screen.findByRole('option', { name: long });
+    await userEvent.click(await picker());
+    const option = await screen.findByRole('option', { name: `${long} · Public` });
     expect(option).toHaveAttribute('title', long);
     expect(option).toHaveClass('*:[span]:last:min-w-0');
-    expect(within(option).getByText(long)).toHaveClass('truncate');
-  });
-
-  it('wraps the explorer link at a large text size instead of running off the page (1.4.4)', () => {
-    render();
-    expect(screen.getByRole('link', { name: 'Try a request in the API explorer' })).toHaveClass(
-      'whitespace-normal',
-      'h-auto',
-    );
+    expect(within(option).getByText(`${long} · Public`)).toHaveClass('truncate');
   });
 });
