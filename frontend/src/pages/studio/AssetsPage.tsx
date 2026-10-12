@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
-import { Search, X } from 'lucide-react';
+import { Search } from 'lucide-react';
 import type {
   AccessTier,
   AssetSortField,
@@ -14,23 +14,13 @@ import type { SortState } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { PageState } from '@/components/shared/PageState';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { BulkBar } from '@/components/videos/BulkBar';
 import { libraryView, rememberView } from '@/components/videos/library-view';
 import { VideosGridSkeleton } from '@/components/videos/VideosGridSkeleton';
 import {
   ACCESS_FILTERS,
-  ALL,
+  PHONE_QUERY,
   SORT_FIELDS,
   STATUS_FILTERS,
   type SortColumn,
@@ -40,6 +30,7 @@ import { copyWithToast, videoActions } from '@/components/videos/video-actions';
 import { VideosCards, VideosCardsSkeleton } from '@/components/videos/VideosCards';
 import { VideosGrid } from '@/components/videos/VideosGrid';
 import { VideosTable } from '@/components/videos/VideosTable';
+import { GridSelectAll, VideosToolbar } from '@/components/videos/VideosToolbar';
 import {
   SELECT_ALL_CAP,
   errorStatus,
@@ -74,19 +65,6 @@ const STATUS_VALUES = new Set<string>(STATUS_FILTERS.map((s) => s.value));
 const TIER_VALUES = new Set<string>(ACCESS_FILTERS.map((a) => a.value));
 const SORT_VALUES = new Set<string>(Object.values(SORT_FIELDS));
 const DEFAULT_SORT = 'created_at:desc';
-
-// the grid has no headers to click, so it keeps a sort menu with every
-// order the table's headers can make
-const GRID_SORTS = [
-  { value: 'created_at:desc', label: 'Newest first' },
-  { value: 'created_at:asc', label: 'Oldest first' },
-  { value: 'title:asc', label: 'Title A to Z' },
-  { value: 'title:desc', label: 'Title Z to A' },
-  { value: 'duration:desc', label: 'Longest first' },
-  { value: 'duration:asc', label: 'Shortest first' },
-  { value: 'size:desc', label: 'Largest first' },
-  { value: 'size:asc', label: 'Smallest first' },
-];
 
 /**
  * Library state lives in the url so a filtered view can be shared, reloaded
@@ -209,7 +187,7 @@ export default function AssetsPage() {
   const location = useLocation();
   const openUpload = useOpenUpload();
   // the phone board: filter pills and one card per video instead of the table
-  const phone = useMediaQuery('(max-width: 639px)');
+  const phone = useMediaQuery(PHONE_QUERY);
   const [searchInput, setSearchInput] = useState(p.q);
   const [syncedQ, setSyncedQ] = useState(p.q);
   const debounced = useDebounce(searchInput, 300);
@@ -793,198 +771,53 @@ export default function AssetsPage() {
   // the table carries the pager in its card; the other views put it under them
   const pagerOutside = (phone || p.view === 'grid' || assets.length === 0) && pager;
 
-  const byStatus = stats.data?.by_status;
-  // the phone's filter pills: all, the three a person looks for most, any
-  // other status with videos in it, and the one in use
-  const pills = [
-    { value: ALL, label: 'All', count: stats.data?.total },
-    ...STATUS_FILTERS.filter(
-      (f) =>
-        f.value === p.status ||
-        f.value === 'ready' ||
-        f.value === 'processing' ||
-        f.value === 'failed' ||
-        (byStatus?.[f.value] ?? 0) > 0,
-    ).map((f) => ({ value: f.value, label: f.label, count: byStatus?.[f.value] })),
-  ];
-
-  const toolbar = phone ? (
-    <div className="-mx-4 flex flex-col gap-2">
-      <ToggleGroup
-        type="single"
-        variant="pill"
-        spacing={2}
-        value={p.status ?? ALL}
-        aria-label="Filter by status"
-        className="w-full px-4 py-0.5"
-        onValueChange={(v) => go({ status: !v || v === ALL ? null : v })}
-      >
-        {pills.map((pill) => (
-          <ToggleGroupItem key={pill.value} value={pill.value}>
-            {pill.label}
-            {pill.count !== undefined && (
-              <span className="tabular-nums">{formatCount(pill.count)}</span>
-            )}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-      {/* a search or access filter set elsewhere (a link, the wider layout)
-          stays visible here, and one tap takes it off */}
-      {(p.q || p.tier) && (
-        <div className="flex flex-wrap gap-2 px-4">
-          {p.q && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-full"
-              aria-label={`Remove search “${p.q}”`}
-              onClick={() => {
-                setSearchInput('');
-                go({ q: null });
-              }}
-            >
-              <span className="max-w-48 truncate" dir="auto">
-                “{p.q}”
-              </span>
-              <X aria-hidden="true" />
-            </Button>
-          )}
-          {p.tier && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-full"
-              aria-label={`Remove the ${p.tier} filter`}
-              onClick={() => go({ tier: null })}
-            >
-              {p.tier === 'private' ? 'Private' : 'Public'}
-              <X aria-hidden="true" />
-            </Button>
-          )}
-        </div>
-      )}
-    </div>
-  ) : (
-    <div className="flex flex-wrap items-center gap-2.5">
-      <div className="relative min-w-0 flex-[1_1_260px] @2xl/page:max-w-90">
-        <Input
-          ref={searchRef}
-          type="search"
-          placeholder="Search by title or ID"
-          aria-label="Search videos"
-          aria-keyshortcuts="/"
-          value={searchInput}
-          className={cn(searching && 'pr-9')}
-          onChange={(e) => setSearchInput(e.target.value)}
-          onBlur={() => (typing.current.active = false)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && searchInput) {
-              e.preventDefault();
-              setSearchInput('');
-            }
-          }}
-        />
-        {searching && (
-          <Spinner
-            aria-label="Searching"
-            className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground"
-          />
-        )}
-      </div>
-      <label className="flex items-center gap-2 text-muted-foreground">
-        Status
-        <Select value={p.status ?? ALL} onValueChange={(v) => go({ status: v === ALL ? null : v })}>
-          <SelectTrigger aria-label="Filter by status" className="w-35 text-foreground">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All</SelectItem>
-            {STATUS_FILTERS.map((f) => (
-              <SelectItem key={f.value} value={f.value}>
-                {f.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </label>
-      <label className="flex items-center gap-2 text-muted-foreground">
-        Access
-        <Select value={p.tier ?? ALL} onValueChange={(v) => go({ tier: v === ALL ? null : v })}>
-          <SelectTrigger aria-label="Filter by access" className="w-30 text-foreground">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All</SelectItem>
-            {ACCESS_FILTERS.map((f) => (
-              <SelectItem key={f.value} value={f.value}>
-                {f.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </label>
-      {p.view === 'grid' && assets.length > 0 && (
-        // the grid has no header row, so its select-all box sits here
-        <label className="flex h-9 cursor-pointer items-center gap-2 text-muted-foreground">
-          <Checkbox
+  const toolbar = (
+    <VideosToolbar
+      phone={phone}
+      view={p.view}
+      q={p.q}
+      status={p.status}
+      tier={p.tier}
+      sortValue={p.sortValue}
+      stats={stats.data}
+      searchInput={searchInput}
+      searchRef={searchRef}
+      searching={searching}
+      onSearchInput={setSearchInput}
+      onSearchBlur={() => (typing.current.active = false)}
+      selectAll={
+        assets.length > 0 && (
+          <GridSelectAll
             checked={allOnPage ? true : someOnPage ? 'indeterminate' : false}
-            onCheckedChange={(v) => selectPage(v === true)}
-            aria-label="Select all on this page"
+            onCheckedChange={selectPage}
           />
-          <span aria-hidden="true">Select all</span>
-        </label>
-      )}
-      {p.view === 'grid' && (
-        // the grid has no headers to click, so it keeps a sort menu
-        <label className="flex items-center gap-2 text-muted-foreground">
-          Sort
-          <Select value={p.sortValue} onValueChange={(v) => go({ sort: v })}>
-            <SelectTrigger aria-label="Sort" className="w-auto min-w-36 text-foreground">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {GRID_SORTS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-      )}
-      {filtered && (
-        <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={clearFilters}>
-          Clear filters
-        </Button>
-      )}
-      <ToggleGroup
-        type="single"
-        variant="segmented"
-        value={p.view}
-        aria-label="View"
-        className="ml-auto"
-        onValueChange={(v) => {
-          if (v !== 'table' && v !== 'grid') return;
-          // name the view this entry shows before leaving it: Back to a url
-          // without one would read the choice just stored and stay put
-          if (!p.viewInUrl) {
-            p.update(
-              {
-                view: p.view,
-                page: p.page > 1 ? String(p.page) : null,
-                preview: p.preview,
-              },
-              { replace: true },
-            );
-          }
-          rememberView(v);
-          go({ view: v, page: p.page > 1 ? String(p.page) : null });
-        }}
-      >
-        <ToggleGroupItem value="table">Table</ToggleGroupItem>
-        <ToggleGroupItem value="grid">Grid</ToggleGroupItem>
-      </ToggleGroup>
-    </div>
+        )
+      }
+      onStatus={(status) => go({ status })}
+      onTier={(tier) => go({ tier })}
+      onSort={(sort) => go({ sort })}
+      onView={(v) => {
+        // name the view this entry shows before leaving it: Back to a url
+        // without one would read the choice just stored and stay put
+        if (!p.viewInUrl) {
+          p.update(
+            {
+              view: p.view,
+              page: p.page > 1 ? String(p.page) : null,
+              preview: p.preview,
+            },
+            { replace: true },
+          );
+        }
+        rememberView(v);
+        go({ view: v, page: p.page > 1 ? String(p.page) : null });
+      }}
+      onClearFilters={clearFilters}
+      onRemoveSearch={() => {
+        setSearchInput('');
+        go({ q: null });
+      }}
+    />
   );
 
   return (
