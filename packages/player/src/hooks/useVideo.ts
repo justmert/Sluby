@@ -85,59 +85,84 @@ export function useVideo(
   }, [videoRef]);
 
   // ── HLS quality level tracking ───────────────────────────────────────────
+  //
+  // The player creates its hls.js instance only after it resolves the source,
+  // and creates a new one on retry, so it is not there when this effect first
+  // runs. hls.js attaching to the <video> makes it start loading new media,
+  // so re-check the ref on those events and (re)subscribe to whatever instance
+  // is current.
 
   useEffect(() => {
-    const hls = hlsRef.current;
-    if (!hls) return;
+    const video = videoRef.current;
+    let attached: Hls | null = null;
+    let detach = () => {};
 
-    // hls.js exposes Hls.Events as an enum, but we access them via the
-    // instance's static events to stay version-safe.
-    const HlsEvents = (hls.constructor as typeof Hls).Events;
-    if (!HlsEvents) return;
+    const attach = () => {
+      const hls = hlsRef.current;
+      if (hls === attached) return;
+      detach();
+      detach = () => {};
+      attached = hls;
+      if (!hls) return;
 
-    const onManifestParsed = () => {
-      const levels = hls.levels.map((level, index): QualityLevel => ({
-        index,
-        width: level.width,
-        height: level.height,
-        bitrate: level.bitrate,
-        name: `${level.height}p`,
-      }));
-      setQualities(levels);
+      // hls.js exposes Hls.Events as an enum, but we access them via the
+      // instance's static events to stay version-safe.
+      const HlsEvents = (hls.constructor as typeof Hls).Events;
+      if (!HlsEvents) return;
 
-      if (hls.currentLevel >= 0 && hls.currentLevel < levels.length) {
-        setCurrentQuality(levels[hls.currentLevel]);
-      }
-    };
-
-    const onLevelSwitched = (_event: string, data: { level: number }) => {
-      const levels = hls.levels;
-      if (data.level >= 0 && data.level < levels.length) {
-        const level = levels[data.level];
-        const quality: QualityLevel = {
-          index: data.level,
+      const onManifestParsed = () => {
+        const levels = hls.levels.map((level, index): QualityLevel => ({
+          index,
           width: level.width,
           height: level.height,
           bitrate: level.bitrate,
           name: `${level.height}p`,
-        };
-        setCurrentQuality(quality);
+        }));
+        setQualities(levels);
+
+        if (hls.currentLevel >= 0 && hls.currentLevel < levels.length) {
+          setCurrentQuality(levels[hls.currentLevel]);
+        }
+      };
+
+      const onLevelSwitched = (_event: string, data: { level: number }) => {
+        const levels = hls.levels;
+        if (data.level >= 0 && data.level < levels.length) {
+          const level = levels[data.level];
+          setCurrentQuality({
+            index: data.level,
+            width: level.width,
+            height: level.height,
+            bitrate: level.bitrate,
+            name: `${level.height}p`,
+          });
+        }
+      };
+
+      hls.on(HlsEvents.MANIFEST_PARSED, onManifestParsed);
+      hls.on(HlsEvents.LEVEL_SWITCHED, onLevelSwitched);
+
+      // The manifest may already be parsed by the time we attach.
+      if (hls.levels.length > 0) {
+        onManifestParsed();
       }
+
+      detach = () => {
+        hls.off(HlsEvents.MANIFEST_PARSED, onManifestParsed);
+        hls.off(HlsEvents.LEVEL_SWITCHED, onLevelSwitched);
+      };
     };
 
-    hls.on(HlsEvents.MANIFEST_PARSED, onManifestParsed);
-    hls.on(HlsEvents.LEVEL_SWITCHED, onLevelSwitched);
-
-    // If the manifest is already parsed (component hot-reloaded), seed levels.
-    if (hls.levels.length > 0) {
-      onManifestParsed();
-    }
+    attach();
+    video?.addEventListener('loadstart', attach);
+    video?.addEventListener('loadedmetadata', attach);
 
     return () => {
-      hls.off(HlsEvents.MANIFEST_PARSED, onManifestParsed);
-      hls.off(HlsEvents.LEVEL_SWITCHED, onLevelSwitched);
+      video?.removeEventListener('loadstart', attach);
+      video?.removeEventListener('loadedmetadata', attach);
+      detach();
     };
-  }, [hlsRef]);
+  }, [videoRef, hlsRef]);
 
   // ── Control methods ──────────────────────────────────────────────────────
 

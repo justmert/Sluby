@@ -48,6 +48,24 @@ const client = new SlubyClient({ apiKey: 'sluby_...', baseUrl: 'https://api.slub
 | `overlay`                                                                              | `boolean`               | Built-in spinner / error overlay. Default `true`.                             |
 | `maxNetworkRetries`, `maxMediaRetries`                                                 | `number`                | Recovery caps. Defaults 3 and 2.                                              |
 | `onReady`, `onPlay`, `onPause`, `onEnd`, `onError`, `onQualityChange`, `onStateChange` | callbacks               | `onStateChange` reports `idle` / `loading` / `ready` / `buffering` / `error`. |
+| `onQualitiesChange`                                                                    | callback                | Every rendition in the manifest, once parsed (hls.js path).                   |
+| `onDeliveryChange`                                                                     | callback                | `sia` (bytes straight from Sia hosts) or `gateway` for the current load.      |
+
+## Quality switching
+
+The ref handle lists the renditions and pins one:
+
+```tsx
+const player = useRef<SlubyPlayerHandle>(null);
+
+<SlubyPlayer ref={player} client={client} assetId="…" onQualitiesChange={setLevels} />;
+
+player.current?.setQuality(levels[0].index); // pin a rendition
+player.current?.setQuality(-1); // back to adaptive
+player.current?.isAutoQuality();
+```
+
+On Safari's native HLS path the browser picks the rendition and the list is empty.
 
 ## Headless control
 

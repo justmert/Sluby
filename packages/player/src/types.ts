@@ -87,7 +87,16 @@ export interface SlubyPlayerProps {
   onPause?: () => void;
   onEnd?: () => void;
   onError?: (error: Error) => void;
+  /** The rendition now playing, on load and on every switch. */
   onQualityChange?: (level: QualityLevel) => void;
+  /** Every rendition in the manifest, once it is parsed (hls.js path only). */
+  onQualitiesChange?: (levels: QualityLevel[]) => void;
+  /**
+   * How bytes reach the player for this load: `sia` streams straight from Sia
+   * hosts through the viewer session, `gateway` goes through the HTTP gateway
+   * (no viewer key, Safari's native path, or a failed Sia session).
+   */
+  onDeliveryChange?: (mode: 'sia' | 'gateway') => void;
   onStateChange?: (state: PlayerState) => void;
 }
 

@@ -171,6 +171,36 @@ describe('SlubyPlayer', () => {
       expect(ref.current!.getVideoElement()).toBeInstanceOf(HTMLVideoElement);
       expect(ref.current!.getHlsInstance()).toBe(hlsInstanceRef.current);
     });
+
+    it('lists renditions and pins or releases one', () => {
+      const ref = React.createRef<SlubyPlayerHandle>();
+      const onQualitiesChange = vi.fn();
+      render(<SlubyPlayer ref={ref} src={SRC} onQualitiesChange={onQualitiesChange} />);
+      const hls = hlsInstanceRef.current;
+      hls.levels = [
+        { width: 1280, height: 720, bitrate: 3_500_000 },
+        { width: 640, height: 360, bitrate: 800_000 },
+      ];
+      hls.autoLevelEnabled = true;
+
+      fireHls(MockHlsEvents.MANIFEST_PARSED);
+
+      const levels = [
+        { index: 0, width: 1280, height: 720, bitrate: 3_500_000, name: '720p' },
+        { index: 1, width: 640, height: 360, bitrate: 800_000, name: '360p' },
+      ];
+      expect(onQualitiesChange).toHaveBeenCalledWith(levels);
+      expect(ref.current!.getQualities()).toEqual(levels);
+      expect(ref.current!.isAutoQuality()).toBe(true);
+
+      ref.current!.setQuality(1);
+      expect(hls.currentLevel).toBe(1);
+      ref.current!.setQuality(-1);
+      expect(hls.currentLevel).toBe(-1);
+      // out of range falls back to adaptive rather than a bogus level
+      ref.current!.setQuality(7);
+      expect(hls.currentLevel).toBe(-1);
+    });
   });
 
   describe('state & callbacks', () => {
@@ -420,6 +450,33 @@ describe('SlubyPlayer', () => {
 
       await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(GATEWAY));
       expect(hlsInstanceRef.current.config.loader).toBeUndefined();
+    });
+
+    it('reports which delivery path the load took', async () => {
+      const onDeliveryChange = vi.fn();
+      render(
+        <SlubyPlayer
+          client={gatewayClient({ sia: viewerSession() })}
+          assetId="abc"
+          onDeliveryChange={onDeliveryChange}
+        />,
+      );
+      await waitFor(() => expect(onDeliveryChange).toHaveBeenCalledWith('sia'));
+
+      cleanup();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fallback = vi.fn();
+      render(
+        <SlubyPlayer
+          client={gatewayClient({
+            sia: viewerSession({ prepare: vi.fn().mockRejectedValue(new Error('boom')) }),
+          })}
+          assetId="abc"
+          onDeliveryChange={fallback}
+        />,
+      );
+      await waitFor(() => expect(fallback).toHaveBeenCalledWith('gateway'));
+      warn.mockRestore();
     });
 
     it('falls back to the gateway when the share map cannot be fetched', async () => {
