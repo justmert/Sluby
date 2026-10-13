@@ -9,6 +9,7 @@ import {
   type ReconciliationRouteDeps,
 } from './routes/reconciliation.js';
 import { createWebhookRoutes, type WebhookRouteDeps } from './routes/webhooks.js';
+import { createStatsRoutes, type StatsRouteDeps } from './routes/stats.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createApiKeyMiddleware, type ApiKeyMiddlewareDeps } from './middleware/api-key.js';
 import { rateLimiter } from './rate-limiter.js';
@@ -43,6 +44,7 @@ export interface ApiRouterDeps
     PlaybackIdRouteDeps,
     ReconciliationRouteDeps,
     WebhookRouteDeps,
+    StatsRouteDeps,
     ApiKeyMiddlewareDeps {
   createApiKey: (data: {
     keyHash: string;
@@ -102,6 +104,7 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   // they mount at the router root rather than a fixed prefix.
   router.use('/', createPlaybackIdRoutes(deps));
   router.use('/', createReconciliationRoutes(deps));
+  router.use('/', createStatsRoutes(deps));
 
   // API key management routes
   router.post('/keys', requireScope('manage'), async (req: Request, res: Response) => {
