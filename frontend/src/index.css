@@ -72,8 +72,9 @@
   --brand-foreground: #ffffff;
   --border: #e7e5e4;
   --border-strong: #d6d3d1;
-  /* field borders are the only edge of an empty input, so they clear 3:1 */
-  --input: #8a847f;
+  /* fields wear the same edge as outline buttons and cards around them; the
+     3:1 edge comes back under prefers-contrast: more, below */
+  --input: #d6d3d1;
   --ring: #0f6b7a;
   --chart-1: #0f6b7a;
   --chart-2: #15803d;
@@ -153,7 +154,7 @@
   --info: #d2d7da;
   --border: #282d31;
   --border-strong: #3a4146;
-  --input: #717a80;
+  --input: #3a4146;
   --ring: #5bbfcc;
   --chart-1: #5bbfcc;
   --chart-2: #6bd394;

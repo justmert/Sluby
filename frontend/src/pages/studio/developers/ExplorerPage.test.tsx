@@ -261,11 +261,15 @@ describe('API explorer', () => {
     await waitFor(() => expect(response()).toHaveTextContent('"second"'));
   });
 
-  it('stacks method over path and lets the template shrink when large text leaves no room (1.4.4)', () => {
+  it('stacks every control on a narrow page and lets the template shrink when large text leaves no room (1.4.4)', () => {
     render();
-    expect(screen.getByRole('combobox', { name: 'Template' })).toHaveClass('min-w-0');
+    const template = screen.getByRole('combobox', { name: 'Template' });
+    expect(template).toHaveClass('min-w-0');
     const row = path().closest('.items-end');
-    expect(row).toHaveClass('grid-cols-1', '@[16rem]/page:grid-cols-[7rem_minmax(0,1fr)]');
-    expect(screen.getByRole('button', { name: 'Send' })).not.toHaveClass('col-span-2');
+    // one column until there is room for method, path and Send side by side
+    expect(row).toHaveClass('grid-cols-1', '@lg/page:grid-cols-[7rem_minmax(0,1fr)_auto]');
+    // the template sits in the same row and gets its own line before the widest layout
+    expect(row).toContainElement(template);
+    expect(template.parentElement).toHaveClass('@lg/page:col-span-3', '@4xl/page:col-span-1');
   });
 });

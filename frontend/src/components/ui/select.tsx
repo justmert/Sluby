@@ -48,11 +48,29 @@ function SelectTrigger({
   );
 }
 
+// whether the last input was a pointer, and which select trigger it was on,
+// so a menu closed by a click or tap hands focus back without the keyboard ring
+let pointerInput = false;
+let lastTrigger: HTMLElement | null = null;
+if (typeof document !== 'undefined') {
+  const note = (pointer: boolean) => (e: Event) => {
+    pointerInput = pointer;
+    const trigger = (e.target as Element | null)?.closest?.<HTMLElement>(
+      '[data-slot=select-trigger]',
+    );
+    if (trigger) lastTrigger = trigger;
+  };
+  document.addEventListener('pointerdown', note(true), true);
+  document.addEventListener('keydown', note(false), true);
+}
+
 function SelectContent({
   className,
   children,
-  position = 'item-aligned',
-  align = 'center',
+  // below the trigger, not over it: item-aligned covered the field it belongs to
+  position = 'popper',
+  align = 'start',
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (
@@ -60,6 +78,15 @@ function SelectContent({
       <SelectPrimitive.Content
         data-slot="select-content"
         data-align-trigger={position === 'item-aligned'}
+        onCloseAutoFocus={(e) => {
+          onCloseAutoFocus?.(e);
+          if (e.defaultPrevented || !pointerInput || !lastTrigger?.isConnected) return;
+          // radix refocuses the trigger by script, which chrome draws as keyboard
+          // focus; focusVisible: false keeps the ring for keyboard use only
+          const trigger = lastTrigger;
+          e.preventDefault();
+          trigger.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
+        }}
         className={cn(
           'relative z-50 max-h-(--radix-select-content-available-height) min-w-36 origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-xl border bg-popover text-popover-foreground shadow-menu duration-100 data-[align-trigger=true]:animate-none data-open:animate-enter data-closed:animate-out data-closed:fade-out-0',
           position === 'popper' &&
@@ -74,7 +101,7 @@ function SelectContent({
         <SelectPrimitive.Viewport
           data-position={position}
           className={cn(
-            'data-[position=popper]:h-(--radix-select-trigger-height) data-[position=popper]:w-full data-[position=popper]:min-w-(--radix-select-trigger-width)',
+            'data-[position=popper]:w-full data-[position=popper]:min-w-(--radix-select-trigger-width)',
             position === 'popper' && '',
           )}
         >

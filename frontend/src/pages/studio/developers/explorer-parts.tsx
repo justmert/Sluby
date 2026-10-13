@@ -4,7 +4,13 @@ import { PAGE_HEADS } from '@/components/layout/page-heads';
 import { Skeleton } from '@/components/ui/skeleton';
 import { API_REFERENCE_URL } from '@/lib/embed';
 import { cn } from '@/lib/utils';
-import { EXPLORER_CARD, EXPLORER_GRID, EXPLORER_ROW } from './quickstart-copy';
+import {
+  EXPLORER_CARD,
+  EXPLORER_GRID,
+  EXPLORER_ROW,
+  EXPLORER_SEND,
+  EXPLORER_TEMPLATE,
+} from './quickstart-copy';
 
 // the explorer's fixed pieces, in their own module so the route skeleton
 // draws the same cards and text without loading the page
@@ -57,11 +63,11 @@ export function ExplorerLoading() {
         <div className={EXPLORER_CARD}>
           <RequestIntro />
           <div className="flex flex-col gap-4">
-            <div className="grid gap-2">
-              <div className={LABEL}>Template</div>
-              <Skeleton className={CONTROL} />
-            </div>
             <div className={EXPLORER_ROW}>
+              <div className={EXPLORER_TEMPLATE}>
+                <div className={LABEL}>Template</div>
+                <Skeleton className={CONTROL} />
+              </div>
               <div className="grid gap-2">
                 <div className={LABEL}>Method</div>
                 <Skeleton className={CONTROL} />
@@ -70,12 +76,7 @@ export function ExplorerLoading() {
                 <div className={LABEL}>Path</div>
                 <Skeleton className={CONTROL} />
               </div>
-              <Skeleton
-                className={cn(
-                  CONTROL,
-                  '@[16rem]/page:col-span-2 @lg/page:col-span-1 @lg/page:w-24',
-                )}
-              />
+              <Skeleton className={cn(CONTROL, EXPLORER_SEND, '@lg/page:w-24')} />
             </div>
           </div>
         </div>

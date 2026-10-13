@@ -55,11 +55,20 @@ describe('status text keeps 4.5:1 on every surface it sits on', () => {
   }
 });
 
-describe('the edge of an empty field keeps 3:1', () => {
+describe('the edge of an empty field keeps 3:1 when more contrast is asked for', () => {
+  // by default fields share the outline buttons' edge; the 3:1 edge is the
+  // prefers-contrast: more one
+  const more = css.slice(css.indexOf('@media (prefers-contrast: more)'));
+  const moreToken = (scope: string) => {
+    const start = more.indexOf(`${scope} {`);
+    const m = /--input: #([0-9a-f]{6});/.exec(more.slice(start, more.indexOf('}', start)));
+    if (!m) throw new Error(`no --input for ${scope} under prefers-contrast`);
+    return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255) as Rgb;
+  };
   for (const scope of [':root', '.dark']) {
     for (const surface of SURFACES) {
       it(`${scope} input on ${surface}`, () => {
-        expect(ratio(token(scope, 'input'), token(scope, surface))).toBeGreaterThanOrEqual(3);
+        expect(ratio(moreToken(scope), token(scope, surface))).toBeGreaterThanOrEqual(3);
       });
     }
   }

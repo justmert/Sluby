@@ -32,7 +32,14 @@ import { reportUnauthorized } from '@/lib/session-events';
 import { cn } from '@/lib/utils';
 import { PAGE_HEADS } from '@/components/layout/page-heads';
 import { NoAnswerYet, RequestIntro } from './explorer-parts';
-import { EXPLORER_CARD, EXPLORER_GRID, EXPLORER_ROW, SMALL_BUTTON } from './quickstart-copy';
+import {
+  EXPLORER_CARD,
+  EXPLORER_GRID,
+  EXPLORER_ROW,
+  EXPLORER_SEND,
+  EXPLORER_TEMPLATE,
+  SMALL_BUTTON,
+} from './quickstart-copy';
 
 const SHOWN_HEADERS = [
   'content-type',
@@ -202,30 +209,30 @@ export default function ExplorerPage() {
         <section aria-labelledby="explorer-request" className={EXPLORER_CARD}>
           <RequestIntro />
           <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
-            <div className="grid gap-2">
-              <Label htmlFor="explorer-template">Template</Label>
-              <Select key={templateKey} value={template} onValueChange={load}>
-                <SelectTrigger id="explorer-template" className="w-full min-w-0">
-                  <SelectValue placeholder="Start from a template" />
-                </SelectTrigger>
-                <SelectContent>
-                  {groups.map((g) => (
-                    <SelectGroup key={g}>
-                      <SelectLabel>{g}</SelectLabel>
-                      {REQUEST_TEMPLATES.filter((t) => t.group === g).map((t) => (
-                        <SelectItem key={t.label} value={t.label}>
-                          <span className="w-14 font-mono text-xs text-muted-foreground">
-                            {t.method}
-                          </span>
-                          {t.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
             <div className={EXPLORER_ROW}>
+              <div className={EXPLORER_TEMPLATE}>
+                <Label htmlFor="explorer-template">Template</Label>
+                <Select key={templateKey} value={template ?? ''} onValueChange={load}>
+                  <SelectTrigger id="explorer-template" className="w-full min-w-0">
+                    <SelectValue placeholder="Start from a template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups.map((g) => (
+                      <SelectGroup key={g}>
+                        <SelectLabel>{g}</SelectLabel>
+                        {REQUEST_TEMPLATES.filter((t) => t.group === g).map((t) => (
+                          <SelectItem key={t.label} value={t.label}>
+                            <span className="w-14 shrink-0 text-left font-mono text-xs text-muted-foreground">
+                              {t.method}
+                            </span>
+                            {t.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="grid gap-2">
                 <Label htmlFor="explorer-method">Method</Label>
                 <Select
@@ -268,7 +275,7 @@ export default function ExplorerPage() {
                 type="submit"
                 disabled={!!problem || !!bodyProblem || sending}
                 aria-busy={sending || undefined}
-                className="@[16rem]/page:col-span-2 @lg/page:col-span-1 @lg/page:min-w-24"
+                className={EXPLORER_SEND}
               >
                 {sending ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <Send />}
                 {sending ? 'Sending…' : 'Send'}

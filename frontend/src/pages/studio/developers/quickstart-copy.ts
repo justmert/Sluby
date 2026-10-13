@@ -13,6 +13,11 @@ export const SMALL_BUTTON = 'h-7.5 px-2.5 text-sm pointer-coarse:h-9';
 // the explorer's cards and grids, shared with its route skeleton
 export const EXPLORER_CARD =
   'flex min-w-0 flex-col gap-4 rounded-xl border bg-card px-6 py-5 text-sm max-sm:px-4';
-export const EXPLORER_GRID = 'grid items-start gap-4 @4xl/page:grid-cols-2';
+// stacked: side by side, a short request beside a long answer left a hole
+export const EXPLORER_GRID = 'flex flex-col gap-4';
+// template, method, path and Send on one line when there is room; the
+// template takes its own line below that, and everything stacks on a phone
 export const EXPLORER_ROW =
-  'grid grid-cols-1 items-end gap-2 @[16rem]/page:grid-cols-[7rem_minmax(0,1fr)] @lg/page:grid-cols-[7rem_minmax(0,1fr)_auto]';
+  'grid grid-cols-1 items-end gap-2 @lg/page:grid-cols-[7rem_minmax(0,1fr)_auto] @4xl/page:grid-cols-[minmax(0,18rem)_7rem_minmax(0,1fr)_auto]';
+export const EXPLORER_TEMPLATE = 'grid min-w-0 gap-2 @lg/page:col-span-3 @4xl/page:col-span-1';
+export const EXPLORER_SEND = '@lg/page:min-w-24';
