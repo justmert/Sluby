@@ -1,101 +1,63 @@
-import {
-  useQuery,
-  useMutation,
-  useQueryClient,
-  type UseQueryResult,
-  type UseMutationResult,
-} from '@tanstack/react-query';
-import { apiClient } from '../lib/api-client';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+export type KeyScope = 'upload' | 'read' | 'manage';
 
 export interface ApiKeyRecord {
   id: string;
   name: string;
-  scopes: string[];
+  scopes: KeyScope[];
   rate_limit: number;
   is_active: boolean;
   created_at: string;
+  /** Set while a rotated-out key is in its grace period. */
+  expires_at: string | null;
 }
 
-export interface CreateApiKeyResponse {
+/** A key as the server returns it right after creation or rotation. */
+export interface IssuedKey {
   id: string;
   key: string;
   name: string;
-  scopes: string[];
+  scopes: KeyScope[];
+  rate_limit: number;
+  rotated_from?: string;
+  previous_key_expires_at?: string;
 }
 
-export interface CreateApiKeyParams {
-  name: string;
-  scopes: string[];
-  rate_limit?: number;
-}
+const KEYS = ['api-keys'];
 
-// ---------------------------------------------------------------------------
-// Hooks
-// ---------------------------------------------------------------------------
-
-export function useApiKeys(): UseQueryResult<{ data: ApiKeyRecord[] }> {
+export function useApiKeys() {
   return useQuery({
-    queryKey: ['api-keys'],
+    queryKey: KEYS,
     queryFn: () => apiClient.get<{ data: ApiKeyRecord[] }>('/keys'),
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
-    retry: 2,
-    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10_000),
-    refetchOnWindowFocus: false,
+    // a rotated key drops off the list when its grace period ends
+    refetchInterval: 60_000,
   });
 }
 
-export function useCreateApiKey(): UseMutationResult<
-  CreateApiKeyResponse,
-  Error,
-  CreateApiKeyParams
-> {
-  const queryClient = useQueryClient();
-
+export function useCreateApiKey() {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: (params: CreateApiKeyParams) =>
-      apiClient.post<CreateApiKeyResponse>('/keys', params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['api-keys'] });
-    },
+    mutationFn: (body: { name: string; scopes: KeyScope[]; rate_limit: number }) =>
+      apiClient.post<IssuedKey>('/keys', body),
+    onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
   });
 }
 
-export function useDeleteApiKey(): UseMutationResult<{ success: boolean }, Error, string> {
-  const queryClient = useQueryClient();
+export function useRotateApiKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, graceSeconds }: { id: string; graceSeconds: number }) =>
+      apiClient.post<IssuedKey>(`/keys/${id}/rotate`, { grace_period_seconds: graceSeconds }),
+    onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
+  });
+}
 
+export function useRevokeApiKey() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiClient.delete<{ success: boolean }>(`/keys/${id}`),
-    onMutate: async (id) => {
-      // Cancel any outgoing refetches so they don't overwrite our optimistic update
-      await queryClient.cancelQueries({ queryKey: ['api-keys'] });
-
-      // Snapshot the previous value for rollback
-      const previous = queryClient.getQueryData<{ data: ApiKeyRecord[] }>(['api-keys']);
-
-      // Optimistically remove the key from the list
-      if (previous) {
-        queryClient.setQueryData<{ data: ApiKeyRecord[] }>(['api-keys'], {
-          ...previous,
-          data: previous.data.filter((key) => key.id !== id),
-        });
-      }
-
-      return { previous };
-    },
-    onError: (_err, _id, context) => {
-      // Roll back to the previous value on error
-      if (context?.previous) {
-        queryClient.setQueryData(['api-keys'], context.previous);
-      }
-    },
-    onSettled: () => {
-      // Always refetch after error or success to ensure server state
-      queryClient.invalidateQueries({ queryKey: ['api-keys'] });
-    },
+    onSettled: () => qc.invalidateQueries({ queryKey: KEYS }),
   });
 }

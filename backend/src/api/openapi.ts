@@ -341,7 +341,15 @@ export const openapiDocument = {
           id: { type: 'string', format: 'uuid' },
           key: { type: 'string', description: 'Raw key, returned only at creation.' },
           name: { type: 'string' },
-          scopes: { type: 'array', items: { type: 'string' } },
+          scopes: { type: 'array', items: { type: 'string', enum: ['upload', 'read', 'manage'] } },
+          rate_limit: { type: 'integer' },
+          is_active: { type: 'boolean' },
+          created_at: { type: 'string', format: 'date-time' },
+          expires_at: {
+            type: ['string', 'null'],
+            format: 'date-time',
+            description: 'Set while a rotated-out key is in its grace period.',
+          },
         },
       },
       SiaStorageInfo: {
@@ -814,6 +822,39 @@ export const openapiDocument = {
         summary: 'List API keys.',
         'x-required-scope': 'manage',
         responses: { '200': { description: 'Keys.' } },
+      },
+    },
+    '/api/v1/keys/{id}/rotate': {
+      post: {
+        tags: ['Keys'],
+        summary: 'Rotate an API key.',
+        description:
+          'Issues a new secret with the same name, scopes and rate limit. The old key stops ' +
+          'working now, or after grace_period_seconds (up to 604800) for a zero-downtime switch.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Key id.')],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  grace_period_seconds: {
+                    type: 'integer',
+                    minimum: 0,
+                    maximum: 604800,
+                    default: 0,
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '201': { description: 'The replacement key, with its secret shown once.' },
+          '400': errorResponse,
+          '404': errorResponse,
+        },
       },
     },
     '/api/v1/keys/{id}': {

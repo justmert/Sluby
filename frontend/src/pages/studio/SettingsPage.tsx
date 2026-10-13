@@ -1,215 +1,552 @@
 import { useState } from 'react';
-import {
-  Sun,
-  Moon,
-  Monitor,
-  Key,
-  Globe,
-  Check,
-  ExternalLink,
-  Eye,
-  EyeOff,
-  CheckCircle2,
-  XCircle,
-} from 'lucide-react';
-import { motion } from 'motion/react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { PageContainer } from '@/components/layout/PageContainer';
+import { AlertTriangle, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
+import { useSession } from '@/components/AuthGate';
 import { useTheme, type Theme } from '@/components/theme-provider';
-import { useHealthCheck } from '@/hooks/useHealthCheck';
-import { getStoredApiKey, setStoredApiKey } from '@/lib/api-key-store';
-import { cn } from '@/lib/utils';
+import { THEME_OPTIONS } from '@/components/theme-toggle';
+import { CopyButton } from '@/components/shared/CopyButton';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import {
+  useApiKeys,
+  useCreateApiKey,
+  useRevokeApiKey,
+  useRotateApiKey,
+  type ApiKeyRecord,
+  type IssuedKey,
+  type KeyScope,
+} from '@/hooks/useApiKeys';
+import { useSystemStatus } from '@/hooks/useStats';
+import { formatDate, formatRelativeTime } from '@/lib/formatters';
 
-// ---------------------------------------------------------------------------
-// Appearance Section
-// ---------------------------------------------------------------------------
+const SCOPES: { value: KeyScope; label: string; detail: string }[] = [
+  { value: 'upload', label: 'upload', detail: 'Upload videos through tus' },
+  { value: 'read', label: 'read', detail: 'Read assets, playback urls, storage details' },
+  { value: 'manage', label: 'manage', detail: 'Edit and delete assets, keys and webhooks' },
+];
 
-function AppearanceSection() {
-  const { theme, setTheme } = useTheme();
+const GRACE_OPTIONS = [
+  { value: '0', label: 'Immediately' },
+  { value: '3600', label: 'After 1 hour' },
+  { value: '86400', label: 'After 24 hours' },
+  { value: '604800', label: 'After 7 days' },
+];
 
-  const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
-    { value: 'light', label: 'Light', icon: Sun },
-    { value: 'dark', label: 'Dark', icon: Moon },
-    { value: 'system', label: 'System', icon: Monitor },
-  ];
-
-  return (
-    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
-      <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-1">Appearance</h3>
-      <p className="text-sm text-zinc-400 mb-4">Choose your preferred theme</p>
-      <div className="flex gap-2">
-        {themes.map(({ value, label, icon: Icon }) => (
-          <button
-            key={value}
-            onClick={() => setTheme(value)}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2.5 rounded-lg border transition-all',
-              theme === value
-                ? 'border-teal-500/50 bg-teal-500/10 text-teal-400'
-                : 'border-white/[0.08] bg-white/[0.03] text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200',
-            )}
-          >
-            <Icon className="w-4 h-4" />
-            <span className="text-sm font-medium">{label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+function timeLeft(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'now';
+  const hours = Math.floor(ms / 3_600_000);
+  if (hours >= 24) return `in ${Math.floor(hours / 24)}d ${hours % 24}h`;
+  if (hours >= 1) return `in ${hours}h ${Math.floor((ms % 3_600_000) / 60_000)}m`;
+  return `in ${Math.max(1, Math.round(ms / 60_000))}m`;
 }
 
 // ---------------------------------------------------------------------------
-// API Configuration Section
+// Dialogs
 // ---------------------------------------------------------------------------
 
-function ApiConfigSection() {
-  const health = useHealthCheck(10000);
-  const [apiKey, setApiKey] = useState(getStoredApiKey() ?? '');
-  const [showKey, setShowKey] = useState(false);
-  const [saved, setSaved] = useState(false);
+/** Shows a freshly issued secret, which the server never returns again. */
+function SecretDialog({ issued, onClose }: { issued: IssuedKey | null; onClose: () => void }) {
+  return (
+    <Dialog open={issued !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {issued?.rotated_from ? 'Key rotated' : 'Key created'}: {issued?.name}
+          </DialogTitle>
+          <DialogDescription>
+            Copy the secret now. It is stored only as a hash and cannot be shown again.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-3">
+          <code className="min-w-0 flex-1 font-mono text-xs break-all" data-testid="issued-key">
+            {issued?.key}
+          </code>
+          {issued && <CopyButton value={issued.key} label="Copy API key" />}
+        </div>
+        {issued?.previous_key_expires_at && (
+          <p className="text-sm text-muted-foreground">
+            The previous key stops working{' '}
+            {new Date(issued.previous_key_expires_at).getTime() <= Date.now() + 5_000
+              ? 'now'
+              : `on ${new Date(issued.previous_key_expires_at).toLocaleString()}`}
+            .
+          </p>
+        )}
+        <DialogFooter>
+          <Button onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-  const handleSave = () => {
-    setStoredApiKey(apiKey);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+function CreateKeyDialog({
+  open,
+  onOpenChange,
+  onIssued,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onIssued: (k: IssuedKey) => void;
+}) {
+  const create = useCreateApiKey();
+  const [name, setName] = useState('');
+  const [scopes, setScopes] = useState<KeyScope[]>(['upload', 'read']);
+  const [rateLimit, setRateLimit] = useState('100');
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const issued = await create.mutateAsync({
+        name: name.trim(),
+        scopes,
+        rate_limit: Number(rateLimit),
+      });
+      onOpenChange(false);
+      setName('');
+      onIssued(issued);
+    } catch (err) {
+      toast.error(`Could not create key: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const rate = Number(rateLimit);
+  const valid = name.trim() !== '' && scopes.length > 0 && Number.isInteger(rate) && rate > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>Create API key</DialogTitle>
+            <DialogDescription>
+              Keys act for your account with the scopes you pick.
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="key-name">Name</FieldLabel>
+              <Input
+                id="key-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="production web app"
+                maxLength={100}
+                autoFocus
+              />
+            </Field>
+            <FieldSet>
+              <FieldLegend variant="label">Scopes</FieldLegend>
+              {SCOPES.map((s) => (
+                <Field key={s.value} orientation="horizontal">
+                  <Checkbox
+                    id={`scope-${s.value}`}
+                    checked={scopes.includes(s.value)}
+                    onCheckedChange={(on) =>
+                      setScopes((prev) =>
+                        on === true ? [...prev, s.value] : prev.filter((x) => x !== s.value),
+                      )
+                    }
+                  />
+                  <Label htmlFor={`scope-${s.value}`} className="font-normal">
+                    <span className="font-mono">{s.label}</span>
+                    <span className="text-muted-foreground">{s.detail}</span>
+                  </Label>
+                </Field>
+              ))}
+            </FieldSet>
+            <Field>
+              <FieldLabel htmlFor="key-rate">Rate limit</FieldLabel>
+              <Input
+                id="key-rate"
+                type="number"
+                min={1}
+                value={rateLimit}
+                onChange={(e) => setRateLimit(e.target.value)}
+                className="w-32"
+              />
+              <FieldDescription>Requests per minute.</FieldDescription>
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!valid || create.isPending}>
+              Create key
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RotateDialog({
+  target,
+  onClose,
+  onIssued,
+}: {
+  target: ApiKeyRecord | null;
+  onClose: () => void;
+  onIssued: (k: IssuedKey) => void;
+}) {
+  const rotate = useRotateApiKey();
+  const [grace, setGrace] = useState('0');
+
+  const confirm = async () => {
+    if (!target) return;
+    try {
+      const issued = await rotate.mutateAsync({ id: target.id, graceSeconds: Number(grace) });
+      onClose();
+      onIssued(issued);
+    } catch (err) {
+      toast.error(`Could not rotate: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   return (
-    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
-      <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-1">API Configuration</h3>
-      <p className="text-sm text-zinc-400 mb-4">Manage your API key and view connection status</p>
-      <div className="space-y-4">
-        <div>
-          <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Active API Key</label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Input
-                type={showKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Enter your API key"
-                className="font-mono text-xs pr-8 h-10"
-              />
-              <button
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
-              >
-                {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              className="gap-1.5 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg"
-            >
-              {saved ? <Check className="w-3.5 h-3.5" /> : <Key className="w-3.5 h-3.5" />}
-              {saved ? 'Saved' : 'Save'}
-            </Button>
-          </div>
-        </div>
-        <div>
-          <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Backend URL</label>
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/[0.08] bg-white/[0.03]">
-            <Globe className="w-3.5 h-3.5 text-zinc-400" />
-            <code className="text-xs font-mono text-zinc-300">{window.location.origin}</code>
-          </div>
-        </div>
-        <div>
-          <label className="text-xs text-zinc-400 font-medium mb-1.5 block">
-            Connection Status
-          </label>
-          <div className="flex items-center gap-2">
-            {health.isLoading ? (
-              <Skeleton className="h-5 w-24" />
-            ) : health.data?.status === 'ok' ? (
-              <>
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="text-sm text-emerald-400 font-medium">Connected</span>
-                {health.data.version && (
-                  <Badge variant="secondary" className="text-[10px]">
-                    v{health.data.version}
-                  </Badge>
-                )}
-              </>
-            ) : (
-              <>
-                <XCircle className="w-4 h-4 text-red-400" />
-                <span className="text-sm text-red-400 font-medium">Disconnected</span>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+    <Dialog open={target !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Rotate {target?.name}</DialogTitle>
+          <DialogDescription>
+            A new secret is issued with the same scopes and rate limit. Keep the old one working for
+            a while if deployments still use it.
+          </DialogDescription>
+        </DialogHeader>
+        <Field>
+          <FieldLabel htmlFor="rotate-grace">Old key stops working</FieldLabel>
+          <Select value={grace} onValueChange={setGrace}>
+            <SelectTrigger id="rotate-grace" className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GRACE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => void confirm()} disabled={rotate.isPending}>
+            <RefreshCw />
+            Rotate key
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 // ---------------------------------------------------------------------------
-// About Section
+// Sections
 // ---------------------------------------------------------------------------
 
-function AboutSection() {
+function ApiKeysCard() {
+  const keys = useApiKeys();
+  const revoke = useRevokeApiKey();
+  const [creating, setCreating] = useState(false);
+  const [rotating, setRotating] = useState<ApiKeyRecord | null>(null);
+  const [revoking, setRevoking] = useState<ApiKeyRecord | null>(null);
+  const [issued, setIssued] = useState<IssuedKey | null>(null);
+  const rows = keys.data?.data ?? [];
+
+  const confirmRevoke = async () => {
+    const target = revoking;
+    setRevoking(null);
+    if (!target) return;
+    try {
+      await revoke.mutateAsync(target.id);
+      toast.success(`Revoked ${target.name}`);
+    } catch (err) {
+      toast.error(`Could not revoke: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   return (
-    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
-      <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading mb-4">About</h3>
-      <div className="space-y-3">
-        <div className="flex items-center justify-between text-sm py-2 border-b border-white/[0.04]">
-          <span className="text-zinc-400">Version</span>
-          <Badge variant="secondary">1.0.0</Badge>
-        </div>
-        <div className="flex items-center justify-between text-sm py-2 border-b border-white/[0.04]">
-          <span className="text-zinc-400">License</span>
-          <span className="text-zinc-200">Apache 2.0</span>
-        </div>
-        <div className="flex items-center gap-3 pt-2">
-          <a
-            href="https://github.com/justmert/sluby"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-teal-400 hover:text-teal-300 flex items-center gap-1 transition-colors"
-          >
-            GitHub <ExternalLink className="w-3 h-3" />
-          </a>
-          <a
-            href="https://docs.sluby.app"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-teal-400 hover:text-teal-300 flex items-center gap-1 transition-colors"
-          >
-            Documentation <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
-      </div>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>API keys</CardTitle>
+        <CardDescription>For the REST API and @sluby/sdk. Secrets are shown once.</CardDescription>
+        <CardAction>
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus />
+            Create key
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="px-0">
+        {keys.isLoading ? (
+          <Skeleton className="mx-4 h-24" />
+        ) : keys.isError ? (
+          <Alert variant="destructive" className="mx-4 w-auto">
+            <AlertTriangle />
+            <AlertTitle>Could not load keys</AlertTitle>
+            <AlertDescription>{keys.error.message}</AlertDescription>
+          </Alert>
+        ) : rows.length === 0 ? (
+          <Empty className="border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <KeyRound />
+              </EmptyMedia>
+              <EmptyTitle>No API keys</EmptyTitle>
+              <EmptyDescription>Create one to call the API from your own apps.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-4">Name</TableHead>
+                <TableHead>Scopes</TableHead>
+                <TableHead className="hidden sm:table-cell">Rate limit</TableHead>
+                <TableHead className="hidden md:table-cell">Created</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="pr-4 text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((k) => (
+                <TableRow key={k.id}>
+                  <TableCell className="pl-4 font-medium">{k.name}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {k.scopes.map((s) => (
+                        <Badge key={s} variant="secondary" className="font-mono">
+                          {s}
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell className="hidden tabular-nums sm:table-cell">
+                    {k.rate_limit}/min
+                  </TableCell>
+                  <TableCell className="hidden text-muted-foreground md:table-cell">
+                    <span title={formatDate(k.created_at)}>{formatRelativeTime(k.created_at)}</span>
+                  </TableCell>
+                  <TableCell>
+                    {k.expires_at ? (
+                      <Badge variant="warning" title={new Date(k.expires_at).toLocaleString()}>
+                        Expires {timeLeft(k.expires_at)}
+                      </Badge>
+                    ) : (
+                      <Badge variant="success">Active</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="pr-4 text-right">
+                    <div className="flex justify-end gap-1">
+                      {!k.expires_at && (
+                        <Button variant="ghost" size="sm" onClick={() => setRotating(k)}>
+                          <RefreshCw />
+                          Rotate
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive"
+                        onClick={() => setRevoking(k)}
+                      >
+                        <Trash2 />
+                        Revoke
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+
+      <CreateKeyDialog open={creating} onOpenChange={setCreating} onIssued={setIssued} />
+      <RotateDialog target={rotating} onClose={() => setRotating(null)} onIssued={setIssued} />
+      <SecretDialog issued={issued} onClose={() => setIssued(null)} />
+      <AlertDialog open={revoking !== null} onOpenChange={(o) => !o && setRevoking(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke {revoking?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Requests with this key start failing right away. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void confirmRevoke()}>
+              Revoke
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main Page
-// ---------------------------------------------------------------------------
+function AppearanceCard() {
+  const { theme, resolvedTheme, setTheme } = useTheme();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Appearance</CardTitle>
+        <CardDescription>
+          {theme === 'system'
+            ? `Following your system, now ${resolvedTheme}`
+            : 'Saved in this browser'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={theme}
+          onValueChange={(v) => v && setTheme(v as Theme)}
+          aria-label="Theme"
+        >
+          {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
+            <ToggleGroupItem key={value} value={value} className="gap-2 px-4">
+              <Icon />
+              {label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AccountCard() {
+  const session = useSession();
+  const status = useSystemStatus();
+  const rows: Array<[string, React.ReactNode]> = [
+    [
+      'Signed in as',
+      <span key="u" className="font-mono">
+        {session.login}
+      </span>,
+    ],
+    [
+      'API base URL',
+      <span key="b" className="flex items-center justify-end gap-1 font-mono">
+        {window.location.origin}
+        <CopyButton value={window.location.origin} label="Copy base URL" className="size-6" />
+      </span>,
+    ],
+    ['Backend version', status.data ? `v${status.data.version}` : '...'],
+    ['Sia network', status.data?.indexer.network ?? '...'],
+  ];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Account</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2.5">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-4 text-sm">
+            <span className="text-muted-foreground">{label}</span>
+            <span className="min-w-0 truncate text-right">{value}</span>
+          </div>
+        ))}
+        <div className="mt-2 flex flex-wrap gap-2 border-t pt-3">
+          <Button variant="outline" size="sm" asChild>
+            <a href="/api/v1/docs" target="_blank" rel="noopener noreferrer">
+              API reference
+            </a>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <a href="https://github.com/justmert/Sluby" target="_blank" rel="noopener noreferrer">
+              Source on GitHub
+            </a>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   return (
     <PageContainer>
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2 }}
-      >
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-[#f0f0f0] font-heading mb-1">Settings</h1>
-          <p className="text-sm text-zinc-400">Configure appearance and API access</p>
+      <PageHeader title="Settings" description="API keys, appearance and account" />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <ApiKeysCard />
         </div>
-
-        <div className="space-y-6">
-          <AppearanceSection />
-          <ApiConfigSection />
-          <AboutSection />
+        <div className="flex flex-col gap-4">
+          <AppearanceCard />
+          <AccountCard />
         </div>
-      </motion.div>
+      </div>
     </PageContainer>
   );
 }
