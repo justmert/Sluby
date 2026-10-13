@@ -6,7 +6,7 @@ const h = vi.hoisted(() => {
   const initSia = vi.fn().mockResolvedValue(undefined);
   const sharedObject = vi.fn();
   const download = vi.fn();
-  const fakeSdk = { sharedObject, download };
+  const fakeSdk = { objectFromShareUrl: sharedObject, download };
   const state: { connectedResult: unknown } = { connectedResult: fakeSdk };
   const connected = vi.fn(async () => state.connectedResult);
   const builderCtor = vi.fn();
@@ -14,7 +14,7 @@ const h = vi.hoisted(() => {
   return { initSia, sharedObject, download, fakeSdk, state, connected, builderCtor, appKeyCtor };
 });
 
-vi.mock('sia-storage', () => {
+vi.mock('@siafoundation/sia-storage', () => {
   class AppKey {
     constructor(seed: Uint8Array) {
       h.appKeyCtor(seed);

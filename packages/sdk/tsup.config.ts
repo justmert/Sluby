@@ -10,5 +10,5 @@ export default defineConfig({
   // tus-js-client and sia-storage are runtime dependencies; keep them external
   // so the consumer's bundler dedupes them and picks the right browser/node
   // entry (sia-storage's browser build ships the WASM the player loads).
-  external: ['tus-js-client', 'sia-storage'],
+  external: ['tus-js-client', '@siafoundation/sia-storage'],
 });
