@@ -13,7 +13,7 @@ import {
 } from '@/hooks/useStats';
 import { withLead } from '@/lib/errors';
 import { ROUTES } from '@/lib/constants';
-import { formatCount, plural, truncateMiddle } from '@/lib/formatters';
+import { formatCount, plural } from '@/lib/formatters';
 import { lateReveal } from '@/lib/motion';
 import { toastError, toastSuccess } from '@/lib/toast';
 import { cn } from '@/lib/utils';
@@ -86,27 +86,6 @@ function Disclosure({ summary, children }: { summary: string; children: ReactNod
       <summary className={cn(ACCENT_LINK, 'w-fit cursor-pointer')}>{summary}</summary>
       <div className="mt-2">{children}</div>
     </details>
-  );
-}
-
-// a scroller with nothing focusable inside: Safari can scroll it from the
-// keyboard only if the list itself takes focus
-const LIST =
-  'max-h-60 overflow-y-auto rounded-sm pl-4.5 font-mono text-xs leading-5 text-secondary-foreground list-disc';
-
-/** File IDs, one per line, shortened; the whole set copies in one go. */
-function IdList({ label, ids }: { label: string; ids: string[] }) {
-  return (
-    <div className="flex items-start gap-2">
-      <ul aria-label={label} tabIndex={0} className={cn(LIST, 'min-w-0 flex-1')}>
-        {ids.map((id) => (
-          <li key={id} title={id}>
-            {truncateMiddle(id, 8)}
-          </li>
-        ))}
-      </ul>
-      <CopyButton value={ids.join('\n')} label={`Copy ${label.toLowerCase()} IDs`} />
-    </div>
   );
 }
 
@@ -257,10 +236,14 @@ export function StorageCheckCard() {
                   <MissingList objects={r.missing_objects} />
                 </Disclosure>
               )}
-              {r.orphaned_ids.length > 0 && (
-                <Disclosure summary="Show unused files">
-                  <IdList label="Unused files" ids={r.orphaned_ids} />
-                </Disclosure>
+              {/* a count and what it means, not the ids: nothing in the Studio acts
+                  on an unused file, and the check never deletes one */}
+              {r.orphan_count > 0 && (
+                <p className="text-muted-foreground">
+                  Unused files are on Sia, but no video here uses them, for example from another app
+                  on the same Sia account. Your account still pays to store them. The check never
+                  deletes them.
+                </p>
               )}
             </>
           )}

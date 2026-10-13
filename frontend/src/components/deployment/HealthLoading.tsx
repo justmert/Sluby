@@ -1,7 +1,6 @@
 import { Skeleton } from '@/components/ui/skeleton';
 import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
-import { BytesStreamedCard } from './BytesStreamedCard';
 import { HEALTH_GRID } from './health';
 import { ServiceCardsLoading } from './ServiceCards';
 import { SiaAccountLoading } from './SiaAccountCard';
@@ -37,7 +36,6 @@ export function HealthLoading() {
         <SiaAccountLoading />
         <StorageCheckLoading />
       </div>
-      <BytesStreamedCard />
     </div>
   );
 }

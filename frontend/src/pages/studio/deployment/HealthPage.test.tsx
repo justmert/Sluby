@@ -1,7 +1,6 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { snapshotFromResponse } from '@/lib/metrics';
 import { jsonFetch, renderPage, reply } from '@/test/render';
 import { WithSession } from '@/test/session';
 import HealthPage from './HealthPage';
@@ -155,7 +154,7 @@ describe('HealthPage', () => {
       },
     });
     await screen.findByRole('list', { name: 'Services' });
-    await waitFor(() => expect(card('Bytes streamed')).toHaveTextContent('Collecting samples'));
+    await waitFor(() => expect(service('Queue')).toHaveTextContent(/^QueueRedis · 1 ms$/));
     expect(service('Queue')).toHaveTextContent(/^QueueRedis · 1 ms$/);
   });
 
@@ -175,7 +174,7 @@ describe('HealthPage', () => {
     expect(value('Account key')).toHaveClass('font-mono');
   });
 
-  it('explains the check with its last run, two tiles and the unused files on request', async () => {
+  it('explains the check with its last run, two tiles and what unused files are', async () => {
     setup();
     expect(await screen.findByText('Needs attention')).toBeInTheDocument();
     const check = card('Storage check');
@@ -190,17 +189,10 @@ describe('HealthPage', () => {
     // only a count that is not zero takes the tone at its edge
     expect(tiles[0]).not.toHaveAttribute('data-tone');
     expect(tiles[1]).toHaveAttribute('data-tone', 'warn');
-    const summary = within(check).getByText('Show unused files');
-    expect(summary.closest('details')).not.toHaveAttribute('open');
-    await userEvent.click(summary);
-    expect(summary.closest('details')).toHaveAttribute('open');
-    const list = within(check).getByRole('list', { name: 'Unused files' });
-    expect(list).toHaveTextContent('o1o2');
-    // it scrolls, and holds nothing focusable, so Safari's keyboard needs the list itself
-    expect(list).toHaveAttribute('tabindex', '0');
-    expect(
-      within(check).getByRole('button', { name: 'Copy unused files IDs' }),
-    ).toBeInTheDocument();
+    // a count and what it means; no id list, since nothing in the Studio acts on one
+    expect(check).toHaveTextContent('no video here uses them');
+    expect(check).toHaveTextContent('The check never deletes them.');
+    expect(within(check).queryByText('Show unused files')).not.toBeInTheDocument();
     // nothing is missing, so there is nothing to list
     expect(within(check).queryByText('Show missing files')).not.toBeInTheDocument();
   });
@@ -259,45 +251,6 @@ describe('HealthPage', () => {
     expect(
       await screen.findByText(/^Could not start the storage check\. The server ran into a problem/),
     ).toBeInTheDocument();
-  });
-
-  it('charts the bytes streamed from the metrics samples, the peak in the accent', async () => {
-    const t0 = Date.parse('2026-10-07T12:00:00.000Z');
-    const { client } = setup();
-    await screen.findByText('Needs attention');
-    // three samples 10 s apart: 200 kB then 100 kB, so the first rate is the peak
-    const samples = [
-      metricsAt(t0, 0),
-      metricsAt(t0 + 10_000, 2_000_000),
-      metricsAt(t0 + 20_000, 3_000_000),
-    ].map((r) => snapshotFromResponse(r));
-    await act(async () => {
-      client.setQueryData(['metrics'], { latest: samples[2], samples });
-    });
-    const bytes = card('Bytes streamed');
-    const chart = await within(bytes).findByRole('img', { name: /^Bytes streamed per second/ });
-    const bars = chart.querySelectorAll('[data-slot="bar"]');
-    expect(bars).toHaveLength(2);
-    expect(bars[0]).toHaveAttribute('data-peak');
-    expect(bars[0]).toHaveClass('bg-primary', 'hover:bg-primary');
-    expect(bars[1]).not.toHaveAttribute('data-peak');
-    expect(bars[1]).toHaveClass('bg-primary/45', 'hover:bg-primary');
-    expect(bars[1]).toHaveStyle({ height: '50%' });
-    expect(chart).toHaveAccessibleName(
-      'Bytes streamed per second over the last 20 seconds, now 100 KB/s, peak 200 KB/s',
-    );
-    expect(bytes).toHaveTextContent('Last 20 seconds');
-    expect(bytes).toHaveTextContent('20 seconds agoPeak 200 KB/sNow');
-    expect(within(bytes).getByRole('link', { name: 'Open metrics' })).toHaveAttribute(
-      'href',
-      '/studio/deployment/metrics',
-    );
-  });
-
-  it('says it is collecting samples before there are two', async () => {
-    setup();
-    await screen.findByText('Needs attention');
-    expect(await within(card('Bytes streamed')).findByText('Collecting samples')).toBeVisible();
   });
 
   it('draws the loading cards first, then the real ones in one step', async () => {

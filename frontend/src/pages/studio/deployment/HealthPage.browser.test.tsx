@@ -1,7 +1,6 @@
 import '@/index.css';
-import { act, cleanup, screen, within } from '@testing-library/react';
+import { cleanup, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { snapshotFromResponse } from '@/lib/metrics';
 import { renderPage } from '@/test/render';
 import { WithSession } from '@/test/session';
 import HealthPage from './HealthPage';
@@ -10,7 +9,6 @@ import HealthPage from './HealthPage';
 // its types redeclare jest-dom's matchers for the whole project
 interface BrowserContext {
   page: { viewport(width: number, height: number): Promise<void> };
-  userEvent: { hover(el: Element): Promise<void>; unhover(el: Element): Promise<void> };
 }
 const browser = () => import('vitest/browser' as string) as Promise<BrowserContext>;
 
@@ -106,17 +104,6 @@ async function draw(width: number) {
     </WithSession>,
   );
   await screen.findByText('Needs attention', {}, { timeout: 5_000 });
-  // a run of samples, so the chart has bars: 14 rates, one peak in the middle
-  const t0 = Date.parse(status.checked_at);
-  let total = 0;
-  const samples = Array.from({ length: 15 }, (_, i) => {
-    total += i === 0 ? 0 : (i === 7 ? 42 : 10 + i) * 100_000;
-    return snapshotFromResponse(metricsAt(t0 + i * 10_000, total));
-  });
-  await act(async () => {
-    view.client.setQueryData(['metrics'], { latest: samples.at(-1), samples });
-  });
-  await screen.findByRole('img', { name: /^Bytes streamed per second/ });
   return view;
 }
 
@@ -139,22 +126,6 @@ describe('Health in a real browser', () => {
     expect(new Set(cards.map(top)).size).toBe(4);
     expect(top(region('Storage check'))).toBeGreaterThan(top(region('Sia account')));
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
-  });
-
-  it('draws the peak bar in the accent and turns a hovered bar to it', async () => {
-    await draw(1440);
-    const bars = [...document.querySelectorAll('[data-slot="bytes-chart"] [data-slot="bar"]')];
-    expect(bars).toHaveLength(14);
-    const peak = bars.find((b) => b.hasAttribute('data-peak'))!;
-    const other = bars[0];
-    const accent = getComputedStyle(peak).backgroundColor;
-    const quiet = getComputedStyle(other).backgroundColor;
-    expect(quiet).not.toBe(accent);
-    const { userEvent } = await browser();
-    await userEvent.hover(other);
-    // the colour eases over 150 ms
-    await vi.waitFor(() => expect(getComputedStyle(other).backgroundColor).toBe(accent));
-    await userEvent.unhover(other);
   });
 
   it('follows the dark theme: the cards take the dark surface', async () => {

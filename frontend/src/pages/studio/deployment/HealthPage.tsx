@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
-import { BytesStreamedCard } from '@/components/deployment/BytesStreamedCard';
 import { HEALTH_GRID, OVERALL, shortAgo, useNow } from '@/components/deployment/health';
 import {
   HealthCheckedLoading,
@@ -56,7 +55,7 @@ export default function HealthPage() {
   const summaryOnly = status?.scope === 'account';
   const failed = system.isError && !status;
   const run = useReconciliation();
-  // the queue length and the bytes streamed come from the metrics registry
+  // the queue length comes from the metrics registry
   const metrics = usePlatformMetrics(true);
   const settled = !system.isPending && !run.isPending;
   const [cached] = useState(settled);
@@ -130,7 +129,6 @@ export default function HealthPage() {
             {!failed && !summaryOnly && <SiaAccountCard status={deployment} />}
             <StorageCheckCard />
           </div>
-          <BytesStreamedCard metrics={metrics} />
         </div>
       )}
     </PageContainer>
