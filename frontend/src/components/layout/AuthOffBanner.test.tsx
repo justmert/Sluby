@@ -19,7 +19,7 @@ describe('AuthOffBanner (FLW-29, D-15)', () => {
     render(true);
     const banner = screen.getByRole('region', { name: 'Sign-in is off' });
     expect(banner).toHaveTextContent(
-      'Sign-in is off. Anyone who can open this address has operator access. Turn on sign-in',
+      'Sign-in is off. Anyone who can open this address has operator access.',
     );
     const link = screen.getByRole('link', { name: 'Turn on sign-in, opens in a new tab' });
     expect(link).toHaveAttribute(
