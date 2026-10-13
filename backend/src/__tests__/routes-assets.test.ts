@@ -86,7 +86,32 @@ describe('asset routes', () => {
         status: 'ready',
         accessTier: 'public',
         creatorAddress: '0xabc123',
+        sort: 'created_at',
+        order: 'desc',
       });
+    });
+
+    it('passes search and sort through', async () => {
+      vi.mocked(deps.listAssets).mockResolvedValue({ data: [], total: 0 });
+
+      await request(createApp()).get('/?search=%20bunny%20&sort=title&order=asc');
+
+      expect(deps.listAssets).toHaveBeenCalledWith(
+        expect.objectContaining({ search: 'bunny', sort: 'title', order: 'asc' }),
+      );
+    });
+
+    it.each([
+      ['/?sort=views', /sort must be one of/],
+      ['/?order=sideways', /order must be asc or desc/],
+      ['/?status=done', /status must be one of/],
+      ['/?access_tier=secret', /access_tier must be/],
+      ['/?cursor=abc&sort=title', /cursor paging only supports the default order/],
+    ])('rejects %s with a clear 400', async (path, message) => {
+      const res = await request(createApp()).get(path);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(message);
+      expect(deps.listAssets).not.toHaveBeenCalled();
     });
 
     it('should clamp page to minimum 1', async () => {

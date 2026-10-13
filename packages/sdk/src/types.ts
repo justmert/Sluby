@@ -143,12 +143,21 @@ export type UploadHandle = Promise<void> & {
   readonly isPaused: boolean;
 };
 
+/** Field the asset list can be ordered by. */
+export type AssetSortField = 'created_at' | 'title' | 'duration' | 'size';
+
 /** Options for listing video assets. */
 export interface ListAssetsOptions {
   page?: number;
   limit?: number;
   status?: VideoAssetStatus;
   accessTier?: AccessTier;
+  /** Case-insensitive match on title or description, or an exact asset id. */
+  search?: string;
+  /** Default `created_at`. */
+  sort?: AssetSortField;
+  /** Default `desc`. */
+  order?: 'asc' | 'desc';
 }
 
 /** Paginated response wrapper. */

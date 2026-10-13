@@ -442,7 +442,7 @@ export const openapiDocument = {
     '/api/v1/assets': {
       get: {
         tags: ['Assets'],
-        summary: 'List assets (cursor pagination + filters).',
+        summary: 'List assets with search, filters, sorting and pagination.',
         'x-required-scope': 'read',
         parameters: [
           { $ref: '#/components/parameters/limit' },
@@ -451,7 +451,10 @@ export const openapiDocument = {
           {
             name: 'status',
             in: 'query',
-            schema: { type: 'string' },
+            schema: {
+              type: 'string',
+              enum: ['created', 'uploading', 'processing', 'ready', 'failed'],
+            },
             description: 'Filter by status.',
           },
           {
@@ -459,8 +462,34 @@ export const openapiDocument = {
             in: 'query',
             schema: { type: 'string', enum: ['public', 'private'] },
           },
+          {
+            name: 'search',
+            in: 'query',
+            schema: { type: 'string', maxLength: 200 },
+            description: 'Case-insensitive match on title or description, or an exact asset id.',
+          },
+          {
+            name: 'sort',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['created_at', 'title', 'duration', 'size'],
+              default: 'created_at',
+            },
+          },
+          {
+            name: 'order',
+            in: 'query',
+            schema: { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
+            description:
+              'Cursor paging is only available for created_at desc; other orders use page.',
+          },
         ],
-        responses: { '200': jsonResponse('AssetList', 'A page of assets.'), '403': errorResponse },
+        responses: {
+          '200': jsonResponse('AssetList', 'A page of assets.'),
+          '400': errorResponse,
+          '403': errorResponse,
+        },
       },
     },
     '/api/v1/assets/{id}': {

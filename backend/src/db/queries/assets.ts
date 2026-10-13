@@ -1,8 +1,22 @@
-import { eq, and, desc, lt, sql, isNull, isNotNull, inArray, type SQL } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  or,
+  asc,
+  desc,
+  lt,
+  sql,
+  ilike,
+  isNull,
+  isNotNull,
+  inArray,
+  type SQL,
+} from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { videoAssets, artifacts, type VideoAsset, type NewVideoAsset } from '../schema.js';
 import { decodeCursor, paginateRows } from '../../api/pagination.js';
 import { collectAssetObjectIds } from '../../deletion/collect.js';
+import { isDefaultAssetOrder, type AssetSortField, type SortOrder } from '../../api/asset-sort.js';
 
 /**
  * Create a new video asset record.
@@ -37,35 +51,38 @@ export async function getVideoAssetById(
   });
 }
 
-/**
- * Paginated listing of video assets with optional filters.
- *
- * Supports two paging styles over the same stable total order
- * (`createdAt` then `id`, both descending):
- *  - **Cursor (keyset)**: pass `cursor`; rows strictly after that key are
- *    returned and a `nextCursor` is issued. Correct under concurrent
- *    inserts/deletes, and the documented mechanism.
- *  - **Offset**: pass `offset` (page-based); kept so existing callers and
- *    the Studio keep working.
- *
- * `total` is always the full filtered count, independent of the cursor.
- * Timestamps are compared truncated to milliseconds so the JS-side cursor
- * (millisecond precision) and the SQL ordering agree exactly.
- */
-export async function listVideoAssets(opts?: {
+export interface AssetListOptions {
   status?: VideoAsset['status'];
   accessTier?: VideoAsset['accessTier'];
   creatorAddress?: string;
+  /** Case-insensitive match on title or description, or an exact asset id. */
+  search?: string;
+  sort?: AssetSortField;
+  order?: SortOrder;
   limit?: number;
   offset?: number;
   cursor?: string;
-}): Promise<{
-  data: VideoAsset[];
-  total: number;
-  nextCursor: string | null;
-  hasMore: boolean;
-}> {
-  const { status, accessTier, creatorAddress, limit = 20, offset = 0, cursor } = opts ?? {};
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Escape LIKE wildcards so a search for "50%" matches the literal text. */
+function likeContains(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/**
+ * The WHERE and ORDER BY for an asset listing, kept pure so the generated SQL
+ * can be checked without a database.
+ *
+ * Every order ends in `id` so pages are stable when the sort key ties.
+ * Timestamps compare truncated to milliseconds so the JS-side cursor
+ * (millisecond precision) and the SQL ordering agree exactly.
+ */
+export function assetListQuery(opts: AssetListOptions) {
+  const { status, accessTier, creatorAddress, search, cursor } = opts;
+  const sort = opts.sort ?? 'created_at';
+  const order = opts.order ?? 'desc';
 
   // Filters apply to both the data page and the total count. Soft-deleted
   // assets are excluded from every listing and from the total.
@@ -73,19 +90,59 @@ export async function listVideoAssets(opts?: {
   if (status) filters.push(eq(videoAssets.status, status));
   if (accessTier) filters.push(eq(videoAssets.accessTier, accessTier));
   if (creatorAddress) filters.push(eq(videoAssets.creatorAddress, creatorAddress));
-  const filterWhere = filters.length > 0 ? and(...filters) : undefined;
+  const term = search?.trim();
+  if (term) {
+    const pattern = likeContains(term);
+    const matches = [ilike(videoAssets.title, pattern), ilike(videoAssets.description, pattern)];
+    if (UUID_RE.test(term)) matches.push(eq(videoAssets.id, term));
+    filters.push(or(...matches)!);
+  }
 
-  // The cursor keyset narrows only the data page, never the count.
+  // The cursor keyset narrows only the data page, never the count, and only
+  // exists for the default newest-first order.
   const dataConditions: SQL[] = [...filters];
-  const cursorKey = cursor ? decodeCursor(cursor) : null;
+  const cursorKey = cursor && isDefaultAssetOrder(sort, order) ? decodeCursor(cursor) : null;
   if (cursorKey) {
     dataConditions.push(
       sql`(date_trunc('milliseconds', ${videoAssets.createdAt}), ${videoAssets.id}) < (${cursorKey.createdAt.toISOString()}::timestamptz, ${cursorKey.id}::uuid)`,
     );
   }
-  const dataWhere = dataConditions.length > 0 ? and(...dataConditions) : undefined;
 
-  const orderCreatedAt = sql`date_trunc('milliseconds', ${videoAssets.createdAt})`;
+  const key: Record<AssetSortField, SQL> = {
+    created_at: sql`date_trunc('milliseconds', ${videoAssets.createdAt})`,
+    title: sql`lower(${videoAssets.title})`,
+    duration: sql`${videoAssets.durationMs}`,
+    size: sql`${videoAssets.totalStorageBytes}`,
+  };
+  const dir = order === 'asc' ? asc : desc;
+
+  return {
+    filterWhere: and(...filters),
+    dataWhere: and(...dataConditions),
+    orderBy: [dir(key[sort]), dir(videoAssets.id)],
+    cursorKey,
+  };
+}
+
+/**
+ * Paginated listing of video assets with filters, search and sorting.
+ *
+ * Two paging styles share the result shape:
+ *  - **Cursor (keyset)**: pass `cursor`; rows strictly after that key are
+ *    returned and a `nextCursor` is issued. Only for the default
+ *    newest-first order, where it is correct under concurrent writes.
+ *  - **Offset**: pass `offset` (page-based), for every order.
+ *
+ * `total` is always the full filtered count, independent of the cursor.
+ */
+export async function listVideoAssets(opts?: AssetListOptions): Promise<{
+  data: VideoAsset[];
+  total: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+}> {
+  const { limit = 20, offset = 0 } = opts ?? {};
+  const { filterWhere, dataWhere, orderBy, cursorKey } = assetListQuery(opts ?? {});
 
   const [rows, countResult] = await Promise.all([
     db.query.videoAssets.findMany({
@@ -94,7 +151,7 @@ export async function listVideoAssets(opts?: {
       limit: limit + 1,
       // Offset only makes sense without a cursor.
       offset: cursorKey ? 0 : offset,
-      orderBy: [desc(orderCreatedAt), desc(videoAssets.id)],
+      orderBy,
     }),
     db
       .select({ count: sql<number>`count(*)::int` })
@@ -106,7 +163,8 @@ export async function listVideoAssets(opts?: {
   return {
     data: page.data,
     total: countResult[0]?.count ?? 0,
-    nextCursor: page.nextCursor,
+    // a cursor encodes the newest-first keyset, so other orders page by offset
+    nextCursor: isDefaultAssetOrder(opts?.sort, opts?.order) ? page.nextCursor : null,
     hasMore: page.hasMore,
   };
 }

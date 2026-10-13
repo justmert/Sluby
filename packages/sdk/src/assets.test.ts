@@ -125,6 +125,15 @@ describe('AssetManager.list()', () => {
     expect(calledPath).toContain('status=ready');
     expect(calledPath).toContain('access_tier=public');
   });
+
+  it('sends search and sort options', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ data: [], total: 0, page: 1, limit: 20 }));
+
+    await new AssetManager(mockFetch).list({ search: 'big buck', sort: 'title', order: 'asc' });
+
+    const calledPath = mockFetch.mock.calls[0][0] as string;
+    expect(calledPath).toBe('/api/v1/assets?search=big+buck&sort=title&order=asc');
+  });
 });
 
 // ---------------------------------------------------------------------------

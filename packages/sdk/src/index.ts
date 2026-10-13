@@ -38,6 +38,7 @@ export type {
   UploadFileOptions,
   UploadHandle,
   ListAssetsOptions,
+  AssetSortField,
   PaginatedResponse,
   SlubyConfig,
   SiaViewerConfig,
