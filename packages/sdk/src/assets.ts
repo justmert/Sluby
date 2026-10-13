@@ -3,7 +3,13 @@
 // ---------------------------------------------------------------------------
 
 import { TimeoutError } from './errors.js';
-import type { AccessTier, ListAssetsOptions, PaginatedResponse, VideoAsset } from './types.js';
+import type {
+  AccessTier,
+  ListAssetsOptions,
+  PaginatedResponse,
+  ProcessingJob,
+  VideoAsset,
+} from './types.js';
 import type { FetchFn } from './uploads.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -96,6 +102,48 @@ export class AssetManager {
     await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}`, {
       method: 'DELETE',
     });
+  }
+
+  // -----------------------------------------------------------------------
+  // GET /api/v1/assets/:id/processing
+  // -----------------------------------------------------------------------
+
+  /**
+   * Processing progress for an asset: pipeline stage, percent, the error when
+   * it failed, and the worker's log lines.
+   */
+  async processing(videoAssetId: string): Promise<ProcessingJob> {
+    const res = await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}/processing`);
+    const raw = await res.json();
+    return {
+      id: raw.id,
+      status: raw.status,
+      stage: raw.stage,
+      progressPercent: raw.progress_percent,
+      retryCount: raw.retry_count ?? 0,
+      errorMessage: raw.error_message ?? null,
+      startedAt: raw.started_at ?? null,
+      completedAt: raw.completed_at ?? null,
+      createdAt: raw.created_at,
+      logs: raw.logs ?? [],
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // POST /api/v1/assets/:id/retry
+  // -----------------------------------------------------------------------
+
+  /**
+   * Re-run processing for a failed asset. The backend resumes from the
+   * furthest step it can (e.g. skips the transcode when its output survived).
+   * Returns the step it restarted from.
+   */
+  async retry(videoAssetId: string): Promise<{ stage: string }> {
+    const res = await this._fetch(`/api/v1/assets/${encodeURIComponent(videoAssetId)}/retry`, {
+      method: 'POST',
+    });
+    const body = await res.json();
+    return { stage: body.stage };
   }
 
   // -----------------------------------------------------------------------

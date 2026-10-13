@@ -120,7 +120,10 @@ export const transcodeWorker = new Worker<TranscodeJobData>(
       await appendProcessingLog(
         processingJob.id,
         'transcode',
-        'FFmpeg transcoding: 4 renditions (1080p, 720p, 540p, 360p)',
+        // the ladder is capped at the source height, so name what was made
+        `FFmpeg transcoding: ${result.variantDirs.length} renditions (${result.variantDirs
+          .map((dir) => path.basename(dir))
+          .join(', ')})`,
       );
       await appendProcessingLog(
         processingJob.id,

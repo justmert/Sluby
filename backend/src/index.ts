@@ -285,6 +285,20 @@ app.get('/health', (_req, res) => {
 // TUS Upload Handler
 // ──────────────────────────────────────────
 
+// Soft-delete the asset (it vanishes from the API immediately), capture its
+// Sia object ids, and enqueue the async unpin-and-remove job. Shared by the
+// assets route and by tus when an uploader cancels.
+const deleteAsset = buildDeleteAsset({
+  softDelete: (id, owner) => softDeleteVideoAsset(id, owner),
+  enqueue: async (videoAssetId) => {
+    await deletionQueue.add(
+      'delete',
+      { kind: 'delete', videoAssetId },
+      { jobId: `delete-${videoAssetId}` },
+    );
+  },
+});
+
 const tusServerDeps: TusServerDeps = {
   validateApiKey: async (token: string) => {
     const apiKey = await dbValidateApiKey(token);
@@ -363,6 +377,11 @@ const tusServerDeps: TusServerDeps = {
     await updateVideoAsset(videoAssetId, { status: 'failed' });
   },
 
+  discardAsset: async (videoAssetId) => {
+    // the caller's ownership was already checked against the upload metadata
+    await deleteAsset(videoAssetId);
+  },
+
   dispatchWebhook: async (event, data) => {
     await webhookDispatcher.dispatch(event, data);
   },
@@ -375,10 +394,10 @@ const tusServer = createTusServer(tusServerDeps);
 // TUS and the REST upload routes share the `/api/v1/uploads` path, so we
 // dispatch by request shape: genuine TUS protocol traffic (any request
 // carrying `Tus-Resumable`, plus TUS's HEAD/PATCH/OPTIONS verbs) goes to
-// the TUS server; everything else (JSON `POST /uploads` session creation,
-// `GET /uploads/:id` status, `DELETE /uploads/:id` cancel) falls through to
-// the REST router mounted below. Without this, TUS would shadow the REST
-// upload endpoints entirely.
+// the TUS server; everything else (`GET /uploads/:id` status and
+// `DELETE /uploads/:id` cancel) falls through to the REST router mounted
+// below. Uploads themselves are only ever created through tus. Without this,
+// TUS would shadow the REST upload endpoints entirely.
 app.use('/api/v1/uploads', (req, res, next) => {
   if (isTusRequest(req)) {
     tusServer.handle(req, res);
@@ -478,18 +497,7 @@ const apiRouterDeps: ApiRouterDeps = {
     return toAssetRecord(updated);
   },
 
-  // Soft-delete the asset (it vanishes from the API immediately), capture its
-  // Sia object ids, and enqueue the async unpin-and-remove job.
-  deleteAsset: buildDeleteAsset({
-    softDelete: (id, owner) => softDeleteVideoAsset(id, owner),
-    enqueue: async (videoAssetId) => {
-      await deletionQueue.add(
-        'delete',
-        { kind: 'delete', videoAssetId },
-        { jobId: `delete-${videoAssetId}` },
-      );
-    },
-  }),
+  deleteAsset,
 
   // ── SiaInfoRouteDeps ──
   getAssetWithSiaIds: async (id, owner) => {

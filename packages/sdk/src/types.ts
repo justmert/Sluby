@@ -31,6 +31,26 @@ export interface VideoAsset {
   updatedAt: string;
 }
 
+/** Step of the processing pipeline an asset is on. */
+export type ProcessingStage =
+  'queued' | 'transcode' | 'upload' | 'finalize' | 'completed' | 'failed';
+
+/** Processing job for an asset: transcode to HLS, store on Sia, finalize. */
+export interface ProcessingJob {
+  id: string;
+  /** Job state as the worker records it. `retrying` means a failed attempt is queued again. */
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'retrying';
+  stage: ProcessingStage;
+  /** Overall pipeline progress, 0-100. */
+  progressPercent: number;
+  retryCount: number;
+  errorMessage: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  logs: Array<{ timestamp: string; stage: string; message: string }>;
+}
+
 /** Upload session tracking TUS upload progress. */
 export interface UploadSession {
   id: string;

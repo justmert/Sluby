@@ -7,6 +7,7 @@ export interface ProcessingJobRecord {
   id: string;
   status: string;
   progressPercent: number;
+  retryCount: number;
   errorMessage: string | null;
   startedAt: Date | null;
   completedAt: Date | null;
@@ -186,7 +187,9 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
     res.json({
       id: job.id,
       status: job.status,
+      stage: processingStage(job.status, job.logs ?? []),
       progress_percent: job.progressPercent,
+      retry_count: job.retryCount,
       error_message: job.errorMessage,
       started_at: job.startedAt?.toISOString() ?? null,
       completed_at: job.completedAt?.toISOString() ?? null,
@@ -208,6 +211,22 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
   });
 
   return router;
+}
+
+/**
+ * The pipeline step a job is on. Workers tag every log line with their stage
+ * (transcode, upload, finalize), so the latest line says where the job is;
+ * terminal job states win over it.
+ */
+export function processingStage(
+  status: string,
+  logs: Array<{ stage: string }>,
+): 'queued' | 'transcode' | 'upload' | 'finalize' | 'completed' | 'failed' {
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'failed';
+  const last = logs[logs.length - 1]?.stage;
+  if (last === 'transcode' || last === 'upload' || last === 'finalize') return last;
+  return 'queued';
 }
 
 function formatAsset(asset: VideoAssetRecord) {
