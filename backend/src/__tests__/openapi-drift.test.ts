@@ -20,12 +20,17 @@ function mountedRouteKeys(): Set<string> {
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
 
-/** METHOD + canonical path for every operation in the spec. */
-function specRouteKeys(): Set<string> {
+/**
+ * METHOD + canonical path for every operation in the spec. Operations marked
+ * `x-handled-by: tus` are served by the tus server ahead of the express
+ * routers, so they are left out unless `includeTus` is set.
+ */
+function specRouteKeys(includeTus = true): Set<string> {
   const keys = new Set<string>();
   for (const [path, item] of Object.entries(openapiDocument.paths)) {
-    for (const method of Object.keys(item)) {
+    for (const [method, op] of Object.entries(item)) {
       if (!HTTP_METHODS.includes(method)) continue;
+      if (!includeTus && (op as { 'x-handled-by'?: string })['x-handled-by'] === 'tus') continue;
       keys.add(`${method.toUpperCase()} ${canonicalPath(path)}`);
     }
   }
@@ -96,7 +101,7 @@ describe('OpenAPI drift guard', () => {
 
   it('has no phantom paths (every documented route exists)', () => {
     const mounted = mountedRouteKeys();
-    const spec = specRouteKeys();
+    const spec = specRouteKeys(false);
 
     const phantom = [...spec].filter((k) => !mounted.has(k)).sort();
     expect(phantom, `these paths are documented but not mounted:\n${phantom.join('\n')}`).toEqual(

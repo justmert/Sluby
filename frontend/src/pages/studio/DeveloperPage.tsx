@@ -1,544 +1,545 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router';
+import { ExternalLink, Plus, Send, Trash2, Webhook } from 'lucide-react';
+import { toast } from 'sonner';
+import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
+import { CodeBlock } from '@/components/shared/CodeBlock';
+import { CopyButton } from '@/components/shared/CopyButton';
 import {
-  Plus,
-  Trash2,
-  Copy,
-  Check,
-  AlertCircle,
-  Eye,
-  EyeOff,
-  Terminal,
-  Sparkles,
-  Play,
-  Clock,
-  Shield,
-  Webhook,
-} from 'lucide-react';
-import { motion } from 'motion/react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select';
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
+import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { PageContainer } from '@/components/layout/PageContainer';
-import { useWebhooks, useCreateWebhook, useDeleteWebhook } from '@/hooks/useWebhooks';
-import { getStoredApiKey } from '@/lib/api-key-store';
-import { sdkTemplates, type SdkTemplate, webhookVerify } from '@/lib/code-snippets';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  useCreateWebhook,
+  useDeleteWebhook,
+  useWebhooks,
+  type CreatedWebhook,
+} from '@/hooks/useWebhooks';
+import { apiRawFetch } from '@/lib/api-client';
+import { REQUEST_TEMPLATES, type RequestTemplate } from '@/lib/explorer-templates';
+import { formatRelativeTime } from '@/lib/formatters';
+import { buildSnippets } from '@/lib/snippets';
 import { cn } from '@/lib/utils';
 
-// ---------------------------------------------------------------------------
-// API Keys Tab
-// ---------------------------------------------------------------------------
-
-const WEBHOOK_EVENT_GROUPS = [
-  { label: 'Upload Events', events: ['upload.started', 'upload.completed', 'upload.failed'] },
-  { label: 'Processing Events', events: ['processing.started'] },
-  { label: 'Asset Events', events: ['asset.ready', 'asset.errored'] },
+const WEBHOOK_EVENTS = [
+  { value: 'upload.started', detail: 'tus upload created' },
+  { value: 'upload.completed', detail: 'all bytes received' },
+  { value: 'upload.failed', detail: 'the upload could not be handed to processing' },
+  { value: 'processing.started', detail: 'transcoding began' },
+  { value: 'asset.ready', detail: 'stored on Sia and playable' },
+  { value: 'asset.errored', detail: 'processing failed for good' },
 ];
 
-function WebhooksTab() {
-  const webhooks = useWebhooks();
-  const createWebhook = useCreateWebhook();
-  const deleteWebhook = useDeleteWebhook();
+// ---------------------------------------------------------------------------
+// Snippets
+// ---------------------------------------------------------------------------
 
-  const [url, setUrl] = useState('');
-  const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set());
-  const [copiedSecret, setCopiedSecret] = useState<string | null>(null);
-
-  const toggleEvent = (event: string) => {
-    setSelectedEvents((prev) =>
-      prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event],
-    );
-  };
-
-  const handleCreate = async () => {
-    await createWebhook.mutateAsync({ url, events: selectedEvents });
-    setUrl('');
-    setSelectedEvents([]);
-  };
-
-  const handleDelete = (id: string) => {
-    deleteWebhook.mutate(id);
-    setDeleteConfirm(null);
-  };
-
-  const handleCopySecret = async (secret: string, id: string) => {
-    await navigator.clipboard.writeText(secret);
-    setCopiedSecret(id);
-    setTimeout(() => setCopiedSecret(null), 2000);
-  };
-
-  const toggleRevealSecret = (id: string) => {
-    setRevealedSecrets((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const webhookList = webhooks.data?.data ?? [];
-  const verifySnippet = webhookVerify();
+function Snippets() {
+  const snippets = useMemo(() => buildSnippets(window.location.origin), []);
+  const [active, setActive] = useState(snippets[0].id);
+  const snippet = snippets.find((s) => s.id === active) ?? snippets[0];
 
   return (
-    <div className="space-y-4">
-      {/* Register form */}
-      <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
-        <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading flex items-center gap-2 mb-4">
-          <Webhook className="w-4 h-4 text-teal-400" />
-          Register Webhook
-        </h3>
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Endpoint URL</label>
-            <Input
-              placeholder="https://your-app.com/webhooks/sluby"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="font-mono text-xs h-10"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-zinc-400 font-medium mb-2 block">Events</label>
-            <div className="space-y-3">
-              {WEBHOOK_EVENT_GROUPS.map((group) => (
-                <div key={group.label}>
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium mb-1.5">
-                    {group.label}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {group.events.map((event) => (
-                      <label key={event} className="flex items-center gap-2 cursor-pointer">
-                        <Checkbox
-                          checked={selectedEvents.includes(event)}
-                          onCheckedChange={() => toggleEvent(event)}
-                        />
-                        <span className="text-xs text-zinc-300">{event}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <Button
-            onClick={handleCreate}
-            disabled={!url || selectedEvents.length === 0 || createWebhook.isPending}
-            className="gap-2"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            {createWebhook.isPending ? 'Registering...' : 'Register Webhook'}
-          </Button>
-          {createWebhook.error && (
-            <div className="flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/20 px-3 py-2">
-              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-              <p className="text-xs text-red-400">{createWebhook.error.message}</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Webhook list */}
-      {webhooks.isLoading ? (
-        <div className="space-y-2">
-          {[1, 2].map((i) => (
-            <Skeleton key={i} className="h-24 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : webhookList.length > 0 ? (
-        <div className="space-y-3">
-          {webhookList.map((wh) => (
-            <div
-              key={wh.id}
-              className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 space-y-3 hover:bg-white/[0.05] transition-colors duration-200"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span
-                    className={cn(
-                      'w-2 h-2 rounded-full shrink-0',
-                      wh.is_active ? 'bg-emerald-500' : 'bg-zinc-600',
-                    )}
-                  />
-                  <code className="text-xs font-mono text-zinc-200 truncate">{wh.url}</code>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setDeleteConfirm(wh.id)}
-                  className="h-7 px-2 text-xs text-red-400 hover:text-red-300 gap-1 shrink-0"
-                >
-                  <Trash2 className="w-3 h-3" /> Delete
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {wh.events.map((evt) => (
-                  <Badge key={evt} variant="secondary" className="text-[10px]">
-                    {evt}
-                  </Badge>
-                ))}
-              </div>
-              {wh.secret && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-zinc-400">Secret:</span>
-                  <code className="text-xs font-mono text-zinc-400">
-                    {revealedSecrets.has(wh.id) ? wh.secret : '**********************'}
-                  </code>
-                  <button
-                    onClick={() => toggleRevealSecret(wh.id)}
-                    className="text-zinc-500 hover:text-zinc-300 transition-colors duration-200"
-                    aria-label="Toggle secret visibility"
-                  >
-                    {revealedSecrets.has(wh.id) ? (
-                      <EyeOff className="w-3 h-3" />
-                    ) : (
-                      <Eye className="w-3 h-3" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => handleCopySecret(wh.secret!, wh.id)}
-                    className="text-zinc-500 hover:text-zinc-300 transition-colors duration-200"
-                    aria-label="Copy to clipboard"
-                  >
-                    {copiedSecret === wh.id ? (
-                      <Check className="w-3 h-3 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3 h-3" />
-                    )}
-                  </button>
-                </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Integrate</CardTitle>
+        <CardDescription>
+          Ready to copy, pointed at this server ({window.location.origin}). Create a key in{' '}
+          <Link to="/studio/settings" className="underline underline-offset-4">
+            Settings
+          </Link>{' '}
+          and export it as <code className="font-mono">SLUBY_API_KEY</code>.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4 lg:grid-cols-[220px_1fr]">
+        <nav aria-label="Snippets" className="flex gap-1 overflow-x-auto lg:flex-col">
+          {snippets.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setActive(s.id)}
+              aria-current={s.id === active ? 'true' : undefined}
+              className={cn(
+                'shrink-0 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
+                s.id === active ? 'bg-muted font-medium' : 'text-muted-foreground',
               )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl flex flex-col items-center justify-center py-12 text-center">
-          <Webhook className="w-6 h-6 text-zinc-500 mb-3" />
-          <p className="text-sm font-medium text-zinc-300">No webhooks registered</p>
-          <p className="text-xs text-zinc-500 mt-1">
-            Register an endpoint to receive real-time event notifications
-          </p>
-        </div>
-      )}
-
-      {/* HMAC Verification example */}
-      <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
-        <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading flex items-center gap-2 mb-4">
-          <Shield className="w-4 h-4 text-violet-400" />
-          HMAC Verification (Node.js)
-        </h3>
-        <div className="relative">
-          <pre className="rounded-xl bg-[#0a0a0f]/80 border border-white/[0.08] p-4 overflow-x-auto text-xs font-mono text-zinc-300 leading-relaxed">
-            {verifySnippet.node}
-          </pre>
-        </div>
-      </div>
-
-      {/* Delete confirm */}
-      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Webhook</DialogTitle>
-            <DialogDescription>
-              This webhook will stop receiving events immediately. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setDeleteConfirm(null)}
-              className="bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300"
             >
+              {s.title}
+            </button>
+          ))}
+        </nav>
+        <div className="min-w-0">
+          <p className="mb-3 text-sm text-muted-foreground">{snippet.description}</p>
+          <Tabs defaultValue="js" key={snippet.id}>
+            <TabsList>
+              <TabsTrigger value="js">JavaScript</TabsTrigger>
+              <TabsTrigger value="curl">curl</TabsTrigger>
+            </TabsList>
+            <TabsContent value="js" className="mt-3">
+              <CodeBlock code={snippet.js.code} label={`${snippet.title} JavaScript`} />
+            </TabsContent>
+            <TabsContent value="curl" className="mt-3">
+              <CodeBlock code={snippet.curl} label={`${snippet.title} curl`} />
+            </TabsContent>
+          </Tabs>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Webhooks
+// ---------------------------------------------------------------------------
+
+function CreateWebhookDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onCreated: (w: CreatedWebhook) => void;
+}) {
+  const create = useCreateWebhook();
+  const [url, setUrl] = useState('');
+  const [events, setEvents] = useState<string[]>(['asset.ready', 'asset.errored']);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const created = await create.mutateAsync({ url: url.trim(), events });
+      onOpenChange(false);
+      setUrl('');
+      onCreated(created);
+    } catch (err) {
+      toast.error(`Could not add webhook: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>Add webhook</DialogTitle>
+            <DialogDescription>Events for your account's assets are POSTed here.</DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="hook-url">Endpoint URL</FieldLabel>
+              <Input
+                id="hook-url"
+                type="url"
+                required
+                placeholder="https://example.com/sluby-hook"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+            </Field>
+            <FieldSet>
+              <FieldLegend variant="label">Events</FieldLegend>
+              {WEBHOOK_EVENTS.map((ev) => (
+                <Field key={ev.value} orientation="horizontal">
+                  <Checkbox
+                    id={`ev-${ev.value}`}
+                    checked={events.includes(ev.value)}
+                    onCheckedChange={(on) =>
+                      setEvents((prev) =>
+                        on === true ? [...prev, ev.value] : prev.filter((x) => x !== ev.value),
+                      )
+                    }
+                  />
+                  <Label htmlFor={`ev-${ev.value}`} className="font-normal">
+                    <span className="font-mono">{ev.value}</span>
+                    <span className="text-muted-foreground">{ev.detail}</span>
+                  </Label>
+                </Field>
+              ))}
+            </FieldSet>
+          </FieldGroup>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
-              className="gap-2"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Delete
+            <Button type="submit" disabled={!url.trim() || events.length === 0 || create.isPending}>
+              Add webhook
             </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Webhooks() {
+  const hooks = useWebhooks();
+  const remove = useDeleteWebhook();
+  const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState<CreatedWebhook | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const rows = hooks.data?.data ?? [];
+
+  const confirmDelete = async () => {
+    const id = deleting;
+    setDeleting(null);
+    if (!id) return;
+    try {
+      await remove.mutateAsync(id);
+      toast.success('Webhook removed');
+    } catch (err) {
+      toast.error(`Could not remove: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Webhooks</CardTitle>
+        <CardDescription>
+          Signed with HMAC-SHA256 in <code className="font-mono">X-Sluby-Signature</code>. The
+          Receive webhooks snippet shows how to verify them.
+        </CardDescription>
+        <CardAction>
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus />
+            Add webhook
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {hooks.isLoading ? (
+          <Skeleton className="h-16" />
+        ) : hooks.isError ? (
+          <p className="text-sm text-destructive">{hooks.error.message}</p>
+        ) : rows.length === 0 ? (
+          <Empty className="border-0 p-4">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Webhook />
+              </EmptyMedia>
+              <EmptyTitle>No webhooks</EmptyTitle>
+              <EmptyDescription>Get told when an upload is ready or fails.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          rows.map((w) => (
+            <div key={w.id} className="flex items-start gap-3 rounded-lg border p-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-mono text-sm">{w.url}</p>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {w.events.map((e) => (
+                    <Badge key={e} variant="secondary" className="font-mono">
+                      {e}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Added {formatRelativeTime(w.created_at)}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Remove webhook ${w.url}`}
+                onClick={() => setDeleting(w.id)}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          ))
+        )}
+      </CardContent>
+
+      <CreateWebhookDialog open={creating} onOpenChange={setCreating} onCreated={setCreated} />
+
+      <Dialog open={created !== null} onOpenChange={(o) => !o && setCreated(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Webhook added</DialogTitle>
+            <DialogDescription>
+              Copy the signing secret now. It is not shown again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-3">
+            <code
+              className="min-w-0 flex-1 font-mono text-xs break-all"
+              data-testid="webhook-secret"
+            >
+              {created?.secret}
+            </code>
+            {created && <CopyButton value={created.secret} label="Copy signing secret" />}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setCreated(null)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+
+      <AlertDialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this webhook?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Events stop being delivered to it right away.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void confirmDelete()}>
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   );
 }
 
 // ---------------------------------------------------------------------------
-// API Explorer Tab
+// API explorer
 // ---------------------------------------------------------------------------
 
-const METHOD_COLORS: Record<string, string> = {
-  GET: 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20',
-  POST: 'bg-teal-500/10 text-teal-400 ring-teal-500/20',
-  PATCH: 'bg-amber-500/10 text-amber-400 ring-amber-500/20',
-  DELETE: 'bg-red-500/10 text-red-400 ring-red-500/20',
-};
-
-function groupTemplates(templates: SdkTemplate[]) {
-  const groups: Record<string, SdkTemplate[]> = {};
-  for (const t of templates) {
-    if (!groups[t.category]) groups[t.category] = [];
-    groups[t.category].push(t);
-  }
-  return groups;
+interface ExplorerResponse {
+  status: number;
+  statusText: string;
+  ms: number;
+  headers: Array<[string, string]>;
+  body: string;
 }
 
-function ApiExplorerTab() {
-  const [method, setMethod] = useState('GET');
-  const [path, setPath] = useState('/api/v1/assets?limit=5');
+const SHOWN_HEADERS = [
+  'content-type',
+  'x-ratelimit-limit',
+  'x-ratelimit-remaining',
+  'x-ratelimit-reset',
+  'cache-control',
+];
+
+function ApiExplorer() {
+  const [method, setMethod] = useState<RequestTemplate['method']>('GET');
+  const [path, setPath] = useState('/api/v1/assets?limit=20');
   const [body, setBody] = useState('');
-  const [response, setResponse] = useState<unknown>(null);
-  const [status, setStatus] = useState<number | undefined>();
-  const [duration, setDuration] = useState<number | undefined>();
-  const [isLoading, setIsLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [response, setResponse] = useState<ExplorerResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const groups = [...new Set(REQUEST_TEMPLATES.map((t) => t.group))];
 
-  const grouped = useMemo(() => groupTemplates(sdkTemplates), []);
-
-  const execute = useCallback(async () => {
-    setIsLoading(true);
+  const load = (label: string) => {
+    const t = REQUEST_TEMPLATES.find((x) => x.label === label);
+    if (!t) return;
+    setMethod(t.method);
+    setPath(t.path);
+    setBody(t.body ?? '');
     setResponse(null);
-    setStatus(undefined);
-    setDuration(undefined);
+  };
 
-    const start = performance.now();
+  const send = async () => {
+    setSending(true);
+    setError(null);
+    const started = performance.now();
     try {
-      const apiKey = getStoredApiKey();
-      const headers: Record<string, string> = {};
-      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-      if (body) headers['Content-Type'] = 'application/json';
-
-      const fullUrl = path.startsWith('http') ? path : `${window.location.origin}${path}`;
-      const res = await fetch(fullUrl, {
+      // same origin: the session cookie authenticates, exactly as the studio does
+      const res = await apiRawFetch(path, {
         method,
-        headers,
-        body: body || undefined,
+        body: method === 'GET' || method === 'DELETE' || !body.trim() ? undefined : body,
       });
-
-      const elapsed = Math.round(performance.now() - start);
-      setDuration(elapsed);
-      setStatus(res.status);
-
-      const data = await res.json().catch(() => ({ error: 'Non-JSON response' }));
-      setResponse(data);
-    } catch (err) {
-      setDuration(Math.round(performance.now() - start));
-      setResponse({ error: err instanceof Error ? err.message : String(err) });
-      setStatus(0);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [method, path, body]);
-
-  const loadTemplate = (template: SdkTemplate) => {
-    setMethod(template.method);
-    setPath(template.path);
-    setBody(template.body ?? '');
-    setResponse(null);
-    setStatus(undefined);
-    setDuration(undefined);
-  };
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault();
-        execute();
+      const text = await res.text();
+      let pretty = text;
+      try {
+        pretty = JSON.stringify(JSON.parse(text), null, 2);
+      } catch {
+        // not json, show as is
       }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [execute]);
-
-  const statusColor = (s: number): 'success' | 'warning' | 'destructive' => {
-    if (s >= 200 && s < 300) return 'success';
-    if (s >= 400 && s < 500) return 'warning';
-    return 'destructive';
+      setResponse({
+        status: res.status,
+        statusText: res.statusText,
+        ms: Math.round(performance.now() - started),
+        headers: SHOWN_HEADERS.flatMap((h) => {
+          const v = res.headers.get(h);
+          return v ? [[h, v] as [string, string]] : [];
+        }),
+        body: pretty,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSending(false);
+    }
   };
+
+  const unfilled = /\{id\}/.test(path);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      {/* Templates sidebar */}
-      <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4">
-        <p className="text-sm font-semibold text-[#f0f0f0] font-heading mb-3 flex items-center gap-2">
-          <Terminal className="w-3.5 h-3.5 text-zinc-400" />
-          API Templates
-        </p>
-        <div className="space-y-4">
-          {Object.entries(grouped).map(([category, templates]) => (
-            <div key={category}>
-              <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider mb-1.5 px-1">
-                {category}
-              </p>
-              <div className="space-y-0.5">
-                {templates.map((template) => (
-                  <button
-                    key={`${template.method}-${template.path}`}
-                    onClick={() => loadTemplate(template)}
-                    className={cn(
-                      'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors duration-200',
-                      path === template.path && method === template.method
-                        ? 'bg-teal-500/10 text-teal-400 border-l-2 border-teal-500'
-                        : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200 border-l-2 border-transparent',
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          'inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold ring-1 ring-inset min-w-[40px] justify-center',
-                          METHOD_COLORS[template.method],
-                        )}
-                      >
-                        {template.method}
-                      </span>
-                      <span className="text-xs truncate">{template.label}</span>
-                    </div>
-                  </button>
+    <Card>
+      <CardHeader>
+        <CardTitle>API explorer</CardTitle>
+        <CardDescription>
+          Calls this server as you, with your session. The full reference is in the{' '}
+          <a
+            href="/api/v1/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 underline underline-offset-4"
+          >
+            API docs <ExternalLink className="size-3" />
+          </a>
+          .
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <Select onValueChange={load}>
+          <SelectTrigger className="w-full sm:w-72" aria-label="Request template">
+            <SelectValue placeholder="Start from a template" />
+          </SelectTrigger>
+          <SelectContent>
+            {groups.map((g) => (
+              <SelectGroup key={g}>
+                <SelectLabel>{g}</SelectLabel>
+                {REQUEST_TEMPLATES.filter((t) => t.group === g).map((t) => (
+                  <SelectItem key={t.label} value={t.label}>
+                    {t.method} {t.label}
+                  </SelectItem>
                 ))}
-              </div>
-            </div>
-          ))}
+              </SelectGroup>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex gap-2">
+          <Select value={method} onValueChange={(v) => setMethod(v as RequestTemplate['method'])}>
+            <SelectTrigger className="w-28" aria-label="Method">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(['GET', 'POST', 'PATCH', 'DELETE'] as const).map((m) => (
+                <SelectItem key={m} value={m}>
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            aria-label="Path"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            className="font-mono text-xs"
+          />
+          <Button
+            onClick={() => void send()}
+            disabled={sending || unfilled || !path.startsWith('/')}
+          >
+            <Send />
+            Send
+          </Button>
         </div>
-      </div>
-
-      {/* Request / Response */}
-      <div className="lg:col-span-2 space-y-4">
-        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-[#f0f0f0] font-heading flex items-center gap-2">
-              <Terminal className="w-4 h-4" />
-              Request
-            </h3>
-            <span className="text-[10px] text-zinc-500 font-mono">Cmd+Enter to run</span>
-          </div>
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              <Select value={method} onValueChange={setMethod}>
-                <SelectTrigger className="w-[100px] shrink-0 text-sm h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="GET">GET</SelectItem>
-                  <SelectItem value="POST">POST</SelectItem>
-                  <SelectItem value="PATCH">PATCH</SelectItem>
-                  <SelectItem value="DELETE">DELETE</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                value={path}
-                onChange={(e) => setPath(e.target.value)}
-                className="font-mono text-xs flex-1 h-10"
-              />
-              <Button onClick={execute} disabled={isLoading} className="gap-2">
-                <Play className="w-3.5 h-3.5" />
-                Run
-              </Button>
-            </div>
-            {(method === 'POST' || method === 'PATCH') && (
-              <Textarea
-                placeholder="Request body (JSON)"
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                className="font-mono text-xs h-28"
-              />
-            )}
-          </div>
-        </div>
-
-        {response !== null ? (
-          <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-3">
-            <div className="flex items-center gap-3">
-              {status !== undefined && <Badge variant={statusColor(status)}>{status}</Badge>}
-              {duration !== undefined && (
-                <span className="text-xs text-zinc-400 flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  {duration}ms
+        {unfilled && (
+          <p className="text-xs text-muted-foreground">Replace {'{id}'} with a real id first.</p>
+        )}
+        {(method === 'POST' || method === 'PATCH') && (
+          <Textarea
+            aria-label="JSON body"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={4}
+            className="font-mono text-xs"
+            placeholder="{}"
+          />
+        )}
+        {error && <p className="text-sm text-destructive">Request failed: {error}</p>}
+        {response && (
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <Badge
+                variant={
+                  response.status < 300
+                    ? 'success'
+                    : response.status < 500
+                      ? 'warning'
+                      : 'destructive'
+                }
+              >
+                {response.status} {response.statusText}
+              </Badge>
+              <span className="text-muted-foreground">{response.ms} ms</span>
+              {response.headers.map(([h, v]) => (
+                <span key={h} className="font-mono text-xs text-muted-foreground">
+                  {h}: {v}
                 </span>
-              )}
+              ))}
             </div>
-            <pre className="rounded-xl bg-[#0a0a0f]/80 border border-white/[0.08] p-4 overflow-x-auto text-[11px] font-mono text-zinc-300 leading-relaxed max-h-96 overflow-y-auto">
-              {JSON.stringify(response, null, 2)}
-            </pre>
-          </div>
-        ) : (
-          <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl flex flex-col items-center justify-center py-12 text-center">
-            <Sparkles className="w-5 h-5 text-zinc-500 mb-2" />
-            <p className="text-sm text-zinc-400">Run a request to see the response</p>
-            <p className="text-xs text-zinc-500 mt-1">
-              Pick a template or enter a custom endpoint above
-            </p>
+            <CodeBlock
+              code={response.body || '(empty body)'}
+              label="response"
+              className="max-h-96 overflow-auto"
+            />
           </div>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Main Page
-// ---------------------------------------------------------------------------
 
 export default function DeveloperPage() {
   return (
     <PageContainer>
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2 }}
-      >
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-[#f0f0f0] font-heading mb-1">
-            Developer Tools
-          </h1>
-          <p className="text-sm text-zinc-400">
-            Configure webhooks and explore the API. API keys live in Settings.
-          </p>
+      <PageHeader
+        title="Developer"
+        description="Snippets for @sluby/sdk, @sluby/player and curl, plus webhooks and a live API explorer"
+      />
+      <div className="flex flex-col gap-4">
+        <Snippets />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Webhooks />
+          <ApiExplorer />
         </div>
-
-        <Tabs defaultValue="webhooks">
-          <TabsList className="bg-white/[0.04] rounded-lg p-0.5 mb-6">
-            <TabsTrigger
-              value="webhooks"
-              className="gap-1.5 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-zinc-100"
-            >
-              <Webhook className="w-3.5 h-3.5" /> Webhooks
-            </TabsTrigger>
-            <TabsTrigger
-              value="explorer"
-              className="gap-1.5 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-zinc-100"
-            >
-              <Terminal className="w-3.5 h-3.5" /> API Explorer
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="webhooks">
-            <WebhooksTab />
-          </TabsContent>
-          <TabsContent value="explorer">
-            <ApiExplorerTab />
-          </TabsContent>
-        </Tabs>
-      </motion.div>
+      </div>
     </PageContainer>
   );
 }
