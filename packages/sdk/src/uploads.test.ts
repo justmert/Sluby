@@ -57,7 +57,8 @@ beforeEach(() => {
 });
 
 describe('UploadManager.upload()', () => {
-  const make = () => new UploadManager(mockFetch, 'sluby_key', 'https://api.test');
+  const make = () =>
+    new UploadManager(mockFetch, { apiKey: 'sluby_key', baseUrl: 'https://api.test' });
 
   it('drives TUS at the collection endpoint with metadata and auth', async () => {
     const handle = make().upload(Buffer.from('data'), {
@@ -135,6 +136,58 @@ describe('UploadManager.upload()', () => {
     vi.unstubAllGlobals();
   });
 
+  it('sends no Authorization header in cookie-session mode', async () => {
+    const handle = new UploadManager(mockFetch, { baseUrl: 'https://api.test' }).upload(
+      Buffer.from('data'),
+      { title: 'T' },
+    );
+    await flush();
+    const up = lastUpload();
+    expect(up.options.headers).toEqual({});
+    // same-origin: no XHR hook needed, the browser sends the cookie itself
+    expect(up.options.onBeforeRequest).toBeUndefined();
+    (up.options.onSuccess as () => void)();
+    await handle;
+  });
+
+  it("sets XHR withCredentials and HEAD credentials when credentials is 'include'", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      headers: {
+        get: (n: string) => (n === 'Upload-Metadata' ? metadataHeader('asset-x') : null),
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const handle = new UploadManager(mockFetch, {
+      baseUrl: 'https://api.test',
+      credentials: 'include',
+    }).upload(Buffer.from('data'), { title: 'T' });
+    await flush();
+    const up = lastUpload();
+
+    const xhr = { withCredentials: false };
+    (up.options.onBeforeRequest as (req: unknown) => void)({ getUnderlyingObject: () => xhr });
+    expect(xhr.withCredentials).toBe(true);
+
+    (up.options.onAfterResponse as (req: unknown, res: unknown) => void)(
+      {},
+      { getHeader: (name: string) => (name === 'Location' ? 'https://api.test/u/1' : undefined) },
+    );
+    await expect(handle.assetId).resolves.toBe('asset-x');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.test/u/1',
+      expect.objectContaining({
+        method: 'HEAD',
+        credentials: 'include',
+        headers: { 'Tus-Resumable': '1.0.0' },
+      }),
+    );
+
+    (up.options.onSuccess as () => void)();
+    await handle;
+    vi.unstubAllGlobals();
+  });
+
   it('reports progress as percent plus raw bytes, and resolves on success', async () => {
     const onProgress = vi.fn();
     const onSuccess = vi.fn();
@@ -197,9 +250,10 @@ describe('UploadManager.getStatus()', () => {
       }),
     );
 
-    const result = await new UploadManager(mockFetch, 'k', 'https://api.test').getStatus(
-      'session-1',
-    );
+    const result = await new UploadManager(mockFetch, {
+      apiKey: 'k',
+      baseUrl: 'https://api.test',
+    }).getStatus('session-1');
 
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/session-1');
     expect(result).toEqual({
@@ -216,7 +270,9 @@ describe('UploadManager.getStatus()', () => {
 describe('UploadManager.cancel()', () => {
   it('DELETEs the session', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
-    await new UploadManager(mockFetch, 'k', 'https://api.test').cancel('session-1');
+    await new UploadManager(mockFetch, { apiKey: 'k', baseUrl: 'https://api.test' }).cancel(
+      'session-1',
+    );
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/uploads/session-1', { method: 'DELETE' });
   });
 });

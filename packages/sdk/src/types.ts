@@ -178,10 +178,21 @@ export interface SiaShareMap {
 
 /** SDK client configuration. */
 export interface SlubyConfig {
-  /** API key (Bearer token). */
-  apiKey: string;
+  /**
+   * API key (Bearer token). Omit it in a browser app served from the same
+   * origin as the API (such as the Studio): requests then carry the signed-in
+   * session cookie instead of an Authorization header.
+   */
+  apiKey?: string;
   /** Base URL of the Sluby REST API (e.g. "https://api.sluby.app"). */
   baseUrl: string;
+  /**
+   * Cookie policy for requests, passed to `fetch` and applied to TUS uploads.
+   * Leave unset for API-key auth or a same-origin session. Set `'include'`
+   * only when a cookie session must cross origins (the API must then allow
+   * credentialed CORS for your origin).
+   */
+  credentials?: RequestCredentials;
   /**
    * Base URL the browser fetches HLS bytes from directly: the delivery /
    * object gateway, optionally an nginx cache in front of it. Playback URLs
