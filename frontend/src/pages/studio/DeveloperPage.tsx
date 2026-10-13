@@ -317,7 +317,7 @@ function ApiKeysTab() {
 
 const WEBHOOK_EVENT_GROUPS = [
   { label: 'Upload Events', events: ['upload.started', 'upload.completed', 'upload.failed'] },
-  { label: 'Processing Events', events: ['processing.started', 'processing.progress'] },
+  { label: 'Processing Events', events: ['processing.started'] },
   { label: 'Asset Events', events: ['asset.ready', 'asset.errored'] },
 ];
 

@@ -65,6 +65,7 @@ describe('webhook routes', () => {
         });
 
       expect(deps.createWebhook).toHaveBeenCalledWith({
+        creatorAddress: '0xabc123',
         apiKeyId: 'key-1',
         url: 'https://example.com/hook',
         events: ['upload.completed'],
@@ -123,7 +124,6 @@ describe('webhook routes', () => {
         'upload.completed',
         'upload.failed',
         'processing.started',
-        'processing.progress',
         'asset.ready',
         'asset.errored',
       ];
@@ -134,6 +134,37 @@ describe('webhook routes', () => {
       });
 
       expect(res.status).toBe(201);
+    });
+
+    it('records no key for a studio session, which has no key row', async () => {
+      const app = withApiKey(createTestApp(createWebhookRoutes(deps)), {
+        ...defaultApiKey,
+        id: 'session:alice',
+        creatorAddress: 'github:alice',
+      });
+      await request(app)
+        .post('/')
+        .send({ url: 'https://example.com/hook', events: ['asset.ready'] });
+      expect(deps.createWebhook).toHaveBeenCalledWith(
+        expect.objectContaining({ creatorAddress: 'github:alice', apiKeyId: null }),
+      );
+    });
+
+    it.each(['not a url', 'ftp://example.com/hook', '/relative'])(
+      'rejects %s as a delivery url',
+      async (url) => {
+        const res = await request(createApp())
+          .post('/')
+          .send({ url, events: ['asset.ready'] });
+        expect(res.status).toBe(400);
+      },
+    );
+
+    it('rejects events the pipeline never emits', async () => {
+      const res = await request(createApp())
+        .post('/')
+        .send({ url: 'https://example.com/hook', events: ['processing.progress'] });
+      expect(res.status).toBe(400);
     });
 
     it('should require manage scope', async () => {
@@ -184,10 +215,10 @@ describe('webhook routes', () => {
       });
     });
 
-    it('should call listWebhooks with the API key ID', async () => {
+    it("lists the caller's account webhooks", async () => {
       await request(createApp()).get('/');
 
-      expect(deps.listWebhooks).toHaveBeenCalledWith('key-1');
+      expect(deps.listWebhooks).toHaveBeenCalledWith('0xabc123');
     });
 
     it('should return empty data array when no webhooks', async () => {
@@ -218,8 +249,8 @@ describe('webhook routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true });
-      // Scoped to the calling key so one caller cannot delete another's webhook.
-      expect(deps.deleteWebhook).toHaveBeenCalledWith('wh-1', 'key-1');
+      // Scoped to the caller's account so one tenant cannot delete another's webhook.
+      expect(deps.deleteWebhook).toHaveBeenCalledWith('wh-1', '0xabc123');
     });
 
     it('should return 404 when the webhook belongs to another key', async () => {

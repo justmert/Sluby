@@ -5,12 +5,14 @@ import { randomBytes } from 'node:crypto';
 
 export interface WebhookRouteDeps {
   createWebhook: (data: {
-    apiKeyId: string;
+    creatorAddress: string;
+    /** The key it was registered with; null for a studio session. */
+    apiKeyId: string | null;
     url: string;
     events: string[];
     secret: string;
   }) => Promise<{ id: string }>;
-  listWebhooks: (apiKeyId: string) => Promise<
+  listWebhooks: (creatorAddress: string) => Promise<
     Array<{
       id: string;
       url: string;
@@ -19,16 +21,16 @@ export interface WebhookRouteDeps {
       createdAt: Date;
     }>
   >;
-  /** Deletes only if the endpoint belongs to `apiKeyId`; false when it does not. */
-  deleteWebhook: (id: string, apiKeyId: string) => Promise<boolean>;
+  /** Deletes only if the endpoint belongs to the account; false when it does not. */
+  deleteWebhook: (id: string, creatorAddress: string) => Promise<boolean>;
 }
 
-const VALID_EVENTS = [
+/** Events the pipeline actually emits. */
+export const WEBHOOK_EVENTS = [
   'upload.started',
   'upload.completed',
   'upload.failed',
   'processing.started',
-  'processing.progress',
   'asset.ready',
   'asset.errored',
 ];
@@ -43,23 +45,35 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
   router.post('/', requireScope('manage'), async (req: Request, res: Response) => {
     const { url, events } = req.body;
 
-    if (!url) {
+    if (!url || typeof url !== 'string') {
       throw new AppError(400, 'URL is required');
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new AppError(400, 'URL must be an absolute http(s) URL');
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new AppError(400, 'URL must be an absolute http(s) URL');
     }
 
     if (!events || !Array.isArray(events) || events.length === 0) {
       throw new AppError(400, 'At least one event type is required');
     }
 
-    const invalidEvents = events.filter((e: string) => !VALID_EVENTS.includes(e));
+    const invalidEvents = events.filter((e: string) => !WEBHOOK_EVENTS.includes(e));
     if (invalidEvents.length > 0) {
       throw new AppError(400, `Invalid events: ${invalidEvents.join(', ')}`);
     }
 
     const secret = randomBytes(32).toString('hex');
 
+    const caller = req.apiKey!;
     const webhook = await deps.createWebhook({
-      apiKeyId: req.apiKey!.id,
+      creatorAddress: caller.creatorAddress,
+      // a studio session has a synthetic id, not a key row
+      apiKeyId: caller.id.startsWith('session:') ? null : caller.id,
       url,
       events,
       secret,
@@ -78,7 +92,7 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
    * List registered webhook endpoints.
    */
   router.get('/', requireScope('read'), async (req: Request, res: Response) => {
-    const webhooks = await deps.listWebhooks(req.apiKey!.id);
+    const webhooks = await deps.listWebhooks(req.apiKey!.creatorAddress);
 
     res.json({
       data: webhooks.map((w) => ({
@@ -96,8 +110,8 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
    * Remove a webhook endpoint.
    */
   router.delete('/:id', requireScope('manage'), async (req: Request, res: Response) => {
-    // Scoped to the calling key so one caller cannot delete another's webhook.
-    const deleted = await deps.deleteWebhook(String(req.params.id), req.apiKey!.id);
+    // Scoped to the caller's account so one tenant cannot delete another's webhook.
+    const deleted = await deps.deleteWebhook(String(req.params.id), req.apiKey!.creatorAddress);
     if (!deleted) {
       throw new AppError(404, 'Webhook endpoint not found');
     }

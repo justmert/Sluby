@@ -10,7 +10,8 @@ export interface WebhookEndpointRecord {
 }
 
 export interface WebhookDispatcherDeps {
-  getActiveWebhooksForEvent: (event: string) => Promise<WebhookEndpointRecord[]>;
+  /** Endpoints of `owner` subscribed to `event`. */
+  getActiveWebhooksForEvent: (event: string, owner: string) => Promise<WebhookEndpointRecord[]>;
   recordDelivery: (data: {
     webhookEndpointId: string;
     eventType: string;
@@ -28,8 +29,16 @@ export class WebhookDispatcher {
 
   constructor(private deps: WebhookDispatcherDeps) {}
 
-  async dispatch(event: string, data: Record<string, unknown>): Promise<void> {
-    const endpoints = await this.deps.getActiveWebhooksForEvent(event);
+  /**
+   * Deliver `event` to the subscribed endpoints of `owner`, the account the
+   * event's asset belongs to. Never to anyone else's endpoints.
+   */
+  async dispatch(event: string, data: Record<string, unknown>, owner: string): Promise<void> {
+    if (!owner) {
+      logger.warn({ event }, 'Webhook event without an owner; not delivered');
+      return;
+    }
+    const endpoints = await this.deps.getActiveWebhooksForEvent(event, owner);
 
     if (endpoints.length === 0) {
       logger.debug({ event }, 'No webhook endpoints for event');

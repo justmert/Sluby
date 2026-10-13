@@ -59,7 +59,7 @@ import { apiKeys as apiKeysTable, type VideoAsset } from './db/schema.js';
 
 import {
   createWebhookEndpoint,
-  listWebhookEndpointsByApiKeyId,
+  listWebhookEndpointsByOwner,
   deleteWebhookEndpoint,
   findEndpointsForEvent,
   createWebhookDelivery,
@@ -127,8 +127,8 @@ for (const dir of [env.UPLOAD_DIR, env.TRANSCODE_OUTPUT_DIR, env.CACHE_DIR]) {
 // ──────────────────────────────────────────
 
 const webhookDispatcher = new WebhookDispatcher({
-  getActiveWebhooksForEvent: async (event: string) => {
-    const endpoints = await findEndpointsForEvent(event);
+  getActiveWebhooksForEvent: async (event: string, owner: string) => {
+    const endpoints = await findEndpointsForEvent(event, owner);
     return endpoints.map((ep) => ({
       id: ep.id,
       url: ep.url,
@@ -389,8 +389,8 @@ const tusServerDeps: TusServerDeps = {
     await deleteAsset(videoAssetId);
   },
 
-  dispatchWebhook: async (event, data) => {
-    await webhookDispatcher.dispatch(event, data);
+  dispatchWebhook: async (event, data, owner) => {
+    await webhookDispatcher.dispatch(event, data, owner);
   },
 };
 
@@ -749,6 +749,7 @@ const apiRouterDeps: ApiRouterDeps = {
   // ── WebhookRouteDeps ──
   createWebhook: async (data) => {
     const endpoint = await createWebhookEndpoint({
+      creatorAddress: data.creatorAddress,
       apiKeyId: data.apiKeyId,
       url: data.url,
       events: data.events,
@@ -757,8 +758,8 @@ const apiRouterDeps: ApiRouterDeps = {
     return { id: endpoint.id };
   },
 
-  listWebhooks: async (apiKeyId) => {
-    const endpoints = await listWebhookEndpointsByApiKeyId(apiKeyId);
+  listWebhooks: async (creatorAddress) => {
+    const endpoints = await listWebhookEndpointsByOwner(creatorAddress);
     return endpoints.map((ep) => ({
       id: ep.id,
       url: ep.url,
@@ -768,8 +769,8 @@ const apiRouterDeps: ApiRouterDeps = {
     }));
   },
 
-  deleteWebhook: async (id, apiKeyId) => {
-    const deleted = await deleteWebhookEndpoint(id, apiKeyId);
+  deleteWebhook: async (id, creatorAddress) => {
+    const deleted = await deleteWebhookEndpoint(id, creatorAddress);
     return Boolean(deleted);
   },
 

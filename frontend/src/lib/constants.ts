@@ -83,7 +83,6 @@ export const WEBHOOK_EVENTS = [
   'upload.completed',
   'upload.failed',
   'processing.started',
-  'processing.progress',
   'asset.ready',
   'asset.errored',
 ] as const;
