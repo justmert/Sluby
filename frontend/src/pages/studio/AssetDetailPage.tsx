@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { useParams, useNavigate, Link } from 'react-router';
+import { motion } from 'motion/react';
 import {
   Play,
   Film,
@@ -58,8 +58,7 @@ import { useProcessingJob } from '@/hooks/useProcessingJob';
 import { formatDuration, formatBytes, formatRelativeTime } from '@/lib/formatters';
 import { truncateAddress } from '@/lib/address-helpers';
 import { siaObjectUrl } from '@/lib/sia';
-import { BASE_URL } from '@/lib/api-client';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
 import { EXPLORER_LABEL, EXTERNAL_LINK_PROPS, explorerUrls } from '@/lib/sia-explorer';
 
@@ -887,7 +886,7 @@ function SiaStorageSectionLoader() {
 // ---------------------------------------------------------------------------
 
 function EmbedCodeGenerator({ assetId, playbackUrl }: { assetId: string; playbackUrl?: string }) {
-  const hlsUrl = playbackUrl ?? `${BASE_URL}/api/v1/playback/${assetId}/hls`;
+  const hlsUrl = playbackUrl ?? `${window.location.origin}/api/v1/playback/${assetId}/hls`;
 
   const htmlCode = `<video
   src="${hlsUrl}"
@@ -908,7 +907,7 @@ function EmbedCodeGenerator({ assetId, playbackUrl }: { assetId: string; playbac
 
 const client = new SlubyClient({
   apiKey: 'YOUR_API_KEY',
-  baseUrl: '${BASE_URL}',
+  baseUrl: '${window.location.origin}',
 });
 
 const playback = await client.getPlayback('${assetId}');

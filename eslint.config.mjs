@@ -1,13 +1,14 @@
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier';
+import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   eslintConfigPrettier,
   {
-    ignores: ['**/dist/', '**/node_modules/', '**/drizzle/', '**/build/'],
+    ignores: ['**/dist/', '**/node_modules/', '**/drizzle/', '**/build/', 'resources/'],
   },
   {
     // Plain Node scripts (probes, one-off tooling) run under Node, not the
@@ -29,6 +30,14 @@ export default tseslint.config(
         __dirname: 'readonly',
         __filename: 'readonly',
       },
+    },
+  },
+  {
+    files: ['frontend/src/**/*.{ts,tsx}', 'packages/player/src/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
     },
   },
   {

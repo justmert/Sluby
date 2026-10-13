@@ -12,17 +12,16 @@ import {
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageContainer } from '@/components/layout/PageContainer';
-import { useTheme, type Theme } from '@/lib/theme';
+import { useTheme, type Theme } from '@/components/theme-provider';
 import { useHealthCheck } from '@/hooks/useHealthCheck';
 import { getStoredApiKey, setStoredApiKey } from '@/lib/api-key-store';
-import { BASE_URL } from '@/lib/api-client';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
 // Appearance Section
@@ -115,7 +114,7 @@ function ApiConfigSection() {
           <label className="text-xs text-zinc-400 font-medium mb-1.5 block">Backend URL</label>
           <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/[0.08] bg-white/[0.03]">
             <Globe className="w-3.5 h-3.5 text-zinc-400" />
-            <code className="text-xs font-mono text-zinc-300">{BASE_URL}</code>
+            <code className="text-xs font-mono text-zinc-300">{window.location.origin}</code>
           </div>
         </div>
         <div>

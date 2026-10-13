@@ -1,59 +1,71 @@
-import { useLocation } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/cn';
+import { Fragment } from 'react';
+import { Link, useLocation } from 'react-router';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+import { Separator } from '@/components/ui/separator';
+import { SidebarTrigger } from '@/components/ui/sidebar';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { UserMenu } from './UserMenu';
 
-function getBreadcrumbs(pathname: string): Array<{ label: string; path?: string }> {
+const SECTION_LABELS: Record<string, string> = {
+  upload: 'Upload',
+  assets: 'Assets',
+  player: 'Player',
+  developer: 'Developer',
+  analytics: 'Analytics',
+  settings: 'Settings',
+};
+
+export function getBreadcrumbs(pathname: string): Array<{ label: string; path?: string }> {
   const segments = pathname.split('/').filter(Boolean);
-  const crumbs: Array<{ label: string; path?: string }> = [];
-
-  if (segments[0] === 'studio') {
-    crumbs.push({ label: 'Studio', path: '/studio' });
-    if (segments[1]) {
-      const labels: Record<string, string> = {
-        upload: 'Upload',
-        assets: 'Assets',
-        player: 'Player',
-        developer: 'Developer',
-        analytics: 'Analytics',
-        settings: 'Settings',
-      };
-      const label = labels[segments[1]] || segments[1];
-      crumbs.push({ label, path: `/studio/${segments[1]}` });
-
-      if (segments[2] && segments[1] === 'assets') {
-        crumbs.push({ label: segments[2] });
-      }
-    }
+  if (segments[0] !== 'studio') return [];
+  const crumbs: Array<{ label: string; path?: string }> = [{ label: 'Studio', path: '/studio' }];
+  if (segments[1]) {
+    crumbs.push({
+      label: SECTION_LABELS[segments[1]] ?? segments[1],
+      path: `/studio/${segments[1]}`,
+    });
+    if (segments[2] && segments[1] === 'assets') crumbs.push({ label: segments[2] });
   }
-
   return crumbs;
 }
 
 export function TopBar() {
-  const location = useLocation();
-  const breadcrumbs = getBreadcrumbs(location.pathname);
+  const { pathname } = useLocation();
+  const crumbs = getBreadcrumbs(pathname);
 
   return (
-    <header className="h-14 flex items-center px-6 border-b border-white/[0.06] bg-[#0a0a0f]/60 backdrop-blur-md gap-4">
-      {/* Breadcrumbs */}
-      <nav className="flex-1 flex items-center gap-1 text-sm min-w-0 overflow-hidden">
-        {breadcrumbs.map((crumb, i) => (
-          <span key={i} className="flex items-center gap-1 min-w-0 shrink-0 last:shrink">
-            {i > 0 && <ChevronRight className="h-3 w-3 text-zinc-600 shrink-0" />}
-            <span
-              className={cn(
-                'transition-colors duration-150 truncate',
-                i === breadcrumbs.length - 1
-                  ? 'text-[#f0f0f0] font-medium'
-                  : 'text-zinc-500 hover:text-zinc-400',
-              )}
-            >
-              {crumb.label}
-            </span>
-          </span>
-        ))}
-      </nav>
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
+      <SidebarTrigger className="-ml-1" />
+      <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
+      <Breadcrumb className="min-w-0 flex-1">
+        <BreadcrumbList>
+          {crumbs.map((crumb, i) => {
+            const last = i === crumbs.length - 1;
+            return (
+              <Fragment key={`${crumb.label}-${i}`}>
+                {i > 0 && <BreadcrumbSeparator />}
+                <BreadcrumbItem className="min-w-0">
+                  {last || !crumb.path ? (
+                    <BreadcrumbPage className="truncate">{crumb.label}</BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink asChild>
+                      <Link to={crumb.path}>{crumb.label}</Link>
+                    </BreadcrumbLink>
+                  )}
+                </BreadcrumbItem>
+              </Fragment>
+            );
+          })}
+        </BreadcrumbList>
+      </Breadcrumb>
+      <ThemeToggle />
       <UserMenu />
     </header>
   );

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { Link } from 'react-router';
+import { motion } from 'motion/react';
 import {
   Upload,
   CheckCircle2,
@@ -28,7 +28,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { useUpload, type UploadMetadata, type ProcessingLogEntry } from '@/hooks/useUpload';
 import { formatBytes } from '@/lib/formatters';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
 // Upload steps

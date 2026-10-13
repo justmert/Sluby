@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { apiClient, ApiError, TUS_ENDPOINT } from '../lib/api-client';
+import { apiClient, ApiError } from '../lib/api-client';
 import { getStoredApiKey } from '../lib/api-key-store';
 import type { VideoAsset } from './useAssets';
 
@@ -104,7 +104,7 @@ export function useUpload() {
       setState((s) => ({ ...s, status: 'uploading' }));
 
       const upload = new Upload(file, {
-        endpoint: TUS_ENDPOINT,
+        endpoint: `${window.location.origin}/api/v1/uploads`,
         // `withCredentials` is a valid tus-js-client option (it is
         // forwarded to the underlying XMLHttpRequest), but the
         // package's UploadOptions type omits it. Cast around that.

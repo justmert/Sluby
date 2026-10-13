@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Link, useSearchParams } from 'react-router';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   LayoutGrid,
   List,
@@ -37,7 +37,7 @@ import {
 } from '@/hooks/useAssets';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatDuration, formatBytes, formatRelativeTime } from '@/lib/formatters';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import { siaObjectUrl } from '@/lib/sia';
 import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
 

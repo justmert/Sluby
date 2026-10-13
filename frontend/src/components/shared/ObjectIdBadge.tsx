@@ -1,5 +1,5 @@
 import { CopyButton } from './CopyButton';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 
 export interface ObjectIdBadgeProps {
   /** The Sia object id (hex string). */
@@ -20,7 +20,7 @@ function truncateMiddle(value: string, chars: number): string {
 /**
  * Renders a Sia object id as truncated monospace hex with an optional
  * copy control. Object ids are app-layer hashes (not on-chain entities) so
- * they intentionally do not link to the blockchain explorer — see
+ * they intentionally do not link to the blockchain explorer, see
  * `lib/sia-explorer.ts` for why.
  */
 export function ObjectIdBadge({
@@ -31,8 +31,8 @@ export function ObjectIdBadge({
 }: ObjectIdBadgeProps) {
   return (
     <span className={cn('inline-flex items-center gap-1', className)} title={value}>
-      <span className="font-mono text-zinc-300 truncate">{truncateMiddle(value, truncate)}</span>
-      {!hideCopy && <CopyButton value={value} className="h-6 w-6 min-w-[24px] min-h-[24px]" />}
+      <span className="truncate font-mono">{truncateMiddle(value, truncate)}</span>
+      {!hideCopy && <CopyButton value={value} className="size-6" label="Copy object id" />}
     </span>
   );
 }
