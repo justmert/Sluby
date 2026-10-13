@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
+import { playbackInitiationTotal } from '../../metrics/collector.js';
 import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
 
@@ -82,6 +83,7 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
     const posterUrl =
       asset.thumbnailObjectIds.length > 0 ? `/v1/objects/${asset.thumbnailObjectIds[0]}` : null;
 
+    playbackInitiationTotal.inc({ mode: 'public' });
     res.json({
       playback_url: playbackUrl,
       poster_url: posterUrl,
@@ -115,6 +117,7 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
 
     // Serialize as snake_case to match the rest of the API and what the SDK
     // reads. The deps contract stays camelCase for internal callers.
+    playbackInitiationTotal.inc({ mode: 'signed' });
     res.json({ signed_url: signed.signedUrl, expires_at: signed.expiresAt });
   });
 
@@ -158,6 +161,7 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
       res.setHeader('Cache-Control', 'private, no-store');
     }
 
+    playbackInitiationTotal.inc({ mode: 'sia' });
     res.json({
       master_object_id: result.masterObjectId,
       shares: result.shares,

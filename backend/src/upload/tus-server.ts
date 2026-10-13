@@ -5,6 +5,7 @@ import { logger } from '../config/logger.js';
 import { computeFileHash } from './chunk-verifier.js';
 import { SESSION_COOKIE_NAME, parseCookieHeader, verifySession } from '../api/auth/session.js';
 import { PLATFORM_ADDRESS } from '../api/ownership.js';
+import { uploadBytesTotal, uploadFailureTotal, uploadSuccessTotal } from '../metrics/collector.js';
 
 export interface TusServerDeps {
   validateApiKey: (
@@ -137,6 +138,8 @@ export function createTusServer(deps: TusServerDeps): Server {
 
         // Mark upload as complete
         await deps.completeUpload(sessionId, filePath, sha256);
+        uploadSuccessTotal.inc();
+        if (upload.size != null) uploadBytesTotal.inc(upload.size);
 
         logger.info(
           { uploadId: upload.id, sessionId, sha256, fileSize: upload.size },
@@ -175,6 +178,7 @@ export function createTusServer(deps: TusServerDeps): Server {
           { uploadId: upload.id, sessionId, videoAssetId, err },
           'onUploadFinish failed',
         );
+        uploadFailureTotal.inc();
         if (videoAssetId) {
           try {
             await deps.markAssetFailed(videoAssetId);

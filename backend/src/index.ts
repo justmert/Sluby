@@ -11,6 +11,7 @@ import {
   closeQueues,
   transcodeQueue,
   uploadSegmentsQueue,
+  finalizeQueue,
   deletionQueue,
 } from './queue/bull-config.js';
 import { closeWorkers } from './queue/processors.js';
@@ -23,7 +24,7 @@ import { isTusRequest } from './upload/tus-dispatch.js';
 import { buildSignedObjectQuery } from './delivery/signed-url.js';
 import { createAssetShareUrls } from './delivery/share-urls.js';
 import { deliveryRouter } from './delivery/aggregator.js';
-import { registry, getMetrics } from './metrics/collector.js';
+import { registry, getMetrics, setMetricSources } from './metrics/collector.js';
 
 // DB query imports
 import {
@@ -394,6 +395,21 @@ const tusServerDeps: TusServerDeps = {
     await webhookDispatcher.dispatch(event, data, owner);
   },
 };
+
+setMetricSources({
+  queueDepth: async () => {
+    const counts = await Promise.all(
+      [transcodeQueue, uploadSegmentsQueue, finalizeQueue].map((q) =>
+        q.getJobCounts('waiting', 'active', 'delayed'),
+      ),
+    );
+    return counts.reduce((n, c) => n + (c.waiting ?? 0) + (c.active ?? 0) + (c.delayed ?? 0), 0);
+  },
+  cacheCounts: () => {
+    const { hits, misses } = getCacheStats();
+    return { hits, misses };
+  },
+});
 
 const tusServer = createTusServer(tusServerDeps);
 

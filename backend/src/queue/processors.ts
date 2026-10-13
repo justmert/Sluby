@@ -27,6 +27,7 @@ import {
   appendProcessingLog,
 } from '../db/queries/jobs.js';
 import { WebhookDispatcher } from '../webhooks/dispatcher.js';
+import { processingDurationSeconds } from '../metrics/collector.js';
 import { findEndpointsForEvent, createWebhookDelivery } from '../db/queries/webhooks.js';
 
 const logger = pino({ name: 'queue-processors' });
@@ -468,10 +469,15 @@ export const finalizeWorker = new Worker<FinalizeJobData>(
     // Mark the processing job as completed
     if (processingJob) {
       await appendProcessingLog(processingJob.id, 'finalize', 'Asset ready');
-      await updateProcessingJobStatus(processingJob.id, {
+      const done = await updateProcessingJobStatus(processingJob.id, {
         status: 'completed',
         progressPercent: 100,
       });
+      if (done?.startedAt && done.completedAt) {
+        processingDurationSeconds.observe(
+          (done.completedAt.getTime() - done.startedAt.getTime()) / 1000,
+        );
+      }
     }
 
     // Cache warming: prefetch the small, hot objects (master manifest,

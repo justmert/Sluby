@@ -1014,7 +1014,8 @@ export const openapiDocument = {
     '/api/v1/metrics': {
       get: {
         tags: ['Ops'],
-        summary: 'Platform metrics (JSON).',
+        summary: 'Platform metrics (prometheus registry as JSON).',
+        'x-required-scope': 'read',
         responses: { '200': { description: 'Metrics.' } },
       },
     },
