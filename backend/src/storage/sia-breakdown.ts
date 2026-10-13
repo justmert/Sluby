@@ -56,6 +56,7 @@ export interface ObjectBreakdown {
   role: ObjectRole | null;
   rendition: string | null;
   size: number;
+  /** Encoded size of the slabs this object references, shared slabs in full. */
   encodedSize: number;
   slabCount: number;
   sectorCount: number;
@@ -89,7 +90,12 @@ export interface SiaBreakdown {
     objectCount: number;
     /** Bytes stored, before erasure coding. */
     rawBytes: number;
-    /** Sum of each object's encoded size, as the indexer reports it. */
+    /**
+     * Bytes the asset occupies on hosts after erasure coding: every unique
+     * slab's sectors, each a full 4 MiB. Per-object encoded sizes are not
+     * summed, because the indexer reports a slab's full size for every object
+     * that references it, so shared slabs would be counted once per object.
+     */
     encodedBytes: number;
     uniqueSlabCount: number;
     uniqueSectorCount: number;
@@ -137,7 +143,6 @@ export function buildSiaBreakdown(
   const objects: ObjectBreakdown[] = [];
   const unavailable: string[] = [];
   let rawBytes = 0;
-  let encodedBytes = 0;
 
   for (const ref of refs) {
     const snap = snapshots.get(ref.objectId);
@@ -148,7 +153,6 @@ export function buildSiaBreakdown(
     const slabs = snap.slabs.filter((s) => s.sectors.length > 0);
     const objectHosts = new Set(slabs.flatMap((s) => s.sectors.map((sec) => sec.hostKey)));
     rawBytes += snap.size;
-    encodedBytes += snap.encodedSize;
     objects.push({
       objectId: ref.objectId,
       role: ref.role,
@@ -221,7 +225,7 @@ export function buildSiaBreakdown(
     totals: {
       objectCount: refs.length,
       rawBytes,
-      encodedBytes,
+      encodedBytes: uniqueSectorCount * SECTOR_SIZE_BYTES,
       uniqueSlabCount: uniqueSlabs.size,
       uniqueSectorCount,
       sectorBytes: uniqueSectorCount * SECTOR_SIZE_BYTES,

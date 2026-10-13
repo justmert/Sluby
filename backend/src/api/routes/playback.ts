@@ -3,6 +3,7 @@ import { requireScope } from '../middleware/api-key.js';
 import { playbackInitiationTotal } from '../../metrics/collector.js';
 import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
+import { logger } from '../../config/logger.js';
 
 export interface PlaybackRouteDeps {
   // `owner` is the caller's creatorAddress (undefined for a platform key).
@@ -154,7 +155,15 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
     const cap = gated ? MAX_GATED_SHARE_EXPIRES_IN : MAX_SHARE_EXPIRES_IN;
     const expiresIn = Math.min(Math.max(requested, MIN_SHARE_EXPIRES_IN), cap);
 
-    const result = await deps.createShareUrls(asset.id, asset.manifestObjectId, expiresIn);
+    let result: Awaited<ReturnType<typeof deps.createShareUrls>>;
+    try {
+      result = await deps.createShareUrls(asset.id, asset.manifestObjectId, expiresIn);
+    } catch (err) {
+      // minting talks to the indexer for every object; when that fails the
+      // problem is upstream, so say so instead of answering a bare 500
+      logger.warn({ assetId: asset.id, err }, 'Could not mint share urls');
+      throw new AppError(502, 'The Sia indexer did not answer while minting share URLs; try again');
+    }
 
     // A gated asset's capability map must not sit in a shared/proxy cache.
     if (gated) {

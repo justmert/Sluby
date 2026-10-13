@@ -127,11 +127,7 @@ export function SiaStorageBreakdown({
             }
           />
           <Stat label="Slabs" value={t.unique_slab_count} hint="Shared slabs counted once" />
-          <Stat
-            label="Sectors"
-            value={t.unique_sector_count}
-            hint={`${formatBytes(t.sector_bytes)} on hosts`}
-          />
+          <Stat label="Sectors" value={t.unique_sector_count} hint="4 MiB each on a host" />
           <Stat label="Hosts" value={t.host_count} />
           <Stat label="Countries" value={t.country_count} />
         </CardContent>
@@ -151,7 +147,6 @@ export function SiaStorageBreakdown({
                 <TableHead className="pl-4">Object</TableHead>
                 <TableHead>Object ID</TableHead>
                 <TableHead className="text-right">Size</TableHead>
-                <TableHead className="text-right">Encoded</TableHead>
                 <TableHead className="text-right">Slabs</TableHead>
                 <TableHead className="text-right">Sectors</TableHead>
                 <TableHead className="pr-4 text-right">Hosts</TableHead>
@@ -170,9 +165,6 @@ export function SiaStorageBreakdown({
                     <ObjectIdBadge value={o.object_id} truncate={6} />
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{formatBytes(o.size)}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatBytes(o.encoded_size)}
-                  </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {o.slab_count}
                     {o.shared_slab_count > 0 && (
@@ -263,7 +255,8 @@ export function SiaStorageBreakdown({
             )}
             {info.hosts.some((h) => !h.country_code) && (
               <p className="text-xs text-muted-foreground">
-                Hosts without a reported location are listed as unknown.
+                Unknown means the host is not in the host list the indexer returns, so its location
+                was not reported.
               </p>
             )}
           </CardContent>

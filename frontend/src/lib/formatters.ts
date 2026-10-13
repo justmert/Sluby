@@ -1,14 +1,14 @@
 /**
- * Format a byte count into a human-readable string.
- * e.g. 1_500_000_000 -> "1.5 GB"
+ * Format a byte count with decimal (SI) units, the way storage providers
+ * such as sia.storage quote capacity: 50_000_000_000 -> "50 GB".
  */
 export function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const k = 1024;
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  const value = bytes / Math.pow(k, i);
-  return `${value % 1 === 0 ? value : value.toFixed(1)} ${units[i]}`;
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log10(bytes) / 3));
+  const value = bytes / 1000 ** i;
+  const rounded = value >= 100 || i === 0 ? Math.round(value) : Number(value.toFixed(1));
+  return `${rounded} ${units[i]}`;
 }
 
 /**

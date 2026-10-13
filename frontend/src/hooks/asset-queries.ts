@@ -52,8 +52,15 @@ export function useDeleteAssets() {
           : [],
       );
     },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ['assets'] });
+    onSettled: (_failures, _err, ids) => {
+      // drop the deleted assets' own queries instead of refetching them into 404s
+      for (const id of ids) {
+        for (const kind of ['one', 'sia', 'renditions', 'processing']) {
+          queryClient.removeQueries({ queryKey: ['assets', kind, id] });
+        }
+      }
+      void queryClient.invalidateQueries({ queryKey: ['assets', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['assets', 'latest'] });
       void queryClient.invalidateQueries({ queryKey: ['stats'] });
     },
   });

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '@/test/render';
 import { ThemeProvider } from '@/components/theme-provider';
-import SettingsPage from './SettingsPage';
+import SettingsPage, { timeLeft } from './SettingsPage';
 
 vi.mock('@/components/AuthGate', () => ({ useSession: () => ({ login: 'alice' }) }));
 
@@ -109,7 +109,7 @@ describe('SettingsPage', () => {
   it('shows a key in its grace period as expiring, without another rotate', async () => {
     keys[0].expires_at = new Date(Date.now() + 2 * 3_600_000).toISOString();
     render();
-    expect(await screen.findByText(/Expires in 1h 59m|Expires in 2h 0m/)).toBeInTheDocument();
+    expect(await screen.findByText(/Expires in (1h 59m|2h 0m)/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /rotate/i })).not.toBeInTheDocument();
   });
 
@@ -128,5 +128,15 @@ describe('SettingsPage', () => {
     expect(document.documentElement).toHaveClass('light');
     await userEvent.click(screen.getByRole('radio', { name: /dark/i }));
     expect(document.documentElement).toHaveClass('dark');
+  });
+});
+
+describe('timeLeft', () => {
+  const at = (ms: number) => new Date(1_000_000 + ms).toISOString();
+  it('reads naturally around the hour and day boundaries', () => {
+    expect(timeLeft(at(59 * 60_000 + 30_000), 1_000_000)).toBe('in 1h 0m');
+    expect(timeLeft(at(5 * 60_000), 1_000_000)).toBe('in 5m');
+    expect(timeLeft(at(26 * 3_600_000), 1_000_000)).toBe('in 1d 2h');
+    expect(timeLeft(at(-1), 1_000_000)).toBe('now');
   });
 });

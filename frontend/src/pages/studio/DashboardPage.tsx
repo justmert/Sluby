@@ -197,7 +197,8 @@ function CacheCard({ status }: { status?: SystemStatus }) {
               />
             </div>
             <Row label="Cached entries">
-              {cache.object_items} objects, {cache.manifest_items} manifests
+              {cache.object_items} object{cache.object_items === 1 ? '' : 's'},{' '}
+              {cache.manifest_items} manifest{cache.manifest_items === 1 ? '' : 's'}
             </Row>
           </>
         ) : (
@@ -246,7 +247,7 @@ function IndexerCard({ status }: { status?: SystemStatus }) {
         </Row>
         <Row label="Hosts">
           {indexer.hosts
-            ? `${indexer.hosts.good_for_upload} of ${indexer.hosts.total} accepting uploads, ${indexer.hosts.countries} countries`
+            ? `${indexer.hosts.good_for_upload} of ${indexer.hosts.total} listed accepting uploads, ${indexer.hosts.countries} countries`
             : 'unknown'}
         </Row>
         <Row label="Last reconciliation">
@@ -405,8 +406,6 @@ export default function DashboardPage() {
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <LatestUploads />
         <IndexerCard status={system.data} />
-        <StorageCard status={system.data} storedBytes={s?.stored_bytes} />
-        <CacheCard status={system.data} />
         {system.isError && (
           <Alert variant="destructive">
             <Server />
@@ -414,6 +413,11 @@ export default function DashboardPage() {
             <AlertDescription>{system.error.message}</AlertDescription>
           </Alert>
         )}
+      </div>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <StorageCard status={system.data} storedBytes={s?.stored_bytes} />
+        <CacheCard status={system.data} />
       </div>
 
       <p className="mt-6 flex items-center gap-1.5 text-xs text-muted-foreground">

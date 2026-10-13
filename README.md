@@ -24,12 +24,15 @@ proxy cache in front.
 - **Reconciliation worker**: a background sweep that compares the database
   against the indexer's pinned inventory and flags drift (orphaned or
   missing objects).
-- **SDK**: first-party TypeScript (`@sluby/sdk`) and React (`@sluby/react`)
-  packages.
+- **SDK and player**: first-party TypeScript (`@sluby/sdk`) and React
+  (`@sluby/player`) packages.
+- **Studio**: a Vite + React + shadcn/ui web app for uploading, watching
+  processing, browsing the library, inspecting per-asset Sia storage,
+  previewing playback, and managing API keys and webhooks.
 
 ## Quick start
 
-Requirements: Node.js 20+, Docker + Docker Compose, FFmpeg 5+ (only needed
+Requirements: Node.js 22.12+, Docker + Docker Compose, FFmpeg 5+ (only needed
 when running the backend outside Docker).
 
 ```bash
@@ -61,30 +64,68 @@ docker compose -f docker-compose.sia.yml up -d
 ### Local development
 
 ```bash
-# Backend (hot reload via tsx watch)
-cd backend && npm install && npm run dev
+npm install                 # one install for every workspace
 
-# Frontend (Vite)
-cd frontend && npm install && npm run dev
+# Backend (hot reload via tsx watch). PORT=4500 matches the Docker port.
+PORT=4500 npm run dev
+
+# Studio (Vite), in another terminal
+npm run dev:frontend
 ```
 
-Open the frontend at the URL Vite prints (defaults to
-`http://localhost:5173`). Use the studio UI to create an API key, upload a
-video, and copy its playback URL into the player page.
+Open the Studio at `http://localhost:5173`. Vite proxies `/api` and `/v1`
+to the backend (`STUDIO_API_PROXY_TARGET`, default `http://localhost:4500`),
+so the Studio and the API share one origin and the sign-in cookie reaches
+every request, including tus uploads.
 
 #### Which backend port?
 
-The backend listens on a different host port depending on how you start it:
+| How you start it            | Backend URL on the host | Where that comes from                                |
+| --------------------------- | ----------------------- | ---------------------------------------------------- |
+| `docker compose up -d`      | `http://localhost:4500` | the `4500:3000` port mapping in `docker-compose.yml` |
+| `cd backend && npm run dev` | `http://localhost:3000` | the `PORT` default in `backend/src/config/env.ts`    |
 
-| How you start it            | Backend URL on the host | Where that comes from                                                                     |
-| --------------------------- | ----------------------- | ----------------------------------------------------------------------------------------- |
-| `docker compose up -d`      | `http://localhost:4500` | the `4500:3000` port mapping in `docker-compose.yml`                                      |
-| `cd backend && npm run dev` | `http://localhost:3000` | the `PORT` default in `backend/src/config/env.ts`, which `.env.example` also sets to 3000 |
+The Studio proxy and the SDK snippets below assume `4500`. With a `npm run
+dev` backend on 3000, set `PORT=4500` or start the Studio with
+`STUDIO_API_PROXY_TARGET=http://localhost:3000`.
 
-The studio frontend and the SDK snippets below default to
-`http://localhost:4500`, the Docker port. If you run the backend with
-`npm run dev` instead, either set `PORT=4500` in `.env` or point the frontend
-at the backend with `VITE_API_BASE_URL=http://localhost:3000`.
+## Studio
+
+The Studio (`frontend/`) is the management UI. It is built with Vite, React
+and shadcn/ui, talks to the API through `@sluby/sdk`, and plays video with
+`@sluby/player`, the same packages an app would use.
+
+| Page      | What it does                                                                                                                                                          |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard | Asset totals by status, bytes stored on Sia, latest uploads, gateway cache statistics, and live indexer status (account usage, host pool, database and Redis health). |
+| Upload    | Drag and drop, resumable tus upload with byte and chunk progress, pause, resume and cancel, then the processing pipeline stage by stage with its log and a retry.     |
+| Assets    | Server-side search (title, description or id), status and access filters, sorting, grid and list views, bulk delete.                                                  |
+| Asset     | Embedded player with a rendition picker and the delivery path (direct from Sia or gateway), the rendition ladder, and the Sia breakdown described below.              |
+| Developer | Copy-ready JavaScript and curl snippets for every common task (typechecked against the SDK in tests), webhooks, and an API explorer that calls this server as you.    |
+| Settings  | API keys: create with scopes, rotate with a grace period, revoke. Light, dark or system theme.                                                                        |
+
+The Sia breakdown on an asset comes live from the indexer: every object
+(master playlist, variant playlists, media, thumbnails) with its size,
+encoded size, slab and sector counts; deduplicated totals (objects packed
+together share slabs, and each slab is counted once); data and parity
+shards and the redundancy ratio; and the hosts and countries holding the
+sectors.
+
+### Signing in
+
+The Studio signs in with GitHub (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`;
+set the OAuth callback to `<PUBLIC_URL>/api/v1/auth/github/callback` and
+`PUBLIC_URL` to the Studio origin). Each GitHub account is its own tenant.
+For local development without OAuth, `AUTH_DISABLED=true` signs every request
+in as a `dev` user; the backend refuses to start with it in production.
+
+### Direct-from-Sia in the Studio
+
+Set `VITE_SLUBY_SIA_INDEXER_URL`, `VITE_SLUBY_SIA_APP_ID` and
+`VITE_SLUBY_SIA_APP_KEY` (see `frontend/.env.example` and
+[Direct-from-Sia playback](#direct-from-sia-playback)) and the asset player
+streams straight from Sia hosts; the badge under the player shows which path
+a load took.
 
 ### Using the SDK
 
@@ -98,23 +139,25 @@ const client = new SlubyClient({
   baseUrl: 'http://localhost:4500',
 });
 
-const { videoAssetId, uploadUrl } = await client.uploads.create({
+const upload = client.uploads.upload(file, {
   title: 'My Video',
   accessTier: 'public',
-});
-
-await client.uploads.uploadFile(uploadUrl, file, {
   onProgress: (pct) => console.log(`${pct}%`),
 });
+const videoAssetId = await upload.assetId;
+await upload;
 
 const asset = await client.assets.waitForReady(videoAssetId);
 ```
 
 ```tsx
-import { SlubyPlayer } from '@sluby/react';
+import { SlubyPlayer } from '@sluby/player';
 
-<SlubyPlayer src={`http://localhost/v1/stream/${videoAssetId}/master.m3u8`} controls />;
+<SlubyPlayer client={client} assetId={asset.id} />;
 ```
+
+The Studio's Developer page has more snippets, in JavaScript and curl,
+pointed at your own server.
 
 ## API reference
 
@@ -217,9 +260,10 @@ fallback).
 
 ```
 backend/       Node.js backend (Express + BullMQ + Drizzle + sia-storage SDK)
-frontend/      Vite + React studio app
-packages/sdk/  @sluby/sdk       TypeScript API client
-packages/react/@sluby/react     SlubyPlayer + hooks
+frontend/      Studio (Vite + React + shadcn/ui)
+packages/sdk/     @sluby/sdk     TypeScript API client
+packages/player/  @sluby/player  SlubyPlayer + hooks
+examples/         quickstart app using the sdk and player
 nginx/         Aggregator/gateway config
 docker-compose.yml      App stack (backend, postgres, redis, nginx)
 docker-compose.sia.yml  Optional local Sia indexer / walletd / miner stack
@@ -231,7 +275,8 @@ docker-compose.prod.yml Production overrides
 ```bash
 npm test --workspace=backend
 npm test --workspace=@sluby/sdk
-npm test --workspace=@sluby/react
+npm test --workspace=@sluby/player
+npm test --workspace=sluby-frontend
 ```
 
 ## Contributing
