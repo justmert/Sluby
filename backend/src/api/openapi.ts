@@ -347,9 +347,110 @@ export const openapiDocument = {
       SiaStorageInfo: {
         type: 'object',
         description:
-          'Per-asset Sia storage breakdown: object IDs, slab/sector counts, host ' +
-          'distribution and redundancy ratio.',
-        additionalProperties: true,
+          'Per-asset Sia storage breakdown from the indexer. Objects packed into the same ' +
+          'slab share it; totals count each slab and sector once.',
+        properties: {
+          manifest_object_id: { type: ['string', 'null'] },
+          objects: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                object_id: { type: 'string' },
+                role: {
+                  type: ['string', 'null'],
+                  enum: [
+                    'master_manifest',
+                    'variant_playlist',
+                    'rendition_data',
+                    'thumbnail',
+                    null,
+                  ],
+                },
+                rendition: { type: ['string', 'null'] },
+                size: { type: 'integer' },
+                encoded_size: { type: 'integer' },
+                slab_count: { type: 'integer' },
+                sector_count: { type: 'integer' },
+                shared_slab_count: { type: 'integer' },
+                host_count: { type: 'integer' },
+                created_at: { type: 'string', format: 'date-time' },
+              },
+            },
+          },
+          unavailable_object_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Objects the indexer could not describe on this request.',
+          },
+          totals: {
+            type: 'object',
+            properties: {
+              object_count: { type: 'integer' },
+              raw_bytes: { type: 'integer' },
+              encoded_bytes: { type: 'integer' },
+              unique_slab_count: { type: 'integer' },
+              unique_sector_count: { type: 'integer' },
+              sector_bytes: { type: 'integer', description: 'Unique sectors x 4 MiB.' },
+              data_shards: { type: ['integer', 'null'] },
+              parity_shards: { type: ['integer', 'null'] },
+              redundancy_ratio: { type: ['number', 'null'] },
+              host_count: { type: 'integer' },
+              country_count: { type: 'integer' },
+            },
+          },
+          hosts: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                public_key: { type: 'string' },
+                sectors: { type: 'integer' },
+                country_code: { type: ['string', 'null'] },
+                latitude: { type: ['number', 'null'] },
+                longitude: { type: ['number', 'null'] },
+                good_for_upload: { type: ['boolean', 'null'] },
+              },
+            },
+          },
+          countries: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                country_code: { type: 'string' },
+                hosts: { type: 'integer' },
+                sectors: { type: 'integer' },
+              },
+            },
+          },
+          contracts: {
+            type: ['array', 'null'],
+            items: { type: 'string' },
+            description: 'Active file contracts on these hosts; null without an indexd admin API.',
+          },
+          indexer: {
+            type: 'object',
+            properties: {
+              url: { type: 'string' },
+              network: { type: 'string' },
+              wallet_address: { type: ['string', 'null'] },
+            },
+          },
+        },
+      },
+      Rendition: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          width: { type: ['integer', 'null'] },
+          height: { type: ['integer', 'null'] },
+          video_bitrate_kbps: { type: ['integer', 'null'] },
+          segment_count: { type: 'integer' },
+          byte_size: { type: 'integer' },
+          data_object_id: { type: 'string' },
+          playlist_object_id: { type: 'string' },
+        },
       },
       CacheStats: {
         type: 'object',
@@ -540,6 +641,30 @@ export const openapiDocument = {
         parameters: [idParam('id', 'Asset id.')],
         responses: {
           '200': jsonResponse('ProcessingStatus', 'Processing status.'),
+          '404': errorResponse,
+        },
+      },
+    },
+    '/api/v1/assets/{id}/renditions': {
+      get: {
+        tags: ['Assets'],
+        summary: 'HLS renditions of an asset, tallest first.',
+        'x-required-scope': 'read',
+        parameters: [idParam('id', 'Asset id.')],
+        responses: {
+          '200': {
+            description: 'Renditions.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: { type: 'array', items: { $ref: '#/components/schemas/Rendition' } },
+                  },
+                },
+              },
+            },
+          },
           '404': errorResponse,
         },
       },

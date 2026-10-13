@@ -59,6 +59,20 @@ export interface AssetRouteDeps {
     owner?: string,
   ) => Promise<ProcessingJobRecord | undefined>;
   retryAsset: (id: string, owner?: string) => Promise<{ stage: string }>;
+  /** The asset's renditions; null when the asset is not found or not owned. */
+  getAssetRenditions: (
+    id: string,
+    owner?: string,
+  ) => Promise<Array<{
+    name: string;
+    width: number | null;
+    height: number | null;
+    videoBitrateKbps: number | null;
+    segmentCount: number;
+    byteSize: number;
+    dataObjectId: string;
+    playlistObjectId: string;
+  }> | null>;
 }
 
 interface VideoAssetRecord {
@@ -233,6 +247,33 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
       completed_at: job.completedAt?.toISOString() ?? null,
       created_at: job.createdAt.toISOString(),
       logs: job.logs ?? [],
+    });
+  });
+
+  /**
+   * GET /api/v1/assets/:id/renditions
+   * The HLS renditions the pipeline produced, tallest first, with the Sia
+   * objects holding each one's playlist and media.
+   */
+  router.get('/:id/renditions', requireScope('read'), async (req: Request, res: Response) => {
+    const rows = await deps.getAssetRenditions(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
+    if (!rows) {
+      throw new AppError(404, 'Video asset not found');
+    }
+    res.json({
+      data: rows.map((r) => ({
+        name: r.name,
+        width: r.width,
+        height: r.height,
+        video_bitrate_kbps: r.videoBitrateKbps,
+        segment_count: r.segmentCount,
+        byte_size: r.byteSize,
+        data_object_id: r.dataObjectId,
+        playlist_object_id: r.playlistObjectId,
+      })),
     });
   });
 
