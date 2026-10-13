@@ -151,7 +151,7 @@ export function KeysRow({ count }: { count: React.ReactNode }) {
 
 /** The keys count while it loads. */
 export function KeysCountLoading() {
-  return <Skeleton className={cn('inline-block h-4 w-24 align-middle', lateReveal)} />;
+  return <Skeleton as="span" className={cn('inline-block h-4 w-24 align-middle', lateReveal)} />;
 }
 
 /** The API reference, as a button that opens in a new tab. */

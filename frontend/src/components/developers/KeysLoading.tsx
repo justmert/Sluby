@@ -16,6 +16,7 @@ export function KeysDescription({ used }: { used: string | null }) {
       {KEYS_LEAD}{' '}
       {used ?? (
         <Skeleton
+          as="span"
           aria-hidden="true"
           className={cn('inline-block h-3.5 w-22 align-middle', lateReveal)}
         />

@@ -85,12 +85,11 @@ function SendAgain({
       disabled={paused || resending}
       aria-busy={resending || undefined}
       aria-describedby={paused ? PAUSED_NOTE_ID : undefined}
+      // a label, not an sr-only span: chrome puts a space before the span's comma
+      aria-label={`${resending ? 'Sending…' : 'Send again'}, ${d.event}, ${formatRelativeTime(d.createdAt)}`}
     >
       {resending && <Spinner data-icon="inline-start" aria-hidden="true" />}
       {resending ? 'Sending…' : 'Send again'}
-      <span className="sr-only">
-        , {d.event}, {formatRelativeTime(d.createdAt)}
-      </span>
     </Button>
   );
 }
@@ -272,11 +271,9 @@ export function DeliveriesTable({ webhookId, paused }: { webhookId: string; paus
                           aria-expanded={isOpen}
                           aria-controls={panelId}
                           onClick={() => toggle(d.id)}
+                          aria-label={`${isOpen ? 'Hide payload' : 'Show payload'}, ${d.event}, ${when}`}
                         >
                           {isOpen ? 'Hide payload' : 'Show payload'}
-                          <span className="sr-only">
-                            , {d.event}, {when}
-                          </span>
                         </Button>
                       </span>
                     </ResponsiveCell>

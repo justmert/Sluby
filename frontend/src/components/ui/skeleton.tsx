@@ -1,8 +1,13 @@
 import { cn } from '@/lib/utils';
 
-function Skeleton({ className, ...props }: React.ComponentProps<'div'>) {
+// `as="span"` for a bar inside a line of text, where a div is not allowed
+function Skeleton({
+  as: Tag = 'div',
+  className,
+  ...props
+}: React.ComponentProps<'div'> & { as?: 'div' | 'span' }) {
   return (
-    <div
+    <Tag
       data-slot="skeleton"
       className={cn(
         // the shimmer is a fixed-width stripe on a pseudo element: it never shifts
