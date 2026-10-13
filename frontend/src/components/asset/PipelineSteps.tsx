@@ -1,6 +1,6 @@
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
-import { Circle, Minus, Pause, X } from 'lucide-react';
+import { Minus, Pause, X } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { duration, easeOut, scaleIn } from '@/lib/motion';
 import { cn } from '@/lib/utils';
@@ -25,7 +25,7 @@ function DrawnCheck() {
   );
 }
 
-function StepIcon({ state }: { state: StepState }) {
+function StepIcon({ state, n }: { state: StepState; n: number }) {
   switch (state) {
     case 'done':
       return <DrawnCheck />;
@@ -43,7 +43,15 @@ function StepIcon({ state }: { state: StepState }) {
     case 'skipped':
       return <Minus className="size-2.5" aria-hidden="true" />;
     default:
-      return <Circle className="size-1.5 fill-current" aria-hidden="true" />;
+      // its number, not a dot: a dot in a ring reads as a radio button. drawn
+      // by css, so the step's text stays its name and state
+      return (
+        <span
+          aria-hidden="true"
+          data-n={n}
+          className="text-[10px] leading-none font-semibold tabular-nums before:content-[attr(data-n)]"
+        />
+      );
   }
 }
 
@@ -75,7 +83,7 @@ const RING: Record<StepState, string> = {
 
 const quiet = (s: StepState) => s === 'pending' || s === 'skipped' || s === 'cancelled';
 
-function Ring({ state }: { state: StepState }) {
+function Ring({ state, n }: { state: StepState; n: number }) {
   return (
     <span
       className={cn(
@@ -92,7 +100,7 @@ function Ring({ state }: { state: StepState }) {
           exit="exit"
           className="col-start-1 row-start-1 flex"
         >
-          <StepIcon state={state} />
+          <StepIcon state={state} n={n} />
         </m.span>
       </AnimatePresence>
     </span>
@@ -100,14 +108,26 @@ function Ring({ state }: { state: StepState }) {
 }
 
 /** The line from one step to the next; it fills in as the work moves past. */
-function Rail({ filled, vertical }: { filled: boolean; vertical: boolean }) {
+function Rail({
+  filled,
+  vertical,
+  gap = 'sm',
+}: {
+  filled: boolean;
+  vertical: boolean;
+  gap?: 'sm' | 'md';
+}) {
   return (
     <span
       aria-hidden="true"
       data-slot="pipeline-rail"
       className={cn(
         'overflow-hidden bg-border',
-        vertical ? 'absolute top-6 bottom-[-0.5rem] left-[9.5px] w-px' : 'mx-2 h-px min-w-3 flex-1',
+        // vertical: from 2 px under this 20 px ring to 2 px above the next one,
+        // across the list's gap (12 px at sm, 16 px at md)
+        vertical
+          ? cn('absolute top-5.5 left-[9.5px] w-px', gap === 'sm' ? '-bottom-2.5' : '-bottom-3.5')
+          : 'mx-2 h-px min-w-3 flex-1',
       )}
     >
       <span
@@ -195,8 +215,8 @@ export function PipelineSteps({
           >
             {vertical ? (
               <>
-                {i < last && <Rail filled={state === 'done'} vertical />}
-                <Ring state={state} />
+                {i < last && <Rail filled={state === 'done'} vertical gap={size} />}
+                <Ring state={state} n={i + 1} />
                 <div className="min-w-0 pt-px">
                   <p className="leading-5">{label}</p>
                   {details && <p className="text-xs text-muted-foreground">{step.detail}</p>}
@@ -205,7 +225,7 @@ export function PipelineSteps({
             ) : (
               <>
                 <span className="flex items-center">
-                  <Ring state={state} />
+                  <Ring state={state} n={i + 1} />
                   {i < last && <Rail filled={state === 'done'} vertical={false} />}
                 </span>
                 {/* a label wider than its quarter (Transcode at 320) breaks inside it */}

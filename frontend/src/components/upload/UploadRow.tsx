@@ -358,7 +358,9 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
       )}
 
       <Collapse open={open} id={`${id}-details`} className="flex flex-col gap-4 pt-2">
-        <PipelineSteps steps={uploadSteps(s)} orientation="vertical" size="sm" />
+        {/* across, like the video page's processing card; capped so the
+            rails stay short in a wide row */}
+        <PipelineSteps steps={uploadSteps(s)} size="sm" className="max-w-xl" />
         {showChunks && (
           <ChunkStrip
             bytesUploaded={s.bytesUploaded}
