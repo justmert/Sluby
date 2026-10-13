@@ -149,7 +149,18 @@ function getCached(id: string): SiaInfoResponse | null {
 }
 
 function setCached(id: string, data: SiaInfoResponse): void {
-  cache.set(id, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+  const now = Date.now();
+  // expired entries are otherwise only dropped when re-read, so sweep them
+  // here to keep the map bounded by what was viewed in the last ttl window
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt < now) cache.delete(key);
+  }
+  cache.set(id, { data, expiresAt: now + CACHE_TTL_MS });
+}
+
+/** Test hook: drop every cached breakdown. */
+export function clearSiaInfoCache(): void {
+  cache.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -538,15 +549,18 @@ export function createSiaInfoRoutes(deps: SiaInfoRouteDeps): Router {
   router.get('/:id/sia', requireScope('read'), async (req: Request, res: Response) => {
     const id = String(req.params.id);
 
+    // ownership first: the cache is keyed by asset id alone, so serving it
+    // before this check would hand another tenant's breakdown to anyone who
+    // knows the id while the entry is warm
+    const asset = await deps.getAssetWithSiaIds(id, ownerFilter(req.apiKey!.creatorAddress));
+    if (!asset) {
+      throw new AppError(404, 'Video asset not found');
+    }
+
     const cached = getCached(id);
     if (cached) {
       res.json(cached);
       return;
-    }
-
-    const asset = await deps.getAssetWithSiaIds(id, ownerFilter(req.apiKey!.creatorAddress));
-    if (!asset) {
-      throw new AppError(404, 'Video asset not found');
     }
 
     const info = await buildSiaInfo(asset);
