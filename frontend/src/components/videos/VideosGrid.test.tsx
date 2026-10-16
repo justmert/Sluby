@@ -23,17 +23,17 @@ function Harness({ assets }: { assets: VideoAsset[] }) {
 }
 
 describe('VideosGrid', () => {
-  it('rings a selected card and backs its checkbox with a 32px target', async () => {
+  it('fills a selected tile like a selected row and backs its checkbox with a 32px target', async () => {
     renderPage(<Harness assets={[video('a1', 'Walkthrough')]} />);
     const box = screen.getByRole('checkbox', { name: 'Select Walkthrough' });
     const target = box.closest('[data-slot="select-target"]')!;
-    expect(target).toHaveClass('size-8', 'bg-background');
+    expect(target).toHaveClass('size-8', 'bg-card');
     await userEvent.click(box);
-    const card = box.closest('[data-slot="card"]')!;
-    expect(card).toHaveClass('ring-2', 'ring-primary', 'transition-[box-shadow]');
+    const card = box.closest('[data-state="selected"]')!;
+    expect(card).toHaveClass('bg-muted', 'border-border-strong');
   });
 
-  it('tints a failed tile and marks a private one in a corner chip', () => {
+  it('edges a failed tile in red and marks a private one in a corner chip', () => {
     renderPage(
       <Harness
         assets={[
@@ -42,7 +42,7 @@ describe('VideosGrid', () => {
         ]}
       />,
     );
-    expect(document.querySelector('[data-state="failed"]')).toHaveClass('bg-destructive/10');
+    expect(document.querySelector('[data-state="failed"]')).toHaveClass('border-destructive/40');
     expect(screen.getByLabelText('Private video, no preview')).toBeInTheDocument();
     expect(document.querySelector('img')).toBeNull();
   });

@@ -108,14 +108,12 @@ export interface Draft {
   file: File;
   fingerprint: string;
   title: string;
-}
-
-/** What the details form sets for every draft at once. */
-export interface DraftOptions {
-  /** Only used when there is a single draft. */
   description: string;
   accessTier: AccessTier;
 }
+
+/** The details the upload page edits on one draft. */
+export type DraftDetails = Pick<Draft, 'title' | 'description' | 'accessTier'>;
 
 export interface UploadsState {
   /** Newest first. At most one of them is transferring. */
@@ -130,9 +128,13 @@ export interface UploadsState {
   queueHeld: boolean;
   /** The browser is offline, so queued files wait for the connection. */
   offline: boolean;
-  /** Files picked but not started, kept while the sheet is closed. */
+  /** Files picked but not started, kept while the upload page is not shown. */
   drafts: Draft[];
-  draftOptions: DraftOptions;
+  /**
+   * The draft the upload page shows the details of. It may name a draft that
+   * is gone; the page then shows the first one.
+   */
+  selectedDraft: string | null;
   /** The largest file the server takes, in bytes (tus Tus-Max-Size), once read. */
   limit: number | null;
   /** Why some picked files were not added, until the next pick or upload. */
@@ -319,7 +321,7 @@ function documentVisibility(): Visibility | null {
 
 /**
  * The studio's uploads, kept outside react so they survive navigating between
- * studio pages and closing the upload sheet: the drafts, the tus transfer, the
+ * studio pages and leaving the upload page: the drafts, the tus transfer, the
  * queue and the processing polls all live here. One transfer runs at a time;
  * earlier uploads stay listed while they process.
  */
@@ -340,7 +342,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
     queueHeld: false,
     offline: false,
     drafts: [],
-    draftOptions: { description: '', accessTier: 'public' },
+    selectedDraft: null,
     limit: null,
     pickNotice: null,
     assetVersion: 0,
@@ -353,6 +355,9 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
   let guarding = false;
   let limitLoad: Promise<void> | null = null;
   let focusRequest: string | null = null;
+  // new drafts start with the access last chosen, so a batch of private
+  // videos does not need the choice made again for every file
+  let lastAccess: AccessTier = 'public';
 
   // closing the tab drops the in-memory transfer, so ask first
   const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -1245,16 +1250,25 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       emit();
     },
 
-    /** Add picked files as drafts; returns their ids. */
-    addDrafts(files: File[]): string[] {
+    /**
+     * Add picked files as drafts and select the first, unless `select` is
+     * false (someone is typing in the draft shown now). Returns their ids.
+     */
+    addDrafts(files: File[], { select = true }: { select?: boolean } = {}): string[] {
       const added = files.map((file) => ({
         id: `draft-${++draftSeq}`,
         file,
         fingerprint: fileFingerprint(file),
         title: titleFromFile(file.name),
+        description: '',
+        accessTier: lastAccess,
       }));
-      state = { ...state, drafts: [...state.drafts, ...added] };
-      // the first new title asks for focus once, when it mounts (DraftList)
+      state = {
+        ...state,
+        drafts: [...state.drafts, ...added],
+        selectedDraft: select && added.length > 0 ? added[0].id : state.selectedDraft,
+      };
+      // the first new title asks for focus once, when it mounts (the upload page)
       if (added.length > 0) focusRequest = added[0].id;
       emit();
       return added.map((d) => d.id);
@@ -1267,8 +1281,9 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       return true;
     },
 
-    updateDraft(id: string, patch: Pick<Draft, 'title'>) {
+    updateDraft(id: string, patch: Partial<DraftDetails>) {
       if (!state.drafts.some((d) => d.id === id)) return;
+      if (patch.accessTier) lastAccess = patch.accessTier;
       state = {
         ...state,
         drafts: state.drafts.map((d) => (d.id === id ? { ...d, ...patch } : d)),
@@ -1276,13 +1291,15 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       emit();
     },
 
-    removeDraft(id: string) {
-      state = { ...state, drafts: state.drafts.filter((d) => d.id !== id) };
+    /** Show this draft's details on the upload page; null shows the first. */
+    selectDraft(id: string | null) {
+      if (state.selectedDraft === id) return;
+      state = { ...state, selectedDraft: id };
       emit();
     },
 
-    clearDrafts() {
-      state = { ...state, drafts: [], draftOptions: { ...state.draftOptions, description: '' } };
+    removeDraft(id: string) {
+      state = { ...state, drafts: state.drafts.filter((d) => d.id !== id) };
       emit();
     },
 
@@ -1292,25 +1309,19 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       emit();
     },
 
-    setDraftOptions(patch: Partial<DraftOptions>) {
-      state = { ...state, draftOptions: { ...state.draftOptions, ...patch } };
-      emit();
-    },
-
     /**
-     * Start every draft (queued behind each other) with the shared options,
-     * and clear them. A single draft gets the description. Returns the keys.
+     * Start these drafts, in list order, each with its own details, and take
+     * them off the draft list. Returns the keys of the started uploads.
      */
-    startDrafts(): string[] {
-      const { drafts, draftOptions } = state;
-      const single = drafts.length === 1;
-      // cleared first, so the sheet's form gives way as the rows appear
-      state = { ...state, drafts: [], draftOptions: { ...draftOptions, description: '' } };
-      const keys = drafts.map((d) =>
+    startDrafts(ids: readonly string[]): string[] {
+      const chosen = state.drafts.filter((d) => ids.includes(d.id));
+      // taken off first, so the details give way as the rows appear
+      state = { ...state, drafts: state.drafts.filter((d) => !ids.includes(d.id)) };
+      const keys = chosen.map((d) =>
         enqueue(d.file, {
           title: d.title.trim(),
-          description: single ? draftOptions.description.trim() : undefined,
-          accessTier: draftOptions.accessTier,
+          description: d.description.trim() || undefined,
+          accessTier: d.accessTier,
         }),
       );
       emit();

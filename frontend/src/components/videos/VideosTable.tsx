@@ -1,16 +1,13 @@
+import { useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
+import { ArrowDown, ArrowUp } from 'lucide-react';
 import type { VideoAsset } from '@sluby/sdk';
 import { AssetThumbnail } from '@/components/asset/AssetThumbnail';
-import { CopyButton } from '@/components/shared/CopyButton';
-import {
-  DataTable,
-  type DataTableColumn,
-  type RowAction,
-  type SortState,
-} from '@/components/shared/DataTable';
 import { RetryProcessingButton } from '@/components/asset/RetryProcessingButton';
-import { AccessBadge, StatusBadge } from '@/components/shared/StatusBadge';
-import { Progress } from '@/components/ui/progress';
+import { AnimatedItem, AnimatedList } from '@/components/motion';
+import type { RowAction, SortState } from '@/components/shared/DataTable';
+import { selectRange } from '@/components/shared/select-range';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { isStaleUpload, useSendingAssetIds } from '@/hooks/asset-queries';
 import { ROUTES } from '@/lib/constants';
@@ -21,29 +18,18 @@ import {
   formatDate,
   formatDuration,
   formatRelativeTime,
-  truncateMiddle,
 } from '@/lib/formatters';
 import { lateReveal } from '@/lib/motion';
 import { cn } from '@/lib/utils';
-import { useRowJob, videoMeta, type RowProgress } from './video-progress';
+import { useRowJob } from './video-progress';
+import { InlineProgress, VideoStatusChip } from './VideoStatusChip';
+import { VideoRowMenu } from './VideoRowMenu';
 
-const muted = (text: string) => <span className="text-muted-foreground">{text}</span>;
+// the board's cells: 10px by 12px, the first column 20px in from the card edge
+const CELL = 'px-3 py-2.5';
+const dash = <span className="text-subtle-foreground">{NO_VALUE}</span>;
 
-function ProgressLine({ label, percent, checking }: RowProgress) {
-  return (
-    <span className="flex min-w-0 flex-col gap-1">
-      <span className="text-xs font-normal text-muted-foreground tabular-nums">
-        {label}
-        {checking && <span>. Checking again in a few seconds</span>}
-      </span>
-      {percent !== null && (
-        <Progress smooth value={percent} aria-hidden="true" className="h-0.5 max-w-48" />
-      )}
-    </span>
-  );
-}
-
-/** The video column: thumbnail, title, and a second line that depends on where the table is. */
+/** The video column: thumbnail, title, and the short id or what the video is doing. */
 function VideoCell({ asset }: { asset: VideoAsset }) {
   const { progress, progressPending, failure, failurePending } = useRowJob(asset);
   // an old upload another tab is still sending is not interrupted
@@ -51,7 +37,7 @@ function VideoCell({ asset }: { asset: VideoAsset }) {
   const stale = isStaleUpload(asset) && !sending.has(asset.id);
   const href = ROUTES.video(asset.id);
   return (
-    <div className="flex min-w-0 items-start gap-3 font-normal">
+    <div className="flex min-w-0 items-center gap-3">
       {/* the title link names the video; this one is a larger mouse target */}
       <Link to={href} tabIndex={-1} aria-hidden="true" className="shrink-0">
         <AssetThumbnail
@@ -59,153 +45,91 @@ function VideoCell({ asset }: { asset: VideoAsset }) {
           isPrivate={asset.accessTier === 'private'}
           processing={progress}
           failed={asset.status === 'failed'}
-          className="w-16"
+          className="w-20 rounded-[6px]"
         />
       </Link>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="max-w-80 min-w-0">
         <Link
           to={href}
           data-video-link={asset.id}
           dir="auto"
-          className="line-clamp-2 rounded-sm font-medium wrap-anywhere whitespace-normal outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring"
+          title={asset.title}
+          className="block truncate rounded-sm font-semibold text-foreground hover:text-primary"
         >
           {asset.title}
         </Link>
         {progress ? (
-          <ProgressLine {...progress} />
+          <InlineProgress progress={progress} title={asset.title} className="mt-1" />
         ) : progressPending ? (
-          // the stage line and bar, held open until the job answers
-          <span className="flex flex-col gap-1" aria-hidden="true">
-            <span className="flex h-4 items-center">
-              <Skeleton className={cn('h-3 w-32', lateReveal)} />
-            </span>
-            <span className="h-0.5 max-w-48 rounded-full bg-muted" />
+          // the bar's line, held open until the job answers
+          <span className="mt-1 flex h-4.5 items-center" aria-hidden="true">
+            <Skeleton className={cn('h-1 w-30', lateReveal)} />
           </span>
         ) : failurePending ? (
-          // the reason is on its way; hold the line it will fill
-          <span className="flex min-h-6 items-center">
-            <Skeleton className={cn('h-3 w-40', lateReveal)} />
+          <span className="flex h-4.5 items-center">
+            <Skeleton className={cn('h-3 w-36', lateReveal)} />
           </span>
         ) : failure ? (
-          <span className="flex min-h-6 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-xs font-normal text-muted-foreground">{failure.body}</span>
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-xs text-destructive">{failure.body}</span>
             {failure.action === 'retry' && (
               <RetryProcessingButton asset={asset} named compact variant="outline" size="xs" />
             )}
           </span>
         ) : stale ? (
-          <span className="text-xs text-muted-foreground">Upload interrupted</span>
+          <span className="block text-xs text-muted-foreground">Upload interrupted</span>
         ) : (
-          // the id is for the table; the phone card shows facts instead
-          <span className="hidden min-w-0 items-center gap-1 @min-[40rem]/table:flex">
-            <code className="truncate font-mono text-xs whitespace-nowrap text-muted-foreground">
-              {truncateMiddle(asset.id, 8)}
-            </code>
-            <CopyButton
-              value={asset.id}
-              label={`Copy video ID of ${asset.title}`}
-              className="size-6 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
-            />
+          <span className="block font-mono text-xs text-subtle-foreground">
+            {asset.id.slice(0, 8)}
           </span>
         )}
-        {/* the cards' summary, for the eye: screen readers get the same facts
-            from the cells the cards hide, each under its own header */}
-        <span
-          aria-hidden="true"
-          className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 @min-[40rem]/table:hidden"
-        >
-          <StatusBadge kind="asset" status={asset.status} />
-          <AccessBadge access={asset.accessTier} />
-          <span className="text-xs text-muted-foreground">{videoMeta(asset)}</span>
-        </span>
       </div>
     </div>
   );
 }
 
-const COLUMNS: DataTableColumn<VideoAsset>[] = [
-  {
-    id: 'title',
-    header: 'Video',
-    primary: true,
-    sortable: true,
-    cell: (a) => <VideoCell asset={a} />,
-    className: 'whitespace-normal',
-    // the thumbnail and two lines of a real row, so rows replace it in place
-    skeleton: (
-      <div className="flex items-start gap-3">
-        <Skeleton className={cn('aspect-video w-16 shrink-0', lateReveal)} />
-        <div className="flex flex-1 flex-col gap-1.5 py-0.5">
-          <Skeleton className={cn('h-3.5 w-3/5', lateReveal)} />
-          <Skeleton className={cn('h-3 w-2/5', lateReveal)} />
-        </div>
-      </div>
-    ),
-  },
-  {
-    id: 'status',
-    header: 'Status',
-    width: 'w-34',
-    hideInCards: true,
-    cell: (a) => <StatusBadge kind="asset" status={a.status} />,
-  },
-  {
-    id: 'access',
-    header: 'Access',
-    width: 'w-24',
-    hideInCards: true,
-    // the column is never blank: public is plain text, private the badge (D-23)
-    cell: (a) => (a.accessTier === 'private' ? <AccessBadge access="private" /> : muted('Public')),
-  },
-  {
-    id: 'duration',
-    header: 'Duration',
-    align: 'right',
-    width: 'w-24',
-    hideBelow: '3xl',
-    hideInCards: true,
-    sortable: true,
-    cell: (a) => (a.durationMs ? formatDuration(a.durationMs) : muted(NO_VALUE)),
-  },
-  {
-    id: 'size',
-    header: 'Size',
-    align: 'right',
-    width: 'w-22',
-    hideBelow: '5xl',
-    hideInCards: true,
-    sortable: true,
-    cell: (a) => (a.totalStorageBytes > 0 ? formatBytes(a.totalStorageBytes) : muted(NO_VALUE)),
-  },
-  {
-    id: 'plays',
-    header: 'Plays',
-    align: 'right',
-    width: 'w-18',
-    hideBelow: '5xl',
-    hideInCards: true,
-    cell: (a) => formatCount(a.playCount),
-  },
-  {
-    id: 'created',
-    header: 'Created',
-    // a gap from the right-aligned numbers before it
-    width: 'w-36',
-    className: 'pl-6',
-    hideBelow: '3xl',
-    hideInCards: true,
-    sortable: true,
-    cell: (a) => (
-      <time
-        dateTime={a.createdAt}
-        title={formatDate(a.createdAt)}
-        className="text-muted-foreground"
-      >
-        {formatRelativeTime(a.createdAt)}
-      </time>
-    ),
-  },
-];
+function StatusCell({ asset }: { asset: VideoAsset }) {
+  const { progress } = useRowJob(asset);
+  const sending = useSendingAssetIds();
+  const stale = isStaleUpload(asset) && !sending.has(asset.id);
+  return <VideoStatusChip asset={asset} progress={progress} stale={stale} />;
+}
+
+type ColumnId = 'title' | 'duration' | 'size' | 'created';
+
+/** A sortable header: the words, and an arrow only on the column the list is sorted by. */
+function SortButton({
+  id,
+  label,
+  sort,
+  onSortChange,
+  right = false,
+}: {
+  id: ColumnId;
+  label: string;
+  sort: SortState;
+  onSortChange: (sort: SortState) => void;
+  right?: boolean;
+}) {
+  const active = sort.column === id;
+  const Arrow = sort.direction === 'asc' ? ArrowUp : ArrowDown;
+  const next: SortState = active
+    ? { column: id, direction: sort.direction === 'asc' ? 'desc' : 'asc' }
+    : { column: id, direction: right ? 'desc' : 'asc' };
+  return (
+    <button
+      type="button"
+      onClick={() => onSortChange(next)}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-sm font-semibold hover:text-foreground',
+        active ? 'text-foreground' : 'text-muted-foreground',
+      )}
+    >
+      {label}
+      {active && <Arrow aria-hidden="true" strokeWidth={2.4} className="size-3" />}
+    </button>
+  );
+}
 
 export interface VideosTableProps {
   /** undefined while the first page loads: skeleton rows */
@@ -220,14 +144,15 @@ export interface VideosTableProps {
   busy: boolean;
   /** the query the rows answer; a new one swaps them without motion */
   rowsKey: string;
+  /** the pagination row, inside the card under the table */
+  footer?: ReactNode;
 }
 
 /**
- * The library as a table, the default view (D-09, RDS-09). Columns drop out
- * as the table narrows (Plays and Size below 64rem, then Duration and
- * Created below 48rem, so the title keeps room for its words) and
- * below 40rem each row is a compact card: thumbnail, title, then status and
- * facts on one line (A11Y-07).
+ * The library as a table, the default view (D-09). The board's columns,
+ * each sortable one a plain header button; on a narrow content column the
+ * table scrolls sideways inside its card (phones get cards instead, see
+ * VideosCards). Shift-click on a checkbox selects a range.
  */
 export function VideosTable({
   assets,
@@ -239,28 +164,197 @@ export function VideosTable({
   staggerIn,
   busy,
   rowsKey,
+  footer,
 }: VideosTableProps) {
+  const loading = assets === undefined;
+  const ids = assets?.map((a) => a.id) ?? [];
+  const selectedHere = ids.filter((id) => selected.has(id)).length;
+  const allState: boolean | 'indeterminate' =
+    selectedHere === 0 ? false : selectedHere === ids.length ? true : 'indeterminate';
+  const toggleAll = () => {
+    const next = new Set(selected);
+    if (allState === true) ids.forEach((id) => next.delete(id));
+    else ids.forEach((id) => next.add(id));
+    onSelectedChange(next);
+  };
+  // the last row toggled, and whether shift was down on the click that is
+  // about to toggle a row (radix reports the click before the change)
+  const anchor = useRef<string | null>(null);
+  const shift = useRef(false);
+  const toggle = (id: string) => {
+    onSelectedChange(
+      selectRange(ids, selected, shift.current ? anchor.current : null, id, !selected.has(id)),
+    );
+    anchor.current = id;
+    shift.current = false;
+  };
+  // the rows each set started with stay still; rows a later poll adds fade
+  // in. the first set may stagger in when the page asks
+  const [first] = useState(rowsKey);
+  const [mounted, setMounted] = useState({ key: rowsKey, ids: new Set(ids) });
+  const current = mounted.key === rowsKey ? mounted : { key: rowsKey, ids: new Set(ids) };
+  if (current !== mounted) setMounted(current);
+  const initialFor = (id: string) =>
+    (staggerIn && rowsKey === first) || !current.ids.has(id) ? undefined : false;
+
+  const sortProps = { sort, onSortChange };
   return (
-    <DataTable
-      caption="Videos"
-      columns={COLUMNS}
-      rows={assets}
-      getRowId={(a) => a.id}
-      getRowLabel={(a) => a.title}
-      sort={sort}
-      onSortChange={onSortChange}
-      selected={selected}
-      onSelectedChange={onSelectedChange}
-      rowActions={actions}
-      // a lighter selected tint than the default, so status badges on a
-      // selected row keep 4.5:1 (the success badge measured 4.46 on bg-muted)
-      rowClassName={() => cn('group/row data-[state=selected]:bg-muted/60')}
-      layout="fixed"
-      busy={busy}
-      animateRows
-      staggerIn={staggerIn}
-      rowsKey={rowsKey}
-      loadingRows={8}
-    />
+    <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="overflow-x-auto">
+        <table
+          aria-label="Videos"
+          aria-busy={loading || busy || undefined}
+          className="w-full min-w-220 border-collapse"
+        >
+          <thead>
+            <tr className="bg-background text-left text-xs text-muted-foreground">
+              <th scope="col" className={cn(CELL, 'w-10 pl-5')}>
+                <Checkbox
+                  checked={allState}
+                  onCheckedChange={toggleAll}
+                  disabled={!assets || assets.length === 0}
+                  aria-label="Select all on this page"
+                />
+              </th>
+              <th
+                scope="col"
+                aria-sort={sortOf(sort, 'title')}
+                className={cn(CELL, 'font-semibold')}
+              >
+                <SortButton id="title" label="Video" {...sortProps} />
+              </th>
+              <th scope="col" className={cn(CELL, 'font-semibold')}>
+                Status
+              </th>
+              <th scope="col" className={cn(CELL, 'font-semibold')}>
+                Access
+              </th>
+              <th
+                scope="col"
+                aria-sort={sortOf(sort, 'duration')}
+                className={cn(CELL, 'text-right font-semibold')}
+              >
+                <SortButton id="duration" label="Length" right {...sortProps} />
+              </th>
+              <th scope="col" className={cn(CELL, 'text-right font-semibold')}>
+                Plays
+              </th>
+              <th
+                scope="col"
+                aria-sort={sortOf(sort, 'size')}
+                className={cn(CELL, 'text-right font-semibold')}
+              >
+                <SortButton id="size" label="Size" right {...sortProps} />
+              </th>
+              <th
+                scope="col"
+                aria-sort={sortOf(sort, 'created')}
+                className={cn(CELL, 'text-right font-semibold')}
+              >
+                <SortButton id="created" label="Uploaded" right {...sortProps} />
+              </th>
+              <th scope="col" className={cn(CELL, 'w-12')}>
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          {loading ? (
+            <tbody aria-hidden="true">
+              {Array.from({ length: 8 }, (_, r) => (
+                <tr key={r} className="border-t border-border-soft">
+                  <td className={cn(CELL, 'pl-5')}>
+                    <Skeleton className={cn('size-4', lateReveal)} />
+                  </td>
+                  <td className={CELL}>
+                    <div className="flex items-center gap-3">
+                      <Skeleton className={cn('aspect-video w-20 shrink-0', lateReveal)} />
+                      <div className="flex flex-1 flex-col gap-2">
+                        <Skeleton className={cn('h-3.5 w-3/5', lateReveal)} />
+                        <Skeleton className={cn('h-3 w-16', lateReveal)} />
+                      </div>
+                    </div>
+                  </td>
+                  <td className={CELL}>
+                    <Skeleton className={cn('h-5.5 w-16 rounded-full', lateReveal)} />
+                  </td>
+                  <td className={CELL}>
+                    <Skeleton className={cn('h-3.5 w-12', lateReveal)} />
+                  </td>
+                  {['w-10', 'w-8', 'w-12', 'w-14'].map((w, i) => (
+                    <td key={i} className={CELL}>
+                      <Skeleton className={cn('ml-auto h-3.5', w, lateReveal)} />
+                    </td>
+                  ))}
+                  <td className={CELL} />
+                </tr>
+              ))}
+            </tbody>
+          ) : (
+            <AnimatedList key={rowsKey} as="tbody">
+              {assets.map((asset) => {
+                const isSelected = selected.has(asset.id);
+                const ready = asset.status === 'ready';
+                return (
+                  <AnimatedItem
+                    key={asset.id}
+                    as="tr"
+                    data-row-id={asset.id}
+                    data-state={isSelected ? 'selected' : undefined}
+                    initial={initialFor(asset.id)}
+                    className={cn(
+                      'border-t border-border-soft transition-colors duration-150 ease-design',
+                      isSelected
+                        ? 'bg-muted'
+                        : 'hover:bg-background has-aria-expanded:bg-background',
+                    )}
+                  >
+                    <td className={cn(CELL, 'pl-5')}>
+                      <Checkbox
+                        checked={isSelected}
+                        onClick={(e) => (shift.current = e.shiftKey)}
+                        onCheckedChange={() => toggle(asset.id)}
+                        aria-label={`Select ${asset.title}`}
+                      />
+                    </td>
+                    <td className={CELL}>
+                      <VideoCell asset={asset} />
+                    </td>
+                    <td className={CELL}>
+                      <StatusCell asset={asset} />
+                    </td>
+                    <td className={CELL}>
+                      {asset.accessTier === 'private' ? 'Private' : 'Public'}
+                    </td>
+                    <td className={cn(CELL, 'text-right tabular-nums')}>
+                      {asset.durationMs ? formatDuration(asset.durationMs) : dash}
+                    </td>
+                    <td className={cn(CELL, 'text-right tabular-nums')}>
+                      {ready ? formatCount(asset.playCount) : dash}
+                    </td>
+                    <td className={cn(CELL, 'text-right tabular-nums')}>
+                      {asset.totalStorageBytes > 0 ? formatBytes(asset.totalStorageBytes) : dash}
+                    </td>
+                    <td className={cn(CELL, 'text-right whitespace-nowrap text-muted-foreground')}>
+                      <time dateTime={asset.createdAt} title={formatDate(asset.createdAt)}>
+                        {formatRelativeTime(asset.createdAt)}
+                      </time>
+                    </td>
+                    <td className={cn(CELL, 'pr-4')}>
+                      <VideoRowMenu actions={actions(asset)} title={asset.title} />
+                    </td>
+                  </AnimatedItem>
+                );
+              })}
+            </AnimatedList>
+          )}
+        </table>
+      </div>
+      {footer}
+    </div>
   );
+}
+
+function sortOf(sort: SortState, id: ColumnId) {
+  if (sort.column !== id) return undefined;
+  return sort.direction === 'asc' ? 'ascending' : 'descending';
 }

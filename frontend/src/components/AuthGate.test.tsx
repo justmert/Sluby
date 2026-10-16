@@ -72,14 +72,16 @@ describe('AuthGate', () => {
   it('offers sign-in on a 401', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
     renderGate();
-    expect(await screen.findByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /continue with github/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/session ended/i)).not.toBeInTheDocument();
   });
 
   it('sets the product name in the page title style, not an off-scale size', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
     renderGate();
-    const name = await screen.findByRole('heading', { level: 1, name: 'Sluby Studio' });
+    const name = await screen.findByRole('heading', { level: 1, name: 'Sign in to Sluby Studio' });
     expect(name).toHaveClass('text-title');
     expect(name).not.toHaveClass('text-3xl');
   });
@@ -191,7 +193,7 @@ describe('AuthGate', () => {
   it('shows the sign-in as pending while the browser goes to github', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
     renderGate();
-    await userEvent.click(await screen.findByRole('button', { name: /sign in with github/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /continue with github/i }));
     expect(loadPage).toHaveBeenCalledWith(
       `/api/v1/auth/github/login?${new URLSearchParams({ next: '/' })}`,
     );
@@ -227,7 +229,7 @@ describe('AuthGate', () => {
     expect(
       await screen.findByText('Your session ended. Sign in again to continue.'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue with github/i })).toBeInTheDocument();
     expect(screen.queryByText('3 videos')).not.toBeInTheDocument();
     await waitFor(() => expect(client.getQueryCache().getAll()).toHaveLength(0));
   });
@@ -252,6 +254,8 @@ describe('AuthGate', () => {
   it('checks the session again when the back/forward cache restores the page (FLW-07)', async () => {
     const fetchMock = vi
       .fn()
+      // the sign-in screen's version line asks /health after the two session checks
+      .mockResolvedValue(json({ status: 'ok', version: '0.2.0' }))
       .mockResolvedValueOnce(json(me))
       .mockResolvedValueOnce(json({ error: 'Not signed in' }, 401));
     vi.stubGlobal('fetch', fetchMock);
@@ -260,8 +264,9 @@ describe('AuthGate', () => {
     // signed out in the meantime, then Back restores this document from the cache
     window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
     await waitFor(() => expect(screen.queryByText(/alice via GitHub/)).not.toBeInTheDocument());
-    expect(await screen.findByRole('button', { name: /Sign in with GitHub/ })).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole('button', { name: /Continue with GitHub/ })).toBeInTheDocument();
+    // the sign-in screen also reads the version from /health; the session was asked twice
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/auth/me'))).toHaveLength(2);
   });
 
   it('does not check again on a normal pageshow', async () => {
@@ -286,13 +291,15 @@ describe('AuthGate reasons (B-11)', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(unauthorized(reason)));
     renderGate();
     expect(await screen.findByRole('alert')).toHaveTextContent(text);
-    expect(screen.getByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue with github/i })).toBeInTheDocument();
   });
 
   it('says nothing for a plain missing session on load', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(unauthorized('missing')));
     renderGate();
-    expect(await screen.findByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /continue with github/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -303,7 +310,7 @@ describe('AuthGate reasons (B-11)', () => {
       "Your GitHub account is no longer on this Studio's allowlist. Ask the operator to add it back.",
     );
     expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Using the API/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Only accounts your operator/)).not.toBeInTheDocument();
   });
 
   it('carries the reason of a later 401 from apiClient to the screen', async () => {
@@ -401,7 +408,7 @@ describe('AuthGate sign-in failures (B-12)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Sign-in with GitHub is not set up on this server.',
     );
-    expect(screen.queryByRole('button', { name: /sign in with github/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /continue with github/i })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -424,7 +431,7 @@ describe('AuthGate sign-in failures (B-12)', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
     renderGate();
     expect(await screen.findByRole('alert')).toHaveTextContent(text);
-    expect(screen.getByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue with github/i })).toBeInTheDocument();
     expect(window.location.pathname + window.location.search + window.location.hash).toBe(
       '/studio/videos?view=grid#top',
     );
@@ -447,7 +454,7 @@ describe('AuthGate sign-in failures (B-12)', () => {
     window.history.replaceState(null, '', '/studio/settings?signin_error=provider_failed');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
     renderGate();
-    await userEvent.click(await screen.findByRole('button', { name: /sign in with github/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /continue with github/i }));
     expect(loadPage).toHaveBeenCalledWith(
       `/api/v1/auth/github/login?${new URLSearchParams({ next: '/studio/settings' })}`,
     );
@@ -457,7 +464,7 @@ describe('AuthGate sign-in failures (B-12)', () => {
     window.history.replaceState(null, '', '/studio/videos/a1?panel=share#embed');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Not signed in' }, 401)));
     renderGate();
-    await userEvent.click(await screen.findByRole('button', { name: /sign in with github/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /continue with github/i }));
     expect(loadPage).toHaveBeenCalledWith(
       `/api/v1/auth/github/login?${new URLSearchParams({ next: '/studio/videos/a1?panel=share#embed' })}`,
     );
@@ -469,5 +476,46 @@ describe('AuthGate sign-in failures (B-12)', () => {
     renderGate();
     expect(await screen.findByText(/alice via GitHub/)).toBeInTheDocument();
     expect(window.location.search).toBe('');
+  });
+});
+
+describe('AuthGate sign-in screen (design board)', () => {
+  it('names the server version from /health and links the docs under the card', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          String(input) === '/health'
+            ? json({ status: 'ok', version: '0.2.0' })
+            : json({ error: 'Not signed in' }, 401),
+        ),
+      ),
+    );
+    renderGate();
+    expect(await screen.findByText(/Sluby 0\.2\.0/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Docs, opens in a new tab' })).toHaveAttribute(
+      'target',
+      '_blank',
+    );
+    expect(
+      screen.getByText('Video hosting on your own server, stored on Sia.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Only accounts your operator allows can sign in.')).toBeInTheDocument();
+  });
+
+  it('names the product without a number when /health does not answer', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          String(input) === '/health'
+            ? json({ error: 'Bad Gateway' }, 502)
+            : json({ error: 'Not signed in' }, 401),
+        ),
+      ),
+    );
+    renderGate();
+    await screen.findByRole('button', { name: /Continue with GitHub/ });
+    expect(screen.getByText(/^Sluby ·/)).toBeInTheDocument();
   });
 });

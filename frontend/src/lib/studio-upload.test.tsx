@@ -59,7 +59,7 @@ describe('studio upload store', () => {
     expect(
       await screen.findByText('Your session ended. Sign in again to continue.'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue with github/i })).toBeInTheDocument();
     expect(screen.queryByText('studio')).not.toBeInTheDocument();
     expect(uploadStore.getState().uploads[0]).toMatchObject({ authFailed: true });
   });

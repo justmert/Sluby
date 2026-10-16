@@ -13,9 +13,8 @@
     "test:browser": "vitest run --config vitest.browser.config.ts"
   },
   "dependencies": {
-    "@fontsource-variable/dm-sans": "^5.3.0",
-    "@fontsource-variable/jetbrains-mono": "^5.3.0",
-    "@fontsource-variable/sora": "^5.3.0",
+    "@fontsource-variable/figtree": "^5.3.0",
+    "@fontsource/dm-mono": "^5.3.0",
     "@sluby/player": "*",
     "@sluby/sdk": "*",
     "@tanstack/react-query": "^5.104.1",

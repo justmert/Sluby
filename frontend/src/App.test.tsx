@@ -47,6 +47,8 @@ describe('App routes', () => {
     ['/studio', 'overview'],
     ['/studio/videos', 'videos'],
     ['/studio/videos/a1', 'video'],
+    // a static segment, so it wins over /studio/videos/:id
+    ['/studio/videos/upload', 'upload'],
     ['/studio/developers', 'quickstart'],
     ['/studio/developers/keys', 'apiKeys'],
     ['/studio/developers/webhooks', 'webhooks'],
@@ -82,7 +84,10 @@ describe('App routes', () => {
     ['/', '/studio', 'overview'],
     ['/studio/assets?q=Bunny', '/studio/videos?q=Bunny', 'videos'],
     ['/studio/assets/a1?tab=renditions', '/studio/videos/a1?tab=renditions', 'video'],
-    ['/studio/upload', '/studio/videos?upload=1', 'videos'],
+    ['/studio/upload', '/studio/videos/upload', 'upload'],
+    // the old sheet's param, on any page
+    ['/studio/videos?view=grid&upload=1', '/studio/videos/upload', 'upload'],
+    ['/studio/settings?upload=1', '/studio/videos/upload', 'upload'],
     ['/studio/player', '/studio/videos?status=ready', 'videos'],
     ['/studio/player?asset=f1', '/studio/videos/f1', 'video'],
     ['/studio/developer', '/studio/developers', 'quickstart'],

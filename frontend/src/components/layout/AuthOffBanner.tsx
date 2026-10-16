@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { TriangleAlert, X } from 'lucide-react';
+import { ExternalLink, TriangleAlert, X } from 'lucide-react';
 import { Collapse } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { LINKS } from '@/lib/constants';
@@ -33,36 +33,44 @@ export function AuthOffBanner() {
 
   return (
     <Collapse open={!dismissed}>
-      <div
-        role="region"
-        aria-label="Sign-in is off"
-        className="flex items-start gap-2 border-b border-warning/40 bg-warning/15 px-4 py-2 text-sm text-warning-foreground sm:items-center sm:px-8"
-      >
-        <TriangleAlert className="mt-0.5 size-4 shrink-0 sm:mt-0" aria-hidden="true" />
-        <p className="min-w-0 flex-1">
-          Sign-in is off. Anyone who can open this address has operator access.{' '}
-          <a
-            href={LINKS.SIGN_IN_SETUP}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium whitespace-nowrap underline underline-offset-2"
-          >
-            Turn on sign-in
-            <span className="sr-only">, opens in a new tab</span>
-          </a>
-        </p>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="-my-1 shrink-0 text-warning-foreground hover:bg-warning/20 hover:text-warning-foreground"
-          aria-label="Hide this warning until the next visit"
-          onClick={() => {
-            writeDismissed();
-            setDismissed(true);
-          }}
+      {/* in the page column, as a card like the rest of the page: a full-width
+        bar under the top bar read as broken chrome. neutral fill, the amber
+        only on the icon tile, as the status chips do */}
+      <div className="mx-auto w-full max-w-400 px-8 pt-6 max-[899px]:px-4 max-[899px]:pt-4">
+        <div
+          role="region"
+          aria-label="Sign-in is off"
+          className="flex items-start gap-3 rounded-xl border bg-card py-3 pr-3 pl-3.5 text-sm sm:items-center"
         >
-          <X aria-hidden="true" />
-        </Button>
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-warning-line text-warning-icon">
+            <TriangleAlert className="size-4" aria-hidden="true" />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
+            <p className="min-w-0 flex-1 text-muted-foreground">
+              <span className="font-semibold text-foreground">Sign-in is off.</span> Anyone who can
+              open this address has operator access.
+            </p>
+            <Button variant="outline" size="sm" className="self-start sm:self-auto" asChild>
+              <a href={LINKS.SIGN_IN_SETUP} target="_blank" rel="noopener noreferrer">
+                Turn on sign-in
+                <ExternalLink data-icon="inline-end" className="size-3.5" aria-hidden="true" />
+                <span className="sr-only">, opens in a new tab</span>
+              </a>
+            </Button>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 text-muted-foreground"
+            aria-label="Hide this warning until the next visit"
+            onClick={() => {
+              writeDismissed();
+              setDismissed(true);
+            }}
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </div>
       </div>
     </Collapse>
   );

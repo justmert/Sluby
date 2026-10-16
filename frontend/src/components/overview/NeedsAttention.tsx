@@ -1,16 +1,18 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { VideoAsset } from '@sluby/sdk';
-import { CircleAlert, TriangleAlert } from 'lucide-react';
 import { failureInfo } from '@/components/asset/processing';
 import { RetryProcessingButton } from '@/components/asset/RetryProcessingButton';
 import { AnimatedItem, AnimatedList } from '@/components/motion';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useProcessingJob } from '@/hooks/asset-detail-queries';
 import { webhookLabel } from '@/hooks/useWebhooks';
 import { ROUTES } from '@/lib/constants';
 import { formatCount, formatRelativeTime, plural } from '@/lib/formatters';
+import { lateReveal } from '@/lib/motion';
+import { cn } from '@/lib/utils';
 import { ATTENTION_LIMIT, type AttentionItem } from './attention';
 
 const SERVICE: Record<'indexer' | 'database' | 'redis', { title: string; why: string }> = {
@@ -28,72 +30,63 @@ const SERVICE: Record<'indexer' | 'database' | 'redis', { title: string; why: st
   },
 };
 
+type Tone = 'destructive' | 'warning';
+
+// a title that leads somewhere is a plain link in the ink colour, like the board
+const TITLE_LINK =
+  'rounded-sm font-semibold text-foreground wrap-anywhere hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring';
+
 function Row({
   tone,
+  chip,
   title,
   why,
   action,
 }: {
-  tone: 'danger' | 'warning';
-  title: React.ReactNode;
-  why: React.ReactNode;
-  action?: React.ReactNode;
+  tone: Tone;
+  chip: string;
+  title: ReactNode;
+  why: ReactNode;
+  action?: ReactNode;
 }) {
-  const Icon = tone === 'danger' ? CircleAlert : TriangleAlert;
   return (
-    <div className="grid grid-cols-[auto_1fr] gap-x-3 py-3 @lg/attention:grid-cols-[auto_1fr_auto] @lg/attention:items-center">
-      <Icon
-        aria-hidden="true"
-        className={
-          tone === 'danger'
-            ? 'mt-0.5 size-4 text-destructive'
-            : 'mt-0.5 size-4 text-warning-foreground'
-        }
-      />
-      <div className="min-w-0">
-        <p className="text-sm font-medium wrap-anywhere">{title}</p>
-        <p className="text-sm text-muted-foreground">{why}</p>
+    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2 rounded-lg border-t border-border-soft px-2 py-3 transition-colors duration-150 ease-design hover:bg-background">
+      <Badge variant={tone}>{chip}</Badge>
+      <div className="min-w-48 flex-1">
+        <p className="font-semibold wrap-anywhere">{title}</p>
+        <p className="text-muted-foreground">{why}</p>
       </div>
-      {action && (
-        <div className="col-start-2 mt-2 flex flex-wrap gap-2 @lg/attention:col-start-3 @lg/attention:mt-0">
-          {action}
-        </div>
-      )}
+      {action && <div className="flex flex-wrap items-center gap-2">{action}</div>}
     </div>
   );
 }
 
-// row actions wrap at a large text size instead of running out of the card
-const WRAPS =
-  'h-auto min-h-7 max-w-full shrink py-1 whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9';
-
-const quoted = (title: string) => <span dir="auto">“{title}”</span>;
-
-function OpenVideo({ video }: { video: VideoAsset }) {
-  return (
-    <Button variant="outline" size="sm" className={WRAPS} asChild>
-      <Link to={ROUTES.video(video.id)} aria-label={`Open video ${video.title}`}>
-        Open video
-      </Link>
-    </Button>
-  );
-}
+const quoted = (title: string) => <span dir="auto">{title}</span>;
 
 function FailedRow({ video }: { video: VideoAsset }) {
   const job = useProcessingJob(video.id, video.status, true);
   const info = failureInfo(job.data, video);
   return (
     <Row
-      tone="danger"
-      title={<>{quoted(video.title)} failed</>}
+      tone="destructive"
+      chip="Failed"
+      title={
+        <Link to={ROUTES.video(video.id)} className={TITLE_LINK}>
+          {quoted(video.title)}
+        </Link>
+      }
       why={job.data ? info.body : 'Processing failed.'}
       action={
-        <>
-          {info.action === 'retry' && job.data && (
-            <RetryProcessingButton asset={video} named variant="outline" size="sm" />
-          )}
-          <OpenVideo video={video} />
-        </>
+        !job.data ? (
+          // the reason decides the action; hold its room until it is known
+          <Skeleton className={cn('h-8 w-28', lateReveal)} />
+        ) : info.action === 'retry' ? (
+          <RetryProcessingButton asset={video} named compact variant="outline" size="sm" />
+        ) : (
+          <Button variant="outline" size="sm" asChild>
+            <Link to={ROUTES.UPLOAD}>Upload again</Link>
+          </Button>
+        )
       }
     />
   );
@@ -101,7 +94,7 @@ function FailedRow({ video }: { video: VideoAsset }) {
 
 function ItemRow({ item, operator }: { item: AttentionItem; operator: boolean }) {
   const openHealth = operator && (
-    <Button variant="outline" size="sm" className={WRAPS} asChild>
+    <Button variant="outline" size="sm" asChild>
       <Link to={ROUTES.DEPLOYMENT}>Open health</Link>
     </Button>
   );
@@ -109,7 +102,8 @@ function ItemRow({ item, operator }: { item: AttentionItem; operator: boolean })
     case 'service':
       return (
         <Row
-          tone="danger"
+          tone="destructive"
+          chip="Down"
           title={SERVICE[item.service].title}
           why={
             operator
@@ -122,7 +116,8 @@ function ItemRow({ item, operator }: { item: AttentionItem; operator: boolean })
     case 'missing':
       return (
         <Row
-          tone="danger"
+          tone="destructive"
+          chip="Missing"
           title={`${plural(item.count, 'file is', 'files are')} missing from Sia`}
           why={`Videos that use them may not play. Found by the storage check ${formatRelativeTime(item.checkedAt)}.`}
           action={openHealth}
@@ -131,34 +126,52 @@ function ItemRow({ item, operator }: { item: AttentionItem; operator: boolean })
     case 'failed':
       return <FailedRow video={item.video} />;
     case 'webhook':
+    case 'paused': {
+      const label = webhookLabel(item.webhook.url);
       return (
         <Row
           tone="warning"
-          title={`Deliveries to ${webhookLabel(item.webhook.url)} are failing`}
+          chip={item.kind === 'paused' ? 'Paused' : 'Failing'}
+          title={
+            <Link to={ROUTES.webhook(item.webhook.id)} className={TITLE_LINK}>
+              {label}
+            </Link>
+          }
           why={
-            item.webhook.lastDeliveryAt
-              ? `Last attempt ${formatRelativeTime(item.webhook.lastDeliveryAt)}`
-              : 'The last delivery did not reach your endpoint.'
+            item.kind === 'paused'
+              ? 'Webhook paused. Events are not being sent.'
+              : item.webhook.lastDeliveryAt
+                ? `Deliveries are failing. Last attempt ${formatRelativeTime(item.webhook.lastDeliveryAt)}.`
+                : 'The last delivery did not reach your endpoint.'
           }
           action={
-            <Button variant="outline" size="sm" className={WRAPS} asChild>
-              <Link
-                to={ROUTES.webhook(item.webhook.id)}
-                aria-label={`Open webhook ${webhookLabel(item.webhook.url)}`}
-              >
+            <Button variant="outline" size="sm" asChild>
+              <Link to={ROUTES.webhook(item.webhook.id)} aria-label={`Open webhook ${label}`}>
                 Open webhook
               </Link>
             </Button>
           }
         />
       );
+    }
     case 'stalled':
       return (
         <Row
           tone="warning"
-          title={<>{quoted(item.video.title)} did not finish uploading</>}
-          why={`Started ${formatRelativeTime(item.video.createdAt)}. Upload the file again, or delete the video.`}
-          action={<OpenVideo video={item.video} />}
+          chip="Interrupted"
+          title={
+            <Link to={ROUTES.video(item.video.id)} className={TITLE_LINK}>
+              {quoted(item.video.title)}
+            </Link>
+          }
+          why={`The upload did not finish. Started ${formatRelativeTime(item.video.createdAt)}.`}
+          action={
+            <Button variant="outline" size="sm" asChild>
+              <Link to={ROUTES.video(item.video.id)} aria-label={`Open video ${item.video.title}`}>
+                Open video
+              </Link>
+            </Button>
+          }
         />
       );
   }
@@ -168,6 +181,7 @@ function ItemRow({ item, operator }: { item: AttentionItem; operator: boolean })
 function moreLink(item: AttentionItem | undefined): string {
   switch (item?.kind) {
     case 'webhook':
+    case 'paused':
       return ROUTES.WEBHOOKS;
     case 'stalled':
       return `${ROUTES.VIDEOS}?status=${item.video.status}`;
@@ -179,10 +193,33 @@ function moreLink(item: AttentionItem | undefined): string {
   }
 }
 
+/** The card's frame, also drawn while the page waits for its first answers. */
+export function AttentionFrame({ count, children }: { count?: number; children: ReactNode }) {
+  return (
+    <section
+      aria-labelledby="needs-attention"
+      className="flex min-w-0 flex-[2_1_520px] flex-col gap-1 rounded-xl border bg-card px-6 py-5"
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <h2 id="needs-attention" className="font-heading text-heading">
+          Needs attention
+        </h2>
+        {count !== undefined && count > 0 && (
+          <Badge variant="warning" className="tabular-nums">
+            <span className="sr-only">Items: </span>
+            {formatCount(count)}
+          </Badge>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 /**
  * What needs the user now (D-07): services down, files missing from Sia,
- * failed videos, failing webhooks, uploads that never finished. Nothing is
- * drawn when the list is empty.
+ * failed videos, failing or paused webhooks, uploads that never finished.
+ * With nothing to do, the card says so and keeps its place beside Status.
  */
 export function NeedsAttention({
   items,
@@ -198,21 +235,16 @@ export function NeedsAttention({
   const shown = items.slice(0, ATTENTION_LIMIT);
   const more = total - shown.length;
   return (
-    <Card className="@container/attention">
-      <CardHeader>
-        <CardTitle id="needs-attention">Needs attention</CardTitle>
-        <CardAction>
-          <Badge variant="secondary" className="tabular-nums">
-            <span className="sr-only">Items: </span>
-            {formatCount(total)}
-          </Badge>
-        </CardAction>
-      </CardHeader>
-      <CardContent>
+    <AttentionFrame count={total}>
+      {shown.length === 0 ? (
+        <p className="border-t border-border-soft px-2 py-3 text-muted-foreground">
+          Nothing needs your attention.
+        </p>
+      ) : (
         <AnimatedList
           aria-labelledby="needs-attention"
           initial={stagger ? 'hidden' : false}
-          className="-my-3 flex flex-col divide-y"
+          className="flex flex-col"
         >
           {shown.map((item) => (
             <AnimatedItem key={item.key}>
@@ -220,17 +252,17 @@ export function NeedsAttention({
             </AnimatedItem>
           ))}
         </AnimatedList>
-        {more > 0 && (
-          <p className="mt-3 border-t pt-3 text-sm">
-            <Link
-              to={moreLink(items[ATTENTION_LIMIT] ?? items[items.length - 1])}
-              className="font-medium text-primary underline-offset-4 hover:underline"
-            >
-              and {formatCount(more)} more
-            </Link>
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      )}
+      {more > 0 && (
+        <p className="border-t border-border-soft px-2 pt-3">
+          <Link
+            to={moreLink(items[ATTENTION_LIMIT] ?? items[items.length - 1])}
+            className="font-semibold text-primary hover:text-primary-hover"
+          >
+            and {formatCount(more)} more
+          </Link>
+        </p>
+      )}
+    </AttentionFrame>
   );
 }

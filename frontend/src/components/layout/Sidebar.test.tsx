@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react';
+import { useLocation } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -24,6 +25,7 @@ const stats = (processing = 0, uploading = 0) => ({
 });
 
 let routes: Record<string, unknown>;
+let server: ReturnType<typeof jsonFetch>;
 beforeEach(() => {
   routes = {
     '/api/v1/system/status': okStatus,
@@ -34,11 +36,13 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 const render = (operator: boolean, route = '/studio') => {
-  vi.stubGlobal('fetch', jsonFetch(routes));
+  server = jsonFetch(routes);
+  vi.stubGlobal('fetch', server);
   return renderPage(
     <WithSession operator={operator}>
       <SidebarProvider>
         <AppSidebar />
+        <Where />
       </SidebarProvider>
     </WithSession>,
     { route },
@@ -46,6 +50,10 @@ const render = (operator: boolean, route = '/studio') => {
 };
 
 const nav = () => within(screen.getByRole('navigation', { name: 'Studio' }));
+
+function Where() {
+  return <output data-testid="where">{useLocation().pathname}</output>;
+}
 
 describe('AppSidebar', () => {
   it('lists the pages in their groups, without deployment for a member', () => {
@@ -57,7 +65,8 @@ describe('AppSidebar', () => {
         .getAllByRole('link')
         .map((a) => [a.textContent, a.getAttribute('href')]),
     ).toEqual([
-      ['SlubyStudio', '/studio'],
+      ['Sluby Studio', '/studio'],
+      ['Upload video', '/studio/videos/upload'],
       ['Overview', '/studio'],
       ['Videos', '/studio/videos'],
       ['Quickstart', '/studio/developers'],
@@ -65,8 +74,19 @@ describe('AppSidebar', () => {
       ['Webhooks', '/studio/developers/webhooks'],
       ['API explorer', '/studio/developers/explorer'],
       ['Settings', '/studio/settings'],
-      ['API reference, opens in a new tab', '/api/v1/docs'],
     ]);
+  });
+
+  it('goes to the upload page from Upload video, which is then the current page', async () => {
+    render(false, '/studio/videos');
+    const upload = nav().getByRole('link', { name: 'Upload video' });
+    expect(upload).not.toHaveAttribute('aria-current');
+    await userEvent.click(upload);
+    expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos/upload');
+    expect(nav().getByRole('link', { name: 'Upload video' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 
   it('shows health and metrics to an operator, under a group marked Operator (RDS-16)', async () => {
@@ -82,12 +102,18 @@ describe('AppSidebar', () => {
     );
   });
 
-  it('draws the Operator mark at the same weight as the top bar Sign-in off mark', () => {
+  it('labels the deployment group as the design does, with operators only for screen readers', () => {
     render(true);
     const group = nav().getByRole('group', { name: 'Deployment, operators only' });
-    const mark = within(group).getByText('Operator');
-    expect(mark).toHaveClass('text-kbd');
-    expect(mark).not.toHaveClass('font-normal');
+    expect(within(group).queryByText('Operator')).not.toBeInTheDocument();
+    expect(within(group).getByText(', operators only')).toHaveClass('sr-only');
+  });
+
+  it('puts Settings on its own at the bottom, after the groups', () => {
+    render(false);
+    const settings = nav().getByRole('link', { name: 'Settings' });
+    expect(settings.closest('[data-slot=sidebar-group]')).toBeNull();
+    expect(settings.closest('div.mt-auto')).not.toBeNull();
   });
 
   it('marks only the page itself current, and a detail page under its list', () => {
@@ -107,11 +133,12 @@ describe('AppSidebar', () => {
     expect(nav().getByRole('link', { name: /^Health/ })).not.toHaveAttribute('aria-current');
   });
 
-  it('opens the API reference in a new tab', () => {
+  it('tells U as the shortcut of Upload video', () => {
     render(false);
-    const link = nav().getByRole('link', { name: /API reference/ });
-    expect(link).toHaveAttribute('target', '_blank');
-    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(nav().getByRole('link', { name: 'Upload video' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'U',
+    );
   });
 });
 
@@ -159,7 +186,11 @@ describe('AppSidebar signals (D-14)', () => {
 
   it('shows no count when nothing is moving', async () => {
     render(false);
-    await screen.findByText('v0.2.0 · mainnet');
+    await vi.waitFor(() =>
+      expect(server.calls.map((c) => c.path)).toEqual(
+        expect.arrayContaining(['/api/v1/stats', '/api/v1/webhooks']),
+      ),
+    );
     expect(nav().getByRole('link', { name: 'Videos' })).toBeInTheDocument();
   });
 
@@ -196,24 +227,11 @@ describe('AppSidebar signals (D-14)', () => {
       ],
     };
     render(false);
-    await screen.findByText('v0.2.0 · mainnet');
+    await vi.waitFor(() =>
+      expect(server.calls.map((c) => c.path)).toEqual(
+        expect.arrayContaining(['/api/v1/stats', '/api/v1/webhooks']),
+      ),
+    );
     expect(nav().getByRole('link', { name: 'Webhooks' })).toBeInTheDocument();
-  });
-});
-
-describe('AppSidebar version line (FLW-40)', () => {
-  it('names the server version and the Sia network', async () => {
-    render(false);
-    expect(await screen.findByText('v0.2.0 · mainnet')).toBeInTheDocument();
-  });
-
-  it('shows an en dash with the reason when the status call fails', async () => {
-    routes['/api/v1/system/status'] = reply(502, '<html>bad gateway</html>');
-    render(false);
-    const dash = await screen.findByRole('button', { name: /^Server version unavailable\./ });
-    expect(dash).toHaveTextContent('–');
-    await userEvent.hover(dash);
-    const tip = await screen.findByRole('tooltip');
-    expect(tip).toHaveTextContent('The server ran into a problem (error 502).');
   });
 });

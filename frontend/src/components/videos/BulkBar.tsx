@@ -1,12 +1,8 @@
 import { useEffect, useRef } from 'react';
-import * as m from 'motion/react-m';
-import { Globe, Lock } from 'lucide-react';
-import { NumberTicker } from '@/components/motion';
+import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { formatCount } from '@/lib/formatters';
-import { Icons } from '@/lib/icons';
-import { spring, transition } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 export interface BulkBarProps {
@@ -24,9 +20,16 @@ export interface BulkBarProps {
   cap: number;
   /** an access change is running */
   changing: 'public' | 'private' | null;
+  /** some selected videos are public, so Make private has something to do */
+  canMakePrivate: boolean;
+  /** some selected videos are private, so Make public has something to do */
+  canMakePublic: boolean;
+  /** some selected videos are ready, so they have embed code to copy */
+  canCopyEmbed: boolean;
   onSelectAll: () => void;
   onMakePublic: () => void;
   onMakePrivate: () => void;
+  onCopyEmbed: () => void;
   onDelete: () => void;
   onClear: () => void;
   className?: string;
@@ -35,9 +38,16 @@ export interface BulkBarProps {
 // keep toasts above the bar while it shows (the toaster reads this, D-20)
 const LIFT = '--toast-lift';
 
+// the board's buttons on the dark bar: 32px, an edge in the bar's line colour,
+// and the bar's own text colour for the focus ring, since petrol would sit
+// too close to the bar's dark fill
+const ON_BAR =
+  'h-8 border-bar-border bg-transparent px-3 text-bar-foreground hover:bg-white/10 hover:text-bar-foreground focus-visible:outline-bar-foreground';
+
 /**
- * What can be done with the selected videos. It sticks to the bottom of the
- * content column, not the window, so it centers on what it acts on (VIS-18).
+ * What can be done with the selected videos: the board's dark bar. It sticks
+ * to the bottom of the content column, not the window, so it centers on
+ * what it acts on (VIS-18), and rises in like every other new surface.
  * Offers to widen a full page's selection to every result (FLW-43).
  */
 export function BulkBar({
@@ -48,9 +58,13 @@ export function BulkBar({
   selectingAll,
   cap,
   changing,
+  canMakePrivate,
+  canMakePublic,
+  canCopyEmbed,
   onSelectAll,
   onMakePublic,
   onMakePrivate,
+  onCopyEmbed,
   onDelete,
   onClear,
   className,
@@ -79,49 +93,64 @@ export function BulkBar({
   const offerAll = !acrossPages && count === onPage && total > onPage;
   const busy = changing !== null;
   return (
-    <m.div
+    <div
       ref={ref}
       role="toolbar"
       aria-label="Selected videos"
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0, transition: spring }}
-      exit={{ opacity: 0, y: 16, transition: transition.fast }}
       className={cn(
-        'z-20 mx-auto flex w-fit max-w-full flex-col gap-1 rounded-xl border bg-popover p-1.5 pl-4 text-sm text-popover-foreground shadow-lg',
+        'z-20 mx-auto flex w-fit max-w-full animate-enter flex-col gap-1 rounded-xl bg-bar py-2.5 pr-3 pl-4.5 text-sm text-bar-foreground shadow-toast',
         className,
       )}
     >
-      {/* one row on wider screens; on phones the count and Clear share the
-          first row and the actions get the second, instead of a ragged wrap */}
-      <div className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-1 sm:flex">
-        <span className="mr-1 whitespace-nowrap tabular-nums">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-semibold whitespace-nowrap tabular-nums">
           {/* the page-level status region announces the count; this is the visible copy */}
-          <NumberTicker value={count} format={(n) => formatCount(Math.round(n))} />
-          {!acrossPages && (
-            <span className="max-[359px]:hidden"> of {formatCount(onPage)}</span>
-          )}{' '}
-          selected
+          {formatCount(count)} selected
         </span>
-        <div className="col-span-2 row-start-2 -ml-2.5 flex flex-wrap items-center gap-1 sm:contents">
-          <Button variant="ghost" size="sm" disabled={busy} onClick={onMakePublic}>
-            {changing === 'public' ? <Spinner aria-hidden="true" /> : <Globe />}
+        {canMakePublic && (
+          <Button variant="outline" className={ON_BAR} disabled={busy} onClick={onMakePublic}>
+            {changing === 'public' && <Spinner aria-hidden="true" />}
             Make public
           </Button>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={onMakePrivate}>
-            {changing === 'private' ? <Spinner aria-hidden="true" /> : <Lock />}
+        )}
+        {canMakePrivate && (
+          <Button variant="outline" className={ON_BAR} disabled={busy} onClick={onMakePrivate}>
+            {changing === 'private' && <Spinner aria-hidden="true" />}
             Make private
           </Button>
-          <Button variant="destructive-outline" size="sm" disabled={busy} onClick={onDelete}>
-            <Icons.delete />
-            Delete
-          </Button>
-        </div>
-        <Button variant="ghost" size="sm" className="col-start-2 row-start-1" onClick={onClear}>
-          Clear
+        )}
+        <Button
+          variant="outline"
+          className={ON_BAR}
+          disabled={busy || !canCopyEmbed}
+          title={canCopyEmbed ? undefined : 'Only ready videos have embed code'}
+          onClick={onCopyEmbed}
+        >
+          Copy embed code
+        </Button>
+        <Button
+          variant="outline"
+          className={cn(
+            ON_BAR,
+            'border-bar-destructive-border font-semibold text-bar-destructive hover:text-bar-destructive',
+          )}
+          disabled={busy}
+          onClick={onDelete}
+        >
+          Delete
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Clear selection"
+          className="text-bar-foreground hover:bg-white/10 hover:text-bar-foreground focus-visible:outline-bar-foreground"
+          onClick={onClear}
+        >
+          <X />
         </Button>
       </div>
       {(offerAll || acrossPages) && (
-        <p className="flex flex-wrap items-center gap-x-1 pr-2 pb-1 text-xs text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-x-1 pr-2 pb-0.5 text-xs text-bar-muted">
           {acrossPages ? (
             <span>
               {count < total
@@ -134,7 +163,7 @@ export function BulkBar({
               <Button
                 variant="link"
                 size="sm"
-                className="h-auto px-0 text-xs"
+                className="h-auto px-0 text-xs text-bar-foreground hover:text-bar-foreground focus-visible:outline-bar-foreground"
                 disabled={selectingAll}
                 onClick={onSelectAll}
               >
@@ -147,6 +176,6 @@ export function BulkBar({
           )}
         </p>
       )}
-    </m.div>
+    </div>
   );
 }

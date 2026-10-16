@@ -16,12 +16,20 @@ describe('focusable surfaces show a focus ring', () => {
         <TabsContent value="a">Panel</TabsContent>
       </Tabs>,
     );
-    expect(screen.getByRole('tabpanel')).toHaveClass('focus-visible:ring-3');
+    expect(screen.getByRole('tabpanel')).toHaveClass(
+      'focus-visible:outline-2',
+      'focus-visible:outline-ring',
+      'focus-visible:outline-solid',
+    );
   });
 
   it('code blocks', () => {
     const { container } = render(<CodeBlock code="npm i" label="install" />);
-    expect(container.querySelector('pre')).toHaveClass('focus-visible:ring-3');
+    expect(container.querySelector('pre')).toHaveClass(
+      'focus-visible:outline-2',
+      'focus-visible:outline-ring',
+      'focus-visible:outline-solid',
+    );
   });
 
   it('chart surfaces', () => {

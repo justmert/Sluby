@@ -1,9 +1,9 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
-@import '@fontsource-variable/dm-sans';
-@import '@fontsource-variable/sora';
-@import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource-variable/figtree';
+@import '@fontsource/dm-mono/400.css';
+@import '@fontsource/dm-mono/500.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -11,33 +11,26 @@
    from the system font to the web font moves nothing. liberation sans and
    arimo are arial's metric twins on linux. */
 @font-face {
-  font-family: 'DM Sans Fallback';
+  font-family: 'Figtree Fallback';
   src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('Arimo');
-  ascent-override: 94.9001%;
-  descent-override: 29.6563%;
+  ascent-override: 95.3853%;
+  descent-override: 25.1014%;
   line-gap-override: 0%;
-  size-adjust: 104.531%;
+  size-adjust: 99.5961%;
 }
 @font-face {
-  font-family: 'Sora Fallback';
-  src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('Arimo');
-  ascent-override: 85.2913%;
-  descent-override: 25.4995%;
-  line-gap-override: 0%;
-  size-adjust: 113.7279%;
-}
-@font-face {
-  font-family: 'JetBrains Mono Fallback';
+  font-family: 'DM Mono Fallback';
   src: local('Courier New'), local('CourierNewPSMT'), local('Liberation Mono'), local('Cousine');
-  ascent-override: 102.0166%;
-  descent-override: 30.0049%;
-  line-gap-override: 0%;
+  ascent-override: 99.2161%;
+  descent-override: 31.005%;
   size-adjust: 99.9837%;
 }
 
 /* design tokens. light is the base and .dark overrides; the theme provider
-   puts the class on <html>. every text pair here is checked against wcag aa
-   (see resources/frontend-final-audit/impl-foundation.md for the numbers).
+   puts the class on <html>. neutrals are warm stone in light and a cool slate in dark, the one accent
+   is petrol.
+   every text pair is checked against wcag aa: body and muted text 7:1 or
+   more, primary on white 6.2:1, status text 5:1 or more, field edges 3.6:1.
 
    one meaning per hue:
    - primary: the one action per view, and the brand
@@ -46,128 +39,181 @@
    - success: done and healthy
    - warning: needs attention (expiring, drift, degraded, 4xx). never "busy"
    - destructive: failed, and actions that delete
-   - info: neutral facts that still want a tint (this browser, a tip)
-   brand is the logo's orange and does not change with the theme. */
+   - info: neutral facts (this browser, a tip)
+   status is carried by a coloured edge and coloured text on a neutral
+   surface, never by a tinted fill. brand is the logo's petrol and does not
+   change with the theme. */
 :root {
   --radius: 0.625rem;
-  --background: oklch(0.99 0.002 285);
-  --foreground: oklch(0.18 0.012 285);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.012 285);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.012 285);
-  --primary: oklch(0.555 0.177 47.7);
-  --primary-foreground: oklch(0.99 0.002 285);
-  --secondary: oklch(0.96 0.004 285);
-  --secondary-foreground: oklch(0.22 0.012 285);
-  --muted: oklch(0.96 0.004 285);
-  --muted-foreground: oklch(0.5 0.012 285);
-  --accent: oklch(0.96 0.004 285);
-  --accent-foreground: oklch(0.18 0.012 285);
-  --destructive: oklch(0.52 0.21 20);
-  --destructive-solid: oklch(0.52 0.21 20);
-  --destructive-solid-foreground: oklch(1 0 0);
-  --success: oklch(0.47 0.12 162.5);
-  --warning: oklch(0.8 0.16 85);
-  --warning-foreground: oklch(0.5 0.115 70);
-  --progress: oklch(0.555 0.177 47.7);
-  --progress-foreground: oklch(0.5 0.16 47);
-  --info: oklch(0.5 0.17 260);
-  --brand: oklch(0.722 0.187 48.5);
-  --brand-foreground: oklch(1 0 0);
-  --border: oklch(0.91 0.005 285);
-  --border-strong: oklch(0.86 0.006 285);
-  /* field borders are the only edge of an empty input, so they clear 3:1 */
-  --input: oklch(0.64 0.01 285);
-  --ring: oklch(0.6 0.18 47);
-  --chart-1: oklch(0.62 0.19 47);
-  --chart-2: oklch(0.58 0.13 162.5);
-  --chart-3: oklch(0.56 0.18 260);
-  --chart-4: oklch(0.66 0.15 75);
-  --chart-5: oklch(0.56 0.2 293);
-  --sidebar: oklch(0.975 0.003 285);
-  --sidebar-foreground: oklch(0.18 0.012 285);
-  --sidebar-primary: oklch(0.555 0.177 47.7);
-  --sidebar-primary-foreground: oklch(0.99 0.002 285);
-  --sidebar-accent: oklch(0.94 0.006 285);
-  --sidebar-accent-foreground: oklch(0.18 0.012 285);
-  --sidebar-border: oklch(0.91 0.005 285);
-  --sidebar-ring: oklch(0.6 0.18 47);
-  /* syntax colors for CodeBlock, on muted/40 */
-  --code-keyword: oklch(0.5 0.19 293);
-  --code-string: oklch(0.47 0.11 162.5);
-  --code-number: oklch(0.52 0.15 47);
-  --code-fn: oklch(0.5 0.15 260);
+  --background: #fafaf9;
+  --foreground: #1c1917;
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+  --popover: #ffffff;
+  --popover-foreground: #1c1917;
+  --primary: #0f6b7a;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f4;
+  --secondary-foreground: #44403c;
+  --muted: #f5f5f4;
+  --muted-foreground: #57534e;
+  --accent: #f0efed;
+  --accent-foreground: #1c1917;
+  --destructive: #b91c1c;
+  --destructive-solid: #b91c1c;
+  --destructive-solid-foreground: #ffffff;
+  --success: #15803d;
+  --warning: #d97706;
+  --warning-foreground: #92400e;
+  --progress: #0f6b7a;
+  --progress-foreground: #0f6b7a;
+  --info: #44403c;
+  --brand: #0f6b7a;
+  --brand-foreground: #ffffff;
+  --border: #e7e5e4;
+  --border-strong: #d6d3d1;
+  /* fields wear the same edge as outline buttons and cards around them; the
+     3:1 edge comes back under prefers-contrast: more, below */
+  --input: #d6d3d1;
+  --ring: #0f6b7a;
+  --chart-1: #0f6b7a;
+  --chart-2: #15803d;
+  --chart-3: #b45309;
+  --chart-4: #a0306b;
+  --chart-5: #78716c;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1c1917;
+  --sidebar-primary: #0f6b7a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #efedea;
+  --sidebar-accent-foreground: #0f6b7a;
+  --sidebar-border: #e7e5e4;
+  --sidebar-ring: #0f6b7a;
+  /* syntax colors for CodeBlock and the json viewer, on the card surface */
+  --code-keyword: #a0306b;
+  --code-string: #2f6b1e;
+  --code-number: #b45309;
+  --code-fn: #0f6b7a;
+  /* the dark bar toasts and the videos bulk bar sit on. it stays dark in
+     both themes, a step lighter than the page in dark, so it reads as a
+     layer above whatever is under it */
+  --bar: #1c1917;
+  --bar-foreground: #fafaf9;
+  --bar-muted: #d6d3d1;
+  --bar-border: #44403c;
+  --bar-success: #86efac;
+  --bar-warning: #f2b866;
+  --bar-destructive: #fca5a5;
+  --bar-destructive-border: #f87171;
   /* polled progress bars ease over this long; shorter than the fastest poll
      (2 s), so a bar never trails its number by a whole poll */
   --duration-progress: 1200ms;
+  /* the design's finer steps. *-line is the edge of a status chip or note in
+     that status, primary-ring is the soft ring round a focused field, sunken
+     is the track under a progress fill, subtle-foreground is captions and key
+     hints, border-soft is the rule between rows, media is an empty thumbnail */
+  --success-line: #9bd3ae;
+  --warning-line: #e2b565;
+  --warning-icon: #b45309;
+  --destructive-line: #f1a3a3;
+  --progress-line: #8cc6cf;
+  --primary-ring: #cde7ea;
+  --primary-hover: #0b5260;
+  --sunken: #f0efed;
+  --subtle-foreground: #78716c;
+  /* decoration only (a breadcrumb's slash), never text people must read */
+  --faint: #a8a29e;
+  --border-soft: #f5f5f4;
+  --media: #1c1917;
+  --shadow-tint: rgb(28 25 23 / 0.12);
 }
 
 .dark {
-  --background: oklch(0.147 0.011 285);
-  --foreground: oklch(0.955 0 0);
-  --card: oklch(0.181 0.014 285);
-  --card-foreground: oklch(0.955 0 0);
-  --popover: oklch(0.205 0.014 285);
-  --popover-foreground: oklch(0.955 0 0);
-  --primary: oklch(0.722 0.187 48.5);
-  --primary-foreground: oklch(0.147 0.011 285);
-  --secondary: oklch(0.23 0.015 285);
-  --secondary-foreground: oklch(0.955 0 0);
-  --muted: oklch(0.23 0.015 285);
-  --muted-foreground: oklch(0.706 0.006 285);
-  --accent: oklch(0.255 0.015 285);
-  --accent-foreground: oklch(0.955 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-solid: oklch(0.56 0.2 22);
-  --destructive-solid-foreground: oklch(1 0 0);
-  --success: oklch(0.696 0.149 162.5);
-  --warning: oklch(0.82 0.16 88);
-  --warning-foreground: oklch(0.86 0.14 90);
-  --progress: oklch(0.722 0.187 48.5);
-  --progress-foreground: oklch(0.76 0.17 50);
-  --info: oklch(0.7 0.15 260);
-  --border: oklch(1 0 0 / 9%);
-  --border-strong: oklch(1 0 0 / 14%);
-  --input: oklch(1 0 0 / 36%);
-  --ring: oklch(0.722 0.187 48.5);
-  --chart-1: oklch(0.722 0.187 48.5);
-  --chart-2: oklch(0.696 0.149 162.5);
-  --chart-3: oklch(0.68 0.16 260);
-  --chart-4: oklch(0.82 0.16 88);
-  --chart-5: oklch(0.65 0.2 293);
-  --sidebar: oklch(0.165 0.012 285);
-  --sidebar-foreground: oklch(0.955 0 0);
-  --sidebar-primary: oklch(0.722 0.187 48.5);
-  --sidebar-primary-foreground: oklch(0.147 0.011 285);
-  --sidebar-accent: oklch(0.23 0.015 285);
-  --sidebar-accent-foreground: oklch(0.955 0 0);
-  --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.722 0.187 48.5);
-  --code-keyword: oklch(0.78 0.12 293);
-  --code-string: oklch(0.8 0.12 162.5);
-  --code-number: oklch(0.8 0.12 60);
-  --code-fn: oklch(0.8 0.1 250);
+  --background: #0c0e0f;
+  --foreground: #eef1f2;
+  --card: #14171a;
+  --card-foreground: #eef1f2;
+  --popover: #14171a;
+  --popover-foreground: #eef1f2;
+  --primary: #5bbfcc;
+  --primary-foreground: #06262b;
+  --secondary: #1c2023;
+  --secondary-foreground: #d2d7da;
+  --muted: #1c2023;
+  --muted-foreground: #a1a9ad;
+  --accent: #22272a;
+  --accent-foreground: #eef1f2;
+  --destructive: #f58a8a;
+  --destructive-solid: #f58a8a;
+  --destructive-solid-foreground: #2a0909;
+  --success: #6bd394;
+  --warning: #f2b866;
+  --warning-foreground: #f2b866;
+  --progress: #5bbfcc;
+  --progress-foreground: #5bbfcc;
+  --info: #d2d7da;
+  --border: #282d31;
+  --border-strong: #3a4146;
+  --input: #3a4146;
+  --ring: #5bbfcc;
+  --chart-1: #5bbfcc;
+  --chart-2: #6bd394;
+  --chart-3: #f2b866;
+  --chart-4: #f0a0c8;
+  --chart-5: #a1a9ad;
+  --sidebar: #14171a;
+  --sidebar-foreground: #eef1f2;
+  --sidebar-primary: #5bbfcc;
+  --sidebar-primary-foreground: #06262b;
+  --sidebar-accent: #22272a;
+  --sidebar-accent-foreground: #5bbfcc;
+  --sidebar-border: #282d31;
+  --sidebar-ring: #5bbfcc;
+  --code-keyword: #f0a0c8;
+  --code-string: #a7d98a;
+  --code-number: #f5b76b;
+  --code-fn: #82d2dc;
+  --bar: #282d31;
+  --bar-foreground: #eef1f2;
+  --bar-muted: #c4cacd;
+  --bar-border: #454d52;
+  --bar-success: #6bd394;
+  --bar-warning: #f2b866;
+  --bar-destructive: #f58a8a;
+  --bar-destructive-border: #7f3030;
+  --success-line: #2b6a42;
+  --warning-line: #6e4e1e;
+  --warning-icon: #f2b866;
+  --destructive-line: #7f3030;
+  --progress-line: #2a6a74;
+  --primary-ring: #1b4950;
+  --primary-hover: #82d2dc;
+  --sunken: #191d20;
+  --subtle-foreground: #8b9499;
+  --faint: #646c71;
+  --border-soft: #1f2326;
+  --media: #050505;
+  --shadow-tint: rgb(0 0 0 / 0.5);
 }
 
 /* more contrast on request: stronger secondary text and edges */
 @media (prefers-contrast: more) {
   :root {
-    --muted-foreground: oklch(0.4 0.012 285);
-    --input: oklch(0.5 0.01 285);
-    --border: oklch(0.75 0.005 285);
+    --muted-foreground: #44403c;
+    --input: #57534e;
+    --border: #a8a29e;
   }
   .dark {
-    --muted-foreground: oklch(0.82 0.006 285);
-    --input: oklch(1 0 0 / 55%);
-    --border: oklch(1 0 0 / 30%);
+    --muted-foreground: #d2d7da;
+    --input: #a1a9ad;
+    --border: #535b60;
   }
 }
 
 @theme inline {
-  --font-sans: 'DM Sans Variable', 'DM Sans Fallback', system-ui, sans-serif;
-  --font-heading: 'Sora Variable', 'Sora Fallback', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono Fallback', ui-monospace, monospace;
+  --font-sans: 'Figtree Variable', 'Figtree Fallback', system-ui, sans-serif;
+  --font-heading: 'Figtree Variable', 'Figtree Fallback', system-ui, sans-serif;
+  --font-mono: 'DM Mono', 'DM Mono Fallback', ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -214,36 +260,64 @@
   --color-code-string: var(--code-string);
   --color-code-number: var(--code-number);
   --color-code-fn: var(--code-fn);
-  /* three radii: md for controls, lg for inner surfaces, xl for cards and
-     overlays (plus full for badges and dots). sm is the checkbox and kbd. */
+  --color-bar: var(--bar);
+  --color-bar-foreground: var(--bar-foreground);
+  --color-bar-muted: var(--bar-muted);
+  --color-bar-border: var(--bar-border);
+  --color-bar-success: var(--bar-success);
+  --color-bar-warning: var(--bar-warning);
+  --color-bar-destructive: var(--bar-destructive);
+  --color-bar-destructive-border: var(--bar-destructive-border);
+  --color-success-line: var(--success-line);
+  --color-warning-line: var(--warning-line);
+  --color-warning-icon: var(--warning-icon);
+  --color-destructive-line: var(--destructive-line);
+  --color-progress-line: var(--progress-line);
+  --color-primary-ring: var(--primary-ring);
+  --color-primary-hover: var(--primary-hover);
+  --color-sunken: var(--sunken);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-faint: var(--faint);
+  --color-border-soft: var(--border-soft);
+  --color-media: var(--media);
+  /* the design's shadows: menus and the palette, toasts and the sign-in
+     card, a raised confirm, and a dialog over its scrim */
+  --shadow-menu: 0 12px 32px var(--shadow-tint);
+  --shadow-toast: 0 8px 24px var(--shadow-tint);
+  --shadow-pop: 0 16px 40px var(--shadow-tint);
+  --shadow-dialog: 0 24px 64px rgb(12 10 9 / 0.3);
+  /* the design's radii: md 8 for controls and menu rows, lg 10 for toasts,
+     inner tiles and code, xl 12 for cards and menus, 2xl 14 for dialogs, 3xl
+     16 for the empty-state icon and the sign-in card (plus full for chips
+     and dots). sm 4 is the checkbox and kbd. */
   --radius-sm: calc(var(--radius) * 0.4);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-xl: calc(var(--radius) * 1.2);
+  --radius-2xl: calc(var(--radius) * 1.4);
+  --radius-3xl: calc(var(--radius) * 1.6);
 }
 
 /* type roles on top of the stock scale (text-xs 12, text-sm 14, text-base
    16). each role carries its line height, tracking and weight, so a title is
    one class; the heading family comes from font-heading or an h1 to h3.
-   - text-title: page title (h1), sora 24/32 600
-   - text-heading: section, card, dialog and empty-state titles, 16/24 600
-   - text-figure: stat numbers, 24/32 600; pair with font-heading tabular-nums
+   - text-title: page title (h1), figtree 28/36 700
+   - text-heading: section and card titles, 16/24 600
+   - text-figure: stat numbers, 28/36 700; pair with font-heading tabular-nums
    - text-figure-sm: small stat tiles, 18/28 600
    - text-kbd: keyboard hints and chart ticks, 11/16 500 */
 @theme {
-  --text-title: 1.5rem;
-  --text-title--line-height: 2rem;
-  --text-title--letter-spacing: -0.025em;
-  --text-title--font-weight: 600;
+  --text-title: 1.75rem;
+  --text-title--line-height: 2.25rem;
+  --text-title--letter-spacing: -0.02em;
+  --text-title--font-weight: 700;
   --text-heading: 1rem;
   --text-heading--line-height: 1.5rem;
-  --text-heading--letter-spacing: -0.01em;
   --text-heading--font-weight: 600;
-  --text-figure: 1.5rem;
-  --text-figure--line-height: 2rem;
-  --text-figure--letter-spacing: -0.01em;
-  --text-figure--font-weight: 600;
+  --text-figure: 1.75rem;
+  --text-figure--line-height: 2.25rem;
+  --text-figure--letter-spacing: -0.02em;
+  --text-figure--font-weight: 700;
   --text-figure-sm: 1.125rem;
   --text-figure-sm--line-height: 1.75rem;
   --text-figure-sm--font-weight: 600;
@@ -259,7 +333,22 @@
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --animate-shimmer: shimmer 2s linear infinite;
   --animate-status-pulse: status-pulse 1.6s ease-in-out infinite;
+  --animate-status-ping: status-ping 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
   --animate-stripes: stripes 1.2s linear infinite;
+  --animate-sheen: sheen 1.8s linear infinite;
+  /* the design's one easing and its entrance: toasts, banners, menus and
+     dialogs rise 6 px and fade in over 240 ms */
+  --ease-design: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-enter: rise-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  /* not "enter": tw-animate-css owns that name for animate-in, and a
+     second keyframes rule of the same name would replace it */
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      translate: 0 6px;
+    }
+  }
 
   /* the shimmer is a fixed-width stripe that travels a fixed distance, so
      every skeleton sweeps at the same speed whatever its width */
@@ -275,11 +364,35 @@
     }
   }
 
+  /* a busy status dot sends out a ring that grows and fades; the dot itself
+     stays solid, so its color still reads at any point of the loop */
+  @keyframes status-ping {
+    from {
+      scale: 1;
+      opacity: 0.55;
+    }
+    to {
+      scale: 2.8;
+      opacity: 0;
+    }
+  }
+
   /* the processing tile's diagonal stripes slide by one period, so the loop
      has no seam (28.28px is the 20px stripe pair along the diagonal) */
   @keyframes stripes {
     to {
       background-position: 28.28px 0;
+    }
+  }
+
+  /* a soft light that crosses a progress fill while its work runs; the
+     stripe is as wide as the fill, so it moves at the fill's own scale */
+  @keyframes sheen {
+    from {
+      translate: -100% 0;
+    }
+    to {
+      translate: 100% 0;
     }
   }
 }
@@ -337,6 +450,46 @@
   :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+  /* fields take the design's soft ring and a petrol edge instead */
+  :where(input, select, textarea):focus-visible {
+    outline: 3px solid var(--primary-ring);
+    outline-offset: 0;
+    border-color: var(--primary);
+  }
+  /* every control eases its colours, edge and ring over 150 ms and a press
+     over 100 ms. zero specificity, so a component's own transition wins */
+  :where(
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    label,
+    summary,
+    [role='tab'],
+    [role='option'],
+    [role='menuitem'],
+    [role='button']
+  ) {
+    transition-property: color, background-color, border-color, box-shadow, scale;
+    transition-duration: 150ms, 150ms, 150ms, 150ms, 100ms;
+    transition-timing-function: var(--ease-design);
+  }
+  /* native checkboxes, radios and ranges take the accent instead of the
+     browser's blue */
+  input,
+  select,
+  textarea {
+    accent-color: var(--primary);
+  }
+  /* links are petrol and darken on hover, with no underline at rest */
+  a:where(:not([class])) {
+    color: var(--primary);
+    text-decoration: none;
+  }
+  a:where(:not([class])):hover {
+    color: var(--primary-hover);
   }
   h1,
   h2,
@@ -624,9 +777,21 @@ body:has([data-sonner-toast]) main {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+/* a toast enters as everything else does: it rises 6 px and fades in over
+   240 ms, instead of sonner's slide up from its own full height */
 [data-sonner-toaster] [data-sonner-toast] {
+  transition-duration: 240ms, 240ms, 240ms, 150ms;
+  transition-timing-function: var(--ease-design);
+}
+/* the exit stays inside the 200 ms sonner waits before it unmounts */
+[data-sonner-toaster] [data-sonner-toast][data-removed='true'] {
   transition-duration: 200ms, 200ms, 200ms, 150ms;
-  transition-timing-function: var(--ease-out-soft);
+}
+[data-sonner-toaster] [data-sonner-toast][data-mounted='false'][data-y-position='bottom'] {
+  --y: translateY(6px);
+}
+[data-sonner-toaster] [data-sonner-toast][data-mounted='false'][data-y-position='top'] {
+  --y: translateY(-6px);
 }
 [data-sonner-toaster] [data-sonner-toast] > * {
   transition-duration: 200ms;

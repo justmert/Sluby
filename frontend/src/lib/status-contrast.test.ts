@@ -2,10 +2,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// the status tokens are text on the app's surfaces: badges on cards, on a
-// selected row and on the palette's highlighted row (opaque muted). this
-// reads the real tokens from index.css and computes WCAG contrast, so a
-// palette change that drops one under 4.5:1 fails here
+// the status tokens are text on the app's surfaces: badges sit on cards, on a
+// selected row and on the palette's highlighted row (opaque muted), and the
+// badge fill is the card itself. this reads the real tokens from index.css
+// and computes WCAG contrast, so a palette change that drops one under the
+// line fails here
 const css = readFileSync(path.resolve(__dirname, '../index.css'), 'utf8');
 
 function block(selector: string): string {
@@ -13,32 +14,14 @@ function block(selector: string): string {
   return css.slice(start, css.indexOf('\n}', start));
 }
 
-function token(scope: string, name: string): [number, number, number] {
-  const m = new RegExp(`--${name}: oklch\\(([\\d.]+) ([\\d.]+) ([\\d.]+)\\)`).exec(block(scope));
-  if (!m) throw new Error(`no opaque --${name} in ${scope}`);
-  return [Number(m[1]), Number(m[2]), Number(m[3])];
-}
-
 type Rgb = [number, number, number];
 
-// oklch to gamma-encoded srgb, 0..1
-function srgb([l, c, h]: [number, number, number]): Rgb {
-  const a = c * Math.cos((h * Math.PI) / 180);
-  const b = c * Math.sin((h * Math.PI) / 180);
-  const l_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const m_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const s_ = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
-  const linear = [
-    4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
-    -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
-    -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_,
-  ].map((v) => Math.min(1, Math.max(0, v)));
-  return linear.map((v) => (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)) as Rgb;
+function token(scope: string, name: string): Rgb {
+  const m = new RegExp(`--${name}: #([0-9a-f]{6});`).exec(block(scope));
+  if (!m) throw new Error(`no opaque --${name} in ${scope}`);
+  const hex = m[1];
+  return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as Rgb;
 }
-
-// the badge tint: the status color at an alpha over the surface, as the browser composites it
-const over = (top: Rgb, alpha: number, under: Rgb): Rgb =>
-  top.map((t, i) => t * alpha + under[i] * (1 - alpha)) as Rgb;
 
 function luminance(rgb: Rgb): number {
   const [r, g, b] = rgb.map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
@@ -50,20 +33,74 @@ const ratio = (x: Rgb, y: Rgb) => {
   return (hi + 0.05) / (lo + 0.05);
 };
 
-describe('status badges keep 4.5:1 on every surface they sit on', () => {
-  // badge.tsx: text-{status} on bg-{status}/10, /15 in dark
-  for (const [scope, tint] of [
-    [':root', 0.1],
-    ['.dark', 0.15],
-  ] as const) {
-    for (const status of ['success', 'destructive', 'info']) {
-      for (const surface of ['card', 'popover', 'muted', 'background']) {
+const SURFACES = ['card', 'popover', 'muted', 'background'];
+
+describe('status text keeps 4.5:1 on every surface it sits on', () => {
+  for (const scope of [':root', '.dark']) {
+    for (const status of [
+      'success',
+      'destructive',
+      'info',
+      'progress-foreground',
+      'warning-foreground',
+      'primary',
+      'muted-foreground',
+    ]) {
+      for (const surface of SURFACES) {
         it(`${scope} ${status} on ${surface}`, () => {
-          const text = srgb(token(scope, status));
-          const bg = over(text, tint, srgb(token(scope, surface)));
-          expect(ratio(text, bg)).toBeGreaterThanOrEqual(4.5);
+          expect(ratio(token(scope, status), token(scope, surface))).toBeGreaterThanOrEqual(4.5);
         });
       }
     }
+  }
+});
+
+describe('the edge of an empty field keeps 3:1 when more contrast is asked for', () => {
+  // by default fields share the outline buttons' edge; the 3:1 edge is the
+  // prefers-contrast: more one
+  const more = css.slice(css.indexOf('@media (prefers-contrast: more)'));
+  const moreToken = (scope: string) => {
+    const start = more.indexOf(`${scope} {`);
+    const m = /--input: #([0-9a-f]{6});/.exec(more.slice(start, more.indexOf('}', start)));
+    if (!m) throw new Error(`no --input for ${scope} under prefers-contrast`);
+    return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255) as Rgb;
+  };
+  for (const scope of [':root', '.dark']) {
+    for (const surface of SURFACES) {
+      it(`${scope} input on ${surface}`, () => {
+        expect(ratio(moreToken(scope), token(scope, surface))).toBeGreaterThanOrEqual(3);
+      });
+    }
+  }
+});
+
+describe('text on the dark bar (toasts, bulk bar) keeps 4.5:1', () => {
+  for (const scope of [':root', '.dark']) {
+    for (const text of [
+      'bar-foreground',
+      'bar-muted',
+      'bar-success',
+      'bar-warning',
+      'bar-destructive',
+    ]) {
+      it(`${scope} ${text} on bar`, () => {
+        expect(ratio(token(scope, text), token(scope, 'bar'))).toBeGreaterThanOrEqual(4.5);
+      });
+    }
+  }
+});
+
+describe('text on solid fills keeps 4.5:1', () => {
+  for (const scope of [':root', '.dark']) {
+    it(`${scope} primary-foreground on primary`, () => {
+      expect(
+        ratio(token(scope, 'primary-foreground'), token(scope, 'primary')),
+      ).toBeGreaterThanOrEqual(4.5);
+    });
+    it(`${scope} destructive-solid-foreground on destructive-solid`, () => {
+      expect(
+        ratio(token(scope, 'destructive-solid-foreground'), token(scope, 'destructive-solid')),
+      ).toBeGreaterThanOrEqual(4.5);
+    });
   }
 });

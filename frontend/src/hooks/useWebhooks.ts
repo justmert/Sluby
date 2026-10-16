@@ -125,7 +125,10 @@ export function useDeleteWebhook() {
     },
     onSuccess: (_res, id) => {
       editHooks(qc, (rows) => rows.filter((r) => r.id !== id));
-      qc.removeQueries({ queryKey: oneKey(id) });
+      // removing it while its page still shows it makes that page fetch it again
+      // and get a 404 on the way out; the page leaves, and the cache drops it then
+      const one = qc.getQueryCache().find({ queryKey: oneKey(id), exact: true });
+      if (!one?.getObserversCount()) qc.removeQueries({ queryKey: oneKey(id), exact: true });
     },
     onSettled: () => qc.invalidateQueries({ queryKey: KEY, exact: true }),
   });

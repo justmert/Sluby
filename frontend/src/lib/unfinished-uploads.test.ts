@@ -74,6 +74,21 @@ describe('findUnfinishedUploads', () => {
     expect(localStorage.getItem(key(1))).not.toBeNull();
   });
 
+  it('forgets an upload made under another public url without asking that origin', async () => {
+    localStorage.setItem(key(1), entry('http://localhost:8190/api/v1/uploads/elsewhere', 'Old'));
+    localStorage.setItem(key(2), entry('http://localhost:3000/api/v1/uploads/here', 'Here'));
+    rememberUploadOwner('elsewhere', 'account-a');
+    const server = jsonFetch({ 'HEAD /api/v1/uploads/here': head(100) });
+    vi.stubGlobal('fetch', vi.fn(server));
+
+    const found = await findUnfinishedUploads();
+
+    expect(found.map((u) => u.uploadId)).toEqual(['here']);
+    expect(server.calls.map((c) => c.path)).toEqual(['/api/v1/uploads/here']);
+    expect(localStorage.getItem(key(1))).toBeNull();
+    expect(localStorage.getItem('sluby:upload-owners')).not.toContain('elsewhere');
+  });
+
   it('keeps an entry when the server could not answer, and reports the failure', async () => {
     localStorage.setItem(key(1), entry('http://localhost:3000/api/v1/uploads/open'));
     vi.stubGlobal(

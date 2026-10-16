@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router';
-import { AnimatePresence } from 'motion/react';
-import { ChevronLeft, ChevronRight, LayoutGrid, List, Search, X } from 'lucide-react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
+import { Search } from 'lucide-react';
 import type {
   AccessTier,
   AssetSortField,
@@ -15,33 +14,23 @@ import type { SortState } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { PageState } from '@/components/shared/PageState';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
-import { Kbd } from '@/components/ui/kbd';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { BulkBar } from '@/components/videos/BulkBar';
-import { FilterPopover } from '@/components/videos/FilterPopover';
 import { libraryView, rememberView } from '@/components/videos/library-view';
 import { VideosGridSkeleton } from '@/components/videos/VideosGridSkeleton';
 import {
   ACCESS_FILTERS,
-  ALL,
+  PHONE_QUERY,
   SORT_FIELDS,
   STATUS_FILTERS,
   type SortColumn,
 } from '@/components/videos/filters';
 import { PreviewSheet } from '@/components/videos/PreviewSheet';
-import { videoActions } from '@/components/videos/video-actions';
+import { copyWithToast, videoActions } from '@/components/videos/video-actions';
+import { VideosCards, VideosCardsSkeleton } from '@/components/videos/VideosCards';
 import { VideosGrid } from '@/components/videos/VideosGrid';
 import { VideosTable } from '@/components/videos/VideosTable';
+import { GridSelectAll, VideosToolbar } from '@/components/videos/VideosToolbar';
 import {
   SELECT_ALL_CAP,
   errorStatus,
@@ -54,16 +43,18 @@ import {
 } from '@/hooks/asset-queries';
 import { useAssetStats } from '@/hooks/useStats';
 import { useDebounce } from '@/hooks/useDebounce';
+import { useMediaQuery } from '@/hooks/use-mobile';
 import { isTypingTarget, useSlashToSearch } from '@/hooks/useSlashToSearch';
 import { ROUTES } from '@/lib/constants';
+import { primaryEmbed } from '@/lib/embed';
 import { errorText, withLead } from '@/lib/errors';
 import { formatCount, plural } from '@/lib/formatters';
 import { Icons } from '@/lib/icons';
 import { lateReveal } from '@/lib/motion';
 import { toastError, toastSuccess } from '@/lib/toast';
-import { useUploadSheet } from '@/lib/upload-sheet';
+import { useOpenUpload } from '@/lib/upload-page';
 import { cn } from '@/lib/utils';
-import { StatsLinePlaceholder, UploadVideoButton } from '@/components/layout/page-actions';
+import { StatsLinePlaceholder } from '@/components/layout/page-actions';
 import { PAGE_HEADS } from '@/components/layout/page-heads';
 
 const PAGE_SIZE = 24;
@@ -74,19 +65,6 @@ const STATUS_VALUES = new Set<string>(STATUS_FILTERS.map((s) => s.value));
 const TIER_VALUES = new Set<string>(ACCESS_FILTERS.map((a) => a.value));
 const SORT_VALUES = new Set<string>(Object.values(SORT_FIELDS));
 const DEFAULT_SORT = 'created_at:desc';
-
-// the grid has no headers to click, so it keeps a sort menu with every
-// order the table's headers can make
-const GRID_SORTS = [
-  { value: 'created_at:desc', label: 'Newest first' },
-  { value: 'created_at:asc', label: 'Oldest first' },
-  { value: 'title:asc', label: 'Title A to Z' },
-  { value: 'title:desc', label: 'Title Z to A' },
-  { value: 'duration:desc', label: 'Longest first' },
-  { value: 'duration:asc', label: 'Shortest first' },
-  { value: 'size:desc', label: 'Largest first' },
-  { value: 'size:asc', label: 'Smallest first' },
-];
 
 /**
  * Library state lives in the url so a filtered view can be shared, reloaded
@@ -207,7 +185,9 @@ export default function AssetsPage() {
   const p = useLibraryParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const uploadSheet = useUploadSheet();
+  const openUpload = useOpenUpload();
+  // the phone board: filter pills and one card per video instead of the table
+  const phone = useMediaQuery(PHONE_QUERY);
   const [searchInput, setSearchInput] = useState(p.q);
   const [syncedQ, setSyncedQ] = useState(p.q);
   const debounced = useDebounce(searchInput, 300);
@@ -440,7 +420,20 @@ export default function AssetsPage() {
       open: (a) => void navigate(ROUTES.video(a.id)),
       preview: openPreview,
       delete: (a) => setPendingDelete({ assets: [a], fromBar: false }),
+      access: (a, tier) => setPendingAccess({ assets: [a], tier }),
     });
+
+  // every selected ready video's embed code, one after another
+  const copySelectedEmbeds = () => {
+    const ready = selectedAssets.filter((a) => a.status === 'ready');
+    if (ready.length === 0) return;
+    void copyWithToast(
+      ready.map((a) => primaryEmbed(a).code).join('\n\n'),
+      ready.length === 1
+        ? 'Embed code copied'
+        : `Embed code for ${formatCount(ready.length)} videos copied`,
+    );
+  };
 
   // "/" is the shared hook; escape lets go of a selection unless something
   // on top (a menu, a dialog, the preview) takes it
@@ -522,17 +515,17 @@ export default function AssetsPage() {
     setPendingAccess({ assets: targets, tier });
   };
 
-  // drop files anywhere on the page to upload them (D-08). the open upload
-  // sheet has its own drop zone, so drops go there while it shows
+  // drop files anywhere on the page to upload them (D-08): they land on the
+  // upload page as drafts
   const [dragging, setDragging] = useState(false);
-  const sheet = useRef(uploadSheet);
+  const upload = useRef(openUpload);
   useEffect(() => {
-    sheet.current = uploadSheet;
+    upload.current = openUpload;
   });
   useEffect(() => {
     let depth = 0;
     const hasFiles = (e: DragEvent) =>
-      !sheet.current.isOpen && !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+      !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
     const enter = (e: DragEvent) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
@@ -555,7 +548,7 @@ export default function AssetsPage() {
       depth = 0;
       setDragging(false);
       const files = [...e.dataTransfer!.files];
-      if (files.length > 0) sheet.current.open(files);
+      if (files.length > 0) upload.current(files);
     };
     document.addEventListener('dragenter', enter);
     document.addEventListener('dragover', over);
@@ -569,29 +562,6 @@ export default function AssetsPage() {
     };
   }, []);
 
-  // while the toolbar sticks, the page's top scroll padding grows by its
-  // height (index.css), so a card title or button focused by Shift+Tab is
-  // never left under it (WCAG 2.4.11)
-  const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!toolbar) return;
-    const root = document.documentElement;
-    const update = () =>
-      root.style.setProperty(
-        '--sticky-toolbar-h',
-        getComputedStyle(toolbar).position === 'sticky' ? `${toolbar.offsetHeight}px` : '0px',
-      );
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(toolbar);
-    window.addEventListener('resize', update);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', update);
-      root.style.removeProperty('--sticky-toolbar-h');
-    };
-  }, [toolbar]);
-
   const clearFilters = () => {
     setSearchInput('');
     go({ q: null, status: null, tier: null });
@@ -602,8 +572,6 @@ export default function AssetsPage() {
     // the next page starts at its top, under the sticky toolbar (FLW-32)
     resultsRef.current?.scrollIntoView({ block: 'start' });
   };
-
-  const uploadButton = <UploadVideoButton onClick={() => uploadSheet.open()} />;
 
   // nothing to show at all: the shared page state replaces the whole page,
   // header included, since it carries the page's h1. a failed poll over rows
@@ -651,29 +619,54 @@ export default function AssetsPage() {
         stats.data.by_status.processing > 0
           ? `, ${formatCount(stats.data.by_status.processing)} processing`
           : ''
-      }`
+      }. Drop files anywhere on this page to upload.`
     : null;
 
-  const selectAllBox = (
-    <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md px-1 text-sm text-muted-foreground">
-      <Checkbox
-        checked={allOnPage ? true : someOnPage ? 'indeterminate' : false}
-        onCheckedChange={(v) => selectPage(v === true)}
-        disabled={assets.length === 0}
-        aria-label="Select all on this page"
-      />
-      {/* the grid's phone toolbar also holds the sort menu; the box alone is enough there */}
-      <span aria-hidden="true" className={cn(p.view === 'grid' && 'max-[27rem]:hidden')}>
-        Select all
+  const showPager = !list.isLoading && !pastTheEnd && total > 0;
+  const pager = showPager && (
+    <nav
+      aria-label="Pages"
+      className={cn(
+        'flex flex-wrap items-center gap-3 text-muted-foreground',
+        p.view === 'table' && !phone ? 'border-t border-border-soft px-5 py-3' : 'mt-4',
+      )}
+    >
+      <span className="tabular-nums">
+        {formatCount(Math.min((p.page - 1) * PAGE_SIZE + 1, total))} to{' '}
+        {formatCount(Math.min(p.page * PAGE_SIZE, total))} of {formatCount(total)}
       </span>
-    </label>
+      {pages > 1 && (
+        <span className="sr-only">
+          Page {formatCount(p.page)} of {formatCount(pages)}
+        </span>
+      )}
+      <Button
+        variant="outline"
+        size="sm"
+        className="ml-auto"
+        disabled={p.page <= 1}
+        onClick={() => goToPage(p.page - 1)}
+      >
+        Previous
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={p.page >= pages}
+        onClick={() => goToPage(p.page + 1)}
+      >
+        Next
+      </Button>
+    </nav>
   );
 
   // the stale-uploads line sits under the results; waiting for its count
   // (asked at the same time) keeps it from pushing the page links down
   const results =
     list.isLoading || stale.isPending ? (
-      p.view === 'grid' ? (
+      phone ? (
+        <VideosCardsSkeleton />
+      ) : p.view === 'grid' ? (
         <VideosGridSkeleton />
       ) : (
         <VideosTable
@@ -730,10 +723,27 @@ export default function AssetsPage() {
           variant="section"
           icon={Icons.video}
           title="No videos yet"
-          description="Upload a video and it will be ready to stream in a few minutes."
-          action={uploadButton}
+          description="Upload a file. It plays on your site once it is stored on Sia."
+          action={
+            <>
+              <Button asChild>
+                <Link to={ROUTES.UPLOAD}>Upload video</Link>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link to={ROUTES.DEVELOPERS}>Quickstart</Link>
+              </Button>
+            </>
+          }
         />
       )
+    ) : phone ? (
+      <VideosCards
+        key={shownKey}
+        assets={assets}
+        actions={actionsFor}
+        staggerIn={staggerIn}
+        busy={list.isFetching}
+      />
     ) : p.view === 'grid' ? (
       <VideosGrid
         key={shownKey}
@@ -755,197 +765,106 @@ export default function AssetsPage() {
         staggerIn={staggerIn}
         busy={list.isFetching}
         rowsKey={shownKey}
+        footer={pager}
       />
     );
+  // the table carries the pager in its card; the other views put it under them
+  const pagerOutside = (phone || p.view === 'grid' || assets.length === 0) && pager;
+
+  const toolbar = (
+    <VideosToolbar
+      phone={phone}
+      view={p.view}
+      q={p.q}
+      status={p.status}
+      tier={p.tier}
+      sortValue={p.sortValue}
+      stats={stats.data}
+      searchInput={searchInput}
+      searchRef={searchRef}
+      searching={searching}
+      onSearchInput={setSearchInput}
+      onSearchBlur={() => (typing.current.active = false)}
+      selectAll={
+        assets.length > 0 && (
+          <GridSelectAll
+            checked={allOnPage ? true : someOnPage ? 'indeterminate' : false}
+            onCheckedChange={selectPage}
+          />
+        )
+      }
+      onStatus={(status) => go({ status })}
+      onTier={(tier) => go({ tier })}
+      onSort={(sort) => go({ sort })}
+      onView={(v) => {
+        // name the view this entry shows before leaving it: Back to a url
+        // without one would read the choice just stored and stay put
+        if (!p.viewInUrl) {
+          p.update(
+            {
+              view: p.view,
+              page: p.page > 1 ? String(p.page) : null,
+              preview: p.preview,
+            },
+            { replace: true },
+          );
+        }
+        rememberView(v);
+        go({ view: v, page: p.page > 1 ? String(p.page) : null });
+      }}
+      onClearFilters={clearFilters}
+      onRemoveSearch={() => {
+        setSearchInput('');
+        go({ q: null });
+      }}
+    />
+  );
 
   return (
-    <PageContainer className="flex flex-col">
+    <PageContainer className="flex flex-col gap-5 text-sm">
       <PageHeader
         {...PAGE_HEADS.videos}
+        // the phone board has no page head: the top bar names the page there,
+        // and the heading stays for screen readers
+        className={phone ? 'sr-only' : 'mb-0'}
         description={statsLine ?? <StatsLinePlaceholder className={lateReveal} />}
-        primaryAction={uploadButton}
       />
 
-      {/* sticks under the top bar on wider screens that are tall enough for it (A11Y-24) */}
-      <div
-        ref={setToolbar}
-        data-sticky-toolbar
-        className="z-10 -mx-2 mb-3 flex flex-col gap-2 bg-background px-2 py-2 md:[@media(min-height:40rem)]:sticky md:[@media(min-height:40rem)]:top-14 @2xl/page:flex-row @2xl/page:items-center"
-      >
-        <InputGroup className="@2xl/page:max-w-sm">
-          <InputGroupAddon>
-            <Search />
-          </InputGroupAddon>
-          <InputGroupInput
-            ref={searchRef}
-            placeholder="Search by title, description or video ID"
-            aria-label="Search videos"
-            aria-keyshortcuts="/"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onBlur={() => (typing.current.active = false)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape' && searchInput) {
-                e.preventDefault();
-                setSearchInput('');
-              }
-            }}
-          />
-          <InputGroupAddon align="inline-end">
-            {searching && <Spinner aria-label="Searching" />}
-            {searchInput ? (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Clear search"
-                onClick={() => {
-                  setSearchInput('');
-                  searchRef.current?.focus();
-                }}
-              >
-                <X />
-              </Button>
-            ) : (
-              <Kbd aria-hidden="true" className="hidden pointer-fine:inline-flex">
-                /
-              </Kbd>
-            )}
-          </InputGroupAddon>
-        </InputGroup>
-        <div className="flex flex-1 flex-wrap items-center gap-2">
-          {/* there from the first paint, so the toolbar does not rewrap when rows land */}
-          {(!list.data || assets.length > 0) && (
-            <div className={cn(p.view === 'table' && 'hidden @max-[calc(40rem+2px)]/page:block')}>
-              {selectAllBox}
-            </div>
-          )}
-          <FilterPopover
-            className="@2xl/page:hidden"
-            status={p.status}
-            tier={p.tier}
-            onStatusChange={(v) => go({ status: v ?? null })}
-            onTierChange={(v) => go({ tier: v ?? null })}
-            onClear={clearFilters}
-          />
-          <Select
-            value={p.status ?? ALL}
-            onValueChange={(v) => go({ status: v === ALL ? null : v })}
-          >
-            <SelectTrigger aria-label="Filter by status" className="hidden w-40 @2xl/page:flex">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All statuses</SelectItem>
-              {STATUS_FILTERS.map((s) => (
-                <SelectItem key={s.value} value={s.value}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={p.tier ?? ALL} onValueChange={(v) => go({ tier: v === ALL ? null : v })}>
-            <SelectTrigger aria-label="Filter by access" className="hidden w-32 @2xl/page:flex">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All access</SelectItem>
-              {ACCESS_FILTERS.map((a) => (
-                <SelectItem key={a.value} value={a.value}>
-                  {a.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {p.view === 'grid' && (
-            <Select value={p.sortValue} onValueChange={(v) => go({ sort: v })}>
-              <SelectTrigger aria-label="Sort" className="w-auto min-w-34">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {GRID_SORTS.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>
-                    {s.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            {filtered && (
-              // on phones the Filter menu and the search box's own clear do this
-              <Button
-                variant="ghost"
-                size="sm"
-                className="hidden @2xl/page:inline-flex"
-                onClick={clearFilters}
-              >
-                Clear filters
-              </Button>
-            )}
-            <ToggleGroup
-              type="single"
-              variant="segmented"
-              size="sm"
-              value={p.view}
-              aria-label="View"
-              onValueChange={(v) => {
-                if (v !== 'table' && v !== 'grid') return;
-                // name the view this entry shows before leaving it: Back to a url
-                // without one would read the choice just stored and stay put
-                if (!p.viewInUrl) {
-                  p.update(
-                    {
-                      view: p.view,
-                      page: p.page > 1 ? String(p.page) : null,
-                      preview: p.preview,
-                    },
-                    { replace: true },
-                  );
-                }
-                rememberView(v);
-                go({ view: v, page: p.page > 1 ? String(p.page) : null });
-              }}
-            >
-              <ToggleGroupItem value="table" aria-label="Table view">
-                <List />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="grid" aria-label="Grid view">
-                <LayoutGrid />
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-        </div>
-      </div>
+      {toolbar}
 
       {/* first in the tab order after the filters, last on screen: it sticks
-            to the bottom of the content column (A11Y-15, VIS-18) */}
-      <AnimatePresence>
-        {hasSelection && (
-          <BulkBar
-            key="bulk"
-            className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] order-last mt-4"
-            count={selected.size}
-            onPage={assets.length}
-            total={total}
-            acrossPages={acrossPages}
-            selectingAll={selectingAll}
-            cap={SELECT_ALL_CAP}
-            changing={changing}
-            onSelectAll={() => void selectAllResults()}
-            onMakePublic={() => askAccess('public')}
-            onMakePrivate={() => askAccess('private')}
-            onDelete={() => setPendingDelete({ assets: selectedAssets, fromBar: true })}
-            onClear={() => {
-              clearSelection();
-              focusSelectAll();
-            }}
-          />
-        )}
-      </AnimatePresence>
+          to the bottom of the content column (A11Y-15, VIS-18) */}
+      {hasSelection && (
+        <BulkBar
+          className="sticky bottom-[max(1.5rem,env(safe-area-inset-bottom))] order-last"
+          count={selected.size}
+          onPage={assets.length}
+          total={total}
+          acrossPages={acrossPages}
+          selectingAll={selectingAll}
+          cap={SELECT_ALL_CAP}
+          changing={changing}
+          canMakePrivate={selectedAssets.some((a) => a.accessTier !== 'private')}
+          canMakePublic={selectedAssets.some((a) => a.accessTier === 'private')}
+          canCopyEmbed={selectedAssets.some((a) => a.status === 'ready')}
+          onSelectAll={() => void selectAllResults()}
+          onMakePublic={() => askAccess('public')}
+          onMakePrivate={() => askAccess('private')}
+          onCopyEmbed={copySelectedEmbeds}
+          onDelete={() => setPendingDelete({ assets: selectedAssets, fromBar: true })}
+          onClear={() => {
+            clearSelection();
+            focusSelectAll();
+          }}
+        />
+      )}
 
       <div
         ref={resultsRef}
-        className={cn('transition-opacity duration-150', list.isPlaceholderData && 'opacity-60')}
+        className={cn(
+          'scroll-mt-20 transition-opacity duration-150',
+          list.isPlaceholderData && 'opacity-60',
+        )}
         onKeyDown={(e) => {
           // space on a video's title previews it, like a file browser
           if (e.key !== ' ' || e.defaultPrevented) return;
@@ -957,9 +876,10 @@ export default function AssetsPage() {
         }}
       >
         {results}
+        {pagerOutside}
         {/* under the results, so its arrival never pushes the table down */}
         {!list.isLoading && (stale.data ?? 0) > 0 && p.status !== 'created' && (
-          <p className="mt-3 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+          <p className="mt-3 flex flex-wrap items-center gap-x-2 text-muted-foreground">
             {stale.data === 1
               ? '1 upload never started.'
               : `${formatCount(stale.data!)} uploads never started.`}
@@ -974,41 +894,6 @@ export default function AssetsPage() {
           </p>
         )}
       </div>
-
-      {(total > PAGE_SIZE || (p.page > 1 && total > 0)) && !pastTheEnd && !list.isLoading && (
-        <nav
-          aria-label="Pages"
-          className="mt-6 flex flex-wrap items-center justify-between gap-4 text-sm"
-        >
-          <span className="text-muted-foreground tabular-nums">
-            {formatCount(Math.min((p.page - 1) * PAGE_SIZE + 1, total))} to{' '}
-            {formatCount(Math.min(p.page * PAGE_SIZE, total))} of {formatCount(total)}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={p.page <= 1}
-              onClick={() => goToPage(p.page - 1)}
-            >
-              <ChevronLeft />
-              <span className="max-sm:sr-only">Previous</span>
-            </Button>
-            <span className="tabular-nums">
-              Page {formatCount(p.page)} of {formatCount(pages)}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={p.page >= pages}
-              onClick={() => goToPage(p.page + 1)}
-            >
-              <span className="max-sm:sr-only">Next</span>
-              <ChevronRight />
-            </Button>
-          </div>
-        </nav>
-      )}
 
       <p className="sr-only" role="status">
         {announcement}

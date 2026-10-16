@@ -16,9 +16,13 @@ const ROW_POLL_MS = 5_000;
 export interface RowProgress {
   /** "Storing on Sia, 65%" */
   label: string;
+  /** the stage alone, for the status chip: "Storing on Sia" */
+  stage: string;
   percent: number | null;
   /** the last poll failed; the row keeps the stage it last knew */
   checking: boolean;
+  /** work is running right now, so its bar shows the moving sheen */
+  moving: boolean;
 }
 
 export interface RowJob {
@@ -42,11 +46,14 @@ export function useRowJob(asset: VideoAsset): RowJob {
   const failed = asset.status === 'failed';
   const job = useProcessingJob(asset.id, asset.status, processing || failed, ROW_POLL_MS);
   if (processing && job.data) {
+    const view = processingView(job.data);
     return {
       progress: {
         label: jobSummary(job.data),
-        percent: processingView(job.data).percent,
+        stage: view.label,
+        percent: view.percent,
         checking: job.isError,
+        moving: view.busy && !job.isError,
       },
     };
   }
@@ -56,7 +63,7 @@ export function useRowJob(asset: VideoAsset): RowJob {
   return failed ? { failurePending: true } : {};
 }
 
-/** The phone card's facts line: "0:10 · 3.1 MB · 2 hours ago". */
+/** The grid card's facts line: "0:10 · 3.1 MB · 2 hours ago". */
 export function videoMeta(asset: VideoAsset): string {
   return [
     asset.durationMs ? formatDuration(asset.durationMs) : null,

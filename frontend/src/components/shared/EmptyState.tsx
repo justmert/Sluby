@@ -20,8 +20,14 @@ export interface EmptyStateProps {
   action?: ReactNode;
   /** a quieter second way forward, such as a link button */
   secondaryAction?: ReactNode;
-  /** `card` (default) fits a card body or a table; `section` adds a dashed frame for an empty page area */
+  /** `card` (default) fits a card body or a table; `section` puts it in its own card, for an empty page area */
   variant?: 'card' | 'section';
+  /**
+   * `error` is the board's "Could not load" card: the icon tile takes the
+   * danger colour and edge, and the block is an alert. Use it for a list or
+   * card that failed as a whole; InlineError is the smaller one-row note.
+   */
+  tone?: 'default' | 'error';
   className?: string;
 }
 
@@ -40,19 +46,21 @@ export function EmptyState({
   action,
   secondaryAction,
   variant = 'card',
+  tone = 'default',
   className,
 }: EmptyStateProps) {
   return (
     <Empty
       data-slot="empty-state"
-      className={cn(
-        'gap-3 py-8',
-        variant === 'section' && 'border border-dashed bg-muted/20 py-12',
-        className,
-      )}
+      data-tone={tone}
+      role={tone === 'error' ? 'alert' : undefined}
+      className={cn(variant === 'section' && 'border bg-card', className)}
     >
       <EmptyHeader>
-        <EmptyMedia variant="icon">
+        <EmptyMedia
+          variant="icon"
+          className={cn(tone === 'error' && 'border-destructive-line text-destructive')}
+        >
           <Icon aria-hidden="true" />
         </EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>
@@ -60,8 +68,9 @@ export function EmptyState({
       </EmptyHeader>
       {(action || secondaryAction) && (
         <EmptyContent className="flex-row flex-wrap justify-center gap-2">
-          {secondaryAction}
+          {/* the design leads with the primary action */}
           {action}
+          {secondaryAction}
         </EmptyContent>
       )}
     </Empty>

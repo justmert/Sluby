@@ -53,32 +53,40 @@ function setup(routes: Record<string, unknown> = {}) {
   return { ...page, fetch };
 }
 
-const rowOf = async (label: string) => (await screen.findByText(label)).closest('tr')!;
+const rowOf = async (label: string) => (await screen.findByText(label)).closest('li')!;
 
 describe('SessionsSection', () => {
-  it('names each browser, keeps the raw agent in a tooltip and marks this one (FLW-27)', async () => {
+  it('lists each browser as a card row, keeps the raw agent in a tooltip and marks this one (FLW-27)', async () => {
     setup();
     const mine = await rowOf('Chrome on macOS');
     expect(within(mine).getByText('Chrome on macOS')).toHaveAttribute('title', MAC_CHROME);
-    expect(within(mine).getByText('This browser')).toBeInTheDocument();
-    const phone = await rowOf('Safari on iPhone');
-    expect(phone.querySelector('.lucide-smartphone')).not.toBeNull();
-    expect(mine.querySelector('.lucide-monitor')).not.toBeNull();
-    expect(screen.getByText(/Where you are signed in as/)).toHaveTextContent(
-      'Where you are signed in as alice.',
-    );
+    const chip = within(mine).getByText('This browser');
+    expect(chip).toHaveAttribute('data-variant', 'success');
+    const list = screen.getByRole('list', { name: 'Signed-in browsers' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.getByText('End a session you do not recognise.')).toBeInTheDocument();
   });
 
-  it('shows when each browser was last active (B-10)', async () => {
+  it('shows when each browser was last active and signed in (B-10)', async () => {
     rows.push({ ...rows[1], id: 's3', last_seen_at: null, user_agent: null });
     setup();
-    expect(await screen.findByRole('columnheader', { name: 'Last active' })).toBeInTheDocument();
-    expect(within(await rowOf('Chrome on macOS')).getByText('Just now')).toBeInTheDocument();
-    expect(within(await rowOf('Safari on iPhone')).getByText('3 hours ago')).toBeInTheDocument();
-    expect(within(await rowOf('Unknown browser')).getByText('–')).toBeInTheDocument();
+    // "Oct 1" this year, "Oct 1, 2026" once the year has turned
+    const signedIn = (iso: string) =>
+      new Date(iso).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        ...(new Date(iso).getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }),
+      });
+    expect(await rowOf('Chrome on macOS')).toHaveTextContent(
+      `Active now · signed in ${signedIn('2026-10-01T09:00:00Z')}`,
+    );
+    expect(await rowOf('Safari on iPhone')).toHaveTextContent(
+      `Active 3 hours ago · signed in ${signedIn('2026-10-05T09:00:00Z')}`,
+    );
+    expect(await rowOf('Unknown browser')).toHaveTextContent('Not seen since signing in');
   });
 
-  it('signs out another browser, named in its button, and not this one from the table', async () => {
+  it('ends another browser session, named in its button, and offers none for this one', async () => {
     const { fetch } = setup({
       'DELETE /api/v1/auth/sessions/s2': () => {
         rows = rows.filter((r) => r.id !== 's2');
@@ -86,12 +94,23 @@ describe('SessionsSection', () => {
       },
     });
     const mine = await rowOf('Chrome on macOS');
-    expect(within(mine).queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out Safari on iPhone' }));
+    expect(within(mine).queryByRole('button')).not.toBeInTheDocument();
+    const end = screen.getByRole('button', { name: 'End session on Safari on iPhone' });
+    expect(end).toHaveTextContent('End session');
+    await userEvent.click(end);
     expect(await screen.findByText('Signed out that browser')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('Safari on iPhone')).not.toBeInTheDocument());
     expect(fetch.calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
     expect(screen.getByText('No other browsers are signed in.')).toBeInTheDocument();
+  });
+
+  it('draws Sign out everywhere as an outlined red button under the list', async () => {
+    setup();
+    await rowOf('Safari on iPhone');
+    const all = screen.getByRole('button', { name: 'Sign out everywhere' });
+    expect(all).toHaveAttribute('data-variant', 'destructive-outline');
+    const list = screen.getByRole('list', { name: 'Signed-in browsers' });
+    expect(list.compareDocumentPosition(all) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('keeps keyboard focus in the list when a signed-out row leaves', async () => {
@@ -106,10 +125,10 @@ describe('SessionsSection', () => {
         return { success: true };
       },
     });
-    const first = await screen.findByRole('button', { name: 'Sign out Safari on iPhone' });
+    const first = await screen.findByRole('button', { name: 'End session on Safari on iPhone' });
     first.focus();
     await userEvent.keyboard('{Enter}');
-    const next = screen.getByRole('button', { name: 'Sign out Unknown browser' });
+    const next = screen.getByRole('button', { name: 'End session on Unknown browser' });
     await waitFor(() => expect(next).toHaveFocus());
     await userEvent.keyboard('{Enter}');
     await waitFor(() =>
@@ -124,14 +143,18 @@ describe('SessionsSection', () => {
         return reply(404, { error: 'Session not found' });
       },
     });
-    await userEvent.click(await screen.findByRole('button', { name: 'Sign out Safari on iPhone' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'End session on Safari on iPhone' }),
+    );
     expect(await screen.findByText('That browser was already signed out')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('Safari on iPhone')).not.toBeInTheDocument());
   });
 
   it('puts the row back and says why when signing out a browser fails', async () => {
     setup({ 'DELETE /api/v1/auth/sessions/s2': reply(500, { error: 'Internal Server Error' }) });
-    await userEvent.click(await screen.findByRole('button', { name: 'Sign out Safari on iPhone' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'End session on Safari on iPhone' }),
+    );
     expect(
       await screen.findByText(
         'Could not sign out that browser. The server ran into a problem (error 500). Try again in a moment. If it keeps happening, check the server logs.',

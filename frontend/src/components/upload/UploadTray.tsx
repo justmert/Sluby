@@ -1,6 +1,8 @@
+import { Link } from 'react-router';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { ROUTES } from '@/lib/constants';
 import { isTransferring, type QueuedUpload, type UploadState } from '@/lib/upload-store';
 import { sentPercent, shortStatus, statusLine } from './upload-status';
 
@@ -28,7 +30,7 @@ function TrayRow({ upload: u }: { upload: UploadState }) {
 
 /**
  * The compact list behind the top bar's progress ring: what is uploading or
- * processing, what waits, and a way into the sheet for everything else.
+ * processing, what waits, and a way to the upload page for everything else.
  */
 export function UploadTray({
   uploads,
@@ -37,6 +39,7 @@ export function UploadTray({
 }: {
   uploads: UploadState[];
   queued: QueuedUpload[];
+  /** called as the link to the upload page is followed, so the tray can close */
   onOpen: () => void;
 }) {
   return (
@@ -54,8 +57,10 @@ export function UploadTray({
           {queued.length === 1 ? '1 more waits' : `${queued.length} more wait`} in the queue.
         </p>
       )}
-      <Button variant="outline" size="sm" className="mt-3 self-end" onClick={onOpen}>
-        Open uploads
+      <Button variant="outline" size="sm" className="mt-3 self-end" asChild>
+        <Link to={ROUTES.UPLOAD} onClick={onOpen}>
+          Open uploads
+        </Link>
       </Button>
     </div>
   );

@@ -168,6 +168,7 @@ function renderLibrary(route = '/studio/videos') {
   return renderPage(
     <Routes>
       <Route path="/" element={<p>start page</p>} />
+      <Route path="/studio/videos/upload" element={<p>upload page</p>} />
       <Route path="/studio/videos/:id" element={<p>video page</p>} />
       <Route
         path="/studio/videos"
@@ -192,7 +193,7 @@ const selectAll = () =>
   })[0];
 const emptyTitle = (text: string) =>
   screen.findByText(text, { selector: '[data-slot=empty-title]' });
-const search = () => screen.getByRole('textbox', { name: 'Search videos' });
+const search = () => screen.getByRole('searchbox', { name: 'Search videos' });
 const status = () =>
   screen.getByText((_, el) => el?.getAttribute('role') === 'status' && el.tagName === 'P');
 
@@ -207,7 +208,7 @@ describe('AssetsPage: the table and its url', () => {
     renderLibrary();
     await screen.findByText('Sintel');
     const table = screen.getByRole('table', { name: 'Videos' });
-    for (const name of ['Video', 'Status', 'Access', 'Duration', 'Size', 'Plays', 'Created']) {
+    for (const name of ['Video', 'Status', 'Access', 'Length', 'Size', 'Plays', 'Uploaded']) {
       expect(
         within(table).getByRole('columnheader', { name: new RegExp(name) }),
       ).toBeInTheDocument();
@@ -215,7 +216,31 @@ describe('AssetsPage: the table and its url', () => {
     const row = within(table).getByText('Sintel').closest('tr')!;
     expect(within(row).getAllByText('Private').length).toBeGreaterThan(0);
     expect(within(table).getByText('Big Buck Bunny').closest('tr')).toHaveTextContent('Public');
-    expect(await screen.findByText('2 videos')).toBeInTheDocument();
+    expect(
+      await screen.findByText('2 videos. Drop files anywhere on this page to upload.'),
+    ).toBeInTheDocument();
+    // the board's toolbar: search, the two labelled selects and the view switch
+    expect(screen.getByRole('searchbox', { name: 'Search videos' })).toHaveAttribute(
+      'placeholder',
+      'Search by title or ID',
+    );
+    expect(screen.getByText('Status', { selector: 'label' })).toContainElement(
+      screen.getByRole('combobox', { name: 'Filter by status' }),
+    );
+    expect(screen.getByText('Access', { selector: 'label' })).toContainElement(
+      screen.getByRole('combobox', { name: 'Filter by access' }),
+    );
+    expect(
+      within(screen.getByRole('radiogroup', { name: 'View' }))
+        .getAllByRole('radio')
+        .map((r) => r.textContent),
+    ).toEqual(['Table', 'Grid']);
+    // the pager lives in the table's card, with its range
+    const pager = screen.getByRole('navigation', { name: 'Pages' });
+    expect(table.closest('.rounded-xl')).toContainElement(pager);
+    expect(pager).toHaveTextContent('1 to 2 of 2');
+    expect(within(pager).getByRole('button', { name: 'Previous' })).toBeDisabled();
+    expect(within(pager).getByRole('button', { name: 'Next' })).toBeDisabled();
   });
 
   it('drives search, filter and sort from the url into the api', async () => {
@@ -330,7 +355,7 @@ describe('AssetsPage: the table and its url', () => {
     library();
     const first = renderLibrary();
     await screen.findByRole('table', { name: 'Videos' });
-    await userEvent.click(screen.getByRole('radio', { name: 'Grid view' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Grid' }));
     expect(await screen.findByRole('list', { name: 'Videos' })).toBeInTheDocument();
     expect(where()).toBe('?view=grid');
     first.unmount();
@@ -370,18 +395,30 @@ describe('AssetsPage: the table and its url', () => {
           : base(input, init))(vi.mocked(fetch).getMockImplementation()!),
     );
     renderLibrary();
-    expect(await screen.findByText('2 videos, 1 processing')).toBeInTheDocument();
-    expect(await screen.findByText('Transcoding, 40%')).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        '2 videos, 1 processing. Drop files anywhere on this page to upload.',
+      ),
+    ).toBeInTheDocument();
+    // the chip names the stage and pulses; the bar under the title says how far
+    const row = screen.getByRole('link', { name: 'Cooking' }).closest('tr')!;
+    expect(await within(row).findByText('Transcoding')).toBeInTheDocument();
+    expect(row.querySelector('[data-slot="status-dot"]')).not.toBeNull();
+    expect(within(row).getByText('40%')).toBeInTheDocument();
+    expect(within(row).getByRole('progressbar', { name: 'Cooking, Transcoding' })).toHaveAttribute(
+      'aria-valuenow',
+      '40',
+    );
   });
 
-  it('wraps long titles to two lines with their own direction (A11Y-26, A11Y-27)', async () => {
-    library([asset('a1', 'A very long title that the table wraps instead of cutting off')]);
+  it('cuts a long title to one line with its own direction, the whole title on hover (A11Y-26)', async () => {
+    const long = 'A very long title that the table cuts off with an ellipsis like the board';
+    library([asset('a1', long)]);
     renderLibrary();
-    const title = await screen.findByRole('link', {
-      name: 'A very long title that the table wraps instead of cutting off',
-    });
+    const title = await screen.findByRole('link', { name: long });
     expect(title).toHaveAttribute('dir', 'auto');
-    expect(title).toHaveClass('line-clamp-2', 'wrap-anywhere');
+    expect(title).toHaveAttribute('title', long);
+    expect(title).toHaveClass('truncate');
   });
 
   it('does not request thumbnails of private videos and marks them private', async () => {
@@ -451,11 +488,11 @@ describe('AssetsPage: search and history', () => {
     library();
     renderLibrary();
     await screen.findByRole('table', { name: 'Videos' });
-    await userEvent.click(screen.getByRole('radio', { name: 'Grid view' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Grid' }));
     expect(await screen.findByRole('list', { name: 'Videos' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'history back' }));
     expect(await screen.findByRole('table', { name: 'Videos' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Table view' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Table' })).toBeChecked();
   });
 
   it('shows no pager and no page past the end for a link to an empty result', async () => {
@@ -548,10 +585,17 @@ describe('AssetsPage: search and history', () => {
     const { unmount } = renderLibrary();
     expect(await emptyTitle('No videos yet')).toBeInTheDocument();
     expect(
-      screen.getByText('Upload a video and it will be ready to stream in a few minutes.'),
+      screen.getByText('Upload a file. It plays on your site once it is stored on Sia.'),
     ).toBeInTheDocument();
-    await userEvent.click(screen.getAllByRole('button', { name: 'Upload video' })[1]);
-    await waitFor(() => expect(where()).toBe('?upload=1'));
+    expect(screen.getByRole('link', { name: 'Quickstart' })).toHaveAttribute(
+      'href',
+      '/studio/developers',
+    );
+    const uploads = screen.getAllByRole('link', { name: 'Upload video' });
+    // only the empty state's; the sidebar holds the page's primary upload action
+    expect(uploads).toHaveLength(1);
+    await userEvent.click(uploads[0]);
+    expect(await screen.findByText('upload page')).toBeInTheDocument();
     unmount();
     library();
     renderLibrary('/studio/videos?q=zzz');
@@ -560,7 +604,7 @@ describe('AssetsPage: search and history', () => {
     expect(await screen.findByText('Big Buck Bunny')).toBeInTheDocument();
   });
 
-  it('opens the upload sheet with files dropped anywhere on the page', async () => {
+  it('takes files dropped anywhere on the page to the upload page', async () => {
     library();
     renderLibrary();
     await screen.findByText('Big Buck Bunny');
@@ -572,9 +616,9 @@ describe('AssetsPage: search and history', () => {
     fireEvent.dragEnter(document.body, { dataTransfer });
     expect(await screen.findByText('Drop to upload')).toBeInTheDocument();
     fireEvent.drop(document.body, { dataTransfer });
-    await waitFor(() => expect(where()).toBe('?upload=1'));
+    expect(await screen.findByText('upload page')).toBeInTheDocument();
     expect(screen.queryByText('Drop to upload')).not.toBeInTheDocument();
-    const { takePendingFiles } = await import('@/lib/upload-sheet');
+    const { takePendingFiles } = await import('@/lib/upload-page');
     expect(takePendingFiles().map((f) => f.name)).toEqual(['a.mp4', 'b.mp4']);
   });
 });
@@ -601,7 +645,7 @@ describe('AssetsPage: selection and bulk actions', () => {
     expect(deletes(server).sort()).toEqual(['a1', 'bad']);
     await waitFor(() => expect(screen.queryByText('Big Buck Bunny')).not.toBeInTheDocument());
     expect(screen.getByRole('checkbox', { name: 'Select Sintel' })).toBeChecked();
-    expect(within(screen.getByRole('toolbar')).getByText(/of 2/)).toBeInTheDocument();
+    expect(within(screen.getByRole('toolbar')).getByText('1 selected')).toBeInTheDocument();
   });
 
   it('does not mention Sia when none of the selected videos got their file', async () => {
@@ -690,7 +734,7 @@ describe('AssetsPage: selection and bulk actions', () => {
     renderLibrary();
     await screen.findByText('Big Buck Bunny');
     await userEvent.click(screen.getByRole('button', { name: 'Actions for Big Buck Bunny' }));
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
     const dialog = await screen.findByRole('alertdialog');
     expect(within(dialog).getByText('Delete this video?')).toBeInTheDocument();
     expect(
@@ -710,7 +754,7 @@ describe('AssetsPage: selection and bulk actions', () => {
     renderLibrary();
     await screen.findByText('Sintel');
     await userEvent.click(screen.getByRole('button', { name: 'Actions for Sintel' }));
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
     await userEvent.click(
       within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }),
     );
@@ -804,7 +848,7 @@ describe('AssetsPage: selection and bulk actions', () => {
       'false',
     ]);
     await user.click(all);
-    expect(within(screen.getByRole('toolbar')).getByText(/of 6/)).toBeInTheDocument();
+    expect(within(screen.getByRole('toolbar')).getByText('6 selected')).toBeInTheDocument();
   });
 
   it('announces the selection in an always-mounted region and Clear returns focus to select all', async () => {
@@ -815,7 +859,7 @@ describe('AssetsPage: selection and bulk actions', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: 'Select Sintel' }));
     expect(region).toHaveTextContent('1 selected');
     const bar = screen.getByRole('toolbar', { name: 'Selected videos' });
-    await userEvent.click(within(bar).getByRole('button', { name: 'Clear' }));
+    await userEvent.click(within(bar).getByRole('button', { name: 'Clear selection' }));
     expect(region).toHaveTextContent('Selection cleared');
     // which copy is the visible one is a container query; jsdom sees both
     expect(document.activeElement).toHaveAccessibleName('Select all on this page');
@@ -838,24 +882,37 @@ describe('AssetsPage: selection and bulk actions', () => {
     expect(document.activeElement).toHaveAccessibleName('Select all on this page');
   });
 
-  it('pads the page top by the filter toolbar while it sticks, so focus never hides under it (2.4.11)', async () => {
-    // jsdom runs no tailwind; the sticky toolbar is told apart by its computed position
-    const real = window.getComputedStyle;
-    vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
-      const style = real(el, pseudo);
-      if ((el as HTMLElement).hasAttribute?.('data-sticky-toolbar'))
-        return { ...style, position: 'sticky' } as CSSStyleDeclaration;
-      return style;
-    });
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(56);
-    library();
-    const { unmount } = renderLibrary();
+  it('copies the embed code of every selected ready video from the bar', async () => {
+    library([bunny, sintel, failedOne]);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderLibrary();
     await screen.findByText('Big Buck Bunny');
-    const root = document.documentElement;
-    expect(root.style.getPropertyValue('--sticky-toolbar-h')).toBe('56px');
-    unmount();
-    expect(root.style.getPropertyValue('--sticky-toolbar-h')).toBe('');
-    vi.restoreAllMocks();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Big Buck Bunny' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Broken upload' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected videos' });
+    // both are public, so there is nothing to make public
+    expect(within(bar).queryByRole('button', { name: 'Make public' })).toBeNull();
+    await userEvent.click(within(bar).getByRole('button', { name: 'Copy embed code' }));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.lastCall![0]).toContain("'a1'");
+    expect(writeText.mock.lastCall![0]).not.toContain("'f1'");
+    expect(await screen.findByText('Embed code copied')).toBeInTheDocument();
+  });
+
+  it('asks before changing one video from its row menu', async () => {
+    const server = library([bunny]);
+    renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for Big Buck Bunny' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Make private' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText('Make this video private?')).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Make private' }));
+    expect(await screen.findByText('1 video is now private')).toBeInTheDocument();
+    expect(server.calls.filter((c) => c.method === 'PATCH').map((c) => c.path)).toEqual([
+      '/api/v1/assets/a1',
+    ]);
   });
 
   it('puts the bulk bar right after the filters in the tab order (A11Y-15)', async () => {
@@ -929,21 +986,28 @@ describe('AssetsPage: row menu and preview', () => {
       return items;
     };
     expect(await names('Big Buck Bunny')).toEqual([
-      'Open',
-      'Preview',
       'Copy embed code',
+      'Open video',
+      'Preview',
       'Copy stream URL',
+      'Make private',
       'Copy video ID',
-      'Delete',
+      'Delete…',
     ]);
     expect(await names('Sintel')).toEqual([
-      'Open',
-      'Preview',
       'Copy embed code',
+      'Open video',
+      'Preview',
+      'Make public',
       'Copy video ID',
-      'Delete',
+      'Delete…',
     ]);
-    expect(await names('Broken upload')).toEqual(['Open', 'Copy video ID', 'Delete']);
+    expect(await names('Broken upload')).toEqual([
+      'Open video',
+      'Make private',
+      'Copy video ID',
+      'Delete…',
+    ]);
   });
 
   it('copies the video ID and the embed code', async () => {
@@ -1010,7 +1074,7 @@ describe('AssetsPage: row menu and preview', () => {
     renderLibrary();
     await screen.findByText('Big Buck Bunny');
     await userEvent.click(screen.getByRole('button', { name: 'Actions for Big Buck Bunny' }));
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Open' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Open video' }));
     expect(await screen.findByText('video page')).toBeInTheDocument();
   });
 });
@@ -1055,5 +1119,68 @@ describe('AssetsPage: versioned edits', () => {
       .mock.calls.filter(([, init]) => init?.method === 'PATCH')
       .map(([, init]) => new Headers(init!.headers).get('If-Match'));
     expect(headers).toEqual([`"${Date.parse(OLD)}"`, `"${Date.parse(OLD)}"`]);
+  });
+});
+
+describe('AssetsPage: on a phone', () => {
+  beforeEach(() => {
+    // jsdom has no layout; the page asks for the phone width through matchMedia
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('max-width: 639px'),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }));
+  });
+
+  it('shows the status pills with their counts and a card per video, no table', async () => {
+    library([bunny, sintel, failedOne, asset('p1', 'Cooking', 'processing')]);
+    renderLibrary();
+    const cards = await screen.findByRole('list', { name: 'Videos' });
+    expect(screen.queryByRole('table')).toBeNull();
+    const pills = screen.getByRole('radiogroup', { name: 'Filter by status' });
+    await waitFor(() =>
+      expect(
+        within(pills)
+          .getAllByRole('radio')
+          .map((p) => p.textContent),
+      ).toEqual(['All4', 'Ready2', 'Processing1', 'Failed1']),
+    );
+    expect(within(pills).getByRole('radio', { name: 'All4' })).toBeChecked();
+    const card = within(cards).getByRole('link', { name: 'Big Buck Bunny' }).closest('li')!;
+    expect(card).toHaveTextContent('Ready');
+    expect(card).toHaveTextContent('1:30 · Public');
+    expect(within(card).getByRole('button', { name: 'Actions for Big Buck Bunny' })).toHaveClass(
+      'size-11',
+    );
+    // the board has no page head on a phone; the heading stays for screen readers
+    expect(screen.getByRole('heading', { level: 1, name: 'Videos' }).closest('header')).toHaveClass(
+      'sr-only',
+    );
+  });
+
+  it('filters by a pill and keeps the choice in the url', async () => {
+    const server = library();
+    renderLibrary();
+    await screen.findByRole('list', { name: 'Videos' });
+    await userEvent.click(await screen.findByRole('radio', { name: /^Failed/ }));
+    await waitFor(() => expect(where()).toBe('?status=failed'));
+    expect(listCalls(server).at(-1)!.query.get('status')).toBe('failed');
+    await userEvent.click(screen.getByRole('radio', { name: /^All/ }));
+    await waitFor(() => expect(where()).toBe(''));
+  });
+
+  it('shows a search or access filter set elsewhere, and takes it off in one tap', async () => {
+    library();
+    renderLibrary('/studio/videos?q=Bunny&tier=public');
+    await screen.findByText('Big Buck Bunny');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove search “Bunny”' }));
+    await waitFor(() => expect(where()).toBe('?tier=public'));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove the public filter' }));
+    await waitFor(() => expect(where()).toBe(''));
   });
 });

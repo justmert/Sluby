@@ -1,80 +1,66 @@
-import { LogOut } from 'lucide-react';
-import { GitHubMark } from '@/components/brand/GitHubMark';
-import { DescriptionItem, DescriptionList } from '@/components/shared/DescriptionList';
-import { SectionHeader } from '@/components/shared/PageHeader';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter } from '@/components/ui/card';
-import { Spinner } from '@/components/ui/spinner';
-import { useSignOut } from '@/hooks/useSessions';
-import { withLead } from '@/lib/errors';
+import { Badge } from '@/components/ui/badge';
 import { useSession } from '@/lib/session';
-import { toastError } from '@/lib/toast';
+import { SETTINGS_SECTION, SectionLabel } from './section';
 
-export const AUTH_OFF_SENTENCE = 'Anyone who can open this address has operator access.';
+const AUTH_OFF_SENTENCE = 'Anyone who can open this address has operator access.';
 
-/** Who is signed in, how, and with what role; Sign out for this browser. */
+/** "Mert Köklü" → "MK"; one word gives its first two letters. */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  const letters =
+    words.length === 1
+      ? [...words[0]].slice(0, 2)
+      : [[...words[0]][0], [...words[words.length - 1]][0]];
+  return letters.join('').toUpperCase();
+}
+
+/** Who is signed in, how, and with what role. */
 export function AccountSection() {
   const session = useSession();
-  const { signOut, signingOut } = useSignOut();
+  const name = session.name || session.username;
 
   return (
-    <section aria-labelledby="settings-account">
-      <SectionHeader id="settings-account" title="Account" />
-      <Card>
-        <CardContent>
-          <DescriptionList>
-            <DescriptionItem label="Username">
-              <span className="inline-flex min-w-0 items-center gap-1.5">
-                {session.provider === 'github' && (
-                  <GitHubMark className="size-3.5 shrink-0" aria-hidden="true" />
-                )}
-                <span dir="auto" className="font-mono text-xs wrap-anywhere">
-                  {session.username}
-                </span>
-              </span>
-            </DescriptionItem>
+    <section aria-labelledby="settings-account" className={SETTINGS_SECTION}>
+      <SectionLabel id="settings-account" title="Account">
+        {session.authDisabled
+          ? 'Sign-in is off on this server.'
+          : `From your ${session.providerLabel ?? 'sign-in provider'} sign-in.`}
+      </SectionLabel>
+      <div className="flex items-center gap-3.5 rounded-xl border bg-card px-5 py-4.5 text-sm">
+        <span
+          aria-hidden="true"
+          className="grid size-11 shrink-0 place-items-center rounded-full bg-border font-bold text-secondary-foreground"
+        >
+          {initialsOf(name)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div dir="auto" className="font-semibold wrap-anywhere">
+            {name}
+          </div>
+          <div className="text-muted-foreground wrap-anywhere">
             {session.authDisabled ? (
-              <DescriptionItem label="Sign-in">
-                <span className="flex flex-col gap-0.5">
-                  <span>Sign-in is off on this server</span>
-                  <span className="text-xs text-muted-foreground">{AUTH_OFF_SENTENCE}</span>
-                </span>
-              </DescriptionItem>
+              AUTH_OFF_SENTENCE
             ) : (
-              <DescriptionItem label="Signed in with">{session.providerLabel}</DescriptionItem>
+              <>
+                <span dir="auto">@{session.username}</span>
+                {session.providerLabel && ` on ${session.providerLabel}`}
+              </>
             )}
-            <DescriptionItem label="Role">
-              {session.operator ? (
-                <span className="flex flex-col gap-0.5">
-                  <span>Operator</span>
-                  <span className="text-xs text-muted-foreground">
-                    Can see server status, storage and metrics
-                  </span>
-                </span>
-              ) : (
-                'Member'
-              )}
-            </DescriptionItem>
-          </DescriptionList>
-        </CardContent>
-        {!session.authDisabled && (
-          <CardFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={signingOut}
-              onClick={() =>
-                void signOut().catch((err: unknown) =>
-                  toastError(withLead('Could not sign out', err)),
-                )
-              }
-            >
-              {signingOut ? <Spinner aria-hidden="true" /> : <LogOut />}
-              {signingOut ? 'Signing out…' : 'Sign out'}
-            </Button>
-          </CardFooter>
+          </div>
+        </div>
+        {session.operator ? (
+          <Badge
+            variant="progress"
+            className="h-5.5 font-semibold"
+            title="Can see server status, storage and metrics"
+          >
+            Operator
+          </Badge>
+        ) : (
+          <Badge className="h-5.5 font-semibold">Member</Badge>
         )}
-      </Card>
+      </div>
     </section>
   );
 }

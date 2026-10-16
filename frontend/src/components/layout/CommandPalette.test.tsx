@@ -31,6 +31,27 @@ function asset(id: string, title: string, status = 'ready') {
 
 const library = [asset('a1', 'Big Buck Bunny'), asset('a2', 'Sintel', 'processing')];
 
+function apiKey(id: string, name: string) {
+  return {
+    id,
+    name,
+    scopes: ['read'],
+    rate_limit: 100,
+    is_active: true,
+    created_at: '2026-10-01T00:00:00Z',
+    expires_at: null,
+    prefix: null,
+    last_used_at: null,
+  };
+}
+
+const keyList = {
+  data: [apiKey('k1', 'Production server'), apiKey('k2', 'CI uploader')],
+  has_more: false,
+  next_cursor: null,
+  limits: { max_keys: 25, max_rate_limit: 1000 },
+};
+
 function Where() {
   const { pathname, search } = useLocation();
   return <p data-testid="where">{pathname + search}</p>;
@@ -39,6 +60,7 @@ function Where() {
 function setup(operator = false, authDisabled = false) {
   const server = jsonFetch({
     'POST /api/v1/auth/logout': { success: true },
+    '/api/v1/keys': keyList,
     '/api/v1/assets': ({ query }: RecordedCall) => {
       const q = (query.get('search') ?? '').toLowerCase();
       const data = library.filter((a) => a.title.toLowerCase().includes(q) || a.id === q);
@@ -74,7 +96,7 @@ describe('CommandPalette', () => {
   it('opens from the top bar button and jumps to a page', async () => {
     setup();
     // named by its visible word, so voice control users can say it (A11Y-34)
-    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Search videos and pages' }));
     await userEvent.type(screen.getByRole('combobox'), 'sett');
     await userEvent.click(await screen.findByRole('option', { name: 'Settings' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/studio/settings');
@@ -109,12 +131,12 @@ describe('CommandPalette', () => {
     );
   });
 
-  it('opens the upload sheet on the current page', async () => {
+  it('goes to the upload page from its action', async () => {
     setup();
     await openWithKeys();
     await userEvent.type(await screen.findByRole('combobox'), 'upload');
     await userEvent.click(await screen.findByRole('option', { name: 'Upload video' }));
-    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio\?upload=1$/);
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio\/videos\/upload$/);
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
@@ -125,9 +147,18 @@ describe('CommandPalette', () => {
     await waitFor(() =>
       expect(server.calls.some((c) => c.query.get('search') === 'sett')).toBe(true),
     );
-    await waitFor(() =>
-      expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Settings']),
-    );
+    await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(1));
+    expect(screen.getByRole('option', { name: 'Settings' })).toBeInTheDocument();
+  });
+
+  it('marks the highlighted row with the enter key, out of its name', async () => {
+    setup();
+    await openWithKeys();
+    await userEvent.type(await screen.findByRole('combobox'), 'sett');
+    const option = await screen.findByRole('option', { name: 'Settings' });
+    await waitFor(() => expect(option).toHaveAttribute('aria-selected', 'true'));
+    expect(option.querySelector('kbd')).toHaveTextContent('↵');
+    expect(option.querySelector('kbd')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('leaves out operator pages for a member', async () => {
@@ -208,6 +239,7 @@ describe('CommandPalette', () => {
     let release!: () => void;
     const held = new Promise<void>((r) => (release = r));
     const server = jsonFetch({
+      '/api/v1/keys': keyList,
       '/api/v1/assets': async ({ query }: RecordedCall) => {
         const q = (query.get('search') ?? '').toLowerCase();
         if (q === 'sintel') await held;
@@ -244,13 +276,49 @@ describe('CommandPalette', () => {
     expect(screen.queryByRole('option', { name: /Sintel/ })).not.toBeInTheDocument();
   });
 
-  it('switches the theme', async () => {
+  it('switches the theme to the other one from one row', async () => {
     setup();
     await openWithKeys();
-    await userEvent.type(await screen.findByRole('combobox'), 'light');
-    await userEvent.click(await screen.findByRole('option', { name: 'Use light theme' }));
-    expect(document.documentElement).toHaveClass('light');
-    expect(localStorage.getItem('sluby-theme')).toBe('light');
+    await userEvent.type(await screen.findByRole('combobox'), 'theme');
+    await userEvent.click(await screen.findByRole('option', { name: 'Switch theme' }));
+    // the test browser resolves to light, so the row flips to dark
+    expect(document.documentElement).toHaveClass('dark');
+    expect(localStorage.getItem('sluby-theme')).toBe('dark');
+  });
+
+  it('finds keys by name, after videos and before pages, with the match in bold', async () => {
+    setup();
+    await openWithKeys();
+    await userEvent.type(await screen.findByRole('combobox'), 'prod');
+    const key = await screen.findByRole('option', { name: 'Production server' });
+    expect(key.querySelector('b')).toHaveTextContent('Prod');
+    // once the video search settles on nothing, keys lead
+    await waitFor(() =>
+      expect(
+        [...document.querySelectorAll('[cmdk-group-heading]')].map((h) => h.textContent),
+      ).toEqual(['Keys']),
+    );
+    await userEvent.click(key);
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio\/developers\/keys$/);
+  });
+
+  it('lists no keys before anything is typed', async () => {
+    setup();
+    await openWithKeys();
+    await screen.findByRole('option', { name: /Big Buck Bunny/ });
+    expect(screen.queryByRole('option', { name: 'Production server' })).not.toBeInTheDocument();
+    const headings = [...document.querySelectorAll('[cmdk-group-heading]')].map(
+      (h) => h.textContent,
+    );
+    expect(headings).toEqual(['Recent videos', 'Pages', 'Actions']);
+  });
+
+  it('shows U on the upload row and announces it as its shortcut', async () => {
+    setup();
+    await openWithKeys();
+    const row = await screen.findByRole('option', { name: 'Upload video' });
+    expect(row).toHaveAttribute('aria-keyshortcuts', 'U');
+    expect(row.querySelector('kbd[aria-hidden=true]')).toHaveTextContent('U');
   });
 
   it('says when nothing matches', async () => {
@@ -277,6 +345,22 @@ describe('CommandPalette', () => {
     await userEvent.clear(screen.getByRole('combobox'));
     await userEvent.type(screen.getByRole('combobox'), 'sintel');
     await waitFor(() => expect(region).toHaveTextContent('1 result'));
+  });
+});
+
+describe('the U shortcut', () => {
+  it('opens the upload page from anywhere outside a field', async () => {
+    setup();
+    await userEvent.keyboard('u');
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio\/videos\/upload$/);
+  });
+
+  it('leaves a U typed into a field alone', async () => {
+    setup();
+    await openWithKeys();
+    await userEvent.type(await screen.findByRole('combobox'), 'u');
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/studio$/);
+    expect(screen.getByRole('combobox')).toHaveValue('u');
   });
 });
 

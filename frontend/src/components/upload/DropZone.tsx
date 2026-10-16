@@ -1,6 +1,8 @@
 import { useId, useRef, useState } from 'react';
 import * as m from 'motion/react-m';
 import { Upload } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { formatBytes } from '@/lib/formatters';
 import { spring } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
@@ -8,20 +10,21 @@ export const VIDEO_TYPES = 'MP4, MOV, M4V, MKV, WebM or AVI';
 
 /**
  * Where files come in: a drop target that also opens the file picker. Its
- * name is its visible title and its description the hint (A11Y-33). On drag
- * the border, fill and a soft ring change and the icon lifts; the box itself
- * does not scale (MOT-16).
+ * title and hint describe the Choose files button, the keyboard's way in
+ * (A11Y-33). On drag the border and a soft ring change and the icon lifts;
+ * the box itself does not scale (MOT-16). The button carries
+ * data-upload-choose, so the upload page can start there.
  */
 export function DropZone({
   onFiles,
   busy,
-  compact = false,
+  limit = null,
 }: {
   onFiles: (files: File[]) => void;
   /** a transfer runs, so new files wait */
   busy: boolean;
-  /** drafts are open below, so the zone takes less room */
-  compact?: boolean;
+  /** the server's upload limit in bytes, once known */
+  limit?: number | null;
 }) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
@@ -29,6 +32,7 @@ export function DropZone({
   // count them instead of trusting the last one
   const depth = useRef(0);
   const [dragging, setDragging] = useState(false);
+  const each = limit !== null ? `, up to ${formatBytes(limit)} each` : '';
 
   return (
     // the box is a big mouse target; the button inside is the keyboard's way in
@@ -54,56 +58,47 @@ export function DropZone({
         setDragging(false);
         onFiles(Array.from(e.dataTransfer.files));
       }}
+      data-testid="drop-zone"
       data-dragging={dragging || undefined}
       className={cn(
-        'flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed px-4 transition-[border-color,background-color,box-shadow] duration-150 has-focus-visible:border-ring',
-        compact ? 'py-4' : 'flex-col justify-center py-10 text-center sm:py-12',
+        'flex cursor-pointer flex-col items-center justify-center gap-2.5 rounded-2xl border-[1.5px] border-dashed bg-card px-6 py-8 text-center transition-[border-color,box-shadow] duration-150 ease-design',
         dragging
-          ? 'border-primary bg-primary/5 ring-4 ring-primary/15'
-          : 'hover:border-primary/50 hover:bg-muted/40 active:bg-muted/60',
+          ? 'border-primary ring-3 ring-primary-ring'
+          : 'border-progress-line hover:border-primary',
       )}
     >
       <m.div
         animate={{ y: dragging ? -3 : 0 }}
         transition={spring}
         className={cn(
-          'flex shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary transition-colors duration-150',
-          compact ? 'size-9' : 'size-12',
-          dragging && 'bg-primary text-primary-foreground',
+          'grid size-12 shrink-0 place-items-center rounded-full border-[1.5px] text-primary transition-colors duration-150 ease-design',
+          dragging ? 'border-primary' : 'border-progress-line',
         )}
       >
-        <Upload className={compact ? 'size-4' : 'size-5'} aria-hidden="true" />
+        <Upload className="size-5.5" strokeWidth={1.8} aria-hidden="true" />
       </m.div>
-      <div className="min-w-0">
-        <p id={`${id}-title`} className="text-sm font-medium">
-          {dragging ? (
-            'Drop to add'
-          ) : (
-            <>
-              Drop videos here, or{' '}
-              <button
-                type="button"
-                data-upload-choose
-                aria-labelledby={`${id}-title`}
-                aria-describedby={`${id}-hint`}
-                onClick={(e) => {
-                  // the box around would open the picker a second time
-                  e.stopPropagation();
-                  input.current?.click();
-                }}
-                className="rounded-sm text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring"
-              >
-                choose files
-              </button>
-            </>
-          )}
-        </p>
-        <p id={`${id}-hint`} className="mt-0.5 text-xs text-muted-foreground">
-          {busy
-            ? 'Files you add now wait until the current upload finishes.'
-            : `${VIDEO_TYPES}. Add several at once and they upload in order. Interrupted uploads can resume.`}
-        </p>
-      </div>
+      <p id={`${id}-title`} className="text-base font-semibold">
+        {dragging ? 'Drop to add' : 'Drop video files here'}
+      </p>
+      <p id={`${id}-hint`} className="text-sm text-muted-foreground">
+        {busy
+          ? 'Files you add now wait until the current upload finishes.'
+          : `${VIDEO_TYPES}${each}. Add as many as you like.`}
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-1"
+        data-upload-choose
+        aria-describedby={`${id}-title ${id}-hint`}
+        onClick={(e) => {
+          // the box around would open the picker a second time
+          e.stopPropagation();
+          input.current?.click();
+        }}
+      >
+        Choose files
+      </Button>
       <input
         ref={input}
         type="file"

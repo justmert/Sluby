@@ -97,17 +97,18 @@ describe('RouteFallback', () => {
     expect(shapeAt('/studio/settings')).toHaveClass('delay-150', 'fill-mode-backwards');
   });
 
-  it('draws settings as its one narrow column of three sections, two with sign-in off', () => {
+  it('draws settings as three sections, two with sign-in off', () => {
     const on = shapeAt('/studio/settings');
-    expect(on.querySelector('[data-slot="page-container"]')).toHaveClass('max-w-3xl');
-    expect(on.querySelectorAll('.rounded-xl')).toHaveLength(3);
+    expect(on.querySelectorAll('section[class]')).toHaveLength(3);
     const view = renderPage(
       <WithSession authDisabled>
         <RouteFallback />
       </WithSession>,
       { route: '/studio/settings' },
     );
-    expect(view.container.querySelectorAll('.rounded-xl')).toHaveLength(2);
+    expect(
+      view.container.querySelectorAll('[data-slot="route-fallback"] section[class]'),
+    ).toHaveLength(2);
   });
 
   it('draws Health with the page’s own first draw, under a header with its status badge', () => {
@@ -123,6 +124,6 @@ describe('RouteFallback', () => {
       container.querySelectorAll('[data-slot="card"]').length,
     );
     expect(container.querySelectorAll('[data-slot="card"]').length).toBeGreaterThan(0);
-    expect(fallback.querySelector('.rounded-full.w-28')).not.toBeNull();
+    expect(fallback.querySelector('.rounded-full.w-44')).not.toBeNull();
   });
 });

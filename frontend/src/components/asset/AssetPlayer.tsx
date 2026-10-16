@@ -1,10 +1,7 @@
 import { useRef, useState } from 'react';
-import { Cloud, Server } from 'lucide-react';
 import { SlubyPlayer, type QualityLevel, type SlubyPlayerHandle } from '@sluby/player';
 import { SlubyError } from '@sluby/sdk';
 import { InlineError } from '@/components/shared/InlineError';
-import { Badge } from '@/components/ui/badge';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { formatBitrate, formatResolution } from '@/lib/formatters';
 import { sluby } from '@/lib/sluby';
 
@@ -27,9 +24,18 @@ function playbackError(err: Error): unknown {
   return err.cause instanceof SlubyError ? err.cause : err;
 }
 
+// the board's pill on the video: white text and a light edge over the frame,
+// which stays dark in both themes
+const PILL =
+  'h-6 rounded-full border border-white/35 bg-black/45 px-2 text-xs font-semibold text-white backdrop-blur-sm';
+
+const describe = (level: QualityLevel) =>
+  `${level.name} (${formatResolution(level.width, level.height)}, ${formatBitrate(level.bitrate)})`;
+
 /**
- * The Studio's preview: @sluby/player driven by the same sdk client, with a
- * quality picker on top of the player's own quality api.
+ * The Studio's preview: @sluby/player driven by the same sdk client in the
+ * board's 16:9 frame. Where the bytes come from ("Direct from Sia") and the
+ * quality picker sit on the frame's top edge, clear of the player's controls.
  */
 export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
   const player = useRef<SlubyPlayerHandle>(null);
@@ -40,7 +46,6 @@ export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
   const [error, setError] = useState<unknown>(null);
 
   const choose = (value: string) => {
-    if (!value) return;
     setPinned(value);
     player.current?.setQuality(value === AUTO ? -1 : Number(value));
   };
@@ -48,7 +53,7 @@ export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
   return (
     <div className="flex flex-col gap-3">
       {/* the frame clips the video's own focus ring, so the frame draws one */}
-      <div className="overflow-hidden rounded-lg bg-black outline-offset-2 has-[video:focus-visible]:outline-2 has-[video:focus-visible]:outline-ring [&_video]:outline-none">
+      <div className="relative overflow-hidden rounded-xl bg-media outline-offset-2 has-[video:focus-visible]:outline-2 has-[video:focus-visible]:outline-ring [&_video]:outline-none">
         <SlubyPlayer
           ref={player}
           client={sluby}
@@ -68,49 +73,37 @@ export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
           onError={(e) => setError(playbackError(e))}
           onReady={() => setError(null)}
         />
-      </div>
-
-      {/* the row fills in as the player learns its levels and delivery; its
-          height is held from the start so the page below does not move */}
-      <div className="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2">
-        {levels.length > 0 && (
-          <ToggleGroup
-            type="single"
-            variant="segmented"
-            size="sm"
-            value={pinned}
-            onValueChange={choose}
-            aria-label="Quality"
-            // wraps when the text is large, so no quality is cut off on a phone (A11Y-46)
-            className="flex-wrap data-[variant=segmented]:h-auto"
-          >
-            <ToggleGroupItem value={AUTO}>Auto</ToggleGroupItem>
-            {levels.map((level) => (
-              <ToggleGroupItem
-                key={level.index}
-                value={String(level.index)}
-                title={formatBitrate(level.bitrate)}
+        {(levels.length > 0 || delivery) && (
+          <div className="absolute top-3 right-3 flex animate-enter items-center gap-2">
+            {levels.length > 0 && (
+              <select
+                aria-label="Quality"
+                value={pinned}
+                onChange={(e) => choose(e.target.value)}
+                className={`${PILL} cursor-pointer [&>option]:bg-card [&>option]:text-foreground`}
               >
-                {level.name}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        )}
-        {delivery && (
-          <Badge variant="outline" className="ml-auto animate-in duration-200 fade-in">
-            {delivery === 'sia' ? <Cloud /> : <Server />}
-            {delivery === 'sia' ? 'Streaming from Sia' : 'Streaming through this server'}
-          </Badge>
+                <option value={AUTO}>
+                  Auto{current && pinned === AUTO ? ` (${current.name})` : ''}
+                </option>
+                {levels.map((level) => (
+                  <option key={level.index} value={String(level.index)} title={describe(level)}>
+                    {level.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {delivery && (
+              <span className={`${PILL} inline-flex items-center`}>
+                {delivery === 'sia' ? 'Direct from Sia' : 'Through this server'}
+              </span>
+            )}
+          </div>
         )}
       </div>
-      {/* what is playing gets its own line, held open from the start */}
-      <p className="min-h-5 text-sm text-muted-foreground tabular-nums" aria-live="polite">
-        {current && (
-          <span className="animate-in duration-200 fade-in">
-            Playing {current.name} ({formatResolution(current.width, current.height)},{' '}
-            {formatBitrate(current.bitrate)}){pinned === AUTO && ', picked automatically'}
-          </span>
-        )}
+      {/* what is playing, for screen readers; the picker shows it to the eye */}
+      <p className="sr-only" aria-live="polite">
+        {current &&
+          `Playing ${describe(current)}${pinned === AUTO ? ', picked automatically' : ''}`}
       </p>
       <InlineError title="Could not play this video" error={error} />
     </div>

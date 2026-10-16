@@ -10,38 +10,40 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={resolvedTheme}
       className="toaster group"
+      // the icon carries the kind; the bar itself is the same for all of them
       icons={{
-        success: <CircleCheckIcon className="size-4" />,
-        info: <InfoIcon className="size-4" />,
-        warning: <TriangleAlertIcon className="size-4" />,
-        error: <CircleAlertIcon className="size-4" />,
+        success: <CircleCheckIcon className="size-4 text-bar-success" />,
+        info: <InfoIcon className="size-4 text-bar-muted" />,
+        warning: <TriangleAlertIcon className="size-4 text-bar-warning" />,
+        error: <CircleAlertIcon className="size-4 text-bar-destructive" />,
         loading: <Spinner aria-hidden="true" />,
       }}
       style={
         {
-          '--normal-bg': 'var(--popover)',
-          '--normal-text': 'var(--popover-foreground)',
-          '--normal-border': 'var(--border)',
-          '--border-radius': 'var(--radius-xl)',
-          // rich colors from the tokens, so a toast's red and green are the
-          // same as every badge and alert
-          '--success-bg': 'color-mix(in oklab, var(--success) 10%, var(--popover))',
-          '--success-border': 'color-mix(in oklab, var(--success) 30%, var(--popover))',
-          '--success-text': 'var(--success)',
-          '--error-bg': 'color-mix(in oklab, var(--destructive) 10%, var(--popover))',
-          '--error-border': 'color-mix(in oklab, var(--destructive) 30%, var(--popover))',
-          '--error-text': 'var(--destructive)',
-          '--warning-bg': 'color-mix(in oklab, var(--warning) 15%, var(--popover))',
-          '--warning-border': 'color-mix(in oklab, var(--warning) 40%, var(--popover))',
-          '--warning-text': 'var(--warning-foreground)',
-          '--info-bg': 'color-mix(in oklab, var(--info) 10%, var(--popover))',
-          '--info-border': 'color-mix(in oklab, var(--info) 30%, var(--popover))',
-          '--info-text': 'var(--info)',
+          // every toast is the dark bar from the design, in both themes (see
+          // --bar in index.css); rich colors would tint it, so each kind
+          // gets the same bar and its color stays on the icon
+          '--normal-bg': 'var(--bar)',
+          '--normal-text': 'var(--bar-foreground)',
+          '--normal-border': 'var(--bar)',
+          '--border-radius': 'var(--radius-lg)',
+          '--success-bg': 'var(--bar)',
+          '--success-border': 'var(--bar)',
+          '--success-text': 'var(--bar-foreground)',
+          '--error-bg': 'var(--bar)',
+          '--error-border': 'var(--bar)',
+          '--error-text': 'var(--bar-foreground)',
+          '--warning-bg': 'var(--bar)',
+          '--warning-border': 'var(--bar)',
+          '--warning-text': 'var(--bar-foreground)',
+          '--info-bg': 'var(--bar)',
+          '--info-border': 'var(--bar)',
+          '--info-text': 'var(--bar-foreground)',
           // the close button sits inside the toast, top right, instead of as
           // a bordered circle straddling its corner
           '--toast-close-button-start': 'unset',
           '--toast-close-button-end': '0.5rem',
-          '--toast-close-button-transform': 'translateY(0.875rem)',
+          '--toast-close-button-transform': 'translateY(0.5625rem)',
         } as React.CSSProperties
       }
       // bottom right on a desktop; below 600px sonner spans the width, so on
@@ -63,15 +65,29 @@ const Toaster = ({ ...props }: ToasterProps) => {
         bottom: 'calc(16px + env(safe-area-inset-bottom) + var(--toast-lift, 0px))',
         left: 'calc(16px + env(safe-area-inset-left))',
       }}
-      // long enough to read a sentence; every toast also has a close button
-      duration={8000}
+      // the design's timing: 5 s each, paused while the pointer is on them
+      // (sonner pauses on hover and focus). errors stay until closed, see
+      // lib/toast.ts
+      duration={5000}
+      // stacked open, newest on top, 10 px apart, as in the design, rather
+      // than folded behind each other
+      expand
+      gap={10}
       toastOptions={{
         classNames: {
-          // room on the right for the close button
-          toast: 'cn-toast pr-10!',
+          // the design's bar: 10 px corners, 12 by 14 padding, 10 px between
+          // icon, words and buttons; room on the right for the close button
+          toast:
+            'cn-toast gap-2.5! rounded-lg! py-3! pr-11! pl-3.5! text-sm! font-normal! shadow-toast!',
+          description: 'text-bar-muted!',
+          // an outlined button on the bar, like Undo in the design
+          actionButton:
+            'h-7! rounded-[6px]! border! border-bar-border! bg-transparent! px-2.5! text-[13px]! font-semibold! text-bar-foreground! hover:bg-white/10!',
+          cancelButton:
+            'h-7! rounded-[6px]! border! border-bar-border! bg-transparent! px-2.5! text-[13px]! text-bar-foreground!',
           // a finger needs more than the 20px close button
           closeButton:
-            'border-0! bg-transparent! text-current opacity-60 hover:bg-transparent! hover:opacity-100 pointer-coarse:size-8',
+            'size-7! border-0! bg-transparent! text-current opacity-70 hover:bg-transparent! hover:opacity-100 pointer-coarse:size-9!',
         },
       }}
       {...props}

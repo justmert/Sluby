@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState } from 'react';
 import { KeyRound, Pencil, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -7,7 +7,6 @@ import { withCells } from '@/components/shared/column-frames';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { InlineEditField } from '@/components/shared/InlineEditField';
 import { StatusBadge } from '@/components/shared/StatusBadge';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -22,6 +21,7 @@ import { usePersistedDraft } from '@/lib/drafts';
 import {
   NO_VALUE,
   formatCount,
+  plural,
   formatDate,
   formatRelativeTime,
   formatTimeLeft,
@@ -32,10 +32,13 @@ import { KEY_COLUMNS } from './columns';
 import { useCreateParam } from './create-param';
 import { CreateKeyDialog } from './CreateKeyDialog';
 import { emptyKeyForm, KEY_NAME_MAX, type KeyForm } from './forms';
-import { keyLabel } from './key-label';
+import { keyCopyButton, keyLabel } from './key-label';
 import { RotateKeyDialog } from './RotateKeyDialog';
 import { focusRowMenu, focusTargets, rowFocus, startRowEdit, type RowFocus } from './row-focus';
-import { SecretRevealDialog, type RevealedSecret } from './SecretRevealDialog';
+import { KeyCreatedNotice, type CreatedKey } from './KeyCreatedNotice';
+import { KEY_SCOPES } from './options';
+import { KEYS_LEAD } from './keys-copy';
+import { KeysDescription } from './KeysLoading';
 import { CreateKeyButton } from '@/components/layout/page-actions';
 import { PAGE_HEADS } from '@/components/layout/page-heads';
 
@@ -46,24 +49,24 @@ const CAP_REASON_ID = 'key-cap-reason';
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-function revealedKey(issued: IssuedKey, graceSeconds?: number): RevealedSecret {
+function createdKey(issued: IssuedKey, graceSeconds?: number): CreatedKey {
   const rotated = issued.rotatedFrom !== undefined;
-  let note: ReactNode;
+  let note: string | undefined;
   if (rotated) {
     note =
       graceSeconds === 0 || !issued.previousKeyExpiresAt
-        ? 'The old key stops working now.'
+        ? 'The old key stopped working.'
         : `The old key keeps working until ${formatDate(issued.previousKeyExpiresAt)} at ${time(issued.previousKeyExpiresAt)}.`;
   }
-  return {
-    title: rotated ? 'API key rotated' : 'API key created',
-    description: <>Copy “{issued.name}” now. You will not be able to see it again.</>,
-    value: issued.key,
-    label: 'API key',
-    envName: 'SLUBY_API_KEY',
-    note,
-  };
+  return { id: issued.id, name: issued.name, value: issued.key, rotated, note };
 }
+
+// what a scope lets a key do, as the table's Can column says it
+const SCOPE_ORDER = ['read', 'upload', 'manage'];
+const scopeName = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const sortedScopes = (scopes: string[]) =>
+  [...scopes].sort((a, b) => SCOPE_ORDER.indexOf(a) - SCOPE_ORDER.indexOf(b));
+const scopeDetail = (s: string) => KEY_SCOPES.find((o) => o.value === s)?.detail;
 
 const rowLabel = (k: ApiKeyRecord) => (k.prefix ? `${k.name}, ${k.prefix}…` : k.name);
 
@@ -88,8 +91,34 @@ export function ApiKeysManager() {
   // where focus goes when a row's dialog closes; a ref, since the dialog
   // state is already cleared by then
   const focusAfter = useRef<RowFocus | null>(null);
-  // the secret on show, and the key row to focus once it is copied
-  const [revealed, setRevealed] = useState<{ secret: RevealedSecret; rowId?: string } | null>(null);
+  // keys just issued, each shown until it is copied or dismissed; a rotated
+  // one remembers its row, where focus goes once it is dismissed
+  const [created, setCreated] = useState<Array<CreatedKey & { rowId?: string }>>([]);
+  // the key a dialog just issued: as that dialog closes, focus goes to the
+  // key's copy button instead of back to the opener, since copying is next
+  const issuedNow = useRef<string | null>(null);
+  const show = (key: CreatedKey, rowId?: string) => {
+    issuedNow.current = key.id;
+    setCreated((list) => [{ ...key, rowId }, ...list.filter((c) => c.id !== key.id)]);
+  };
+  /** true when focus went to a new key, so the dialog leaves it there */
+  const focusIssued = (e: Event) => {
+    const id = issuedNow.current;
+    issuedNow.current = null;
+    const button = id ? keyCopyButton(id) : null;
+    if (!button) return false;
+    e.preventDefault();
+    button.focus();
+    return true;
+  };
+  const dismiss = (id: string) => {
+    const gone = created.find((c) => c.id === id);
+    setCreated((list) => list.filter((c) => c.id !== id));
+    // a rotated key goes back to its new row; a created one to Create key
+    requestAnimationFrame(() =>
+      focusRowMenu(TABLE, [gone?.rowId], () => document.getElementById(CREATE_BUTTON_ID)),
+    );
+  };
 
   const openCreate = () => {
     if (atCap) return;
@@ -105,7 +134,7 @@ export function ApiKeysManager() {
         value={k.name}
         maxLength={KEY_NAME_MAX}
         requiredMessage="Enter a name."
-        displayClassName="whitespace-normal wrap-anywhere"
+        displayClassName="font-semibold whitespace-normal wrap-anywhere"
         onSave={async (name) => {
           await rename.mutateAsync({ id: k.id, name });
           toastSuccess('Key renamed');
@@ -131,10 +160,14 @@ export function ApiKeysManager() {
       ),
     scopes: (k) => (
       <span className="flex flex-wrap gap-1">
-        {k.scopes.map((s) => (
-          <Badge key={s} variant="code">
-            {s}
-          </Badge>
+        {sortedScopes(k.scopes).map((s) => (
+          <span
+            key={s}
+            title={scopeDetail(s)}
+            className="inline-flex h-5.5 items-center rounded-md border bg-card px-2 text-xs font-medium text-secondary-foreground"
+          >
+            {scopeName(s)}
+          </span>
         ))}
       </span>
     ),
@@ -150,7 +183,7 @@ export function ApiKeysManager() {
     status: (k) =>
       isReplaced(k) ? (
         <StatusBadge kind="key" status="replaced">
-          Replaced · Stops {formatTimeLeft(k.expiresAt!)}
+          Replaced · stops {formatTimeLeft(k.expiresAt!)}
         </StatusBadge>
       ) : (
         <StatusBadge kind="key" status="active" />
@@ -192,6 +225,8 @@ export function ApiKeysManager() {
         onRetry={() => keys.refetch()}
         retrying={keys.isFetching}
         what="your API keys"
+        // the old key of a rotation reads quieter: it is on its way out
+        rowClassName={(k) => (isReplaced(k) ? 'text-muted-foreground' : undefined)}
         rowActions={(k) => [
           {
             label: 'Rename',
@@ -234,11 +269,6 @@ export function ApiKeysManager() {
           />
         }
       />
-      {limits && rows && rows.length > 0 && (
-        <p className="text-xs text-muted-foreground tabular-nums">
-          {formatCount(rows.length)} of {formatCount(limits.maxKeys)} keys
-        </p>
-      )}
       {atCap && (
         <p id={CAP_REASON_ID} className="text-sm text-muted-foreground">
           {capReason}
@@ -255,29 +285,20 @@ export function ApiKeysManager() {
         form={form}
         onFormChange={setForm}
         limits={limits}
-        onIssued={(issued) => setRevealed({ secret: revealedKey(issued) })}
+        onIssued={(issued) => show(createdKey(issued))}
+        onCloseAutoFocus={(e) => void focusIssued(e)}
       />
       <RotateKeyDialog
         target={rotating}
         onClose={() => setRotating(null)}
-        onIssued={(issued, grace) =>
-          setRevealed({ secret: revealedKey(issued, grace), rowId: issued.id })
-        }
+        onIssued={(issued, grace) => show(createdKey(issued, grace), issued.id)}
         onCloseAutoFocus={(e) => {
+          if (focusIssued(e)) return;
           e.preventDefault();
           const f = focusAfter.current;
           focusRowMenu(TABLE, f ? [f.own, f.next, f.prev] : [], () =>
             document.getElementById(CREATE_BUTTON_ID),
           );
-        }}
-      />
-      <SecretRevealDialog
-        secret={revealed?.secret ?? null}
-        onClose={() => setRevealed(null)}
-        onCloseAutoFocus={(e) => {
-          e.preventDefault();
-          // a rotated key goes back to its new row; a created one to Create key
-          focusRowMenu(TABLE, [revealed?.rowId], () => document.getElementById(CREATE_BUTTON_ID));
         }}
       />
       <ConfirmDialog
@@ -317,7 +338,28 @@ export function ApiKeysManager() {
 
   return (
     <>
-      <PageHeader {...PAGE_HEADS.keys} primaryAction={primary} />
+      <PageHeader
+        {...PAGE_HEADS.keys}
+        description={
+          keys.isError && !rows ? (
+            KEYS_LEAD
+          ) : (
+            <KeysDescription
+              used={
+                !rows
+                  ? null
+                  : limits
+                    ? `${formatCount(rows.length)} of ${formatCount(limits.maxKeys)} used.`
+                    : `${plural(rows.length, 'key')}.`
+              }
+            />
+          )
+        }
+        primaryAction={primary}
+      />
+      {created.map((c) => (
+        <KeyCreatedNotice key={c.id} created={c} onDismiss={() => dismiss(c.id)} />
+      ))}
       {table}
       {dialogs}
     </>

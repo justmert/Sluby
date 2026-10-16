@@ -47,6 +47,17 @@ async function pickTemplate(label: RegExp) {
 }
 
 describe('API explorer', () => {
+  it('puts the request and the response in named sections, each with its heading', () => {
+    render();
+    for (const name of ['Request', 'Response']) {
+      const region = screen.getByRole('region', { name });
+      expect(within(region).getByRole('heading', { level: 2, name })).toBeInTheDocument();
+    }
+    expect(screen.getByRole('region', { name: 'Response' })).toHaveTextContent(
+      'Send a request to see the answer here.',
+    );
+  });
+
   it('sends with Enter in the path, and labels the answer with its request (A11Y-40)', async () => {
     answers['GET /api/v1/assets?limit=20'] = () =>
       respond({ body: { data: [] }, headers: { 'x-ratelimit-remaining': '99' } });
@@ -58,6 +69,30 @@ describe('API explorer', () => {
     expect(response()).toHaveTextContent('200');
     expect(response()).toHaveTextContent(/\d+ ms/);
     expect(response()).toHaveTextContent('x-ratelimit-remaining99');
+  });
+
+  it('shows a JSON answer as a tree, other text as it came, and says when there is no body', async () => {
+    answers['GET /api/v1/assets?limit=20'] = () =>
+      respond({ body: { data: [{ id: 'a1' }], has_more: false } });
+    render();
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    const tree = await within(await screen.findByTestId('explorer-response')).findByRole('tree', {
+      name: 'Response body',
+    });
+    expect(within(tree).getByText('false')).toHaveClass('text-code-keyword');
+    expect(within(tree).getByRole('treeitem', { name: 'data, 1 item' })).toBeInTheDocument();
+
+    answers['GET /api/v1/assets?limit=20'] = () =>
+      respond({ status: 502, body: '<h1>Bad gateway</h1>' });
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(response()).toHaveTextContent('Not valid JSON, shown as text.'));
+    expect(
+      within(response()).getByRole('region', { name: 'Response body code' }),
+    ).toHaveTextContent('<h1>Bad gateway</h1>');
+
+    answers['GET /api/v1/assets?limit=20'] = () => respond({ body: '' });
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(response()).toHaveTextContent('The response has no body.'));
   });
 
   it('says the status of the answer in a status region, since focus stays on Send', async () => {
@@ -226,11 +261,15 @@ describe('API explorer', () => {
     await waitFor(() => expect(response()).toHaveTextContent('"second"'));
   });
 
-  it('stacks method over path and lets the template shrink when large text leaves no room (1.4.4)', () => {
+  it('stacks every control on a narrow page and lets the template shrink when large text leaves no room (1.4.4)', () => {
     render();
-    expect(screen.getByRole('combobox', { name: 'Template' })).toHaveClass('min-w-0');
+    const template = screen.getByRole('combobox', { name: 'Template' });
+    expect(template).toHaveClass('min-w-0');
     const row = path().closest('.items-end');
-    expect(row).toHaveClass('grid-cols-1', '@[16rem]/page:grid-cols-[7rem_minmax(0,1fr)]');
-    expect(screen.getByRole('button', { name: 'Send' })).not.toHaveClass('col-span-2');
+    // one column until there is room for method, path and Send side by side
+    expect(row).toHaveClass('grid-cols-1', '@lg/page:grid-cols-[7rem_minmax(0,1fr)_auto]');
+    // the template sits in the same row and gets its own line before the widest layout
+    expect(row).toContainElement(template);
+    expect(template.parentElement).toHaveClass('@lg/page:col-span-3', '@4xl/page:col-span-1');
   });
 });

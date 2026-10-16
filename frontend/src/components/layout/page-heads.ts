@@ -4,9 +4,16 @@
 // size or scrollbar, and the page lands where the skeleton was
 
 export const PAGE_HEADS = {
-  overview: { title: 'Overview', description: 'Your videos and where they are stored' },
+  overview: { title: 'Overview', description: 'Your videos, plays and what needs your attention.' },
   videos: { title: 'Videos' },
-  quickstart: { title: 'Quickstart', description: 'Connect your app to this server' },
+  upload: {
+    title: 'Upload videos',
+    description: 'Uploads keep going if you leave this page. Finished videos show up in Videos.',
+  },
+  quickstart: {
+    title: 'Quickstart',
+    description: 'Play a video on your site, then automate uploads from your server.',
+  },
   keys: { title: 'API keys', description: 'For the REST API and SDK, shown once when created' },
   webhooks: {
     title: 'Webhooks',
@@ -18,5 +25,8 @@ export const PAGE_HEADS = {
     description: 'Whether this server and its Sia storage are working',
   },
   metrics: { title: 'Metrics', description: 'Server activity since it last started' },
-  settings: { title: 'Settings', description: 'Your account, browsers and appearance' },
+  settings: {
+    title: 'Settings',
+    description: 'Your account, where you are signed in, and how the Studio looks.',
+  },
 } as const;

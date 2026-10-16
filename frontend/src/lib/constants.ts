@@ -1,21 +1,13 @@
-import {
-  Activity,
-  BookOpen,
-  ChartLine,
-  Compass,
-  Film,
-  KeyRound,
-  LayoutDashboard,
-  Settings,
-  Webhook,
-  type LucideIcon,
-} from 'lucide-react';
+import { ChartColumn, Code, Compass, Heart, House, Settings, type LucideIcon } from 'lucide-react';
+import { Icons } from './icons';
 
 // the code says "asset" where the api does; the url bar is ui, so routes say
 // videos (plan D-02). old paths redirect, see lib/redirects.ts
 export const ROUTES = {
   OVERVIEW: '/studio',
   VIDEOS: '/studio/videos',
+  // static, so the router ranks it above /studio/videos/:id
+  UPLOAD: '/studio/videos/upload',
   video: (id: string) => `/studio/videos/${encodeURIComponent(id)}`,
   DEVELOPERS: '/studio/developers',
   API_KEYS: '/studio/developers/keys',
@@ -36,7 +28,7 @@ export const LINKS = {
   SIGN_IN_SETUP: 'https://github.com/justmert/Sluby/blob/main/docs/guide/configuration.md#sign-in',
 } as const;
 
-/** `?upload=1` on any route opens the upload sheet (lib/upload-sheet.ts). */
+/** `?upload=1` on any route once opened the upload sheet; it now redirects to the upload page. */
 export const UPLOAD_PARAM = 'upload';
 
 export interface NavItem {
@@ -60,17 +52,17 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'main',
     items: [
-      { label: 'Overview', path: ROUTES.OVERVIEW, icon: LayoutDashboard, exact: true },
-      { label: 'Videos', path: ROUTES.VIDEOS, icon: Film },
+      { label: 'Overview', path: ROUTES.OVERVIEW, icon: House, exact: true },
+      { label: 'Videos', path: ROUTES.VIDEOS, icon: Icons.video },
     ],
   },
   {
     id: 'developers',
     label: 'Developers',
     items: [
-      { label: 'Quickstart', path: ROUTES.DEVELOPERS, icon: BookOpen, exact: true },
-      { label: 'API keys', path: ROUTES.API_KEYS, icon: KeyRound },
-      { label: 'Webhooks', path: ROUTES.WEBHOOKS, icon: Webhook },
+      { label: 'Quickstart', path: ROUTES.DEVELOPERS, icon: Code, exact: true },
+      { label: 'API keys', path: ROUTES.API_KEYS, icon: Icons.apiKey },
+      { label: 'Webhooks', path: ROUTES.WEBHOOKS, icon: Icons.webhook },
       { label: 'API explorer', path: ROUTES.EXPLORER, icon: Compass },
     ],
   },
@@ -79,8 +71,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Deployment',
     operatorOnly: true,
     items: [
-      { label: 'Health', path: ROUTES.DEPLOYMENT, icon: Activity, exact: true },
-      { label: 'Metrics', path: ROUTES.METRICS, icon: ChartLine },
+      { label: 'Health', path: ROUTES.DEPLOYMENT, icon: Heart, exact: true },
+      { label: 'Metrics', path: ROUTES.METRICS, icon: ChartColumn },
     ],
   },
   {

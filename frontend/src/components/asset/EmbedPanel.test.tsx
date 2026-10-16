@@ -43,9 +43,7 @@ describe('EmbedPanel', () => {
     expect(tabs()).toEqual(['React', 'HTML', 'Stream URL']);
     expect(code()).toContain("sluby.playback.streamUrl('a1')");
     expect(screen.getByText('npm install @sluby/player @sluby/sdk')).toBeInTheDocument();
-    expect(
-      screen.getByText(/Anyone with this code can play the video\. No API key needed\./),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Public video: anyone with the code can play it.')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Stream URL' }));
     expect(code()).toBe(`${ORIGIN}/v1/stream/a1/master.m3u8`);

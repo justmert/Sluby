@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import { CircleAlert, CirclePause, Upload } from 'lucide-react';
 import type { VideoAsset } from '@sluby/sdk';
 import { ErrorDetails } from '@/components/shared/ErrorDetails';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { ROUTES } from '@/lib/constants';
 import { Icons } from '@/lib/icons';
-import { useUploadSheet } from '@/lib/upload-sheet';
 import { cn } from '@/lib/utils';
 import { assetSteps } from './pipeline-states';
 import { PipelineSteps } from './PipelineSteps';
@@ -51,28 +52,32 @@ function Frame({
       data-slot="processing-card"
       data-tone={tone}
       className={cn(
-        'flex aspect-video min-h-64 w-full flex-col justify-center gap-5 rounded-xl border bg-card p-5 shadow-xs max-sm:aspect-auto sm:p-8 dark:shadow-none',
+        'flex aspect-video min-h-64 w-full flex-col justify-center rounded-xl border bg-card p-5 shadow-xs max-sm:aspect-auto sm:p-8 dark:shadow-none',
         // the card fills the player's box, so the page does not jump when it turns into the player.
         // on phones the stacked actions need more height than a 16:9 box has, so it grows
         className,
       )}
     >
-      <div className="flex items-start gap-3">
-        {icon}
-        <div className="min-w-0 flex-1">
-          <h2 id="processing-card-title" className="font-heading text-heading">
-            {title}
-          </h2>
-          <div className="mt-1 text-sm text-muted-foreground">{children}</div>
+      {/* a centred column: stretched across the whole player box, the bar and
+          the steps ran edge to edge with empty space above and below */}
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
+        <div className="flex items-start gap-3">
+          {icon}
+          <div className="min-w-0 flex-1">
+            <h2 id="processing-card-title" className="font-heading text-heading">
+              {title}
+            </h2>
+            <div className="mt-1 text-sm text-muted-foreground">{children}</div>
+          </div>
         </div>
+        {steps}
+        {/* full width on phones, so two actions are not two ragged rows */}
+        {actions && (
+          <div className="flex flex-wrap justify-end gap-2 max-sm:flex-col max-sm:items-stretch">
+            {actions}
+          </div>
+        )}
       </div>
-      {steps}
-      {/* full width on phones, so two actions are not two ragged rows */}
-      {actions && (
-        <div className="flex flex-wrap justify-end gap-2 max-sm:flex-col max-sm:items-stretch">
-          {actions}
-        </div>
-      )}
     </section>
   );
 }
@@ -92,7 +97,6 @@ export function ProcessingCard({
   onDelete,
   className,
 }: ProcessingCardProps) {
-  const uploadSheet = useUploadSheet();
   const deleteButton = (
     <Button
       variant="outline"
@@ -150,10 +154,12 @@ export function ProcessingCard({
               <Button
                 variant="outline"
                 className="h-auto min-h-8 py-1.5 whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-10"
-                onClick={() => uploadSheet.open()}
+                asChild
               >
-                <Upload />
-                Upload a different file
+                <Link to={ROUTES.UPLOAD}>
+                  <Upload />
+                  Upload a different file
+                </Link>
               </Button>
             )}
           </>
@@ -208,6 +214,7 @@ export function ProcessingCard({
       {view?.percent != null && (
         <Progress
           smooth
+          moving={view.busy && !jobError}
           value={view.percent}
           className="mt-3"
           aria-label={`${asset.title}, processing progress`}

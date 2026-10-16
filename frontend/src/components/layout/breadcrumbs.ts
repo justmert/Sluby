@@ -7,6 +7,7 @@ export interface Crumb {
 }
 
 const OVERVIEW: Crumb = { label: 'Overview', path: ROUTES.OVERVIEW };
+const UPLOAD: Crumb = { label: 'Upload' };
 const NOT_FOUND: Crumb = { label: 'Not found' };
 
 // every page in the nav, by path; the overview is the root crumb itself
@@ -38,6 +39,10 @@ export function getBreadcrumbs(pathname: string, detailTitle?: string): Crumb[] 
 
   const page = PAGES.find((p) => p.path === path);
   if (page) return [OVERVIEW, page];
+  // below videos like a video page, but not one: "upload" is no video id
+  if (path === ROUTES.UPLOAD) {
+    return [OVERVIEW, PAGES.find((p) => p.path === ROUTES.VIDEOS)!, UPLOAD];
+  }
 
   for (const { parent, fallback } of DETAILS) {
     const rest = path.startsWith(`${parent}/`) ? path.slice(parent.length + 1) : null;

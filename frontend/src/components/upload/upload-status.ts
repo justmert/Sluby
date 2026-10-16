@@ -5,7 +5,8 @@ import type { UploadState } from '@/lib/upload-store';
 /*
  * one status line per upload row (copy.md P5): the badge already names the
  * phase, so the line only says what is new, such as
- * "45% · 5.4 of 12 MB · about 30 seconds left".
+ * "5.4 of 12 MB · 220 KB/s · about 30 s left". the bar beside it carries the
+ * percent, so the line leaves it out.
  */
 
 // speed over the first moments of a transfer swings too much to promise a time
@@ -15,8 +16,10 @@ const TIME_LEFT_AFTER_MS = 3_000;
 export function timeLeft(ms: number): string {
   const s = Math.round(ms / 1000);
   if (s < 10) return 'a few seconds left';
-  if (s < 60) return `about ${Math.max(10, Math.round(s / 5) * 5)} seconds left`;
-  return `about ${formatUptime(Math.round(s / 60) * 60_000)} left`;
+  if (s < 60) return `about ${Math.max(10, Math.round(s / 5) * 5)} s left`;
+  const minutes = Math.round(s / 60);
+  if (minutes < 60) return `about ${minutes} min left`;
+  return `about ${formatUptime(minutes * 60_000)} left`;
 }
 
 /** How long sending took: "12 seconds", "3 minutes". */
@@ -64,8 +67,9 @@ export function statusLine(u: UploadState): StatusLine {
   switch (u.phase) {
     case 'uploading': {
       const percent = sentPercent(u);
-      const parts = [`${Math.floor(percent)}%`, sentOf(u.bytesUploaded, u.bytesTotal)];
+      const parts = [sentOf(u.bytesUploaded, u.bytesTotal)];
       if (u.speed > 0 && u.activeMs >= TIME_LEFT_AFTER_MS) {
+        parts.push(`${formatBytes(u.speed)}/s`);
         parts.push(timeLeft(((u.bytesTotal - u.bytesUploaded) / u.speed) * 1000));
       }
       return line(parts.join(' · '), { bar: percent });

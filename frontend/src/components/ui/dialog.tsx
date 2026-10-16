@@ -33,7 +33,8 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        'fixed inset-0 isolate z-50 bg-black/30 transition-none duration-200 ease-out-soft data-closed:duration-150 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
+        // the design's scrim: warm black at 45%, fading with the dialog
+        'fixed inset-0 isolate z-50 bg-[rgb(12_10_9/0.45)] duration-240 ease-design data-closed:duration-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
         className,
       )}
       {...props}
@@ -60,10 +61,10 @@ function DialogContent({
         <DialogPrimitive.Content
           data-slot="dialog-content"
           className={cn(
-            // anchored near the top rather than centred: a dialog that grows (an
-            // error, a validation message) extends downward instead of jumping
-            // both edges. the height cap keeps long forms scrollable.
-            'fixed top-[max(1.5rem,12vh)] left-1/2 z-50 grid max-h-[calc(100dvh-max(1.5rem,12vh)-1.5rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 gap-4 overflow-y-auto rounded-xl border bg-popover p-4 text-sm text-popover-foreground shadow-lg transition-none duration-200 ease-out-soft outline-none sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-closed:duration-150',
+            // centred as in the design by auto margins rather than a translate,
+            // so the entrance (rise 6px and fade over 240 ms) owns translate.
+            // the height cap keeps long forms scrollable
+            'fixed inset-0 z-50 m-auto grid h-fit max-h-[calc(100dvh-2.5rem)] w-[calc(100%-2rem)] gap-3.5 overflow-y-auto rounded-2xl border bg-popover px-6 py-5.5 text-sm text-popover-foreground shadow-dialog outline-none sm:max-w-115 data-open:animate-enter data-closed:animate-out data-closed:fade-out-0 data-closed:duration-150',
             className,
           )}
           {...focus}
@@ -72,7 +73,7 @@ function DialogContent({
           {children}
           {showCloseButton && (
             <DialogPrimitive.Close data-slot="dialog-close" asChild>
-              <Button variant="ghost" className="absolute top-2 right-2" size="icon-sm">
+              <Button variant="ghost" className="absolute top-3 right-3" size="icon-sm">
                 <XIcon />
                 <span className="sr-only">Close</span>
               </Button>
@@ -88,7 +89,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn('flex flex-col gap-1.5 pr-6', className)}
+      className={cn('flex flex-col gap-2.5 pr-8', className)}
       {...props}
     />
   );
@@ -106,9 +107,11 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        // sticks to the bottom of a dialog that scrolls, so Save stays reachable;
-        // not on very short screens (400% zoom), where it would cover the field in focus
-        '-bottom-4 -mx-4 -mb-4 flex [@media(min-height:30rem)]:sticky flex-col-reverse gap-2 rounded-b-xl border-t bg-[color-mix(in_oklab,var(--muted)_50%,var(--popover))] p-4 sm:flex-row sm:justify-end',
+        // the buttons sit at the end of the dialog with no bar of their own. it
+        // sticks to the bottom of a dialog that scrolls, on the dialog's own
+        // surface, so Save stays reachable; not on very short screens (400%
+        // zoom), where it would cover the field in focus
+        '-bottom-5.5 -mx-6 -mb-5.5 flex [@media(min-height:30rem)]:sticky flex-col-reverse gap-2 rounded-b-2xl bg-popover px-6 pt-1 pb-5.5 sm:flex-row sm:justify-end',
         className,
       )}
       {...props}
@@ -127,7 +130,7 @@ function DialogTitle({ className, ...props }: React.ComponentProps<typeof Dialog
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn('font-heading text-heading', className)}
+      className={cn('font-heading text-lg leading-7 font-bold', className)}
       {...props}
     />
   );

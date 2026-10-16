@@ -40,7 +40,8 @@ const RULES: Record<Exclude<CodeLanguage, 'text'>, Rule[]> = {
     ['fn', /(?<=^|\n|\|\s*|&&\s*)(?:curl|npm|npx|export|node|docker|echo)\b/y],
   ],
   json: [
-    ['keyword', /"(?:\\.|[^"\\])*"(?=\s*:)/y],
+    // keys take the petrol of names, as in the json viewer
+    ['fn', /"(?:\\.|[^"\\])*"(?=\s*:)/y],
     ['string', /"(?:\\.|[^"\\])*"/y],
     ['number', /-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/y],
     ['keyword', /\b(?:true|false|null)\b/y],

@@ -75,7 +75,7 @@ async function openMenu(rowText: string) {
 }
 
 describe('API keys page', () => {
-  it('lists name, key prefix, scopes, last use and status, and how many keys of the limit', async () => {
+  it('lists name, key prefix, what it can do, last use and status, and how many keys of the limit', async () => {
     keys = [
       key(),
       key({
@@ -90,20 +90,26 @@ describe('API keys page', () => {
     render();
     expect(screen.getByRole('heading', { level: 1, name: 'API keys' })).toBeInTheDocument();
     expect(
-      screen.getByText('For the REST API and SDK, shown once when created'),
+      await screen.findByText('Keys let your server call the API. 2 of 20 used.'),
     ).toBeInTheDocument();
     await screen.findByText('Production web app');
     const prod = rowOf('Production web app');
     expect(within(prod).getByText('sluby_AbC123…')).toBeInTheDocument();
     expect(within(prod).getByText('3 minutes ago')).toBeInTheDocument();
     expect(within(prod).getByText('Active')).toBeInTheDocument();
+    // the Can column reads the scopes as words, in the order read, upload, manage
+    expect(screen.getByRole('columnheader', { name: 'Can' })).toBeInTheDocument();
+    expect(Array.from(prod.querySelectorAll('td span[title]')).map((c) => c.textContent)).toEqual([
+      'Read',
+      'Upload',
+    ]);
     const ci = rowOf('CI uploader');
     expect(within(ci).getByText('Never')).toBeInTheDocument();
     expect(
       within(ci).getByLabelText(/Created before key prefixes were recorded/),
     ).toBeInTheDocument();
-    expect(within(ci).getByText('Replaced · Stops in 1 hour')).toBeInTheDocument();
-    expect(screen.getByText('2 of 20 keys')).toBeInTheDocument();
+    expect(within(ci).getByText('Replaced · stops in 1 hour')).toBeInTheDocument();
+    expect(ci).toHaveClass('text-muted-foreground');
   });
 
   it('names the table and lets long names wrap (A11Y-36, A11Y-30)', async () => {
@@ -157,10 +163,13 @@ describe('creating a key', () => {
     keys = [{ ...made, key: undefined }, ...keys];
     await act(async () => answer(reply(201, made)));
 
-    const secret = await screen.findByRole('dialog', { name: 'API key created' });
-    expect(secret).toHaveTextContent('Copy “Staging” now. You will not be able to see it again.');
-    expect(within(secret).getByText('sluby_NewKeySecretValue')).toBeInTheDocument();
-    expect(secret).toHaveTextContent('export SLUBY_API_KEY=sluby_NewKeySecretValue');
+    const notice = await screen.findByRole('status', { name: 'Key “Staging” created' });
+    expect(notice).toHaveTextContent('Copy it now. It is shown only once.');
+    // masked until asked for, and the copy takes the keyboard
+    expect(within(notice).getByText('sluby_NewK…alue')).toBeInTheDocument();
+    expect(within(notice).getByRole('button', { name: 'Copy key' })).toHaveFocus();
+    await userEvent.click(within(notice).getByRole('button', { name: 'Show' }));
+    expect(within(notice).getByText('sluby_NewKeySecretValue')).toBeInTheDocument();
     expect(await within(table()).findByText('Staging')).toBeInTheDocument();
     expect(calls('POST', '/api/v1/keys')[0].body).toEqual({
       name: 'Staging',
@@ -300,24 +309,53 @@ describe('creating a key', () => {
   });
 });
 
-describe('the key secret dialog', () => {
-  it('ignores Escape until the key was copied, then closes on I copied it (FLW-50)', async () => {
+describe('the new key notice', () => {
+  async function createStaging() {
     render();
     await screen.findByText('Production web app');
     await userEvent.click(screen.getByRole('button', { name: 'Create key' }));
     const dialog = await screen.findByRole('dialog', { name: 'Create API key' });
     await userEvent.type(within(dialog).getByLabelText('Name'), 'Staging');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create key' }));
-    const secret = await screen.findByRole('dialog', { name: 'API key created' });
-    await userEvent.keyboard('{Escape}');
-    expect(screen.getByRole('dialog', { name: 'API key created' })).toBeInTheDocument();
-    expect(within(secret).queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
-    await userEvent.click(within(secret).getByRole('button', { name: 'Copy API key' }));
+    return screen.findByRole('status', { name: 'Key “Staging” created' });
+  }
+
+  it('asks before closing an uncopied key, and closes at once once it was copied (FLW-50)', async () => {
+    const notice = await createStaging();
+    await userEvent.click(within(notice).getByRole('button', { name: 'Close without copying' }));
+    const ask = await screen.findByRole('alertdialog', { name: 'Close without copying?' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('status', { name: 'Key “Staging” created' })).toBeInTheDocument();
+
+    await userEvent.click(within(notice).getByRole('button', { name: 'Copy key' }));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('sluby_NewKeySecretValue');
-    await userEvent.keyboard('{Escape}');
+    expect(notice).toHaveTextContent('Copied. Store it on your server.');
+    await userEvent.click(within(notice).getByRole('button', { name: 'Done' }));
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: 'API key created' })).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole('status', { name: 'Key “Staging” created' }),
+      ).not.toBeInTheDocument(),
     );
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Create key' })[0]).toHaveFocus(),
+    );
+  });
+
+  it('holds a link out of the page while the key is not copied', async () => {
+    await createStaging();
+    const link = document.createElement('a');
+    link.href = '/studio/videos';
+    link.textContent = 'Videos';
+    document.body.append(link);
+    try {
+      await userEvent.click(link);
+      expect(
+        await screen.findByRole('alertdialog', { name: 'Leave without the key?' }),
+      ).toBeInTheDocument();
+    } finally {
+      link.remove();
+    }
   });
 });
 
@@ -362,15 +400,15 @@ describe('renaming, rotating and revoking', () => {
     await screen.findByText('Production web app');
     const menu = await openMenu('Production web app');
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Rotate' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Rotate this key?' });
+    const dialog = await screen.findByRole('dialog', { name: 'Rotate “Production web app”?' });
     expect(dialog).toHaveTextContent(
-      '“Production web app” (sluby_AbC123…) gets a new key with the same scopes and limit.',
+      'You get a new key with the same name and permissions. The old one keeps working while your servers switch.',
     );
-    expect(dialog).toHaveTextContent('POST /api/v1/keys/{id}/rotate');
-    await userEvent.click(within(dialog).getByRole('combobox'));
-    await userEvent.click(await screen.findByRole('option', { name: '24 hours' }));
+    expect(dialog).toHaveTextContent('This is “Production web app” (sluby_AbC123…).');
+    expect(within(dialog).getByRole('group', { name: 'Old key keeps working for' })).toBeVisible();
+    await userEvent.click(within(dialog).getByRole('radio', { name: '1 day' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Rotate key' }));
-    const secret = await screen.findByRole('dialog', { name: 'API key rotated' });
+    const secret = await screen.findByRole('status', { name: 'Key “Production web app” rotated' });
     expect(secret).toHaveTextContent(/The old key keeps working until .* at /);
     expect(calls('POST', '/api/v1/keys/k1/rotate')[0].body).toEqual({
       grace_period_seconds: 86400,
@@ -391,10 +429,10 @@ describe('renaming, rotating and revoking', () => {
     await screen.findByText('Production web app');
     const menu = await openMenu('Production web app');
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Rotate' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Rotate this key?' });
-    expect(within(dialog).getByRole('combobox')).toHaveTextContent('1 hour');
+    const dialog = await screen.findByRole('dialog', { name: 'Rotate “Production web app”?' });
+    expect(within(dialog).getByRole('radio', { name: '1 hour' })).toBeChecked();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Rotate key' }));
-    const secret = await screen.findByRole('dialog', { name: 'API key rotated' });
+    const secret = await screen.findByRole('status', { name: 'Key “Production web app” rotated' });
     expect(secret).toHaveTextContent(/The old key keeps working until .* at /);
     expect(calls('POST', '/api/v1/keys/k1/rotate')[0].body).toEqual({
       grace_period_seconds: 3600,
@@ -414,11 +452,12 @@ describe('renaming, rotating and revoking', () => {
     await screen.findByText('Production web app');
     const menu = await openMenu('Production web app');
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Rotate' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Rotate this key?' });
-    await userEvent.click(within(dialog).getByRole('combobox'));
-    await userEvent.click(await screen.findByRole('option', { name: 'No, stop it now' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Rotate “Production web app”?' });
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'Stop now' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Rotate key' }));
-    await screen.findByRole('dialog', { name: 'API key rotated' });
+    expect(
+      await screen.findByRole('status', { name: 'Key “Production web app” rotated' }),
+    ).toHaveTextContent('The old key stopped working.');
     expect(calls('POST', '/api/v1/keys/k1/rotate')[0].body).toEqual({
       grace_period_seconds: 0,
     });
@@ -430,7 +469,7 @@ describe('renaming, rotating and revoking', () => {
     await screen.findByText('Production web app');
     const menu = await openMenu('Production web app');
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Rotate' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Rotate this key?' });
+    const dialog = await screen.findByRole('dialog', { name: 'Rotate “Production web app”?' });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Rotate key' }));
     expect(
       await screen.findByText('“Production web app” no longer exists. The list is up to date now'),
@@ -444,7 +483,7 @@ describe('renaming, rotating and revoking', () => {
     await screen.findByText('Production web app');
     const menu = await openMenu('Production web app');
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Rotate' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Rotate this key?' });
+    const dialog = await screen.findByRole('dialog', { name: 'Rotate “Production web app”?' });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Rotate key' }));
     expect(await within(dialog).findByText('Could not rotate the key')).toBeInTheDocument();
   });

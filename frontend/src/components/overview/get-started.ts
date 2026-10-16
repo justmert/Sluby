@@ -5,12 +5,11 @@ import type { VideoAsset } from '@sluby/sdk';
 import type { AssetStats, SystemStatus } from '@/hooks/useStats';
 import type { Usage } from '@/hooks/useUsage';
 
-export type StepId = 'sia' | 'upload' | 'play' | 'key' | 'webhook';
+export type StepId = 'sia' | 'upload' | 'play' | 'key';
 
 export interface StepState {
   id: StepId;
   done: boolean;
-  optional?: boolean;
 }
 
 export interface GetStartedInput {
@@ -21,7 +20,6 @@ export interface GetStartedInput {
   /** the newest videos, whose all-time play counts also tick step 3 */
   videos?: VideoAsset[];
   activeKeys?: number;
-  webhooks?: number;
 }
 
 /** Step 1 is done when the indexer answers and, for an operator, the Sia account is ready. */
@@ -44,13 +42,12 @@ export function stepStates(input: GetStartedInput): StepState[] {
       done: (input.usage?.total ?? 0) > 0 || (input.videos ?? []).some((v) => v.playCount > 0),
     },
     { id: 'key', done: (input.activeKeys ?? 0) > 0 },
-    { id: 'webhook', done: (input.webhooks ?? 0) > 0, optional: true },
   ];
 }
 
 export const REQUIRED_STEPS = 4;
 
-export const doneCount = (steps: StepState[]) => steps.filter((s) => !s.optional && s.done).length;
+export const doneCount = (steps: StepState[]) => steps.filter((s) => s.done).length;
 
 const storageKey = (accountId: string) => `sluby:get-started-dismissed:${accountId}`;
 

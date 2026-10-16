@@ -456,35 +456,50 @@ describe('FLW-46: the queue only waits for a failure that can be resumed', () =>
   });
 });
 
-describe('drafts live in the store, so closing the sheet keeps them', () => {
-  it('adds, renames, removes and starts drafts with the shared options', () => {
+describe('drafts live in the store, so leaving the upload page keeps them', () => {
+  it('adds, edits, removes and starts drafts, each with its own details', () => {
     const s = setup();
     const [d1, d2] = s.store.addDrafts([file, other]);
     expect(s.store.getState().drafts.map((d) => d.title)).toEqual(['clip', 'two']);
-    s.store.updateDraft(d1, { title: 'Clip one' });
-    s.store.setDraftOptions({ accessTier: 'private', description: 'ignored for two files' });
+    s.store.updateDraft(d1, {
+      title: 'Clip one',
+      description: '  A clip  ',
+      accessTier: 'private',
+    });
     s.store.removeDraft(d2);
-    s.store.addDrafts([other]);
-    const keys = s.store.startDrafts();
+    const [d3] = s.store.addDrafts([other]);
+    // a new draft starts with the access chosen last
+    expect(s.store.getState().drafts.find((d) => d.id === d3)?.accessTier).toBe('private');
+    s.store.updateDraft(d3, { accessTier: 'public' });
+    const keys = s.store.startDrafts([d1, d3]);
     expect(keys).toHaveLength(2);
     expect(s.store.getState().drafts).toEqual([]);
     expect(s.f.upload.mock.calls[0][1]).toMatchObject({
       title: 'Clip one',
       accessTier: 'private',
-      description: undefined,
+      description: 'A clip',
     });
     expect(s.store.getState().queued).toEqual([expect.objectContaining({ title: 'two' })]);
-    // the options are kept for the next batch
-    expect(s.store.getState().draftOptions.accessTier).toBe('private');
   });
 
-  it('gives a single draft the description', () => {
+  it('selects the first new draft, unless told to keep the one shown', () => {
     const s = setup();
-    s.store.addDrafts([file]);
-    s.store.setDraftOptions({ description: '  A clip  ' });
-    s.store.startDrafts();
-    expect(s.f.upload.mock.calls[0][1]).toMatchObject({ description: 'A clip' });
-    expect(s.store.getState().draftOptions.description).toBe('');
+    const [d1] = s.store.addDrafts([file]);
+    expect(s.store.getState().selectedDraft).toBe(d1);
+    s.store.addDrafts([other], { select: false });
+    expect(s.store.getState().selectedDraft).toBe(d1);
+    const [d3] = s.store.addDrafts([other]);
+    expect(s.store.getState().selectedDraft).toBe(d3);
+    s.store.selectDraft(d1);
+    expect(s.store.getState().selectedDraft).toBe(d1);
+  });
+
+  it('starts only the drafts it is given and keeps the rest', () => {
+    const s = setup();
+    const [d1, d2] = s.store.addDrafts([file, other]);
+    s.store.startDrafts([d2]);
+    expect(s.f.upload.mock.calls[0][1]).toMatchObject({ title: 'two', description: undefined });
+    expect(s.store.getState().drafts.map((d) => d.id)).toEqual([d1]);
   });
 });
 

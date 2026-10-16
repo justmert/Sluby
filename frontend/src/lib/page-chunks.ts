@@ -10,6 +10,7 @@ export const PAGE_CHUNKS = {
   overview: () => import('@/pages/studio/DashboardPage'),
   videos: () => import('@/pages/studio/AssetsPage'),
   video: () => import('@/pages/studio/AssetDetailPage'),
+  upload: () => import('@/pages/studio/UploadPage'),
   quickstart: () => import('@/pages/studio/developers/QuickstartPage'),
   apiKeys: () => import('@/pages/studio/developers/KeysPage'),
   webhooks: () => import('@/pages/studio/developers/WebhooksPage'),
@@ -26,6 +27,8 @@ export type PageChunk = keyof typeof PAGE_CHUNKS;
 const BY_PATH: Record<string, PageChunk> = {
   [ROUTES.OVERVIEW]: 'overview',
   [ROUTES.VIDEOS]: 'videos',
+  // looked up before DETAIL_PATHS, which would read "upload" as a video id
+  [ROUTES.UPLOAD]: 'upload',
   [ROUTES.DEVELOPERS]: 'quickstart',
   [ROUTES.API_KEYS]: 'apiKeys',
   [ROUTES.WEBHOOKS]: 'webhooks',

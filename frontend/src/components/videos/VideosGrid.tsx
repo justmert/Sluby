@@ -6,14 +6,13 @@ import { RetryProcessingButton } from '@/components/asset/RetryProcessingButton'
 import { AnimatedItem, AnimatedList } from '@/components/motion';
 import type { RowAction } from '@/components/shared/DataTable';
 import { selectRange } from '@/components/shared/select-range';
-import { StatusBadge } from '@/components/shared/StatusBadge';
-import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { isStaleUpload, useSendingAssetIds } from '@/hooks/asset-queries';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { useRowJob, videoMeta } from './video-progress';
 import { VideoRowMenu } from './VideoRowMenu';
+import { VideoStatusChip } from './VideoStatusChip';
 
 const GRID =
   'grid grid-cols-1 gap-4 @xl/page:grid-cols-2 @4xl/page:grid-cols-3 @6xl/page:grid-cols-4';
@@ -39,10 +38,11 @@ function VideoCard({
   const href = ROUTES.video(asset.id);
   const shift = useRef(false);
   return (
-    <Card
+    <div
+      data-state={selected ? 'selected' : undefined}
       className={cn(
-        'group relative h-full gap-0 overflow-hidden py-0 transition-[box-shadow] duration-150',
-        selected && 'ring-2 ring-primary',
+        'group relative flex h-full flex-col overflow-hidden rounded-xl border bg-card transition-colors duration-150 ease-design',
+        selected && 'border-border-strong bg-muted',
       )}
     >
       {/* the title link below names the video; this one is a larger mouse target */}
@@ -61,7 +61,7 @@ function VideoCard({
         data-slot="select-target"
         data-visible={selected || selecting || undefined}
         className={cn(
-          'absolute top-2 left-2 flex size-8 cursor-pointer items-center justify-center rounded-md border bg-background shadow-sm transition-opacity duration-150',
+          'absolute top-2 left-2 flex size-8 cursor-pointer items-center justify-center rounded-md border bg-card transition-opacity duration-150 ease-design',
           // on a mouse the box waits for hover or focus; touch has no hover, so it always shows
           'pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-within:opacity-100 pointer-fine:data-visible:opacity-100',
         )}
@@ -82,11 +82,16 @@ function VideoCard({
             to={href}
             data-video-link={asset.id}
             dir="auto"
-            className="line-clamp-2 rounded-sm text-sm font-medium wrap-anywhere outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring"
+            className="line-clamp-2 rounded-sm font-semibold text-foreground wrap-anywhere hover:text-primary"
           >
             {asset.title}
           </Link>
-          <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+          <p
+            className={cn(
+              'mt-0.5 text-xs tabular-nums',
+              failure ? 'text-destructive' : 'text-muted-foreground',
+            )}
+          >
             {progress?.checking
               ? 'Checking again in a few seconds'
               : failure
@@ -97,15 +102,15 @@ function VideoCard({
           </p>
           {/* min-h-6 holds room for a failed video's Retry before its reason loads */}
           <div className="mt-2 flex min-h-6 flex-wrap items-center gap-2">
-            <StatusBadge kind="asset" status={asset.status} />
+            <VideoStatusChip asset={asset} progress={progress} stale={stale} percent />
             {failure?.action === 'retry' && (
               <RetryProcessingButton asset={asset} named compact variant="outline" size="xs" />
             )}
           </div>
         </div>
-        <VideoRowMenu actions={actions} title={asset.title} />
+        <VideoRowMenu actions={actions} title={asset.title} className="-mt-1 -mr-1" />
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -119,9 +124,10 @@ export interface VideosGridProps {
 }
 
 /**
- * The library as cards, the alternative to the table. A processing video's
- * tile shows its stage and percent, a failed one a red tint (VIS-31 R2);
- * titles wrap to two lines (A11Y-27). Shift-click selects a range.
+ * The library as tiles, the alternative to the table, in the table's own
+ * card, chip and selection language. A processing video's tile shows its
+ * stage and percent, a failed one its reason in red; titles wrap to two
+ * lines (A11Y-27). Shift-click selects a range.
  */
 export function VideosGrid({
   assets,

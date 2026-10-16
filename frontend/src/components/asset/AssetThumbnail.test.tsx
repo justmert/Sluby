@@ -28,9 +28,9 @@ describe('AssetThumbnail', () => {
     expect(screen.queryByText('Transcoding, 5%')).not.toBeInTheDocument();
   });
 
-  it('tints a failed video and says so in the grid size', () => {
+  it('edges a failed video in red and says so in the grid size', () => {
     const { container } = render(<AssetThumbnail size="md" thumbnailObjectIds={['t1']} failed />);
-    expect(container.firstElementChild).toHaveClass('bg-destructive/10');
+    expect(container.firstElementChild).toHaveClass('border-destructive/40');
     expect(screen.getByText('Failed')).toBeInTheDocument();
   });
 

@@ -53,7 +53,7 @@ function Pre({
       aria-label={/\bcode$/i.test(label) ? label : `${label} code`}
       className={cn(
         // no ligatures: code people copy should show !== and => as typed
-        'overflow-x-auto rounded-lg p-4 pr-12 font-mono text-xs leading-relaxed [font-variant-ligatures:none] outline-none focus-visible:ring-3 focus-visible:ring-ring',
+        'overflow-x-auto bg-card p-4 font-mono text-[13px] leading-[1.7] text-foreground [font-variant-ligatures:none] outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid',
         className,
       )}
     >
@@ -77,6 +77,8 @@ export interface CodeBlockProps {
   language?: CodeLanguage;
   /** names the snippet for the copy button: "Copy {label}" */
   label: string;
+  /** a file name for the header, in mono, such as "App.tsx" */
+  filename?: string;
   /** several versions of one snippet, shown as tabs with one copy button */
   samples?: CodeSample[];
   /** the selected tab, for a page that remembers it across snippets */
@@ -105,6 +107,7 @@ export function CodeBlock({
   code,
   language = 'text',
   label,
+  filename,
   samples,
   value,
   onValueChange,
@@ -115,19 +118,26 @@ export function CodeBlock({
 }: CodeBlockProps) {
   const [own, setOwn] = useState(samples?.[0]?.label ?? '');
   const selected = samples?.find((s) => s.label === (value ?? own)) ?? samples?.[0] ?? undefined;
+  // the design's frame: 10 px corners, the page ground behind the header,
+  // the card surface behind the code
+  const frame = 'overflow-hidden rounded-lg border bg-card';
+  const header = 'flex flex-wrap items-center gap-2 border-b bg-background';
+  const copyClass = 'ml-auto h-7 px-2.5 text-xs';
 
   if (!samples || samples.length === 0) {
     return (
-      <div
-        data-slot="code-block"
-        className={cn('relative rounded-lg border bg-muted/40', className)}
-      >
-        <CopyButton
-          value={code ?? ''}
-          label={`Copy ${label}`}
-          onCopied={onCopied}
-          className="absolute top-2 right-2 bg-muted"
-        />
+      <div data-slot="code-block" className={cn(frame, className)}>
+        <div className={cn(header, 'py-1.5 pr-1.5 pl-3.5 text-xs text-muted-foreground')}>
+          {filename && <span className="min-w-0 truncate font-mono">{filename}</span>}
+          <CopyButton
+            value={code ?? ''}
+            label={`Copy ${label}`}
+            onCopied={onCopied}
+            withText
+            variant="outline"
+            className={copyClass}
+          />
+        </div>
         <Pre code={code ?? ''} language={language} label={label} className={preClassName} />
       </div>
     );
@@ -141,32 +151,34 @@ export function CodeBlock({
         setOwn(next);
         onValueChange?.(next);
       }}
-      className={cn('gap-0 rounded-lg border bg-muted/40', className)}
+      className={cn('gap-0', frame, className)}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-2 py-1.5">
-        <TabsList variant="line" className="h-7" aria-label={tabsLabel}>
+      <div className={cn(header, 'p-1.5')}>
+        <TabsList aria-label={tabsLabel}>
           {samples.map((s) => (
-            <TabsTrigger key={s.label} value={s.label} className="px-2 text-xs">
+            <TabsTrigger key={s.label} value={s.label}>
               {s.label}
             </TabsTrigger>
           ))}
         </TabsList>
+        {filename && (
+          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+            {filename}
+          </span>
+        )}
         <CopyButton
           value={selected?.code ?? ''}
           label={`Copy ${label}${selected ? ` (${selected.label})` : ''}`}
           onCopied={onCopied}
-          className="ml-auto"
+          withText
+          variant="outline"
+          className={copyClass}
         />
       </div>
       {samples.map((s) => (
         // the code inside is the focus stop; a focusable panel too would be two for one snippet
-        <TabsContent key={s.label} value={s.label} tabIndex={-1} className="rounded-t-none">
-          <Pre
-            code={s.code}
-            language={s.language}
-            label={label}
-            className={cn('pr-4', preClassName)}
-          />
+        <TabsContent key={s.label} value={s.label} tabIndex={-1} className="rounded-none">
+          <Pre code={s.code} language={s.language} label={label} className={preClassName} />
         </TabsContent>
       ))}
     </Tabs>

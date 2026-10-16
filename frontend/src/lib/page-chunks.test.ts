@@ -10,7 +10,8 @@ describe('page chunks', () => {
     expect(chunkFor(ROUTES.video('abc'))).toBe('video');
     expect(chunkFor(ROUTES.webhook('w1'))).toBe('webhook');
     expect(chunkFor('/studio/videos/abc/')).toBe('video');
-    expect(chunkFor('/studio/videos?upload=1')).toBe('videos');
+    expect(chunkFor('/studio/videos/upload')).toBe('upload');
+    expect(chunkFor('/studio/videos/upload/')).toBe('upload');
     expect(chunkFor('/elsewhere')).toBeUndefined();
     expect(chunkFor('/studio/assets')).toBeUndefined();
   });

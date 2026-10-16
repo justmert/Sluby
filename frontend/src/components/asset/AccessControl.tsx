@@ -1,5 +1,4 @@
 import { useId, useRef, useState } from 'react';
-import { Globe, Lock } from 'lucide-react';
 import type { AccessTier } from '@sluby/sdk';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
@@ -77,7 +76,6 @@ export function AccessControl({
           ref={group}
           type="single"
           variant="segmented"
-          size="sm"
           value={value}
           disabled={disabled}
           aria-label="Who can watch"
@@ -89,14 +87,8 @@ export function AccessControl({
             setPending(next as AccessTier);
           }}
         >
-          <ToggleGroupItem value="public">
-            <Globe aria-hidden="true" />
-            Public
-          </ToggleGroupItem>
-          <ToggleGroupItem value="private">
-            <Lock aria-hidden="true" />
-            Private
-          </ToggleGroupItem>
+          <ToggleGroupItem value="public">Public</ToggleGroupItem>
+          <ToggleGroupItem value="private">Private</ToggleGroupItem>
         </ToggleGroup>
       </PopoverAnchor>
       <PopoverContent

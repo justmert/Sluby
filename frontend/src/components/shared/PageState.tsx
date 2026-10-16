@@ -24,13 +24,13 @@ interface PageStateProps {
   description?: ReactNode;
   /** the raw text behind the state, folded under Details; with `error` it defaults to the raw message */
   detail?: string;
-  /** buttons or links for the way out; secondary first, primary last */
+  /** buttons or links for the way out, primary first as in the design */
   actions?: ReactNode;
-  /** `error` tints the icon; set for you when `error` is given */
+  /** `error` draws the icon and its frame in the danger color; set for you when `error` is given */
   tone?: 'default' | 'error';
   /** the error behind a whole-page failure; its words come from lib/errors.ts */
   error?: unknown;
-  /** adds Try again (primary, last) when the error is worth retrying */
+  /** adds Try again (primary, first) when the error is worth retrying */
   onRetry?: () => unknown;
   retrying?: boolean;
 }
@@ -71,8 +71,11 @@ export function PageState({
         <EmptyHeader>
           {Icon && (
             <m.div variants={scaleIn}>
-              <EmptyMedia variant="icon" className="size-10 rounded-xl">
-                <Icon className={cn('size-5', errorTone && 'text-destructive')} />
+              <EmptyMedia
+                variant="icon"
+                className={cn(errorTone && 'border-destructive-line text-destructive')}
+              >
+                <Icon />
               </EmptyMedia>
             </m.div>
           )}
@@ -84,13 +87,13 @@ export function PageState({
         </EmptyHeader>
         {(actions || canRetry) && (
           <EmptyContent className="flex-row flex-wrap justify-center gap-2">
-            {actions}
             {canRetry && (
               <Button onClick={() => void onRetry()} disabled={retrying}>
                 {retrying ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <RotateCcw />}
                 {retrying ? 'Trying again…' : 'Try again'}
               </Button>
             )}
+            {actions}
           </EmptyContent>
         )}
       </Empty>
