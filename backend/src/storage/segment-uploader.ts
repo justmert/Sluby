@@ -1,6 +1,7 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { uploadAndPin, uploadAndPinPacked, deleteObject } from './sia-client.js';
+import { uploadAndPinPacked, pruneSlabs, type PackedSource } from './sia-client.js';
+import type { ObjectLedger } from './object-ledger.js';
 import {
   rewriteVariantPlaylist,
   rewriteMasterPlaylist,
@@ -35,6 +36,13 @@ export interface UploadSegmentsOptions {
    */
   thumbnailPaths?: string[];
   onProgress?: (uploaded: number, total: number) => void;
+  /**
+   * Gets every object id before its pin, and back the ones this upload pinned
+   * when it fails or is stopped, so no pinned object goes unrecorded.
+   */
+  ledger: ObjectLedger;
+  /** Runs before each upload; a throw stops the upload (its asset was deleted). */
+  checkpoint?: () => Promise<void>;
 }
 
 /** Packed uploads that make up one asset, used as the progress total. */
@@ -60,29 +68,8 @@ export async function uploadSegments(
   outputDir: string,
   options: UploadSegmentsOptions,
 ): Promise<UploadSegmentsResult> {
-  const { thumbnailPaths = [] } = options;
-
-  const masterContent = await readFile(path.join(outputDir, 'master.m3u8'), 'utf-8');
-  const variantPaths = parseMasterPlaylist(masterContent);
-
-  const variants = await Promise.all(
-    variantPaths.map(async (variantPath) => {
-      const playlistContent = await readFile(path.join(outputDir, variantPath), 'utf-8');
-      const parsed = parseVariantPlaylist(playlistContent);
-      if (!parsed.dataFilename) {
-        throw new Error(
-          `variant ${variantPath} has no data file reference (single_file mode expected)`,
-        );
-      }
-      return {
-        variantPath,
-        playlistContent,
-        dataFilename: parsed.dataFilename,
-        dataPath: path.join(outputDir, path.dirname(variantPath), parsed.dataFilename),
-        segmentCount: parsed.segmentCount,
-      };
-    }),
-  );
+  const { thumbnailPaths = [], ledger } = options;
+  const { masterContent, variants } = await readTranscodeOutput(outputDir);
 
   let uploadedStages = 0;
   const stageDone = () => {
@@ -90,11 +77,27 @@ export async function uploadSegments(
     options.onProgress?.(uploadedStages, UPLOAD_STAGES);
   };
   const allObjectIds: string[] = [];
+  // every id handed to the ledger, including ones whose pin then failed
+  const recorded: string[] = [];
 
-  // Everything from here on pins objects on Sia. If any step fails, this
-  // whole stage is retried by BullMQ from scratch and would re-pin every
-  // object, orphaning the ones pinned this attempt. So on failure we unpin
-  // what we pinned before rethrowing, keeping the retry clean.
+  const upload = async (items: PackedSource[]) => {
+    await options.checkpoint?.();
+    let attemptIds: string[] = [];
+    try {
+      return await uploadAndPinPacked(items, {
+        beforePin: async (ids) => {
+          await ledger.record(ids);
+          attemptIds = ids;
+          recorded.push(...ids);
+        },
+      });
+    } catch (err) {
+      // a failed pin leaves recorded ids that the retry below will not use
+      await ledger.release(attemptIds);
+      throw err;
+    }
+  };
+
   try {
     // ── 1. variant data files + thumbnails ──────────────────────────
     const dataSources = [
@@ -105,9 +108,7 @@ export async function uploadSegments(
       { variants: variants.length, thumbnails: thumbnailPaths.length },
       'Uploading variant data and thumbnails to Sia',
     );
-    const dataResults = await withRetries('variant data upload', () =>
-      uploadAndPinPacked(dataSources),
-    );
+    const dataResults = await withRetries('variant data upload', () => upload(dataSources));
     allObjectIds.push(...dataResults.map((r) => r.objectId));
     const variantData = dataResults.slice(0, variants.length);
     const thumbnailResults = dataResults.slice(variants.length);
@@ -123,7 +124,7 @@ export async function uploadSegments(
         ),
       ),
     );
-    const playlistResults = await uploadAndPinPacked(rewrittenPlaylists);
+    const playlistResults = await upload(rewrittenPlaylists);
     allObjectIds.push(...playlistResults.map((r) => r.objectId));
     stageDone();
 
@@ -145,10 +146,9 @@ export async function uploadSegments(
     const masterBytes = new TextEncoder().encode(
       rewriteMasterPlaylist(masterContent, variantObjectMap, ''),
     );
-    const masterResult = await uploadAndPin(masterBytes);
+    const [masterResult] = await upload([masterBytes]);
     allObjectIds.push(masterResult.objectId);
     stageDone();
-
     // renditions are segmented identically, so the asset's segment count is
     // the per-rendition count, not the sum across renditions
     const totalSegments = Math.max(0, ...variants.map((v) => v.segmentCount));
@@ -202,21 +202,70 @@ export async function uploadSegments(
       storageRecords,
     };
   } catch (err) {
-    if (allObjectIds.length > 0) {
+    // a retry of the stage uploads everything again, so nothing of this
+    // attempt is kept; what cannot be unpinned now stays marked for release
+    if (recorded.length > 0) {
       logger.warn(
-        { count: allObjectIds.length, err },
-        'upload-segments failed; unpinning objects pinned this attempt to avoid orphans',
+        { count: recorded.length, err },
+        'upload-segments stopped; releasing the objects this attempt pinned',
       );
-      for (const id of allObjectIds) {
-        try {
-          await deleteObject(id);
-        } catch (cleanupErr) {
-          logger.warn({ objectId: id, cleanupErr }, 'cleanup unpin failed');
-        }
-      }
+      await ledger.release(recorded);
+      pruneSlabs().catch((pruneErr: unknown) => {
+        logger.warn({ err: pruneErr }, 'Slab prune after a stopped upload failed');
+      });
     }
     throw err;
   }
+}
+
+interface TranscodedVariant {
+  variantPath: string;
+  playlistContent: string;
+  dataFilename: string;
+  dataPath: string;
+  segmentCount: number;
+}
+
+/**
+ * Read and check the transcode output before anything is pinned. A master
+ * without variants, or a variant playlist without segments or without its
+ * end tag, is the leftover of a failed FFmpeg run and must never be
+ * published as a video.
+ */
+async function readTranscodeOutput(
+  outputDir: string,
+): Promise<{ masterContent: string; variants: TranscodedVariant[] }> {
+  const masterContent = await readFile(path.join(outputDir, 'master.m3u8'), 'utf-8');
+  const variantPaths = parseMasterPlaylist(masterContent);
+  if (variantPaths.length === 0) {
+    throw new Error(`${outputDir}/master.m3u8 lists no variant playlists`);
+  }
+
+  const variants = await Promise.all(
+    variantPaths.map(async (variantPath) => {
+      const playlistContent = await readFile(path.join(outputDir, variantPath), 'utf-8');
+      const parsed = parseVariantPlaylist(playlistContent);
+      if (!parsed.dataFilename) {
+        throw new Error(
+          `variant ${variantPath} has no data file reference (single_file mode expected)`,
+        );
+      }
+      if (parsed.segmentCount === 0) throw new Error(`variant ${variantPath} has no segments`);
+      if (!/^#EXT-X-ENDLIST\s*$/m.test(playlistContent)) {
+        throw new Error(`variant ${variantPath} is not finished (no #EXT-X-ENDLIST)`);
+      }
+      const dataPath = path.join(outputDir, path.dirname(variantPath), parsed.dataFilename);
+      if ((await stat(dataPath)).size === 0) throw new Error(`${dataPath} is empty`);
+      return {
+        variantPath,
+        playlistContent,
+        dataFilename: parsed.dataFilename,
+        dataPath,
+        segmentCount: parsed.segmentCount,
+      };
+    }),
+  );
+  return { masterContent, variants };
 }
 
 /**

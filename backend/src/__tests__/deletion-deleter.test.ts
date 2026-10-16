@@ -26,6 +26,9 @@ function makeDeps(overrides: Partial<DeletionDeps> = {}) {
     removeSources: vi.fn(async (id: string) => {
       calls.push(`sources:${id}`);
     }),
+    removeOutput: vi.fn(async (id: string) => {
+      calls.push(`output:${id}`);
+    }),
     logger: { info: vi.fn(), warn: vi.fn() },
     ...overrides,
   };
@@ -33,7 +36,7 @@ function makeDeps(overrides: Partial<DeletionDeps> = {}) {
 }
 
 describe('runAssetDeletion', () => {
-  it('unpins all, evicts + marks them, prunes, then removes the row', async () => {
+  it('unpins, evicts and marks each object as it goes, prunes, then removes the row', async () => {
     const { deps, calls } = makeDeps();
 
     const result = await runAssetDeletion(deps, {
@@ -42,16 +45,20 @@ describe('runAssetDeletion', () => {
     });
 
     expect(deps.deleteObject).toHaveBeenCalledTimes(3);
-    expect(deps.evictCache).toHaveBeenCalledWith(['o1', 'o2', 'o3']);
-    expect(deps.markUnpinned).toHaveBeenCalledWith('v1', ['o1', 'o2', 'o3']);
     expect(deps.removeAsset).toHaveBeenCalledWith('v1');
+    // recorded one by one, so a crash after any unpin loses nothing
     expect(calls).toEqual([
       'sources:v1',
+      'output:v1',
       'delete:o1',
+      'evict:o1',
+      'mark:o1',
       'delete:o2',
+      'evict:o2',
+      'mark:o2',
       'delete:o3',
-      'evict:o1+o2+o3',
-      'mark:o1+o2+o3',
+      'evict:o3',
+      'mark:o3',
       'prune',
       'remove:v1',
     ]);
@@ -70,8 +77,10 @@ describe('runAssetDeletion', () => {
 
     // Only the successful objects are evicted + marked (so the retry re-collects
     // just o2), the row is kept, and prune still ran.
-    expect(deps.evictCache).toHaveBeenCalledWith(['o1', 'o3']);
-    expect(deps.markUnpinned).toHaveBeenCalledWith('v1', ['o1', 'o3']);
+    expect(vi.mocked(deps.markUnpinned).mock.calls).toEqual([
+      ['v1', ['o1']],
+      ['v1', ['o3']],
+    ]);
     expect(deps.pruneSlabs).toHaveBeenCalledTimes(1);
     expect(deps.removeAsset).not.toHaveBeenCalled();
   });

@@ -348,7 +348,6 @@ describe.skipIf(!hasTestDatabase)('pipeline record queries (postgres)', () => {
         status: 'queued',
         progressPercent: 0,
         retryCount: 0,
-        maxRetries: 3,
         logs: [],
         startedAt: null,
         completedAt: null,

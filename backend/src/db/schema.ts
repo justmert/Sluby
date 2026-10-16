@@ -165,8 +165,8 @@ export const processingJobs = pgTable(
     errorMessage: text('error_message'),
     startedAt: timestamp('started_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+    // automatic and manual retries of the asset's pipeline stages
     retryCount: integer('retry_count').notNull().default(0),
-    maxRetries: integer('max_retries').notNull().default(3),
     logs: jsonb('logs')
       .$type<Array<{ timestamp: string; stage: string; message: string }>>()
       .default([]),
@@ -237,6 +237,37 @@ export const artifacts = pgTable(
     index('artifacts_rendition_id_idx').on(t.renditionId),
     // The delivery gateway resolves an object's access tier by object id.
     index('artifacts_object_id_idx').on(t.objectId),
+  ],
+);
+
+/**
+ * What a pending object is waiting for: `uploading` while the run that pinned
+ * it may still promote it to an artifact, `release` once nothing will and it
+ * must be unpinned.
+ */
+export const pendingObjectStateEnum = pgEnum('pending_object_state', ['uploading', 'release']);
+
+/**
+ * pending_objects holds every Sia object the pipeline pins before finalize
+ * records it in artifacts, written just before the pin, and every object that
+ * is to be unpinned but has not been yet. No foreign key on purpose: a row has
+ * to outlive its asset, since an upload can still pin after the asset row is
+ * gone, and the deletion GC sweep unpins what is left here.
+ */
+export const pendingObjects = pgTable(
+  'pending_objects',
+  {
+    objectId: text('object_id').primaryKey(),
+    videoAssetId: uuid('video_asset_id').notNull(),
+    // the processing run (transcode job id or retry id) that pinned it
+    runKey: text('run_key').notNull(),
+    state: pendingObjectStateEnum('state').notNull().default('uploading'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('pending_objects_video_asset_id_idx').on(t.videoAssetId),
+    index('pending_objects_state_idx').on(t.state),
   ],
 );
 
@@ -595,6 +626,7 @@ export type Rendition = typeof renditions.$inferSelect;
 export type NewRendition = typeof renditions.$inferInsert;
 
 export type Artifact = typeof artifacts.$inferSelect;
+export type PendingObject = typeof pendingObjects.$inferSelect;
 export type NewArtifact = typeof artifacts.$inferInsert;
 
 export type ApiKey = typeof apiKeys.$inferSelect;

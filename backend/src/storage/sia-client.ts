@@ -270,23 +270,30 @@ function erasureOptions(): PackedUploadOptions | undefined {
   return undefined;
 }
 
+/**
+ * A packed upload that has stored no shard for this long is hung and gets
+ * cancelled. The SDK bounds each host write (90 s) and each indexer call
+ * (45 s), but not the upload as a whole, which can wait on hosts for good.
+ */
+export const UPLOAD_STALL_TIMEOUT_MS = 10 * 60 * 1000;
+
+export interface PackedUploadHooks {
+  /**
+   * Gets the object ids once the data is stored and before any object is
+   * pinned, so the caller can record them first and a crash after the pin
+   * still leaves a record of what to unpin. A throw here pins nothing.
+   */
+  beforePin?: (objectIds: string[]) => Promise<void>;
+  stallTimeoutMs?: number;
+}
+
 /** Upload a single Uint8Array as one packed object. */
-export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
-  const sdk = await getClient();
-  const endTimer = siaUploadDurationSeconds.startTimer();
-  const opts = erasureOptions();
-  const packed = opts ? sdk.uploadPacked(opts) : sdk.uploadPacked();
-  await packed.add(bytesToStream(data));
-  const objects = await packed.finalize();
-  if (objects.length !== 1) {
-    throw new Error(`uploadAndPin expected 1 packed object, got ${objects.length}`);
-  }
-  const obj = objects[0];
-  await sdk.pinObject(obj);
-  const objectId = obj.id();
-  endTimer();
-  logger.info({ objectId, size: data.length }, 'Object uploaded + pinned to Sia');
-  return { objectId, size: data.length };
+export async function uploadAndPin(
+  data: Uint8Array,
+  hooks: PackedUploadHooks = {},
+): Promise<UploadResult> {
+  const [result] = await uploadAndPinPacked([data], hooks);
+  return result;
 }
 
 /** One item of a packed upload: bytes in memory, or a file the SDK reads from disk. */
@@ -298,27 +305,82 @@ export type PackedSource = Uint8Array | { path: string };
  * holds, so packing small items together is far cheaper than uploading each
  * one on its own. Large items simply span more slabs, which the SDK uploads
  * concurrently.
+ *
+ * The SDK pins each slab as soon as it is stored, before any object exists,
+ * so a failed upload leaves pinned slabs behind; they are pruned once no
+ * other upload is in flight (see pruneSlabs).
  */
-export async function uploadAndPinPacked(items: PackedSource[]): Promise<UploadResult[]> {
+export async function uploadAndPinPacked(
+  items: PackedSource[],
+  hooks: PackedUploadHooks = {},
+): Promise<UploadResult[]> {
   if (items.length === 0) return [];
   const sdk = await getClient();
-  const endTimer = siaUploadDurationSeconds.startTimer();
-  const opts = erasureOptions();
-  const packed = opts ? sdk.uploadPacked(opts) : sdk.uploadPacked();
-  for (const item of items) {
-    // files are read in rust rather than streamed chunk by chunk through js
-    if (item instanceof Uint8Array) await packed.add(bytesToStream(item));
-    else await packed.addPath(item.path);
+  await pruneGate.beginUpload();
+  try {
+    return await packedUpload(sdk, items, hooks);
+  } catch (err) {
+    requestSlabPrune('failed upload');
+    throw err;
+  } finally {
+    pruneGate.endUpload();
   }
-  const objects = await packed.finalize();
+}
+
+async function packedUpload(
+  sdk: Sdk,
+  items: PackedSource[],
+  hooks: PackedUploadHooks,
+): Promise<UploadResult[]> {
+  const endTimer = siaUploadDurationSeconds.startTimer();
+  const stallMs = hooks.stallTimeoutMs ?? UPLOAD_STALL_TIMEOUT_MS;
+  let onStall: (err: Error) => void = () => {};
+  const stalled = new Promise<never>((_, reject) => {
+    onStall = reject;
+  });
+  const timer = setTimeout(() => {
+    packed.cancel();
+    onStall(
+      new Error(`Sia upload stored nothing for ${Math.round(stallMs / 1000)}s and was cancelled`),
+    );
+  }, stallMs);
+  const progressed = () => {
+    timer.refresh();
+  };
+  const packed = sdk.uploadPacked({ ...erasureOptions(), onShardUploaded: progressed });
+
+  let objects: SdkPinnedObject[];
+  try {
+    const work = (async () => {
+      for (const item of items) {
+        // files are read in rust rather than streamed chunk by chunk through js
+        if (item instanceof Uint8Array) await packed.add(bytesToStream(item));
+        else await packed.addPath(item.path);
+        progressed();
+      }
+      return packed.finalize();
+    })();
+    // after a stall the cancelled calls reject too, with nobody waiting
+    work.catch(() => {});
+    objects = await Promise.race([work, stalled]);
+  } catch (err) {
+    // stops the slab uploads still running; the ones already stored stay pinned
+    packed.cancel();
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+
   if (objects.length !== items.length) {
     throw new Error(`uploadAndPinPacked expected ${items.length} objects, got ${objects.length}`);
   }
+  await hooks.beforePin?.(objects.map((obj) => obj.id()));
+
   // pin in parallel: each pin is one indexd http call, no host round trip
   const pins = await Promise.allSettled(objects.map((obj) => sdk.pinObject(obj)));
   const failed = pins.find((p): p is PromiseRejectedResult => p.status === 'rejected');
   if (failed) {
-    // the caller never learns these ids, so unpin them here or they leak
+    // without beforePin the caller never learns these ids, so unpin them here
     await Promise.allSettled(
       objects
         .filter((_, i) => pins[i].status === 'fulfilled')
@@ -528,22 +590,113 @@ export async function listHosts(): Promise<IndexerHost[]> {
 // Delete / maintenance
 // ---------------------------------------------------------------------------
 
-export async function deleteObject(objectId: string): Promise<void> {
+/** What unpinning found: the object was pinned, or the indexer did not have it. */
+export type UnpinOutcome = 'unpinned' | 'not-found';
+
+/**
+ * Unpin an object. One the indexer does not have counts as done: it was
+ * unpinned before (a deletion that crashed after the unpin and before
+ * recording it), or never pinned (an id recorded just before its pin).
+ */
+export async function deleteObject(objectId: string): Promise<UnpinOutcome> {
   const sdk = await getClient();
-  await sdk.deleteObject(objectId);
+  try {
+    await sdk.deleteObject(objectId);
+  } catch (err) {
+    if (!isIndexerNotFound(err)) throw err;
+    logger.info({ objectId }, 'Object was not pinned on indexd');
+    return 'not-found';
+  }
   logger.info({ objectId }, 'Object deleted from indexd');
+  return 'unpinned';
 }
 
 /**
- * Unpin slabs that aren't referenced by any object on this account.
- * indexd's autopilot also runs this in the background, but giving it a
- * push from the queue worker means freed storage shows up in dashboard
- * metrics promptly.
+ * The napi binding hands errors over as text, so the indexer's status is read
+ * from the `Api(<status>, <body>)` part the SDK formats into the message
+ * (sia_storage sdk.rs maps app client errors with `{e:?}`), not from the body.
  */
-export async function pruneSlabs(): Promise<void> {
+export function isIndexerNotFound(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /\bApi\(404\b/.test(message);
+}
+
+/**
+ * Keeps slab pruning and uploads apart. indexd prunes every slab of the
+ * account that no pinned object references (persist/postgres/slabs.go
+ * PruneSlabs), and the SDK pins each slab of an upload as soon as it is
+ * stored but the objects only at the end, so a prune during an upload strips
+ * that upload's slabs: indexd drops their sector records, and the SDK's pin
+ * then has to re-pin slabs whose sectors the hosts may already have dropped.
+ * Uploads and prunes all go through this process (the workers and the API
+ * share it), so an in-process gate is enough: a prune waits until no upload
+ * is in flight, and uploads wait for a running prune.
+ */
+class SlabPruneGate {
+  private uploads = 0;
+  private wanted = false;
+  private running: Promise<void> | null = null;
+
+  constructor(private readonly prune: () => Promise<void>) {}
+
+  async beginUpload(): Promise<void> {
+    while (this.running) await this.running.catch(() => {});
+    this.uploads += 1;
+  }
+
+  endUpload(): void {
+    this.uploads -= 1;
+    if (this.uploads === 0 && this.wanted) {
+      this.start().catch((err: unknown) => {
+        logger.warn({ err }, 'Deferred slab prune failed');
+      });
+    }
+  }
+
+  async request(): Promise<'pruned' | 'deferred'> {
+    if (this.running) {
+      // it may have read the slab list before the caller unpinned anything
+      await this.running.catch(() => {});
+      return this.request();
+    }
+    if (this.uploads > 0) {
+      this.wanted = true;
+      return 'deferred';
+    }
+    await this.start();
+    return 'pruned';
+  }
+
+  private start(): Promise<void> {
+    if (this.running) return this.running;
+    this.wanted = false;
+    this.running = this.prune().finally(() => {
+      this.running = null;
+    });
+    return this.running;
+  }
+}
+
+const pruneGate = new SlabPruneGate(async () => {
   const sdk = await getClient();
   await sdk.pruneSlabs();
-  logger.debug('pruneSlabs() executed against indexd');
+  logger.info('Pruned slabs no object references');
+});
+
+/**
+ * Unpin the account's slabs that no object references: the slabs of objects
+ * deleted since, and the slabs a failed upload stored. indexd only prunes on
+ * this request, it has no background prune. Runs now when no upload is in
+ * flight, otherwise once the last one ends ('deferred').
+ */
+export function pruneSlabs(): Promise<'pruned' | 'deferred'> {
+  return pruneGate.request();
+}
+
+function requestSlabPrune(reason: string): void {
+  pruneSlabs().catch((err: unknown) => {
+    logger.warn({ err, reason }, 'Slab prune failed');
+  });
 }
 
 /**

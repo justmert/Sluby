@@ -34,9 +34,16 @@ export interface TranscodeJobData {
 
 export interface UploadSegmentsJobData {
   videoAssetId: string;
-  uploadSessionId: string;
+  /** the upload the source came from; absent only for an asset that has no session left */
+  uploadSessionId?: string;
+  /** the finished run directory, which no other execution writes to */
   outputDir: string;
   accessTier: string;
+  /** from the transcode's completion marker; absent on jobs queued before it existed */
+  durationMs?: number;
+  resolution?: string;
+  /** queued by a retry, so this stage starts the run (and sends processing.started) */
+  startsRun?: boolean;
   /** The processing attempt this job belongs to, see stageJobId. */
   runId?: string;
   /**
@@ -49,7 +56,9 @@ export interface UploadSegmentsJobData {
 
 export interface FinalizeJobData {
   videoAssetId: string;
-  uploadSessionId: string;
+  uploadSessionId?: string;
+  /** The processing attempt this job belongs to, see stageJobId. */
+  runId?: string;
   manifestObjectId: string;
   thumbnailObjectIds: string[];
   siaObjectIds?: string[];
@@ -58,7 +67,7 @@ export interface FinalizeJobData {
   segmentCount: number;
   totalStorageBytes: number;
   /** Normalized rendition + artifact mapping to persist for this asset. */
-  storageRecords?: StorageRecords;
+  storageRecords: StorageRecords;
 }
 
 export interface ReconcileJobData {
@@ -71,7 +80,14 @@ export interface ReconcileJobData {
  * row; `gc` sweeps for soft-deleted assets whose deletion never finished and
  * re-enqueues a `delete` for each.
  */
-export type DeletionJobData = { kind: 'delete'; videoAssetId: string } | { kind: 'gc' };
+export type DeletionJobData =
+  | {
+      kind: 'delete';
+      videoAssetId: string;
+      /** how many times the gc sweep has queued this asset again */
+      redrive?: number;
+    }
+  | { kind: 'gc' };
 
 export type VideoProcessingJobData = TranscodeJobData | UploadSegmentsJobData | FinalizeJobData;
 

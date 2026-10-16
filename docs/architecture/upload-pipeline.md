@@ -79,22 +79,27 @@ sequenceDiagram
   participant W as Webhook queue
 
   Q->>TW: transcode job
-  TW->>DB: asset status processing
-  TW->>W: processing.started
-  TW->>TW: ffprobe, FFmpeg ladder, 3 thumbnails
+  TW->>DB: asset still processing? status processing
+  TW->>W: processing.started (first attempt of a run)
+  TW->>TW: ffprobe and FFmpeg ladder into a fresh run directory
   TW->>DB: duration and resolution
-  TW->>Q: add upload-segments job (jobId upload-{assetId})
+  TW->>TW: 3 thumbnails, then the completion marker
+  TW->>Q: add upload-segments job (jobId upload-{assetId}) with the run directory
   Q->>UW: upload-segments job
+  UW->>DB: before each pin: object ids into pending_objects
   UW->>SIA: 1. packed upload: every data.m4s and the thumbnails, then pin
   UW->>SIA: 2. packed upload: variant playlists rewritten to data object ids, then pin
-  UW->>SIA: 3. upload: master playlist rewritten to playlist object ids, then pin
+  UW->>SIA: 3. packed upload: master playlist rewritten to playlist object ids, then pin
   UW->>Q: add finalize job (jobId finalize-{assetId})
   Q->>FW: finalize job
-  FW->>DB: insert renditions and artifacts, asset status ready
-  FW->>FW: warm the gateway cache with manifests and thumbnails
+  FW->>DB: one transaction: renditions, artifacts, asset ready, job completed, pending objects settled
   FW->>W: asset.ready
+  FW->>SIA: unpin objects marked for release
+  FW->>FW: warm the gateway cache with manifests and thumbnails
   FW->>FW: delete the transcode output directory and the source upload
 ```
+
+Every stage first checks that its asset still exists, is not being deleted and is processing; if not, it stops without doing its work (and removes the asset's transcode output when the asset is gone), so a deleted asset is not transcoded or uploaded any further. The upload stage checks again before each of its three Sia uploads.
 
 Progress is written to `processing_jobs.progress_percent` as the job moves: the transcode maps FFmpeg's progress onto 0 to 60 percent and reaches 65 once thumbnails exist, the Sia uploads move it from 65 to 90, and finalize takes it to 100.
 
@@ -143,7 +148,15 @@ data.m4s
 #EXT-X-ENDLIST
 ```
 
-The thumbnails (`backend/src/transcode/thumbnail-extractor.ts`) are JPEG frames at 25, 50 and 75 percent of the video's duration, deinterlaced and tone-mapped like the renditions, scaled and padded to 640x360. They are best effort: a shot that fails or comes out empty is logged and skipped, so the asset still finishes with fewer thumbnails. They stay on disk and go up to Sia with the media.
+The thumbnails (`backend/src/transcode/thumbnail-extractor.ts`) are JPEG frames at 25, 50 and 75 percent of the video's duration, deinterlaced and tone-mapped like the renditions, scaled and padded to 640x360. They are best effort: a shot that fails or comes out empty is logged and skipped, so the asset still finishes with fewer thumbnails. They stay on disk and go up to Sia with the media. The duration and resolution are saved to the asset right after FFmpeg succeeds, before the thumbnails.
+
+### Run directories and the completion marker
+
+Each execution of the transcode stage writes into a directory of its own, `TRANSCODE_OUTPUT_DIR/{assetId}/{time}-{random}` (`backend/src/queue/output-dirs.ts`). BullMQ can run a job a second time while the first execution is still going (after a lost lock or a stall), and with a shared directory the second FFmpeg run would truncate and rewrite the files the upload stage of the first one is reading. The upload job carries the exact directory it reads, and nothing writes to a directory once it is finished.
+
+A run directory counts as a finished transcode only once it holds `transcode-complete.json`, written (by rename) after FFmpeg exited 0 and the thumbnails were taken; it holds the duration, the resolution and the thumbnail file names. FFmpeg writes a master playlist on some failures too, header only or complete looking after an interrupt, so the playlists prove nothing. A later attempt of the transcode stage that finds a finished run reuses it instead of running FFmpeg again, and so does a [manual retry](#retries-and-orphan-cleanup). The upload stage also refuses output whose master lists no variants, or whose variant playlists have no segments or no `#EXT-X-ENDLIST`.
+
+When two executions finish, the first to queue the upload job wins (its job id is fixed); the other sees a different directory on the queued job and removes its own.
 
 ### The Sia storage layout
 
@@ -179,7 +192,11 @@ flowchart TB
   p3 --> d3
 ```
 
-After each upload the objects are pinned with the indexer, in parallel. If any pin in a packed batch fails, the objects of that batch that were pinned are unpinned again before the error is raised, since the caller never learns their ids.
+After each upload the objects are pinned with the indexer, in parallel. Their ids are written to `pending_objects` first, before any pin, so an object is on record from the moment it is pinned, whatever happens to the process after that. If any pin in a packed batch fails, the objects of that batch that were pinned are unpinned again before the error is raised.
+
+The SDK pins each slab as soon as it is stored and the objects only at the end, so a failed or cancelled upload leaves slabs pinned that no object uses. A failed upload is cancelled (which stops its slab uploads still running) and then asks for a slab prune. indexd prunes only when asked (`POST /slabs/prune`, every slab of the account no object references), and a prune during an upload would strip that upload's slabs before its objects exist, so prunes and uploads are kept apart in the backend process: a prune requested while an upload is in flight runs when the last one ends, and an upload waits for a running prune. This assumes one backend process per Sia app key, which is how the compose files run it.
+
+A packed upload that stores no shard for 10 minutes is cancelled and fails. The SDK limits each host write (90 seconds) and each indexer call (45 seconds), but not an upload as a whole, which can otherwise wait on hosts forever.
 
 The erasure coding settings are left to the SDK unless both `SIA_DATA_SHARDS` and `SIA_PARITY_SHARDS` are set; then they are passed to every upload. A smaller ratio only makes sense for a small test network such as Zen.
 
@@ -198,25 +215,28 @@ The paths are written without a host. A player resolves them against the URL it 
 
 ### Finalize
 
-The finalize worker (`backend/src/queue/processors.ts`) writes the storage graph in one transaction: a `renditions` row per rung (name, dimensions and bandwidth from the master's `EXT-X-STREAM-INF` lines, segment count, data and playlist object ids) and an `artifacts` row per stored object with its role (`master_manifest`, `variant_playlist`, `rendition_data`, `thumbnail`). Earlier rows for the asset are deleted first, so a retried finalize writes a clean set. Only then is the asset updated to `ready` with its `manifest_object_id`, `thumbnail_object_ids` and `sia_object_ids`.
+The finalize worker (`backend/src/queue/pipeline.ts`, `finalizeAssetStorage` in `backend/src/db/queries/storage-records.ts`) does all its writes in one transaction, after locking the asset row: a `renditions` row per rung (name, dimensions and bandwidth from the master's `EXT-X-STREAM-INF` lines, segment count, data and playlist object ids), an `artifacts` row per stored object with its role (`master_manifest`, `variant_playlist`, `rendition_data`, `thumbnail`), the asset as `ready` with its `manifest_object_id`, `thumbnail_object_ids` and `sia_object_ids`, and the processing job as completed. The run's objects leave `pending_objects`. Objects the asset referenced before and no longer does, and every other pending object of the asset (left by an earlier attempt or a duplicate execution), are marked for release in the same transaction, so nothing is dropped from the records while it is pinned. Because the row is locked, a deletion either sees the finished records or makes finalize see the asset as gone, in which case finalize unpins everything it was handed and writes nothing.
 
-It then loads the master playlist, the variant playlists and the thumbnails into the gateway's memory cache so the first playback does not wait on Sia, sends `asset.ready`, deletes `TRANSCODE_OUTPUT_DIR/{assetId}`, and deletes the source upload from `UPLOAD_DIR`.
+After the commit it sends `asset.ready`, unpins the objects marked for release, loads the master playlist, the variant playlists and the thumbnails into the gateway's memory cache so the first playback does not wait on Sia, deletes `TRANSCODE_OUTPUT_DIR/{assetId}`, and deletes the source upload from `UPLOAD_DIR`. None of these can fail the job. A finalize that runs again for an asset it already made ready repeats them, so `asset.ready` is sent at least once.
 
 ## Retries and orphan cleanup
 
-| Queue             | Job id                | Attempts | Backoff               | Worker concurrency    |
-| ----------------- | --------------------- | -------- | --------------------- | --------------------- |
-| `transcode`       | `transcode-{assetId}` | 3        | exponential from 30 s | 2, at most 4 a minute |
-| `upload-segments` | `upload-{assetId}`    | 3        | exponential from 30 s | 4                     |
-| `finalize`        | `finalize-{assetId}`  | 3        | exponential from 10 s | 4                     |
+| Queue             | Job id                | Attempts | Backoff               | Worker concurrency |
+| ----------------- | --------------------- | -------- | --------------------- | ------------------ |
+| `transcode`       | `transcode-{assetId}` | 3        | exponential from 30 s | 2                  |
+| `upload-segments` | `upload-{assetId}`    | 3        | exponential from 30 s | 4                  |
+| `finalize`        | `finalize-{assetId}`  | 3        | exponential from 10 s | 4                  |
 
-- **Deterministic job ids.** Each stage enqueues the next one under a job id derived from the asset id. BullMQ ignores an add whose job id already exists, so a stage that runs twice (after a stall, say) does not enqueue its successor twice: the media is not uploaded and pinned a second time, and `asset.ready` is not sent twice. BullMQ also keeps failed jobs, so a manual retry starts a new run: its jobs carry a run id (`upload-{assetId}-retry-{time}`, `finalize-{assetId}-retry-{time}`) that the failed attempt's jobs cannot shadow.
+The pipeline workers hold a job's lock for 5 minutes between renewals, instead of BullMQ's 30 second default, so one slow renewal on a loaded host does not hand a long transcode to a second worker; a crashed worker's job is picked up again after that long.
+
+- **Deterministic job ids.** Each stage enqueues the next one under a job id derived from the asset id. BullMQ ignores an add whose job id already exists, so a stage that runs twice (after a stall, say) does not enqueue its successor twice, and a stage whose successor is already queued stops at once. BullMQ also keeps failed jobs, so a manual retry starts a new run: its jobs carry a run id (`upload-{assetId}-retry-{time}`, `finalize-{assetId}-retry-{time}`) that the failed attempt's jobs cannot shadow.
 - **Inner retries.** The first Sia upload, which carries all the media, is retried up to 5 times inside the job, waiting 2, 4, 8 and 16 seconds, before the job itself fails.
-- **Unpin on failure.** If anything fails after the first upload, the uploader unpins every object it pinned in that attempt before rethrowing, so the BullMQ retry starts clean. Unpin failures during this cleanup are logged, not raised.
-- **Deleted while processing.** If the asset was deleted while it was being processed, finalize finds no asset, unpins every object it was handed, and stops without writing anything.
-- **Giving up.** When a stage fails its last attempt, the asset becomes `failed`, the processing job records the error, and `asset.errored` is sent with the failing stage (`transcode`, `upload` or `finalize`). Earlier failed attempts set the processing job to `retrying`.
-- **Manual retry.** `POST /api/v1/assets/:id/retry` (SDK: `assets.retry`) restarts a failed asset. If the transcode output is still in `TRANSCODE_OUTPUT_DIR`, it re-enqueues the Sia upload with the thumbnails found on disk; otherwise it transcodes again from the source file in `UPLOAD_DIR`, or answers 410 when that file is gone.
-- **What can still leak.** Objects uploaded by a run whose finalize never succeeds are pinned but never recorded in PostgreSQL. The [reconciliation](./deletion-and-reconciliation#reconciliation) report lists them as orphans.
+- **Objects stay on record until they are unpinned.** Every object id goes into `pending_objects` before its pin (state `uploading`). A failed or stopped upload stage marks the objects it pinned for release (state `release`) and unpins them; finalize promotes the run's objects to `artifacts` and marks the rest for release. An unpin that fails leaves the row in place, and the deletion GC sweep (see [deletion](./deletion-and-reconciliation)) retries it, and also releases `uploading` objects whose asset is gone or no longer processing (a crash, or a run that failed for good). An object an artifact still names is never released.
+- **A failure after the upload.** When queueing finalize fails after the upload succeeded, the objects stay recorded as `uploading`, the next attempt uploads again, and its finalize releases the first set.
+- **Deleted while processing.** A stage that finds its asset deleted stops; the upload stage releases what it pinned, and finalize unpins everything it was handed. The [deletion](./deletion-and-reconciliation) of the asset unpins its pending objects too, and removes its transcode output.
+- **Giving up.** BullMQ decides when a job has failed for good: after its last attempt, or at once for an error it does not retry, which includes a job that stalled more often than its stall limit (twice, by default). The asset then becomes `failed`, the processing job records the error, and `asset.errored` is sent with the failing stage (`transcode`, `upload` or `finalize`). These writes are retried for about two minutes, since the database is a likely reason the job failed, and they only touch an asset that is still being processed, so a stale execution failing after its asset became ready changes nothing. Earlier failed attempts set the processing job to `retrying` and count one more in its `retry_count`.
+- **Manual retry.** `POST /api/v1/assets/:id/retry` (SDK: `assets.retry`) restarts a failed asset. The move from `failed` to `processing` is one conditional update, so of two retries at once only one starts a run; the other gets a 400. If a finished transcode (a run directory with the completion marker) is in `TRANSCODE_OUTPUT_DIR`, the retry re-enqueues the Sia upload with that directory and its thumbnails; otherwise it transcodes again from the source file in `UPLOAD_DIR`, found through the asset's finished upload session, or answers 410 when that file is gone. If the job cannot be queued, the asset goes back to `failed`. A retry counts in `retry_count` and starts the run's `started_at` afresh; BullMQ's own attempts keep it, so the processing duration covers them.
+- **Transcode output.** It is removed when the asset becomes ready, when it is deleted, and by the GC sweep for assets that are ready or gone. A failed asset keeps it for a retry until it is deleted.
 
 ## Webhooks and processing logs
 
@@ -227,11 +247,11 @@ The pipeline emits six events, each delivered only to the webhook endpoints of t
 | `upload.started`     | tus creates the upload                           | `upload_id`, `session_id`, `video_asset_id`, `file_size`                                                                                      |
 | `upload.completed`   | the last byte arrived and transcoding was queued | `upload_id`, `session_id`, `video_asset_id`, `sha256`, `file_size`                                                                            |
 | `upload.failed`      | finishing the upload failed                      | `upload_id`, `session_id`, `video_asset_id`, `error`                                                                                          |
-| `processing.started` | a transcode attempt starts                       | `video_asset_id`                                                                                                                              |
+| `processing.started` | a processing run starts                          | `video_asset_id`                                                                                                                              |
 | `asset.ready`        | finalize completed                               | `video_asset_id`, `manifest_object_id`, `thumbnail_object_ids`, `duration_ms`, `resolution`, `segment_count`, `total_storage_bytes`, `status` |
 | `asset.errored`      | a stage failed its last attempt                  | `video_asset_id`, `stage`, `error`                                                                                                            |
 
-`processing.started` is sent at the start of every transcode attempt, retries included, so one asset can produce it several times, each a separate event with its own `id`. Retries of one delivery of an event keep its `id`, so a receiver that drops ids it has handled sees each event once.
+`processing.started` is sent once per processing run: by the first attempt of the transcode stage, or of the upload stage when a manual retry resumes there. BullMQ's own retries and stalled re-runs of a stage do not send it again; a manual retry starts a new run and sends it again, as a separate event with its own `id`. Retries of one delivery of an event keep its `id`, so a receiver that drops ids it has handled sees each event once.
 
 Emitting an event only queues it: the dispatcher builds the body once and adds one job per subscribed endpoint to the `webhooks` BullMQ queue, holding the endpoint id, the event and that exact body (ids are left to BullMQ, so a repeated event is never dropped as a duplicate). The `webhooks` worker, which runs in the backend process like the pipeline workers with concurrency 4, delivers each job as a `POST` with the JSON body `{ "id", "event", "timestamp", "data" }` (`id` names the event and is the same on every retry and for every endpoint) and the headers described in [webhooks](/api/#webhooks): `X-Sluby-Event`, `X-Sluby-Delivery`, `X-Sluby-Timestamp`, `X-Sluby-Signature-V1` (the HMAC of `<timestamp>.<body>`) and the deprecated body-only `X-Sluby-Signature`. Before connecting, the worker resolves the receiver's host and refuses any address that is not public unless the operator listed its network in `WEBHOOK_ALLOWED_NETWORKS`, then connects to exactly the addresses it checked (`backend/src/webhooks/egress.ts`). It never follows a redirect, judges the attempt on the status line and never reads the response body. The status line must arrive within 10 seconds, DNS included. A non-2xx answer (a 3xx too) or a network error fails the job, and BullMQ retries it up to 3 more times, after 10 seconds, 1 minute and 5 minutes (a custom backoff on the worker), always with the same body. The jobs live in Redis, so a delivery or retry that is pending when the backend stops is sent once it runs again. An attempt that was in flight when the process died is picked up as a stalled job, about a minute later with BullMQ's default lock and stall settings, and sent again without counting as a retry, so a receiver can get the same body twice. Before every attempt the worker reads the endpoint again: once it is deleted or deactivated, the delivery is dropped without a request or a record. The secret is read at that point too and is never stored in Redis. Every attempt is stored in `webhook_deliveries` with the status code, for a failure the reason in our own words, and the number of earlier attempts; `GET /api/v1/webhooks/:id/deliveries` lists them. A failed delivery, or one that cannot be queued, never fails the pipeline step that sent it.
 

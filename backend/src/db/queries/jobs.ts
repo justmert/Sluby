@@ -51,7 +51,9 @@ export async function getProcessingJobByUploadSessionId(
 }
 
 /**
- * Update the status and progress of a processing job.
+ * Update the status and progress of a processing job. `startedAt` is set by
+ * the first move to processing of a run only, so the duration covers every
+ * attempt and not just the last one.
  */
 export async function updateProcessingJobStatus(
   id: string,
@@ -74,7 +76,7 @@ export async function updateProcessingJobStatus(
     updateData.errorMessage = data.errorMessage;
   }
   if (data.status === 'processing') {
-    updateData.startedAt = now;
+    updateData.startedAt = sql`coalesce(${processingJobs.startedAt}, ${now.toISOString()}::timestamptz)`;
   }
   if (data.status === 'completed') {
     updateData.completedAt = now;
@@ -87,6 +89,37 @@ export async function updateProcessingJobStatus(
     .where(eq(processingJobs.id, id))
     .returning();
   return updated;
+}
+
+/** A stage failed and BullMQ will run it again. */
+export async function recordProcessingRetry(id: string, errorMessage: string): Promise<void> {
+  await db
+    .update(processingJobs)
+    .set({
+      status: 'retrying',
+      errorMessage,
+      retryCount: sql`${processingJobs.retryCount} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(processingJobs.id, id));
+}
+
+/**
+ * A failed asset is retried through the API: a new run starts, which counts
+ * as a retry and gets its own start time.
+ */
+export async function restartProcessingJob(id: string): Promise<void> {
+  await db
+    .update(processingJobs)
+    .set({
+      status: 'queued',
+      errorMessage: null,
+      startedAt: null,
+      completedAt: null,
+      retryCount: sql`${processingJobs.retryCount} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(processingJobs.id, id));
 }
 
 /**

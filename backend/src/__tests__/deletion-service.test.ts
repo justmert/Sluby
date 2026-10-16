@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildDeleteAsset, buildDeletionGc } from '../deletion/service.js';
+import {
+  buildDeleteAsset,
+  buildDeletionGc,
+  REDRIVE_ALERT_AFTER,
+  type DeletionGcDeps,
+} from '../deletion/service.js';
 
 describe('buildDeleteAsset', () => {
   it('soft-deletes then enqueues the async unpin job', async () => {
@@ -27,26 +32,69 @@ describe('buildDeleteAsset', () => {
 });
 
 describe('buildDeletionGc', () => {
-  it('re-enqueues a delete for every stuck asset and returns the count', async () => {
-    const listPending = vi.fn().mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
-    const enqueue = vi.fn().mockResolvedValue(undefined);
+  function gcDeps(overrides: Partial<DeletionGcDeps> = {}) {
+    const deps: DeletionGcDeps = {
+      listPending: vi.fn().mockResolvedValue([]),
+      deletionInFlight: vi.fn().mockResolvedValue(false),
+      redrive: vi.fn().mockResolvedValue(1),
+      releaseObjects: vi.fn().mockResolvedValue({ released: 0, unpinned: 0, failed: 0 }),
+      sweepOutput: vi.fn().mockResolvedValue(0),
+      logger: { info: vi.fn(), error: vi.fn() },
+      ...overrides,
+    };
+    return deps;
+  }
 
-    const gc = buildDeletionGc({ listPending, enqueue, logger: { info: vi.fn() } });
-    const count = await gc();
-
-    expect(count).toBe(2);
-    expect(enqueue).toHaveBeenCalledWith('a');
-    expect(enqueue).toHaveBeenCalledWith('b');
+  it('re-drives every stuck asset', async () => {
+    const deps = gcDeps({ listPending: vi.fn().mockResolvedValue([{ id: 'a' }, { id: 'b' }]) });
+    const result = await buildDeletionGc(deps)();
+    expect(result).toMatchObject({ redriven: 2, inFlight: 0 });
+    expect(deps.redrive).toHaveBeenCalledWith('a');
+    expect(deps.redrive).toHaveBeenCalledWith('b');
   });
 
-  it('does nothing when no assets are pending', async () => {
-    const enqueue = vi.fn();
-    const gc = buildDeletionGc({
-      listPending: vi.fn().mockResolvedValue([]),
-      enqueue,
-      logger: { info: vi.fn() },
+  it('leaves an asset alone while a delete job for it is queued or running', async () => {
+    const deps = gcDeps({
+      listPending: vi.fn().mockResolvedValue([{ id: 'busy' }, { id: 'stuck' }]),
+      deletionInFlight: vi.fn(async (id: string) => id === 'busy'),
     });
-    expect(await gc()).toBe(0);
-    expect(enqueue).not.toHaveBeenCalled();
+    const result = await buildDeletionGc(deps)();
+    expect(result).toMatchObject({ redriven: 1, inFlight: 1 });
+    expect(deps.redrive).toHaveBeenCalledTimes(1);
+    expect(deps.redrive).toHaveBeenCalledWith('stuck');
+  });
+
+  it('logs an error for an asset re-driven again and again', async () => {
+    const deps = gcDeps({
+      listPending: vi.fn().mockResolvedValue([{ id: 'a' }]),
+      redrive: vi.fn().mockResolvedValue(REDRIVE_ALERT_AFTER),
+    });
+    await buildDeletionGc(deps)();
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      { videoAssetId: 'a', redrives: REDRIVE_ALERT_AFTER },
+      expect.stringContaining('keeps failing'),
+    );
+  });
+
+  it('unpins leftover pipeline objects and sweeps output too', async () => {
+    const deps = gcDeps({
+      releaseObjects: vi.fn().mockResolvedValue({ released: 2, unpinned: 3, failed: 1 }),
+      sweepOutput: vi.fn().mockResolvedValue(4),
+    });
+    expect(await buildDeletionGc(deps)()).toEqual({
+      redriven: 0,
+      inFlight: 0,
+      released: 2,
+      unpinned: 3,
+      unpinFailed: 1,
+      outputRemoved: 4,
+    });
+  });
+
+  it('runs every part when one fails, then fails with that error', async () => {
+    const deps = gcDeps({ listPending: vi.fn().mockRejectedValue(new Error('db down')) });
+    await expect(buildDeletionGc(deps)()).rejects.toThrow('db down');
+    expect(deps.releaseObjects).toHaveBeenCalled();
+    expect(deps.sweepOutput).toHaveBeenCalled();
   });
 });

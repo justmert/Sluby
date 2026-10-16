@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   uploadSessions,
@@ -21,6 +21,22 @@ export async function createUploadSession(data: NewUploadSession): Promise<Uploa
 export async function getUploadSessionById(id: string): Promise<UploadSession | undefined> {
   return db.query.uploadSessions.findFirst({
     where: eq(uploadSessions.id, id),
+  });
+}
+
+/**
+ * The finished upload an asset was made from, the newest when there are
+ * several. A retry reads its source from it.
+ */
+export async function getCompletedUploadSessionForAsset(
+  videoAssetId: string,
+): Promise<UploadSession | undefined> {
+  return db.query.uploadSessions.findFirst({
+    where: and(
+      eq(uploadSessions.videoAssetId, videoAssetId),
+      eq(uploadSessions.status, 'completed'),
+    ),
+    orderBy: [desc(uploadSessions.createdAt)],
   });
 }
 

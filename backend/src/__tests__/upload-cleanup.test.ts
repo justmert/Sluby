@@ -293,13 +293,19 @@ describe('source of a failed asset', () => {
     const retry = buildRetryAsset({
       getAsset: async (a) =>
         w.failedAssets.has(a) ? { id: a, status: 'failed', accessTier: 'public' } : undefined,
-      getProcessingJob: async () => ({ id: 'job-1', uploadSessionId: sessionId }),
-      getUploadSession: async (s) => w.sessions.get(s),
-      markAssetProcessing: async () => {},
-      markJobProcessing: async () => {},
+      getProcessingJob: async () => ({ id: 'job-1' }),
+      createProcessingJob: async () => ({ id: 'job-1' }),
+      getUploadSession: async (a) => {
+        const s = w.sessions.get(sessionId);
+        return s && s.videoAssetId === a ? { id: sessionId, filePath: s.filePath } : undefined;
+      },
+      // the transcode never ran
+      findCompletedOutput: async () => null,
+      claimFailedAsset: async () => true,
+      releaseClaim: async () => {},
+      restartJob: async () => {},
       enqueueUploadSegments: async () => {},
       enqueueTranscode,
-      transcodeOutputDir: path.join(dirs.root, 'transcode'),
     });
 
     await expect(retry(assetId)).resolves.toEqual({ stage: 'transcode' });

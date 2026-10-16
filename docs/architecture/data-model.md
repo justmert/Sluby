@@ -56,6 +56,7 @@ erDiagram
     job_status status
     int progress_percent
     text error_message
+    int retry_count
     jsonb logs
     timestamptz started_at
     timestamptz completed_at
@@ -87,14 +88,21 @@ erDiagram
     playback_policy policy
     text name
   }
+  pending_objects {
+    text object_id PK
+    uuid video_asset_id "no foreign key"
+    text run_key
+    pending_object_state state
+  }
 ```
 
 - **`video_assets`** is one row per video. `status` moves from `created` (set when tus creates the upload) to `processing` and then `ready` or `failed`; the enum also has `uploading`, which the tus path never sets. `deleted_at` marks an asset whose deletion is in progress; the row disappears once its objects are unpinned. The object id columns (`manifest_object_id`, `thumbnail_object_ids`, `sia_object_ids`) are written by finalize after it has written the same ids to `artifacts`, and duplicate what `artifacts` holds. Migration `0009` gave the ids of assets stored before `artifacts` existed their rows there too, so every id in these columns has an `artifacts` row for the same asset. `segment_count` is the number of segments in one rendition, and `total_storage_bytes` is the sum of the stored objects' sizes before erasure coding. `created_at` is a `timestamptz(3)`: the listing cursor carries a JavaScript date, which has millisecond precision, so the column keeps exactly that and the newest-first listing pages on the plain `(created_at, id)` pair, read from the `(created_at, id)` index for the whole platform and from a partial `(creator_address, created_at, id)` index for one owner.
 - **`upload_sessions`** tracks one tus upload: size, bytes received, the SHA-256 of the finished file, and its path in `UPLOAD_DIR`. `metadata` holds the tus metadata plus the owner's `creatorAddress` and the `apiKeyId`, which the REST status and cancel routes use for owner checks. When its asset is deleted the row keeps only its file path (link and `metadata` cleared), and the hourly source sweep deletes it once the file is gone.
-- **`processing_jobs`** mirrors the BullMQ pipeline for the API: status, percentage, the last error and the `logs` array of `{ timestamp, stage, message }`. It also has `retry_count` and `max_retries` columns, which the workers do not update; the retry count that matters lives in BullMQ.
+- **`processing_jobs`** mirrors the BullMQ pipeline for the API: status, percentage, the last error and the `logs` array of `{ timestamp, stage, message }`. `retry_count` counts the retries of the asset's pipeline stages: each automatic retry BullMQ schedules and each manual retry. `started_at` is the start of the current run, kept across BullMQ's attempts and reset by a manual retry.
 - **`renditions`** is one row per HLS rung, with the Sia object ids of its `data.m4s` and its rewritten playlist.
 - **`artifacts`** is the authoritative map from Sia object id to asset, rendition and role, and holds every object id of every asset. Roles are `master_manifest`, `variant_playlist`, `rendition_data` and `thumbnail`. An asset with three rungs has 1 + 3 + 3 + 3 = 10 artifacts. The rows backfilled for assets stored before this table existed have no rendition, a `byte_size` of 0 and, for the playlists and data files (which the old columns did not tell apart), a null `role`. `object_id` is indexed because the gateway looks up an object's access tier by it.
 - **`playback_ids`** are public `pb_` handles (a nanoid of 21 characters) that `/api/v1/playback/:id` and `/v1/stream/:id/master.m3u8` accept in place of the asset id. The `signed` policy makes the whole asset require signed URLs on the gateway, even for public assets.
+- **`pending_objects`** holds every Sia object the pipeline has pinned but finalize has not recorded in `artifacts` yet (`uploading`, written just before the pin), and every object that is to be unpinned but has not been yet (`release`). It has no foreign key on purpose: an upload can still pin after its asset row is gone, and the row has to outlive the asset so the deletion GC sweep can unpin the object (see [retries and orphan cleanup](./upload-pipeline#retries-and-orphan-cleanup)).
 
 ## Access and integrations
 
@@ -201,12 +209,13 @@ erDiagram
 
 ## Enums
 
-| Enum               | Values                                                               |
-| ------------------ | -------------------------------------------------------------------- |
-| `video_status`     | `created`, `uploading`, `processing`, `ready`, `failed`              |
-| `upload_status`    | `uploading`, `completed`, `cancelled`, `failed`                      |
-| `job_status`       | `queued`, `processing`, `completed`, `failed`, `retrying`            |
-| `access_tier`      | `public`, `private`                                                  |
-| `artifact_role`    | `master_manifest`, `variant_playlist`, `rendition_data`, `thumbnail` |
-| `playback_policy`  | `public`, `signed`                                                   |
-| `reconcile_status` | `ok`, `drift`, `failed`                                              |
+| Enum                   | Values                                                               |
+| ---------------------- | -------------------------------------------------------------------- |
+| `video_status`         | `created`, `uploading`, `processing`, `ready`, `failed`              |
+| `upload_status`        | `uploading`, `completed`, `cancelled`, `failed`                      |
+| `job_status`           | `queued`, `processing`, `completed`, `failed`, `retrying`            |
+| `access_tier`          | `public`, `private`                                                  |
+| `artifact_role`        | `master_manifest`, `variant_playlist`, `rendition_data`, `thumbnail` |
+| `playback_policy`      | `public`, `signed`                                                   |
+| `reconcile_status`     | `ok`, `drift`, `failed`                                              |
+| `pending_object_state` | `uploading`, `release`                                               |

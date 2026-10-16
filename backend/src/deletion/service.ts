@@ -34,25 +34,89 @@ export function buildDeleteAsset(deps: DeleteAssetDeps) {
 export interface DeletionGcDeps {
   /** Assets soft-deleted long enough ago that their worker should have run. */
   listPending: () => Promise<{ id: string }[]>;
-  enqueue: (videoAssetId: string) => Promise<void>;
-  logger: Pick<import('pino').Logger, 'info'>;
+  /** Whether a delete job for the asset is waiting, delayed or running. */
+  deletionInFlight: (videoAssetId: string) => Promise<boolean>;
+  /** Queue another delete; resolves to how often the asset has been re-driven, this one included. */
+  redrive: (videoAssetId: string) => Promise<number>;
+  /** Unpin the objects no run will promote and the ones marked for release. */
+  releaseObjects: () => Promise<{ released: number; unpinned: number; failed: number }>;
+  /** Remove transcode output nothing needs anymore; resolves to the directories removed. */
+  sweepOutput: () => Promise<number>;
+  logger: Pick<import('pino').Logger, 'info' | 'error'>;
+}
+
+/** Re-drives of one asset after which a failing deletion is logged as an error. */
+export const REDRIVE_ALERT_AFTER = 5;
+
+export interface DeletionGcResult {
+  redriven: number;
+  /** pending assets left alone because a delete job for them is still in flight */
+  inFlight: number;
+  released: number;
+  unpinned: number;
+  unpinFailed: number;
+  outputRemoved: number;
 }
 
 /**
- * Build the GC sweep that re-drives soft-deleted assets whose deletion never
- * finished (worker crashed, was offline, or an object host was down). It is
- * idempotent: enqueuing again just re-runs a best-effort unpin of whatever
- * objects remain.
+ * Build the GC sweep. It re-drives soft-deleted assets whose deletion never
+ * finished (worker crashed, was offline, or an object host was down), but
+ * not one whose delete job is still queued or running, so two deletions of
+ * one asset never run at once. It also unpins pipeline objects nothing will
+ * record (left by a crash or a failed run) and removes transcode output of
+ * deleted or ready assets. Every part runs even when another fails; the
+ * sweep then fails with the first error, so the job shows it.
  */
 export function buildDeletionGc(deps: DeletionGcDeps) {
-  return async (): Promise<number> => {
-    const pending = await deps.listPending();
-    for (const { id } of pending) {
-      await deps.enqueue(id);
+  return async (): Promise<DeletionGcResult> => {
+    const result: DeletionGcResult = {
+      redriven: 0,
+      inFlight: 0,
+      released: 0,
+      unpinned: 0,
+      unpinFailed: 0,
+      outputRemoved: 0,
+    };
+    const errors: unknown[] = [];
+
+    try {
+      for (const { id } of await deps.listPending()) {
+        if (await deps.deletionInFlight(id)) {
+          result.inFlight++;
+          continue;
+        }
+        const redrives = await deps.redrive(id);
+        result.redriven++;
+        if (redrives >= REDRIVE_ALERT_AFTER) {
+          deps.logger.error(
+            { videoAssetId: id, redrives },
+            'Asset deletion keeps failing; check the deletion job errors',
+          );
+        }
+      }
+    } catch (err) {
+      errors.push(err);
     }
-    if (pending.length > 0) {
-      deps.logger.info({ count: pending.length }, 're-drove stuck asset deletions');
+
+    try {
+      const objects = await deps.releaseObjects();
+      result.released = objects.released;
+      result.unpinned = objects.unpinned;
+      result.unpinFailed = objects.failed;
+    } catch (err) {
+      errors.push(err);
     }
-    return pending.length;
+
+    try {
+      result.outputRemoved = await deps.sweepOutput();
+    } catch (err) {
+      errors.push(err);
+    }
+
+    if (result.redriven + result.unpinned + result.outputRemoved > 0) {
+      deps.logger.info(result, 'Deletion gc sweep');
+    }
+    if (errors.length > 0) throw errors[0];
+    return result;
   };
 }

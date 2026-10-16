@@ -438,7 +438,7 @@
               "upload-segments",
               "transcode"
             ],
-            "description": "`upload-segments` when the transcode output is still on disk, else `transcode`."
+            "description": "`upload-segments` when a finished transcode is still on disk, else `transcode`."
           }
         }
       },
@@ -486,7 +486,8 @@
             "type": "integer"
           },
           "retry_count": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Retries of the pipeline stages so far: each automatic retry and each manual retry."
           },
           "error_message": {
             "type": [
