@@ -28,7 +28,7 @@
     "cors": "^2.8.5",
     "dotenv": "^18.0.6",
     "drizzle-orm": "^0.45.3",
-    "express": "^4.21.0",
+    "express": "^5.3.0",
     "express-async-errors": "^3.1.1",
     "lru-cache": "^11.0.0",
     "nanoid": "^6.0.2",
@@ -40,7 +40,7 @@
   "devDependencies": {
     "@scalar/api-reference": "1.73.0",
     "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.25",
+    "@types/express": "^5.0.6",
     "@types/node": "^24.19.1",
     "@types/supertest": "^7.2.1",
     "@vitest/coverage-v8": "^5.0.3",
