@@ -167,7 +167,18 @@ describe('keyless direct-from-Sia with the real SDK', () => {
     hls = new Hls({ loader: createSiaLoader(client.sia!, ASSET_ID, { src }) });
     hls.loadSource(src);
     hls.attachMedia(video);
-    hls.once(Hls.Events.MANIFEST_PARSED, () => void video!.play());
+    // play once the element can play and hls.js is done seeking, as the player
+    // does: webkit can stop the clock for good when play() is pending during
+    // hls.js's seek over the gap before the first buffered frame
+    const el = video;
+    const playWhenSettled = () => {
+      if (el.seeking || el.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+      el.removeEventListener('canplay', playWhenSettled);
+      el.removeEventListener('seeked', playWhenSettled);
+      void el.play();
+    };
+    el.addEventListener('canplay', playWhenSettled);
+    el.addEventListener('seeked', playWhenSettled);
 
     await vi.waitFor(() => expect(video!.currentTime).toBeGreaterThan(0.5), {
       timeout: 15_000,

@@ -3,15 +3,23 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { VideoAsset } from '@sluby/sdk';
+import { createQueryClient } from '@/lib/query-client';
+import { onUnauthorized } from '@/lib/session-events';
 import { jsonFetch, reply } from '@/test/render';
 import { useLatestAssets } from './useLatestAssets';
 import { useProcessingJob } from './asset-detail-queries';
+import { sluby } from '@/lib/sluby';
+import { findUpload, recordUpload } from '@/lib/upload-history';
 import {
+  assetPollMs,
+  fetchAllMatching,
   isInFlight,
+  isStaleUpload,
   useAssetById,
   useAssetList,
   useDeleteAssets,
-  useUpdateAssetMeta,
+  useSetAccess,
+  useStaleUploadCount,
 } from './asset-queries';
 
 const assetBody = (overrides: Record<string, unknown> = {}) => ({
@@ -49,16 +57,61 @@ describe('isInFlight', () => {
 
   it('counts processing assets and recent uploads, not finished or abandoned ones', () => {
     expect(isInFlight(at('processing', '2026-09-01T00:00:00Z'), now)).toBe(true);
-    expect(isInFlight(at('created', '2026-10-07T11:00:00Z'), now)).toBe(true);
+    expect(isInFlight(at('created', '2026-10-07T11:55:00Z'), now)).toBe(true);
+    expect(isInFlight(at('uploading', '2026-10-07T11:51:00Z'), now)).toBe(true);
     expect(isInFlight(at('ready', '2026-10-07T11:00:00Z'), now)).toBe(false);
     expect(isInFlight(at('failed', '2026-10-07T11:00:00Z'), now)).toBe(false);
-    // older than the upload expiry: the transfer is gone, nothing will change
-    expect(isInFlight(at('created', '2026-10-06T11:00:00Z'), now)).toBe(false);
-    expect(isInFlight(at('uploading', '2026-10-06T11:00:00Z'), now)).toBe(false);
+  });
+
+  it('stops counting an upload that has not moved for 10 minutes (FLW-12)', () => {
+    // an hour old and still waiting for its file: the browser sending it is gone
+    expect(isInFlight(at('created', '2026-10-07T11:00:00Z'), now)).toBe(false);
+    expect(isInFlight(at('uploading', '2026-10-07T11:50:00Z'), now)).toBe(false);
+    expect(isStaleUpload(at('created', '2026-10-07T11:50:00Z'), now)).toBe(true);
+    expect(isStaleUpload(at('created', '2026-10-07T11:50:01Z'), now)).toBe(false);
+    expect(isStaleUpload(at('processing', '2026-10-01T00:00:00Z'), now)).toBe(false);
+  });
+});
+
+describe('assetPollMs', () => {
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  const at = (status: VideoAsset['status'], updatedAt: string, createdAt = updatedAt) =>
+    ({ id: 'a1', status, createdAt, updatedAt }) as VideoAsset;
+
+  it('reads a video that just moved every 3 s, and one that sits in processing every 10 s', () => {
+    expect(assetPollMs(at('processing', '2026-10-07T11:59:50Z'), false, now)).toBe(3_000);
+    // twenty minutes waiting in the sia queue: nothing to see between readings
+    expect(assetPollMs(at('processing', '2026-10-07T11:40:00Z'), false, now)).toBe(10_000);
+  });
+
+  it('keeps an upload this browser sends at 3 s, and stops for finished or abandoned ones', () => {
+    expect(assetPollMs(at('created', '2026-10-07T11:00:00Z'), true, now)).toBe(3_000);
+    expect(assetPollMs(at('created', '2026-10-07T11:58:00Z'), false, now)).toBe(3_000);
+    expect(assetPollMs(at('created', '2026-10-07T11:00:00Z'), false, now)).toBe(false);
+    expect(assetPollMs(at('ready', '2026-10-07T11:59:59Z'), false, now)).toBe(false);
   });
 });
 
 describe('asset hooks', () => {
+  it('forgets that a deleted video was uploaded here, so its file reads as new again', async () => {
+    const server = jsonFetch({
+      'DELETE /api/v1/assets/a1': { success: true },
+      'DELETE /api/v1/assets/a2': reply(404, { error: 'not found' }),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    recordUpload({ fingerprint: 'clip-1', title: 'Clip', assetId: 'a1', accountId: 'me' });
+    recordUpload({ fingerprint: 'clip-2', title: 'Other', assetId: 'a2', accountId: 'me' });
+    recordUpload({ fingerprint: 'clip-3', title: 'Kept', assetId: 'a3', accountId: 'me' });
+    const { Wrapper } = wrapper();
+    const { result } = renderHook(() => useDeleteAssets(), { wrapper: Wrapper });
+    await act(() => result.current.mutateAsync(['a1', 'a2']));
+    expect(findUpload('clip-1', 'me')).toBeNull();
+    // already gone counts as deleted
+    expect(findUpload('clip-2', 'me')).toBeNull();
+    expect(findUpload('clip-3', 'me')).toMatchObject({ assetId: 'a3' });
+    localStorage.clear();
+  });
+
   it('a delete does not refetch the deleted asset while a page still shows it', async () => {
     const server = jsonFetch({
       '/api/v1/assets/a1': assetBody({ status: 'ready' }),
@@ -89,6 +142,75 @@ describe('asset hooks', () => {
     expect(server.calls).toHaveLength(1);
   });
 
+  it('does not poll a video whose upload stopped more than 10 minutes ago (FLW-12)', async () => {
+    const server = jsonFetch({
+      '/api/v1/assets/a1': assetBody({
+        status: 'created',
+        created_at: new Date(Date.now() - 11 * 60_000).toISOString(),
+      }),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { Wrapper } = wrapper();
+    renderHook(() => useAssetById('a1'), { wrapper: Wrapper });
+    await waitFor(() => expect(server.calls).toHaveLength(1));
+    // the detail poll runs every 3 s while a video is in flight
+    await new Promise((r) => setTimeout(r, 3_500));
+    expect(server.calls).toHaveLength(1);
+  });
+
+  it('keeps polling an upload that started a minute ago', async () => {
+    // the poll's own clock, so a loaded machine that runs timers late cannot
+    // make the 3 s interval look like no poll at all
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const server = jsonFetch({
+        '/api/v1/assets/a1': assetBody({
+          status: 'uploading',
+          created_at: new Date(Date.now() - 60_000).toISOString(),
+        }),
+      });
+      vi.stubGlobal('fetch', vi.fn(server));
+      const { Wrapper } = wrapper();
+      renderHook(() => useAssetById('a1'), { wrapper: Wrapper });
+      await waitFor(() => expect(server.calls).toHaveLength(1));
+      await act(async () => vi.advanceTimersByTime(3_000));
+      await waitFor(() => expect(server.calls).toHaveLength(2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reads the video again as soon as its processing job ends', async () => {
+    let job = 'processing';
+    const server = jsonFetch({
+      '/api/v1/assets/a1/processing': () => ({
+        id: 'j1',
+        video_asset_id: 'a1',
+        status: job,
+        stage: job === 'completed' ? 'completed' : 'upload',
+        progress_percent: 50,
+        error_message: null,
+        retryable: true,
+        attempts: 1,
+        logs: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { Wrapper, client } = wrapper();
+    client.setQueryData(['assets', 'one', 'a1'], { id: 'a1' });
+    const { result } = renderHook(() => useProcessingJob('a1', 'processing', true), {
+      wrapper: Wrapper,
+    });
+    await waitFor(() => expect(result.current.data?.status).toBe('processing'));
+    expect(client.getQueryState(['assets', 'one', 'a1'])?.isInvalidated).toBe(false);
+    job = 'completed';
+    await act(() => result.current.refetch());
+    await waitFor(() => expect(result.current.data?.status).toBe('completed'));
+    expect(client.getQueryState(['assets', 'one', 'a1'])?.isInvalidated).toBe(true);
+  });
+
   it('stops polling the processing job on a 401', async () => {
     const server = jsonFetch({
       '/api/v1/assets/a1/processing': reply(401, { error: 'Not signed in' }),
@@ -99,22 +221,6 @@ describe('asset hooks', () => {
     await waitFor(() => expect(server.calls).toHaveLength(1));
     await new Promise((r) => setTimeout(r, 3_500));
     expect(server.calls).toHaveLength(1);
-  });
-
-  it('an edit marks every asset list and the stats stale', async () => {
-    const server = jsonFetch({ 'PATCH /api/v1/assets/a1': assetBody({ title: 'New' }) });
-    vi.stubGlobal('fetch', vi.fn(server));
-    const { Wrapper, client } = wrapper();
-    for (const key of [['assets', 'latest', 6], ['assets', 'playable', ''], ['stats']]) {
-      client.setQueryData(key, {});
-    }
-    const { result } = renderHook(() => useUpdateAssetMeta(), { wrapper: Wrapper });
-    await act(() => result.current.mutateAsync({ id: 'a1', data: { title: 'New' } }));
-
-    expect(client.getQueryState(['assets', 'latest', 6])?.isInvalidated).toBe(true);
-    expect(client.getQueryState(['assets', 'playable', ''])?.isInvalidated).toBe(true);
-    expect(client.getQueryState(['stats'])?.isInvalidated).toBe(true);
-    expect(client.getQueryData<VideoAsset>(['assets', 'one', 'a1'])?.title).toBe('New');
   });
 
   it('marks the stats stale when a polled asset finishes processing', async () => {
@@ -240,5 +346,212 @@ describe('asset hooks', () => {
     releaseDelete();
     await act(() => deleting);
     await waitFor(() => expect(result.current.latest.data?.data).toHaveLength(1));
+  });
+});
+
+describe('useDeleteAssets and the session', () => {
+  it('ends the session on a 401 instead of reporting a failed row (FLW-13)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(jsonFetch({ 'DELETE /api/v1/assets/a1': reply(401, { error: 'Not signed in' }) })),
+    );
+    const client = createQueryClient();
+    const seen = vi.fn();
+    const stop = onUnauthorized(seen);
+    const { result } = renderHook(() => useDeleteAssets(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+    await act(() => result.current.mutateAsync(['a1']).catch(() => {}));
+    expect(seen).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    stop();
+  });
+
+  it('turns a failed row into a sentence, not the raw server text', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        jsonFetch({ 'DELETE /api/v1/assets/a1': reply(500, { error: 'Internal Server Error' }) }),
+      ),
+    );
+    const { Wrapper } = wrapper();
+    const { result } = renderHook(() => useDeleteAssets(), { wrapper: Wrapper });
+    let failures: Awaited<ReturnType<typeof result.current.mutateAsync>> = [];
+    await act(async () => {
+      failures = await result.current.mutateAsync(['a1']);
+    });
+    expect(failures).toEqual([
+      { id: 'a1', error: expect.stringMatching(/^The server ran into a problem \(error 500\)/) },
+    ]);
+  });
+});
+
+const listPage = (data: unknown[], total: number, hasMore = false) => ({
+  data,
+  total,
+  page: 1,
+  limit: 100,
+  next_cursor: null,
+  has_more: hasMore,
+});
+const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+
+describe('useStaleUploadCount', () => {
+  it('counts waiting uploads older than 10 minutes, walking past the young ones', async () => {
+    const young = Array.from({ length: 100 }, (_, i) =>
+      assetBody({ id: `y${i}`, status: 'created', created_at: ago(1) }),
+    );
+    const server = jsonFetch({
+      '/api/v1/assets': ({ query }: { query: URLSearchParams }) =>
+        query.get('page') === '1'
+          ? listPage(young, 167, true)
+          : listPage(
+              [
+                assetBody({ id: 'y100', status: 'created', created_at: ago(2) }),
+                assetBody({ id: 'old', status: 'created', created_at: ago(30) }),
+              ],
+              167,
+              true,
+            ),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { Wrapper } = wrapper();
+    const { result } = renderHook(() => useStaleUploadCount(), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.data).toBe(66));
+    expect(server.calls.map((c) => c.query.get('status'))).toEqual(['created', 'created']);
+    expect(server.calls.map((c) => c.query.get('order'))).toEqual(['desc', 'desc']);
+  });
+
+  it('is zero when every waiting upload is recent', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(jsonFetch({ '/api/v1/assets': listPage([assetBody({ status: 'created' })], 1) })),
+    );
+    const { Wrapper } = wrapper();
+    const { result } = renderHook(() => useStaleUploadCount(), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.data).toBe(0));
+  });
+});
+
+describe('fetchAllMatching', () => {
+  it('walks the pages with the same filters and stops at the cap', async () => {
+    const server = jsonFetch({
+      '/api/v1/assets': ({ query }: { query: URLSearchParams }) => {
+        const p = Number(query.get('page'));
+        return listPage(
+          Array.from({ length: 100 }, (_, i) => assetBody({ id: `p${p}-${i}` })),
+          700,
+          true,
+        );
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const rows = await fetchAllMatching({ status: 'ready', search: 'cat' }, 250);
+    expect(rows).toHaveLength(250);
+    expect(server.calls).toHaveLength(3);
+    expect(server.calls.every((c) => c.query.get('status') === 'ready')).toBe(true);
+    expect(server.calls.every((c) => c.query.get('search') === 'cat')).toBe(true);
+    expect(server.calls.map((c) => c.query.get('page'))).toEqual(['1', '2', '3']);
+  });
+});
+
+describe('useSetAccess', () => {
+  const a1 = { ...assetBody({ id: 'a1', status: 'ready' }) };
+  const a2 = { ...assetBody({ id: 'a2', status: 'ready' }) };
+
+  it('edits each video with its version as If-Match and shows the new access at once', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const server = jsonFetch({
+      'PATCH /api/v1/assets/a1': async () => {
+        await held;
+        return { ...a1, access_tier: 'private' };
+      },
+      'PATCH /api/v1/assets/a2': async () => {
+        await held;
+        return { ...a2, access_tier: 'private' };
+      },
+      '/api/v1/assets': listPage([a1, a2], 2),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const update = vi.spyOn(sluby.assets, 'update');
+    const { Wrapper } = wrapper();
+    const { result } = renderHook(
+      () => ({ list: useAssetList({ page: 1 }), set: useSetAccess() }),
+      { wrapper: Wrapper },
+    );
+    await waitFor(() => expect(result.current.list.data?.data).toHaveLength(2));
+    const assets = result.current.list.data!.data;
+
+    let done!: Promise<unknown>;
+    act(() => {
+      done = result.current.set.mutateAsync({ assets, accessTier: 'private' });
+    });
+    await waitFor(() =>
+      expect(result.current.list.data?.data.map((a) => a.accessTier)).toEqual([
+        'private',
+        'private',
+      ]),
+    );
+    release();
+    await act(() => done);
+    expect(update).toHaveBeenCalledWith('a1', { accessTier: 'private' }, { ifMatch: assets[0] });
+    expect(update).toHaveBeenCalledWith('a2', { accessTier: 'private' }, { ifMatch: assets[1] });
+    expect(server.calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([
+      { access_tier: 'private' },
+      { access_tier: 'private' },
+    ]);
+    update.mockRestore();
+  });
+
+  it('reports a refused edit and puts that row back', async () => {
+    const server = jsonFetch({
+      'PATCH /api/v1/assets/a1': { ...a1, access_tier: 'private' },
+      'PATCH /api/v1/assets/a2': reply(412, { error: 'This video was changed somewhere else.' }),
+      '/api/v1/assets': listPage([a1, a2], 2),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { Wrapper } = wrapper();
+    const { result } = renderHook(
+      () => ({ list: useAssetList({ page: 1 }), set: useSetAccess() }),
+      { wrapper: Wrapper },
+    );
+    await waitFor(() => expect(result.current.list.data?.data).toHaveLength(2));
+    let failures: Awaited<ReturnType<typeof result.current.set.mutateAsync>> = [];
+    await act(async () => {
+      failures = await result.current.set.mutateAsync({
+        assets: result.current.list.data!.data,
+        accessTier: 'private',
+      });
+    });
+    expect(failures.map((f) => f.id)).toEqual(['a2']);
+    expect(failures[0].error).toBeDefined();
+  });
+
+  it('ends the session on a 401 instead of listing failures', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(jsonFetch({ 'PATCH /api/v1/assets/a1': reply(401, { error: 'Not signed in' }) })),
+    );
+    const client = createQueryClient();
+    const seen = vi.fn();
+    const stop = onUnauthorized(seen);
+    const { result } = renderHook(() => useSetAccess(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+    const asset = {
+      id: 'a1',
+      accessTier: 'public',
+      updatedAt: '2026-10-01T00:00:00Z',
+    } as VideoAsset;
+    await act(() =>
+      result.current.mutateAsync({ assets: [asset], accessTier: 'private' }).catch(() => {}),
+    );
+    expect(seen).toHaveBeenCalledTimes(1);
+    stop();
   });
 });

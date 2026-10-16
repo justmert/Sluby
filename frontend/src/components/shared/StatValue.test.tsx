@@ -15,7 +15,7 @@ describe('StatValue', () => {
     renderWithMotion(<StatValue value={2048} format={(n) => `${Math.round(n)} B`} />);
     const readable = screen.getByText('2048 B', { ignore: '[aria-hidden="true"]' });
     const box = readable.parentElement;
-    expect(box).toHaveClass('text-2xl', 'leading-8', 'tabular-nums');
+    expect(box).toHaveClass('text-figure', 'tabular-nums');
   });
 });
 

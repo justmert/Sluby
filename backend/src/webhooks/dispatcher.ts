@@ -50,4 +50,12 @@ export class WebhookDispatcher {
       })),
     );
   }
+
+  /**
+   * Queue one delivery as it is, for a resend. It gets the same attempts and
+   * backoff as any delivery.
+   */
+  async enqueue(job: WebhookJobData): Promise<void> {
+    await this.deps.queue.addBulk([{ name: job.event, data: job }]);
+  }
 }

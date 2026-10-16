@@ -18,6 +18,7 @@ interface StoredSession {
   createdAt: Date;
   expiresAt: Date;
   revokedAt: Date | null;
+  lastSeenAt: Date | null;
 }
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -110,9 +111,23 @@ export function memoryAccounts() {
     findLegacyClaim: async (address) => claims.get(address) ?? null,
     isAllowlistEntryPinned: async (provider, entry) => pins.has(`${provider}\n${entry}`),
     findApiKeyByHash: async (hash) => keys.get(hash) ?? null,
+    recordKeyUse: () => {},
     findActiveSession: async (id) => {
       const s = sessions.find((x) => x.id === id && live(x));
-      return s && { id: s.id, userId: s.userId, identityId: s.identityId, expiresAt: s.expiresAt };
+      return (
+        s && {
+          id: s.id,
+          userId: s.userId,
+          identityId: s.identityId,
+          expiresAt: s.expiresAt,
+          lastSeenAt: s.lastSeenAt,
+        }
+      );
+    },
+    findSession: async (id) => sessions.find((x) => x.id === id),
+    markSessionSeen: (id) => {
+      const s = sessions.find((x) => x.id === id);
+      if (s) s.lastSeenAt = new Date();
     },
     localDevAccount,
   };
@@ -122,6 +137,8 @@ export function memoryAccounts() {
     getAccount,
     localDevAccount,
     findActiveSession: callerDeps.findActiveSession,
+    markSessionSeen: callerDeps.markSessionSeen,
+    findSession: callerDeps.findSession,
     createSession: async ({ userId, identityId, expiresAt, userAgent }) => {
       const row = {
         id: uuid(++seq),
@@ -131,6 +148,7 @@ export function memoryAccounts() {
         createdAt: new Date(Date.now() + seq),
         expiresAt,
         revokedAt: null,
+        lastSeenAt: null,
       };
       sessions.push(row);
       return { id: row.id };
@@ -177,6 +195,7 @@ export function memoryAccounts() {
         creatorAddress: key.creatorAddress,
         isActive: key.isActive ?? true,
         expiresAt: key.expiresAt ?? null,
+        lastUsedAt: key.lastUsedAt ?? null,
       };
       keys.set(hashApiKey(raw), stored);
       return stored;

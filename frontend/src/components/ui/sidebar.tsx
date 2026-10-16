@@ -7,13 +7,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { PanelLeftIcon } from 'lucide-react';
@@ -88,6 +82,15 @@ function SidebarProvider({
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // not while typing (bold in a text field) and not with other modifiers
+      const target = event.target as HTMLElement | null;
+      if (
+        event.altKey ||
+        event.shiftKey ||
+        target?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')
+      ) {
+        return;
+      }
       if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         toggleSidebar();
@@ -186,8 +189,21 @@ function Sidebar({
             } as React.CSSProperties
           }
           side={side}
-          onOpenAutoFocus={() => {
+          // the title says what it is; radix warns without a description
+          // unless it is told there is none
+          aria-describedby={undefined}
+          onOpenAutoFocus={(e) => {
             opener.current = document.activeElement as HTMLElement | null;
+            // start on the current page's link rather than the sheet itself
+            // (A11Y-41). the Enter or Space that opened it does not follow
+            // the link: the sidebar browser test checks that in chromium,
+            // firefox and webkit
+            e.preventDefault();
+            const sheet = e.currentTarget as HTMLElement;
+            const target =
+              sheet.querySelector<HTMLElement>('[data-sidebar=menu-button][data-active=true]') ??
+              sheet.querySelector<HTMLElement>('a[href], button:not([disabled])');
+            (target ?? sheet).focus();
           }}
           onCloseAutoFocus={(e) => {
             const el = opener.current;
@@ -199,8 +215,7 @@ function Sidebar({
           }}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
+            <SheetTitle>Navigation</SheetTitle>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
@@ -271,7 +286,7 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       {...props}
     >
       <PanelLeftIcon />
-      <span className="sr-only">Toggle Sidebar</span>
+      <span className="sr-only">Show or hide sidebar</span>
     </Button>
   );
 }
@@ -283,10 +298,10 @@ function SidebarRail({ className, ...props }: React.ComponentProps<'button'>) {
     <button
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="Toggle Sidebar"
+      aria-label="Show or hide sidebar"
       tabIndex={-1}
       onClick={toggleSidebar}
-      title="Toggle Sidebar"
+      title="Show or hide sidebar"
       className={cn(
         'absolute inset-y-0 z-20 hidden w-4 transition-all ease-out-soft group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2',
         'in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize',
@@ -457,7 +472,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<'li'>) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  'peer/menu-button group/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-open:hover:bg-sidebar-accent data-open:hover:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:font-medium data-active:text-sidebar-accent-foreground [&_svg]:size-4 [&_svg]:shrink-0 [&>span:last-child]:truncate',
+  'peer/menu-button group/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:min-h-0 group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-open:hover:bg-sidebar-accent data-open:hover:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:font-medium data-active:text-sidebar-accent-foreground [&_svg]:size-4 [&_svg]:shrink-0 [&>span:last-child]:truncate',
   {
     variants: {
       variant: {
@@ -466,9 +481,11 @@ const sidebarMenuButtonVariants = cva(
           'bg-background shadow-[0_0_0_1px_var(--sidebar-border)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_var(--sidebar-accent)]',
       },
       size: {
-        default: 'h-8 text-sm',
-        sm: 'h-7 text-xs',
-        lg: 'h-12 text-sm group-data-[collapsible=icon]:p-0!',
+        // min heights, so text grown by the reader's spacing settings is not
+        // clipped (A11Y-45); 44px for a finger (A11Y-47)
+        default: 'min-h-8 text-sm pointer-coarse:min-h-11',
+        sm: 'min-h-7 py-1 text-xs pointer-coarse:min-h-10',
+        lg: 'min-h-12 p-2 text-sm group-data-[collapsible=icon]:p-0!',
       },
     },
     defaultVariants: {
@@ -493,6 +510,11 @@ function SidebarMenuButton({
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const Comp = asChild ? Slot.Root : 'button';
   const { isMobile, state } = useSidebar();
+  // the tooltip only says what the rail's icons mean. hidden is not enough
+  // anywhere else: a hidden tooltip still opens on focus and takes the first
+  // Escape, so the phone sheet needed two presses to close
+  const [tooltipOpen, setTooltipOpen] = React.useState(false);
+  const tooltipShown = state === 'collapsed' && !isMobile;
 
   const button = (
     <Comp
@@ -516,14 +538,9 @@ function SidebarMenuButton({
   }
 
   return (
-    <Tooltip>
+    <Tooltip open={tooltipShown && tooltipOpen} onOpenChange={setTooltipOpen}>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent
-        side="right"
-        align="center"
-        hidden={state !== 'collapsed' || isMobile}
-        {...tooltip}
-      />
+      <TooltipContent side="right" align="center" hidden={!tooltipShown} {...tooltip} />
     </Tooltip>
   );
 }

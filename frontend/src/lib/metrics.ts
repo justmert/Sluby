@@ -129,3 +129,20 @@ export function snapshotFromResponse(body: MetricsResponse): MetricsSnapshot {
   if (!Number.isFinite(takenAt)) throw new Error('The metrics response has no valid timestamp');
   return summarizeMetrics(body.metrics, takenAt);
 }
+
+/**
+ * A span of seconds short enough for a stat figure: "4.2 s", "42 s",
+ * "9 min", "2 h 5 min", "3 d 4 h". Averages and uptime read the same way, so
+ * an hour never shows as "3561 s" or as a clock (FLW-39).
+ */
+export function formatSpan(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '–';
+  if (seconds < 10) return `${Number(seconds.toFixed(1))} s`;
+  if (seconds < 60) return `${Math.round(seconds)} s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`;
+  const days = Math.floor(hours / 24);
+  return hours % 24 ? `${days} d ${hours % 24} h` : `${days} d`;
+}

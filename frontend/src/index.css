@@ -7,11 +7,47 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* shadcn/ui semantic tokens. light is the base, .dark overrides; the theme
-   provider puts the class on <html>. primary is Sia orange in both; the
-   light one is a deeper shade so white button text and orange text on light
-   surfaces clear 4.5:1 (4.90 on primary, 4.70 on muted/50). the ring and
-   chart keep the brighter orange, which only needs 3:1 as a non-text mark. */
+/* fallback faces sized to the real fonts' metrics (from capsize), so the swap
+   from the system font to the web font moves nothing. liberation sans and
+   arimo are arial's metric twins on linux. */
+@font-face {
+  font-family: 'DM Sans Fallback';
+  src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('Arimo');
+  ascent-override: 94.9001%;
+  descent-override: 29.6563%;
+  line-gap-override: 0%;
+  size-adjust: 104.531%;
+}
+@font-face {
+  font-family: 'Sora Fallback';
+  src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('Arimo');
+  ascent-override: 85.2913%;
+  descent-override: 25.4995%;
+  line-gap-override: 0%;
+  size-adjust: 113.7279%;
+}
+@font-face {
+  font-family: 'JetBrains Mono Fallback';
+  src: local('Courier New'), local('CourierNewPSMT'), local('Liberation Mono'), local('Cousine');
+  ascent-override: 102.0166%;
+  descent-override: 30.0049%;
+  line-gap-override: 0%;
+  size-adjust: 99.9837%;
+}
+
+/* design tokens. light is the base and .dark overrides; the theme provider
+   puts the class on <html>. every text pair here is checked against wcag aa
+   (see resources/frontend-final-audit/impl-foundation.md for the numbers).
+
+   one meaning per hue:
+   - primary: the one action per view, and the brand
+   - progress: work that is under way (uploading, processing, a running
+     check). it is the primary hue, so bars, rings and badges agree
+   - success: done and healthy
+   - warning: needs attention (expiring, drift, degraded, 4xx). never "busy"
+   - destructive: failed, and actions that delete
+   - info: neutral facts that still want a tint (this browser, a tip)
+   brand is the logo's orange and does not change with the theme. */
 :root {
   --radius: 0.625rem;
   --background: oklch(0.99 0.002 285);
@@ -26,21 +62,29 @@
   --secondary-foreground: oklch(0.22 0.012 285);
   --muted: oklch(0.96 0.004 285);
   --muted-foreground: oklch(0.5 0.012 285);
-  --accent: oklch(0.955 0.02 55);
-  --accent-foreground: oklch(0.3 0.08 47);
-  --destructive: oklch(0.577 0.245 27.325);
-  --success: oklch(0.52 0.13 162.5);
-  --warning: oklch(0.75 0.16 70);
-  --warning-foreground: oklch(0.48 0.12 60);
-  --info: oklch(0.55 0.18 260);
+  --accent: oklch(0.96 0.004 285);
+  --accent-foreground: oklch(0.18 0.012 285);
+  --destructive: oklch(0.52 0.21 20);
+  --destructive-solid: oklch(0.52 0.21 20);
+  --destructive-solid-foreground: oklch(1 0 0);
+  --success: oklch(0.47 0.12 162.5);
+  --warning: oklch(0.8 0.16 85);
+  --warning-foreground: oklch(0.5 0.115 70);
+  --progress: oklch(0.555 0.177 47.7);
+  --progress-foreground: oklch(0.5 0.16 47);
+  --info: oklch(0.5 0.17 260);
+  --brand: oklch(0.722 0.187 48.5);
+  --brand-foreground: oklch(1 0 0);
   --border: oklch(0.91 0.005 285);
-  --input: oklch(0.91 0.005 285);
-  --ring: oklch(0.722 0.187 48.5);
-  --chart-1: oklch(0.722 0.187 48.5);
-  --chart-2: oklch(0.6 0.14 162.5);
-  --chart-3: oklch(0.58 0.18 260);
-  --chart-4: oklch(0.7 0.16 70);
-  --chart-5: oklch(0.6 0.2 293);
+  --border-strong: oklch(0.86 0.006 285);
+  /* field borders are the only edge of an empty input, so they clear 3:1 */
+  --input: oklch(0.64 0.01 285);
+  --ring: oklch(0.6 0.18 47);
+  --chart-1: oklch(0.62 0.19 47);
+  --chart-2: oklch(0.58 0.13 162.5);
+  --chart-3: oklch(0.56 0.18 260);
+  --chart-4: oklch(0.66 0.15 75);
+  --chart-5: oklch(0.56 0.2 293);
   --sidebar: oklch(0.975 0.003 285);
   --sidebar-foreground: oklch(0.18 0.012 285);
   --sidebar-primary: oklch(0.555 0.177 47.7);
@@ -48,7 +92,15 @@
   --sidebar-accent: oklch(0.94 0.006 285);
   --sidebar-accent-foreground: oklch(0.18 0.012 285);
   --sidebar-border: oklch(0.91 0.005 285);
-  --sidebar-ring: oklch(0.722 0.187 48.5);
+  --sidebar-ring: oklch(0.6 0.18 47);
+  /* syntax colors for CodeBlock, on muted/40 */
+  --code-keyword: oklch(0.5 0.19 293);
+  --code-string: oklch(0.47 0.11 162.5);
+  --code-number: oklch(0.52 0.15 47);
+  --code-fn: oklch(0.5 0.15 260);
+  /* polled progress bars ease over this long; shorter than the fastest poll
+     (2 s), so a bar never trails its number by a whole poll */
+  --duration-progress: 1200ms;
 }
 
 .dark {
@@ -56,7 +108,7 @@
   --foreground: oklch(0.955 0 0);
   --card: oklch(0.181 0.014 285);
   --card-foreground: oklch(0.955 0 0);
-  --popover: oklch(0.181 0.014 285);
+  --popover: oklch(0.205 0.014 285);
   --popover-foreground: oklch(0.955 0 0);
   --primary: oklch(0.722 0.187 48.5);
   --primary-foreground: oklch(0.147 0.011 285);
@@ -64,20 +116,25 @@
   --secondary-foreground: oklch(0.955 0 0);
   --muted: oklch(0.23 0.015 285);
   --muted-foreground: oklch(0.706 0.006 285);
-  --accent: oklch(0.26 0.04 48);
+  --accent: oklch(0.255 0.015 285);
   --accent-foreground: oklch(0.955 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  --destructive-solid: oklch(0.56 0.2 22);
+  --destructive-solid-foreground: oklch(1 0 0);
   --success: oklch(0.696 0.149 162.5);
-  --warning: oklch(0.769 0.165 70.1);
-  --warning-foreground: oklch(0.82 0.15 75);
-  --info: oklch(0.68 0.16 260);
+  --warning: oklch(0.82 0.16 88);
+  --warning-foreground: oklch(0.86 0.14 90);
+  --progress: oklch(0.722 0.187 48.5);
+  --progress-foreground: oklch(0.76 0.17 50);
+  --info: oklch(0.7 0.15 260);
   --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 14%);
+  --border-strong: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 36%);
   --ring: oklch(0.722 0.187 48.5);
   --chart-1: oklch(0.722 0.187 48.5);
   --chart-2: oklch(0.696 0.149 162.5);
   --chart-3: oklch(0.68 0.16 260);
-  --chart-4: oklch(0.769 0.165 70.1);
+  --chart-4: oklch(0.82 0.16 88);
   --chart-5: oklch(0.65 0.2 293);
   --sidebar: oklch(0.165 0.012 285);
   --sidebar-foreground: oklch(0.955 0 0);
@@ -87,12 +144,30 @@
   --sidebar-accent-foreground: oklch(0.955 0 0);
   --sidebar-border: oklch(1 0 0 / 9%);
   --sidebar-ring: oklch(0.722 0.187 48.5);
+  --code-keyword: oklch(0.78 0.12 293);
+  --code-string: oklch(0.8 0.12 162.5);
+  --code-number: oklch(0.8 0.12 60);
+  --code-fn: oklch(0.8 0.1 250);
+}
+
+/* more contrast on request: stronger secondary text and edges */
+@media (prefers-contrast: more) {
+  :root {
+    --muted-foreground: oklch(0.4 0.012 285);
+    --input: oklch(0.5 0.01 285);
+    --border: oklch(0.75 0.005 285);
+  }
+  .dark {
+    --muted-foreground: oklch(0.82 0.006 285);
+    --input: oklch(1 0 0 / 55%);
+    --border: oklch(1 0 0 / 30%);
+  }
 }
 
 @theme inline {
-  --font-sans: 'DM Sans Variable', system-ui, sans-serif;
-  --font-heading: 'Sora Variable', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --font-sans: 'DM Sans Variable', 'DM Sans Fallback', system-ui, sans-serif;
+  --font-heading: 'Sora Variable', 'Sora Fallback', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono Fallback', ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -108,11 +183,18 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-solid: var(--destructive-solid);
+  --color-destructive-solid-foreground: var(--destructive-solid-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-progress: var(--progress);
+  --color-progress-foreground: var(--progress-foreground);
   --color-info: var(--info);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
@@ -128,29 +210,76 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --radius-sm: calc(var(--radius) * 0.6);
+  --color-code-keyword: var(--code-keyword);
+  --color-code-string: var(--code-string);
+  --color-code-number: var(--code-number);
+  --color-code-fn: var(--code-fn);
+  /* three radii: md for controls, lg for inner surfaces, xl for cards and
+     overlays (plus full for badges and dots). sm is the checkbox and kbd. */
+  --radius-sm: calc(var(--radius) * 0.4);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.4);
   --radius-2xl: calc(var(--radius) * 1.8);
 }
 
+/* type roles on top of the stock scale (text-xs 12, text-sm 14, text-base
+   16). each role carries its line height, tracking and weight, so a title is
+   one class; the heading family comes from font-heading or an h1 to h3.
+   - text-title: page title (h1), sora 24/32 600
+   - text-heading: section, card, dialog and empty-state titles, 16/24 600
+   - text-figure: stat numbers, 24/32 600; pair with font-heading tabular-nums
+   - text-figure-sm: small stat tiles, 18/28 600
+   - text-kbd: keyboard hints and chart ticks, 11/16 500 */
+@theme {
+  --text-title: 1.5rem;
+  --text-title--line-height: 2rem;
+  --text-title--letter-spacing: -0.025em;
+  --text-title--font-weight: 600;
+  --text-heading: 1rem;
+  --text-heading--line-height: 1.5rem;
+  --text-heading--letter-spacing: -0.01em;
+  --text-heading--font-weight: 600;
+  --text-figure: 1.5rem;
+  --text-figure--line-height: 2rem;
+  --text-figure--letter-spacing: -0.01em;
+  --text-figure--font-weight: 600;
+  --text-figure-sm: 1.125rem;
+  --text-figure-sm--line-height: 1.75rem;
+  --text-figure-sm--font-weight: 600;
+  --text-kbd: 0.6875rem;
+  --text-kbd--line-height: 1rem;
+  --text-kbd--font-weight: 500;
+}
+
 /* motion tokens; the same values live in src/lib/motion.ts for motion.
-   durations use the stock duration-150 / 200 / 300 utilities. */
+   durations use the stock duration-150 / 200 / 300 utilities, and polled
+   progress bars use duration-(--duration-progress). */
 @theme {
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-shimmer: shimmer 2s linear infinite;
   --animate-status-pulse: status-pulse 1.6s ease-in-out infinite;
+  --animate-stripes: stripes 1.2s linear infinite;
 
+  /* the shimmer is a fixed-width stripe that travels a fixed distance, so
+     every skeleton sweeps at the same speed whatever its width */
   @keyframes shimmer {
     to {
-      translate: 100% 0;
+      translate: 100vw 0;
     }
   }
 
   @keyframes status-pulse {
     50% {
-      opacity: 0.6;
+      opacity: 0.4;
+    }
+  }
+
+  /* the processing tile's diagonal stripes slide by one period, so the loop
+     has no seam (28.28px is the 20px stripe pair along the diagonal) */
+  @keyframes stripes {
+    to {
+      background-position: 28.28px 0;
     }
   }
 }
@@ -176,7 +305,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
   }
   html {
     @apply font-sans;
@@ -184,6 +313,11 @@
     /* the scrollbar keeps its space whether or not a page scrolls, so
        moving between a short and a long page does not shift the layout */
     scrollbar-gutter: stable;
+    /* a control focused from the keyboard never hides under the sticky top
+       bar, the Videos toolbar while it sticks, the bulk bar or a toast; the
+       variables come from the top bar, toolbar and bulk bar themselves */
+    scroll-padding-top: calc(var(--top-bar-h, 3.5rem) + 1rem + var(--sticky-toolbar-h, 0px));
+    scroll-padding-bottom: max(var(--bulk-bar-pad, 0px), var(--toast-pad, 0px));
   }
   /* radix pads the body by the scrollbar width when it locks scrolling for a
      dialog or menu; with a stable gutter that space is already kept, so the
@@ -223,6 +357,14 @@
   table[data-responsive] {
     display: block;
   }
+  /* the header stays for screen readers (every cell keeps its column), but
+     nothing in it can take focus where nobody can see it */
+  table[data-responsive] > thead th {
+    display: table-cell;
+  }
+  table[data-responsive] > thead :is(button, a, input, [tabindex], [role='checkbox']) {
+    visibility: hidden;
+  }
   table[data-responsive] > thead {
     position: absolute;
     width: 1px;
@@ -250,9 +392,13 @@
     padding: 0;
     white-space: normal;
     overflow-wrap: anywhere;
+    justify-content: flex-start;
+    text-align: start;
   }
+  /* the label is visual only; the real column header names the cell */
   table[data-responsive] > tbody > tr > td[data-label]::before {
-    content: attr(data-label);
+    content: attr(data-label) / '';
+    text-align: start;
     flex: none;
     min-width: 5.5rem;
     color: var(--muted-foreground);
@@ -266,26 +412,224 @@
     grid-row: 1;
     align-self: start;
   }
-}
-
-/* the theme provider sets this class for one transition when the user picks a
-   theme, so colors ease over instead of snapping. it is never on at first
-   paint, so loading the page does not animate the theme in. */
-@media (prefers-reduced-motion: no-preference) {
-  html.theme-switching,
-  html.theme-switching *,
-  html.theme-switching *::before,
-  html.theme-switching *::after {
-    transition-property:
-      color, background-color, border-color, outline-color, fill, stroke, box-shadow !important;
-    transition-duration: 300ms !important;
-    transition-timing-function: var(--ease-out-soft) !important;
+  table[data-responsive] > tbody > tr > td[data-cell='select'] {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+    justify-self: end;
+    padding-inline: calc(var(--spacing) * 2);
   }
 }
 
-/* sonner drives its own toast timing in js, so only the curve is aligned */
+/* the same cards for a DataTable, decided by the table's own width instead
+   of the window's, so a table in a narrow column turns into cards too. the
+   rules repeat the ones above because a media query and a container query
+   cannot share one block. data-card-hidden drops a column from the cards
+   when the primary cell already shows it there; the cell stays for screen
+   readers. */
+@container table (width < 40rem) {
+  table[data-responsive='container'] {
+    display: block;
+  }
+  table[data-responsive='container'] > thead th {
+    display: table-cell;
+  }
+  table[data-responsive='container'] > thead :is(button, a, input, [tabindex], [role='checkbox']) {
+    visibility: hidden;
+  }
+  table[data-responsive='container'] > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table[data-responsive='container'] > tbody {
+    display: block;
+  }
+  table[data-responsive='container'] > tbody > tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: calc(var(--spacing) * 3);
+    row-gap: calc(var(--spacing) * 1);
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 1) calc(var(--spacing) * 3)
+      calc(var(--spacing) * 4);
+  }
+  table[data-responsive='container'] > tbody > tr > td {
+    grid-column: 1;
+    display: flex;
+    align-items: baseline;
+    gap: calc(var(--spacing) * 2);
+    min-width: 0;
+    padding: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    justify-content: flex-start;
+    text-align: start;
+  }
+  table[data-responsive='container'] > tbody > tr > td[data-label]::before {
+    content: attr(data-label) / '';
+    text-align: start;
+    flex: none;
+    min-width: 5.5rem;
+    color: var(--muted-foreground);
+    font-size: var(--text-xs);
+  }
+  /* the title block spans the menu's row and the checkbox's, so the
+     checkbox sits under the menu however tall the title block grows */
+  table[data-responsive='container'] > tbody > tr > td[data-cell='primary'] {
+    font-weight: 500;
+    grid-row: 1 / span 2;
+  }
+  table[data-responsive='container'] > tbody > tr > td[data-cell='actions'] {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+  }
+  table[data-responsive='container'] > tbody > tr > td[data-cell='select'] {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+    justify-self: end;
+    padding-inline: calc(var(--spacing) * 2);
+  }
+  /* out of sight but still in the table: a dropped cell would shift every
+     later cell under the wrong header for a screen reader */
+  table[data-responsive='container'] > tbody > tr:has(> td[data-card-hidden]) {
+    position: relative;
+  }
+  table[data-responsive='container'] > tbody > tr > td[data-card-hidden] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table[data-responsive='container']
+    > tbody
+    > tr
+    > td[data-card-hidden]
+    :is(button, a, input, [tabindex]) {
+    visibility: hidden;
+  }
+  /* a row with a checkbox leads with it: top left, centred on the title's
+     first line and under Select all, with the menu still top right */
+  table[data-responsive='container'] > tbody > tr:has(> td[data-cell='select']) {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  table[data-responsive='container'] > tbody > tr:has(> td[data-cell='select']) > td {
+    grid-column: 2;
+  }
+  table[data-responsive='container']
+    > tbody
+    > tr:has(> td[data-cell='select'])
+    > td[data-cell='select'] {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    padding: 0;
+    margin-top: 2px;
+  }
+  table[data-responsive='container']
+    > tbody
+    > tr:has(> td[data-cell='select'])
+    > td[data-cell='actions'] {
+    grid-column: 3;
+  }
+}
+
+/* forced colors (windows high contrast) drops box-shadow rings, and the
+   primitives set outline: none, so focus would vanish. give every focused
+   element a system-colored outline, and mark the current page in the nav. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid CanvasText !important;
+    outline-offset: 2px !important;
+  }
+  /* outline-hidden is a transparent outline, which forced colors paints on
+     every item at rest; it stays for focus only */
+  .outline-hidden:not(:focus-visible) {
+    outline-style: none;
+  }
+  /* the chart hides the same outline through descendant classes, which the
+     rule above does not see; firefox then boxes every bar, tick and layer */
+  [data-slot='chart']
+    :is(.recharts-surface, .recharts-layer, .recharts-sector):not(:focus-visible) {
+    outline-style: none;
+  }
+  /* the option the arrows are on in a menu, select or the palette */
+  [data-highlighted],
+  [cmdk-item][data-selected='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  /* a selected tab or pressed toggle is marked by its background alone */
+  [data-slot='tabs-trigger'][data-state='active'],
+  [data-slot='toggle-group-item'][data-state='on'],
+  [data-slot='toggle'][data-state='on'] {
+    forced-color-adjust: none;
+    background: SelectedItem;
+    color: SelectedItemText;
+  }
+  /* forced colors blanks both the track and the fill of a progress bar */
+  [data-slot='progress'] {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+  [data-slot='progress-indicator'] {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  [data-sidebar='menu-button'][data-active='true'],
+  [aria-current='page'] {
+    outline: 1px solid Highlight;
+  }
+}
+
+/* a theme switch crossfades one snapshot of the page (the theme provider
+   wraps the class change in a view transition). snapshots are composited, so
+   the cost does not grow with the number of elements, unlike per-element
+   color transitions. browsers without view transitions just snap. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+  animation-timing-function: var(--ease-out-soft);
+}
+
+/* sonner animates toasts for 400 ms but unmounts a dismissed one after
+   200 ms, which cut the exit off halfway. 200 ms keeps enter and exit on the
+   base duration and lets the exit finish before the unmount. */
+/* a toast stays until closed when it carries an error; room under the page
+   lets its last row scroll up past it, and focus never lands under it */
+html:has([data-sonner-toast]) {
+  --toast-pad: 8rem;
+}
+body:has([data-sonner-toast]) main {
+  padding-bottom: 8rem;
+}
+
+/* sonner rings a focused toast and its action with a faint shadow (1 to 2.8:1);
+   they get the app's ring like every other control */
+[data-sonner-toaster] [data-sonner-toast]:focus-visible,
+[data-sonner-toaster] [data-sonner-toast][data-styled] [data-button]:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+/* alt+t focuses the toast list itself, which is 0 px tall; ring the toast in
+   front so the keyboard can see where it is */
+[data-sonner-toaster]:focus-visible [data-sonner-toast][data-front='true'] {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
 [data-sonner-toaster] [data-sonner-toast] {
+  transition-duration: 200ms, 200ms, 200ms, 150ms;
   transition-timing-function: var(--ease-out-soft);
+}
+[data-sonner-toaster] [data-sonner-toast] > * {
+  transition-duration: 200ms;
 }
 
 /* the last word on motion: css animations and transitions collapse to a
@@ -297,5 +641,16 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  /* except spinners: a small glyph turning slowly is not the large movement
+     reduced motion is about, and it is the only sign that work goes on */
+  [data-slot='spinner'] {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }

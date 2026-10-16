@@ -122,6 +122,17 @@ async function startLogin(next?: string): Promise<{ state: string; cookie: strin
 }
 
 /** Run a whole sign-in in one browser. */
+/** The redirect into the Studio a failed callback answers with. */
+function expectSignInError(res: request.Response, code: string, handle?: string) {
+  expect(res.status).toBe(302);
+  const location = new URL(res.headers.location, 'https://sluby.test');
+  expect(location.pathname).toBe('/studio');
+  expect(location.searchParams.get('signin_error')).toBe(code);
+  expect(location.searchParams.get('handle')).toBe(handle ?? null);
+  expect(res.headers['cache-control']).toBe('no-store');
+  expect(cookieValue(setCookies(res), SESSION_COOKIE_NAME)).toBeUndefined();
+}
+
 async function signInThroughGithub(next?: string) {
   const { state, cookie } = await startLogin(next);
   return request(app())
@@ -203,12 +214,14 @@ describe('GET /auth/github/login', () => {
     expect(setCookies(res)[0]).toMatch(/; Secure$/);
   });
 
-  it('answers 500 when github oauth is not configured', async () => {
+  it('sends the browser back to the studio with not_configured when github oauth is not configured', async () => {
     env.GITHUB_CLIENT_ID = undefined;
     const res = await request(app()).get('/api/v1/auth/github/login');
-    expect(res.status).toBe(500);
-    expect(res.body).toEqual({ error: 'GitHub sign-in is not configured' });
-    expect(res.headers.location).toBeUndefined();
+    // a browser follows this link, so it lands on a page that says why
+    expectSignInError(res, 'not_configured');
+    expect(setCookies(res).some((c) => c.startsWith('sluby_signin=') && !/Max-Age=0/.test(c))).toBe(
+      false,
+    );
   });
 
   it('falls through to the 404 for an unknown provider', async () => {
@@ -306,10 +319,8 @@ describe('GET /auth/github/callback', () => {
     const res = await request(app())
       .get('/api/v1/auth/github/callback')
       .query({ code: 'attacker-code', state });
-    expect(res.status).toBe(400);
-    expect(res.headers['content-type']).toBe('text/plain; charset=utf-8');
+    expectSignInError(res, 'expired_handshake');
     expect(github.tokenRequests).toHaveLength(0);
-    expect(cookieValue(setCookies(res), SESSION_COOKIE_NAME)).toBeUndefined();
   });
 
   it("refuses another sign-in's state even with a handshake cookie", async () => {
@@ -319,7 +330,7 @@ describe('GET /auth/github/callback', () => {
       .get('/api/v1/auth/github/callback')
       .query({ code: 'attacker-code', state: attacker.state })
       .set('Cookie', victim.cookie);
-    expect(res.status).toBe(400);
+    expectSignInError(res, 'expired_handshake');
     expect(github.tokenRequests).toHaveLength(0);
   });
 
@@ -329,7 +340,7 @@ describe('GET /auth/github/callback', () => {
       .get('/api/v1/auth/github/callback')
       .query({ code: 'c', state })
       .set('Cookie', cookie.replace('sluby_signin=github.', 'sluby_signin=other.'));
-    expect(res.status).toBe(400);
+    expectSignInError(res, 'expired_handshake');
   });
 
   it('rejects a state it never issued without calling github', async () => {
@@ -338,7 +349,7 @@ describe('GET /auth/github/callback', () => {
       .get('/api/v1/auth/github/callback')
       .query({ code: 'c', state: 'forged-state' })
       .set('Cookie', cookie);
-    expect(res.status).toBe(400);
+    expectSignInError(res, 'expired_handshake');
     expect(github.tokenRequests).toHaveLength(0);
     expect(setCookies(res)).toEqual([
       'sluby_signin=; Path=/api/v1/auth; HttpOnly; SameSite=Lax; Max-Age=0',
@@ -355,7 +366,7 @@ describe('GET /auth/github/callback', () => {
       .get('/api/v1/auth/github/callback')
       .query({ code: 'c', state })
       .set('Cookie', cookie);
-    expect(res.status).toBe(400);
+    expectSignInError(res, 'expired_handshake');
   });
 
   it('still accepts a handshake right at the ten minute mark', async () => {
@@ -371,23 +382,22 @@ describe('GET /auth/github/callback', () => {
     expect(res.status).toBe(302);
   });
 
-  it('answers 400 without a state', async () => {
+  it('sends the browser back with expired_handshake without a state', async () => {
     const { cookie } = await startLogin();
     const res = await request(app())
       .get('/api/v1/auth/github/callback')
       .query({ code: 'x' })
       .set('Cookie', cookie);
-    expect(res.status).toBe(400);
+    expectSignInError(res, 'expired_handshake');
   });
 
-  it('answers 400 without a code', async () => {
+  it('sends the browser back with provider_failed without a code', async () => {
     const { state, cookie } = await startLogin();
     const res = await request(app())
       .get('/api/v1/auth/github/callback')
       .query({ state })
       .set('Cookie', cookie);
-    expect(res.status).toBe(400);
-    expect(res.text).toBe('GitHub did not send a sign-in code.');
+    expectSignInError(res, 'provider_failed');
     expect(github.tokenRequests).toHaveLength(0);
   });
 
@@ -400,11 +410,9 @@ describe('GET /auth/github/callback', () => {
     let req = request(app()).get('/api/v1/auth/github/callback').query({ error: payload, state });
     if (withHandshake) req = req.set('Cookie', cookie);
     const res = await req;
-    expect(res.status).toBe(withHandshake ? 500 : 400);
-    expect(res.headers['content-type']).toBe('text/plain; charset=utf-8');
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
-    expect(res.text).not.toContain('<script>');
-    expect(res.text).not.toContain('alert');
+    expectSignInError(res, withHandshake ? 'provider_failed' : 'expired_handshake');
+    expect(res.headers.location).not.toContain('script');
+    expect(res.headers.location).not.toContain('alert');
     expect(github.tokenRequests).toHaveLength(0);
   });
 
@@ -414,48 +422,54 @@ describe('GET /auth/github/callback', () => {
       .get('/api/v1/auth/github/callback')
       .query({ error: 'access_denied', state })
       .set('Cookie', cookie);
-    expect(res.status).toBe(400);
-    expect(res.text).toBe('GitHub sign-in was cancelled.');
+    expectSignInError(res, 'cancelled');
   });
 
-  it('answers 500 when github oauth is not configured', async () => {
+  it('sends a failed sign-in back to the page it started from, query and hash kept', async () => {
+    const { state, cookie } = await startLogin('/studio/videos/abc?view=grid#share');
+    const res = await request(app())
+      .get('/api/v1/auth/github/callback')
+      .query({ error: 'access_denied', state })
+      .set('Cookie', cookie);
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.location, 'https://sluby.test');
+    expect(location.pathname).toBe('/studio/videos/abc');
+    expect(location.searchParams.get('view')).toBe('grid');
+    expect(location.searchParams.get('signin_error')).toBe('cancelled');
+    expect(location.hash).toBe('#share');
+  });
+
+  it('sends the browser back with not_configured when github oauth is not configured', async () => {
     env.GITHUB_CLIENT_SECRET = undefined;
     const res = await request(app())
       .get('/api/v1/auth/github/callback')
       .query({ code: 'c', state: 's' });
-    expect(res.status).toBe(500);
-    expect(res.text).toBe('GitHub sign-in is not configured.');
-    expect(res.headers['content-type']).toBe('text/plain; charset=utf-8');
+    expectSignInError(res, 'not_configured');
   });
 
   it('fails without a session when github rejects the code', async () => {
     github.tokenReply = { status: 200, body: { error: 'bad_verification_code' } };
     const res = await signInThroughGithub();
-    expect(res.status).toBe(500);
-    expect(res.text).toBe('GitHub sign-in failed. Please try again.');
-    expect(cookieValue(setCookies(res), SESSION_COOKIE_NAME)).toBeUndefined();
+    expectSignInError(res, 'provider_failed');
     expect(github.userRequests).toHaveLength(0);
   });
 
   it('fails without a session when the token endpoint errors', async () => {
     github.tokenReply = { status: 502, body: {} };
     const res = await signInThroughGithub();
-    expect(res.status).toBe(500);
-    expect(cookieValue(setCookies(res), SESSION_COOKIE_NAME)).toBeUndefined();
+    expectSignInError(res, 'provider_failed');
   });
 
   it('fails without a session when the github user lookup fails', async () => {
     github.userReply = { status: 401, body: { message: 'Bad credentials' } };
     const res = await signInThroughGithub();
-    expect(res.status).toBe(500);
-    expect(res.text).toBe('GitHub sign-in failed. Please try again.');
-    expect(cookieValue(setCookies(res), SESSION_COOKIE_NAME)).toBeUndefined();
+    expectSignInError(res, 'provider_failed');
   });
 
   it('fails without a session when github sends no numeric id', async () => {
     github.userReply = { status: 200, body: { login: 'octocat', id: '1' } };
     const res = await signInThroughGithub();
-    expect(res.status).toBe(500);
+    expectSignInError(res, 'provider_failed');
     expect(accounts.identities).toEqual([]);
   });
 
@@ -470,13 +484,10 @@ describe('GET /auth/github/callback', () => {
       expect(accounts.pins.get('github\noctocat')).toBe('1');
     });
 
-    it('turns away anyone else with 403 and no account', async () => {
+    it('turns away anyone else, naming the login, with no account', async () => {
       github.userReply = { status: 200, body: { login: 'mallory', id: 2 } };
       const res = await signInThroughGithub();
-      expect(res.status).toBe(403);
-      expect(res.headers['content-type']).toBe('text/plain; charset=utf-8');
-      expect(res.text).toContain('"mallory" is not on the Studio allowlist');
-      expect(cookieValue(setCookies(res), SESSION_COOKIE_NAME)).toBeUndefined();
+      expectSignInError(res, 'not_allowed', 'mallory');
       expect(accounts.identities).toEqual([]);
       expect(accounts.claims.size).toBe(0);
     });
@@ -485,7 +496,7 @@ describe('GET /auth/github/callback', () => {
       await signInThroughGithub();
       github.userReply = { status: 200, body: { login: 'octocat', id: 99 } };
       const res = await signInThroughGithub();
-      expect(res.status).toBe(403);
+      expectSignInError(res, 'not_allowed', 'octocat');
       expect(accounts.identities.map((i) => i.subject)).toEqual(['1']);
     });
 
@@ -534,7 +545,7 @@ describe('GET /auth/github/callback', () => {
     it('does not pin anything for an account the sign-in allowlist refuses', async () => {
       env.GITHUB_ALLOWED_USERS = 'alice';
       env.OPERATOR_USERS = 'github:octocat';
-      expect((await signInThroughGithub()).status).toBe(403);
+      expectSignInError(await signInThroughGithub(), 'not_allowed', 'Octocat');
       expect(accounts.pins.size).toBe(0);
     });
   });
@@ -544,7 +555,7 @@ describe('GET /auth/me', () => {
   it('answers 401 without a session cookie', async () => {
     const res = await request(app()).get('/api/v1/auth/me');
     expect(res.status).toBe(401);
-    expect(res.body).toEqual({ error: 'Not signed in' });
+    expect(res.body).toEqual({ error: 'Not signed in', reason: 'missing' });
   });
 
   it('returns the account, the identity it signed in with and the expiry', async () => {
@@ -570,12 +581,22 @@ describe('GET /auth/me', () => {
     const { cookie } = await signedIn('octocat', '1', 3600, 'some-other-secret');
     const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
     expect(res.status).toBe(401);
+    expect(res.body.reason).toBe('missing');
   });
 
   it('answers 401 for an expired session', async () => {
     const { cookie } = await signedIn('octocat', '1', -1);
     const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
     expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Not signed in', reason: 'expired' });
+  });
+
+  it('says expired when the stored session ran out before its cookie', async () => {
+    const { id, cookie } = await signedIn();
+    accounts.sessions.find((x) => x.id === id)!.expiresAt = new Date(Date.now() - 1000);
+    const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
+    expect(res.status).toBe(401);
+    expect(res.body.reason).toBe('expired');
   });
 
   it('answers 401 for a session whose payload was edited', async () => {
@@ -589,6 +610,7 @@ describe('GET /auth/me', () => {
       .get('/api/v1/auth/me')
       .set('Cookie', `${SESSION_COOKIE_NAME}=${forged}.${sig}`);
     expect(res.status).toBe(401);
+    expect(res.body.reason).toBe('missing');
   });
 
   it('answers 401 for a cookie from before accounts (login payload)', async () => {
@@ -602,6 +624,7 @@ describe('GET /auth/me', () => {
       .get('/api/v1/auth/me')
       .set('Cookie', `${SESSION_COOKIE_NAME}=${encoded}.${sig}`);
     expect(res.status).toBe(401);
+    expect(res.body.reason).toBe('missing');
   });
 
   it('reports the local dev account when auth is disabled', async () => {
@@ -672,6 +695,7 @@ describe('server-side session state', () => {
     await accounts.authDeps.revokeSession(id, userId);
     const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
     expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Not signed in', reason: 'revoked' });
   });
 
   it('ends existing sessions of an account taken off the allowlist', async () => {
@@ -679,7 +703,9 @@ describe('server-side session state', () => {
     const { cookie } = await signedIn('octocat');
     expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).status).toBe(200);
     env.GITHUB_ALLOWED_USERS = 'alice';
-    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).status).toBe(401);
+    const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
+    expect(res.status).toBe(401);
+    expect(res.body.reason).toBe('not_allowed');
   });
 });
 
@@ -737,9 +763,12 @@ describe('/auth/sessions', () => {
       .set('Cookie', laptop.cookie);
     expect(res.status).toBe(200);
     expect(setCookies(res)).toEqual([]);
-    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', phone.cookie)).status).toBe(
-      401,
-    );
+    const ended = await request(app()).get('/api/v1/auth/me').set('Cookie', phone.cookie);
+    expect(ended.status).toBe(401);
+    // what the phone's studio shows: signed out from another browser
+    expect(ended.body.reason).toBe('revoked');
+    const listed = await request(app()).get('/api/v1/auth/sessions').set('Cookie', phone.cookie);
+    expect(listed.body).toEqual({ error: 'Not signed in', reason: 'revoked' });
     expect((await request(app()).get('/api/v1/auth/me').set('Cookie', laptop.cookie)).status).toBe(
       200,
     );

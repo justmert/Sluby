@@ -1,5 +1,19 @@
-/** What a formatter prints for a value it cannot format (missing, NaN, negative). */
-export const NO_VALUE = '-';
+/**
+ * What a formatter prints for a value it cannot format (missing, NaN,
+ * negative), and what a page prints for an empty value: an en dash, shown in
+ * muted text. While a value loads, show a skeleton instead.
+ */
+export const NO_VALUE = '–';
+
+/** A count grouped the way the studio's english copy reads: 12,345. */
+export function formatCount(n: number): string {
+  return Number.isFinite(n) ? n.toLocaleString('en-US') : NO_VALUE;
+}
+
+/** "1 video", "2 videos", "1,204 files"; give `many` for irregular plurals. */
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${formatCount(n)} ${n === 1 ? one : many}`;
+}
 
 /**
  * Scale a value into the largest unit that keeps it under 1000. Rounding
@@ -30,13 +44,56 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * Format a bitrate in bits per second.
- * e.g. 6_000_000 -> "6 Mbps", 800_000 -> "800 Kbps"
+ * Format a bitrate in bits per second, with SI symbols (lower-case k).
+ * e.g. 6_000_000 -> "6 Mbps", 800_000 -> "800 kbps"
  */
 export function formatBitrate(bps: number | undefined): string {
   if (bps === undefined || !Number.isFinite(bps) || bps < 0) return NO_VALUE;
   if (bps < 1) return '0 bps';
-  return scale(bps, ['bps', 'Kbps', 'Mbps', 'Gbps'], 2);
+  return scale(bps, ['bps', 'kbps', 'Mbps', 'Gbps'], 2);
+}
+
+/**
+ * A resolution with a real times sign: (1920, 1080) or "1920x1080" ->
+ * "1920 × 1080". The server sends the string form.
+ */
+export function formatResolution(
+  width: number | string | null | undefined,
+  height?: number,
+): string {
+  if (typeof width === 'string') {
+    const m = width.match(/^\s*(\d+)\s*[x×]\s*(\d+)\s*$/i);
+    return m ? `${m[1]} × ${m[2]}` : width.trim() || NO_VALUE;
+  }
+  if (width == null || height == null || !(width > 0) || !(height > 0)) return NO_VALUE;
+  return `${width} × ${height}`;
+}
+
+/** A ratio such as redundancy: 3 -> "3×", 2.5 -> "2.5×". */
+export function formatRatio(ratio: number): string {
+  if (!Number.isFinite(ratio) || ratio < 0) return NO_VALUE;
+  return `${ratio.toFixed(1).replace(/\.0$/, '')}×`;
+}
+
+/**
+ * How long something has been running, in words, so it cannot be read as a
+ * clock: "8 minutes", "3 hours 20 minutes", "4 days 2 hours".
+ */
+export function formatUptime(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return NO_VALUE;
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'less than a minute';
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0)
+    return hours % 24
+      ? `${plural(days, 'day')} ${plural(hours % 24, 'hour')}`
+      : plural(days, 'day');
+  if (hours > 0)
+    return minutes % 60
+      ? `${plural(hours, 'hour')} ${plural(minutes % 60, 'minute')}`
+      : plural(hours, 'hour');
+  return plural(minutes, 'minute');
 }
 
 /**
@@ -60,8 +117,6 @@ function toDate(date: string | Date): Date | null {
   const d = typeof date === 'string' ? new Date(date) : date;
   return Number.isNaN(d.getTime()) ? null : d;
 }
-
-const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
 
 /**
  * Format a date relative to now: "2 minutes ago", "in 3 days", "just now".
@@ -91,16 +146,29 @@ export function formatRelativeTime(date: string | Date, now = Date.now()): strin
   return diffMs < 0 ? `in ${span}` : `${span} ago`;
 }
 
-/** How long until `iso`, compactly: "in 5m", "in 3h 20m", "in 2d 4h", or "now" once passed. */
+/**
+ * How long until `iso`, in words: "in 5 minutes", "in 3 hours 20 minutes",
+ * "in 2 days 4 hours", or "now" once passed.
+ */
 export function formatTimeLeft(iso: string, now = Date.now()): string {
   const at = Date.parse(iso);
   if (!Number.isFinite(at)) return NO_VALUE;
   const minutes = Math.ceil((at - now) / 60_000);
   if (minutes <= 0) return 'now';
-  if (minutes < 60) return `in ${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours >= 24) return `in ${Math.floor(hours / 24)}d ${hours % 24}h`;
-  return `in ${hours}h ${minutes % 60}m`;
+  return `in ${formatUptime(minutes * 60_000)}`;
+}
+
+/**
+ * Seconds-precise "ago" for a live figure: "just now", "12 seconds ago",
+ * "3 minutes ago", "2 hours ago". Older times use formatRelativeTime.
+ */
+export function formatAgo(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 5) return 'just now';
+  if (s < 60) return `${s} seconds ago`;
+  if (s < 3600) return `${plural(Math.floor(s / 60), 'minute')} ago`;
+  if (s < 86_400) return `${plural(Math.floor(s / 3600), 'hour')} ago`;
+  return `${plural(Math.floor(s / 86_400), 'day')} ago`;
 }
 
 /**

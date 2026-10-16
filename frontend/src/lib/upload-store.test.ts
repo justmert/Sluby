@@ -10,7 +10,9 @@ import {
   type VideoAsset,
 } from '@sluby/sdk';
 import { fakeUploadClient as fakeClient } from '@/test/fake-uploads';
-import { createUploadStore, summarizeUploads, type UploadStoreOptions } from './upload-store';
+import { createUploadStore, type UploadStoreOptions } from './upload-store';
+import { findUpload, recordUpload } from './upload-history';
+import { fileFingerprint } from './upload-tabs';
 
 function job(overrides: Partial<ProcessingJob>): ProcessingJob {
   return {
@@ -24,6 +26,7 @@ function job(overrides: Partial<ProcessingJob>): ProcessingJob {
     completedAt: null,
     createdAt: '2026-10-02T00:00:00Z',
     logs: [],
+    retryable: true,
     ...overrides,
   };
 }
@@ -95,7 +98,7 @@ describe('upload store: transfer', () => {
     expect(s.one()).toMatchObject({
       phase: 'failed',
       failedDuring: 'upload',
-      error: 'Upload too large',
+      error: 'Upload too large.',
       canResume: false,
     });
 
@@ -169,7 +172,7 @@ describe('upload store: transfer', () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(s.one()).toMatchObject({ phase: 'failed', failedDuring: 'upload' });
-    expect(s.one().error).toMatch(/did not report which asset/);
+    expect(s.one().error).toMatch(/did not report which video it created/);
   });
 
   it('a 401 during the transfer fails it and reports the ended session', async () => {
@@ -259,7 +262,7 @@ describe('upload store: pause, resume and cancel', () => {
 
     await expect(s.store.cancel(key)).resolves.toBeUndefined();
     expect(s.one()).toMatchObject({ phase: 'cancelled', cleanup: 'failed' });
-    expect(s.one().error).toMatch(/did not confirm removing the partial upload/);
+    expect(s.one().error).toMatch(/did not confirm it removed the partial file/);
 
     s.f.cancel.mockRejectedValueOnce(new SlubyError('Internal error', 500));
     await s.store.retryCleanup(key);
@@ -292,7 +295,7 @@ describe('upload store: pause, resume and cancel', () => {
     await s.store.cancel(key);
     await flush();
     expect(s.one()).toMatchObject({ phase: 'processing', cleanup: null, assetId: 'a' });
-    expect(s.one().notice).toMatch(/finished before it could be cancelled/);
+    expect(s.one().notice).toMatch(/finished before it could be canceled/);
   });
 
   it('a cleanup retry answered 409 follows the finished upload instead', async () => {
@@ -327,6 +330,21 @@ describe('upload store: processing poll', () => {
 
     await vi.advanceTimersByTimeAsync(2000);
     expect(s.one().job?.stage).toBe('transcode');
+  });
+
+  it('forgets an upload whose video was deleted during processing', async () => {
+    recordUpload({
+      fingerprint: fileFingerprint(file),
+      title: 'Clip',
+      assetId: 'a',
+      accountId: 'acc',
+    });
+    const s = await transferredUpload();
+    s.f.processing.mockRejectedValue(new NotFoundError('No processing job found for this asset'));
+    s.f.get.mockRejectedValue(new NotFoundError('Video asset not found'));
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(s.one()).toMatchObject({ phase: 'failed', assetGone: true });
+    expect(findUpload(fileFingerprint(file), 'acc')).toBeNull();
   });
 
   it('stops and says so when the asset is deleted during processing', async () => {
@@ -390,8 +408,8 @@ describe('upload store: processing poll', () => {
     const s = await transferredUpload();
     s.f.processing.mockRejectedValueOnce(new SlubyError('Bad gateway', 502));
     await vi.advanceTimersByTimeAsync(2000);
-    expect(s.one().error).toMatch(/Bad gateway/);
-    expect(s.one().pollStopped).toBe(false);
+    // a passing failure keeps the last stage and says another reading is coming
+    expect(s.one()).toMatchObject({ checking: true, error: null, pollStopped: false });
 
     s.f.processing.mockRejectedValue(new PermissionError('Missing scope'));
     await vi.advanceTimersByTimeAsync(2000);
@@ -416,8 +434,10 @@ describe('upload store: processing poll', () => {
     expect(s.one()).toMatchObject({
       phase: 'failed',
       failedDuring: 'processing',
-      error: 'ffmpeg exited with code 1',
+      error: 'Processing stopped with an error. Retrying usually works.',
     });
+    // the raw line stays on the job, for Details only
+    expect(s.one().job?.errorMessage).toBe('ffmpeg exited with code 1');
 
     await s.store.retryProcessing(key);
     await flush();
@@ -433,12 +453,16 @@ describe('upload store: processing poll', () => {
     s.f.current().finish();
     await flush();
     s.f.retry.mockRejectedValueOnce(
-      new NotFoundError('Source file not found, please re-upload the video', undefined, 410),
+      new NotFoundError(
+        'Could not retry because the original file is gone. Upload the video again.',
+        undefined,
+        410,
+      ),
     );
     await s.store.retryProcessing(key);
     expect(s.one()).toMatchObject({
       phase: 'failed',
-      error: 'Source file not found, please re-upload the video',
+      error: 'Could not retry because the original file is gone. Upload the video again.',
     });
   });
 
@@ -580,20 +604,5 @@ describe('upload store: transfer time', () => {
     s.f.current().finish();
     await flush();
     expect(s.one().activeMs).toBe(3500);
-  });
-
-  it('summarises uploads for a compact indicator', async () => {
-    const s = setup();
-    s.store.enqueue(file, { title: 'A' });
-    s.store.enqueue(new File([new Uint8Array(5)], 'z.mp4', { type: 'video/mp4' }), {
-      title: 'Z',
-    });
-    s.f.current().progress(25, 100);
-    expect(summarizeUploads(s.store.getState())).toMatchObject({
-      percent: 25,
-      queued: 1,
-      processing: 0,
-      failed: 0,
-    });
   });
 });

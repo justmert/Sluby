@@ -72,20 +72,16 @@ beforeEach(() => {
 });
 
 describe('/v1/share/:id gate', () => {
-  it('serves a public asset with no credentials, briefly cacheable, with open cors', async () => {
+  it('serves a public asset with no credentials, uncached, with open cors', async () => {
     const res = await request(app()).get(`/v1/share/${assetId}`);
 
     expect(res.status).toBe(200);
     expect(res.body.master_object_id).toBe(master);
     expect(Object.keys(res.body.shares).sort()).toEqual([`data-${seq}`, master].sort());
     expect(res.headers['access-control-allow-origin']).toBe('*');
-    // nginx may keep it briefly; browsers and other caches revalidate
-    const maxAge = Number(res.headers['x-accel-expires']);
-    expect(res.headers['cache-control']).toBe('public, no-cache');
-    expect(maxAge).toBeGreaterThan(0);
-    expect(maxAge).toBeLessThanOrEqual(60);
-    // the cached copy cannot outlive the shares
-    expect(nowSec() + maxAge).toBeLessThan(Date.parse(res.body.expires_at) / 1000);
+    // every map is a player load to count, so no cache keeps it
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers['x-accel-expires']).toBeUndefined();
     expect(getVideoAssetById).toHaveBeenCalledWith(assetId);
   });
 

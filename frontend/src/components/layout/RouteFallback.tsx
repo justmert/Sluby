@@ -1,167 +1,352 @@
-import { useLocation } from 'react-router';
+import { useLocation, useSearchParams } from 'react-router';
+import { AssetDetailLoading } from '@/components/asset/AssetDetailLoading';
+import { KEY_COLUMNS, WEBHOOK_COLUMNS } from '@/components/developers/columns';
+import { VideoPickerSkeleton } from '@/components/developers/VideoPickerSkeleton';
+import { WebhookDetailLoading } from '@/components/developers/WebhookDetailLoading';
+import { AccountSection } from '@/components/settings/AccountSection';
+import { AppearanceSection } from '@/components/settings/AppearanceSection';
+import { SESSION_COLUMNS } from '@/components/settings/columns';
+import { SessionsHeader } from '@/components/settings/SessionsHeader';
+import { type ColumnFrame, withCells } from '@/components/shared/column-frames';
+import { DataTable } from '@/components/shared/DataTable';
+import { PageHeader, type PageHeaderProps, SectionHeader } from '@/components/shared/PageHeader';
+import { CopyField } from '@/components/shared/CopyField';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { libraryView } from '@/components/videos/library-view';
+import { VideosGridSkeleton } from '@/components/videos/VideosGridSkeleton';
+import { VideosTable } from '@/components/videos/VideosTable';
+import { cn } from '@/lib/utils';
 import { AnalyticsLoading } from '@/components/dashboard/analytics-parts';
 import { DashboardLoading } from '@/components/dashboard/dashboard-parts';
+import { HealthLoading } from '@/components/deployment/HealthLoading';
 import { useRouteSkeletonVisibility } from '@/components/dashboard/live';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/session';
+import { KeyNote } from '@/pages/studio/developers/KeyNote';
+import {
+  KeysCountLoading,
+  KeysRow,
+  ReferenceLinks,
+  ServerRow,
+  TryExplorerLink,
+} from '@/pages/studio/developers/quickstart-parts';
+import { SETUP_DESCRIPTION } from '@/lib/snippet-copy';
+import {
+  AddWebhookButton,
+  CreateKeyButton,
+  StatsLinePlaceholder,
+  UploadVideoButton,
+} from './page-actions';
+import { PAGE_HEADS } from './page-heads';
+import { lateReveal } from '@/lib/motion';
 import { PageContainer } from './PageContainer';
 
 // shaped like each page's first screen, so the page lands where the skeleton
 // was instead of pushing everything down. the grids repeat the pages' own.
 
-function Header({ action = false, back = false }: { action?: boolean; back?: boolean }) {
+// the page's own header, title and description as the page writes them, so
+// they wrap the same. the title is not an h1: the only h1 while the code
+// loads is the "Loading page" one below, and the page brings its own
+function Head(props: PageHeaderProps) {
   return (
-    <div className="mb-6 flex flex-col gap-4 @xl/page:flex-row @xl/page:items-end @xl/page:justify-between">
-      <div className="flex flex-col gap-2">
-        {back && <Skeleton className="mb-2 h-4 w-16" />}
-        <Skeleton className="h-8 w-44" />
-        <Skeleton className="h-4 w-72 max-w-full" />
-      </div>
-      {action && <Skeleton className="h-8 w-28" />}
-    </div>
+    <PageHeader
+      {...props}
+      heading={
+        <div dir="auto" className="truncate font-heading text-title">
+          {props.title}
+        </div>
+      }
+    />
   );
 }
-
-const card = 'rounded-xl';
 
 // the dashboard and analytics draw their own loading state, the same one
 // the pages show while their data loads
 function Dashboard() {
   const { operator } = useSession();
-  useRouteSkeletonVisibility();
   return (
     <>
-      <Header action />
+      <Head {...PAGE_HEADS.overview} primaryAction={<UploadVideoButton />} />
       <DashboardLoading operator={operator} />
     </>
   );
 }
 
+// the toolbar's controls: 32 px, 40 on touch screens like the real ones
+const control = 'h-8 pointer-coarse:h-10';
+
 function Assets() {
+  const [params] = useSearchParams();
+  const param = params.get('view');
+  const grid =
+    libraryView(param === 'table' || param === 'grid' || param === 'list' ? param : undefined) ===
+    'grid';
   return (
     <>
-      <Header action />
-      <div className="mb-4 flex flex-wrap gap-2">
-        <Skeleton className="h-8 w-full max-w-sm" />
-        <Skeleton className="h-8 w-32" />
-        <Skeleton className="h-8 w-32" />
+      <Head
+        {...PAGE_HEADS.videos}
+        description={<StatsLinePlaceholder />}
+        primaryAction={<UploadVideoButton />}
+      />
+      {/* the page's toolbar box, control for control (AssetsPage) */}
+      <div className="-mx-2 mb-3 flex flex-col gap-2 px-2 py-2 @2xl/page:flex-row @2xl/page:items-center">
+        <Skeleton className={cn(control, 'w-full @2xl/page:max-w-sm')} />
+        <div className="flex flex-1 flex-wrap items-center gap-2">
+          {/* select all; on small phones the grid shows only its box */}
+          <Skeleton
+            className={cn(
+              control,
+              'w-24',
+              grid ? 'max-[27rem]:w-7' : 'hidden @max-[calc(40rem+2px)]/page:block',
+            )}
+          />
+          <Skeleton className={cn(control, 'w-20 @2xl/page:hidden')} />
+          <Skeleton className={cn(control, 'hidden w-40 @2xl/page:block')} />
+          <Skeleton className={cn(control, 'hidden w-32 @2xl/page:block')} />
+          {grid && <Skeleton className={cn(control, 'w-34')} />}
+          <Skeleton className={cn(control, 'ml-auto w-16')} />
+        </div>
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {Array.from({ length: 8 }, (_, i) => (
-          <div key={i} className="flex flex-col gap-3">
-            <Skeleton className={`aspect-video w-full ${card}`} />
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-3 w-1/2" />
+      {grid ? (
+        <VideosGridSkeleton />
+      ) : (
+        <VideosTable
+          assets={undefined}
+          sort={{ column: 'created', direction: 'desc' }}
+          onSortChange={() => {}}
+          selected={new Set()}
+          onSelectedChange={() => {}}
+          actions={() => []}
+          staggerIn={false}
+          busy
+          rowsKey="loading"
+        />
+      )}
+    </>
+  );
+}
+
+// a table page's own table with no rows yet: its headers over skeleton rows
+function TableSkeleton({ columns, rows }: { columns: readonly ColumnFrame[]; rows: number }) {
+  return (
+    <DataTable
+      caption=""
+      columns={withCells<never>(columns, {})}
+      rows={undefined}
+      getRowId={() => ''}
+      getRowLabel={() => ''}
+      loadingRows={rows}
+      rowActions={() => []}
+    />
+  );
+}
+
+// the quickstart's own rows, links and text (quickstart-parts), with bars
+// only where the page waits for data
+function Quickstart() {
+  return (
+    <>
+      <Head {...PAGE_HEADS.quickstart} />
+      <Card>
+        <CardContent>
+          <dl className="divide-y">
+            <ServerRow label="API base URL">
+              <CopyField
+                label="API base URL"
+                value={window.location.origin}
+                className="w-full max-w-md"
+              />
+            </ServerRow>
+            <ServerRow label="API keys">
+              <KeysRow count={<KeysCountLoading />} />
+            </ServerRow>
+            <ServerRow label="Reference">
+              <ReferenceLinks />
+            </ServerRow>
+          </dl>
+        </CardContent>
+      </Card>
+      <SectionHeader title="Code" description="Snippets for this server, ready to copy" />
+      <Card>
+        <CardContent className="flex flex-col gap-4">
+          <div className="pb-1">
+            <Skeleton className="h-8 w-full max-w-2xl" />
           </div>
-        ))}
+          <div className="flex flex-col gap-2">
+            <VideoPickerSkeleton />
+            <KeyNote />
+          </div>
+          <div className="flex min-w-0 flex-col gap-3">
+            <p className="text-sm text-muted-foreground">{SETUP_DESCRIPTION}</p>
+            <Skeleton className="h-80 rounded-lg" />
+          </div>
+        </CardContent>
+      </Card>
+      <TryExplorerLink />
+    </>
+  );
+}
+
+function Keys() {
+  return (
+    <>
+      <Head {...PAGE_HEADS.keys} primaryAction={<CreateKeyButton />} />
+      <TableSkeleton columns={KEY_COLUMNS} rows={3} />
+    </>
+  );
+}
+
+function Webhooks() {
+  return (
+    <>
+      <Head {...PAGE_HEADS.webhooks} primaryAction={<AddWebhookButton />} />
+      <TableSkeleton columns={WEBHOOK_COLUMNS} rows={3} />
+    </>
+  );
+}
+
+// the type of a form label (ui/label), without the label code
+const LABEL = 'flex items-center gap-2 text-sm leading-5 font-medium';
+
+// the explorer's form as it first draws (ExplorerPage): its labels and text,
+// with bars for the controls
+function Explorer() {
+  return (
+    <>
+      <Head {...PAGE_HEADS.explorer} />
+      <div className="grid items-start gap-4 @4xl/page:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Request</CardTitle>
+            <CardDescription>
+              Sent with your session, so it can change real data. See the{' '}
+              <span className="inline-flex items-center gap-1 underline underline-offset-4">
+                API reference
+                <span className="size-3" />
+              </span>{' '}
+              for every endpoint.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-4">
+              <div className="grid gap-2">
+                <div className={LABEL}>Template</div>
+                <Skeleton className={control} />
+              </div>
+              <div className="grid grid-cols-1 items-end gap-2 @[16rem]/page:grid-cols-[7rem_minmax(0,1fr)] @lg/page:grid-cols-[7rem_minmax(0,1fr)_auto]">
+                <div className="grid gap-2">
+                  <div className={LABEL}>Method</div>
+                  <Skeleton className={control} />
+                </div>
+                <div className="grid min-w-0 gap-2">
+                  <div className={LABEL}>Path</div>
+                  <Skeleton className={control} />
+                </div>
+                <Skeleton
+                  className={cn(
+                    control,
+                    '@[16rem]/page:col-span-2 @lg/page:col-span-1 @lg/page:w-24',
+                  )}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Response</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Send a request to see the answer here.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </>
   );
 }
 
-function AssetDetail() {
+// the page's own first draw (P1), so the cards land where the skeleton was
+function Health() {
   return (
     <>
-      <Header back action />
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Skeleton className={`aspect-video w-full lg:col-span-2 ${card}`} />
-        <Skeleton className={`h-[360px] ${card}`} />
-      </div>
-      <Skeleton className="mt-6 h-8 w-48" />
-    </>
-  );
-}
-
-function Player() {
-  return (
-    <>
-      <Header />
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Skeleton className={`aspect-video w-full lg:col-span-2 ${card}`} />
-        <Skeleton className={`h-[420px] ${card}`} />
-      </div>
-    </>
-  );
-}
-
-function Upload() {
-  return (
-    <>
-      <Header />
-      <Skeleton className={`h-[290px] max-w-2xl ${card}`} />
-    </>
-  );
-}
-
-function Developer() {
-  return (
-    <>
-      <Header />
-      <Skeleton className={`h-[510px] ${card}`} />
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Skeleton className={`h-[300px] ${card}`} />
-        <Skeleton className={`h-[300px] ${card}`} />
-      </div>
+      <Head {...PAGE_HEADS.health} meta={<Skeleton className="h-5.5 w-28 rounded-full" />} />
+      <HealthLoading />
     </>
   );
 }
 
 function Analytics() {
   const { operator } = useSession();
-  useRouteSkeletonVisibility();
   return (
     <>
-      <Header />
+      <Head {...PAGE_HEADS.metrics} />
       <AnalyticsLoading operator={operator} />
     </>
   );
 }
 
+// settings as the page draws it (SettingsPage): the account and appearance
+// sections need nothing from the server, and the browsers list waits on it
 function Settings() {
+  const { authDisabled, username } = useSession();
   return (
     <>
-      <Header />
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Skeleton className={`h-[320px] lg:col-span-2 ${card}`} />
-        <div className="flex flex-col gap-4">
-          <Skeleton className={`h-[128px] ${card}`} />
-          <Skeleton className={`h-[296px] ${card}`} />
-        </div>
+      <Head {...PAGE_HEADS.settings} />
+      <div className="flex flex-col gap-10">
+        <AccountSection />
+        {!authDisabled && (
+          <section>
+            <SessionsHeader username={username} />
+            <TableSkeleton columns={SESSION_COLUMNS} rows={2} />
+          </section>
+        )}
+        <AppearanceSection />
       </div>
     </>
   );
 }
 
-const SKELETONS: Array<[RegExp, () => React.ReactNode]> = [
+const SKELETONS: Array<[RegExp, () => React.ReactNode, string?]> = [
   [/^\/studio\/?$/, Dashboard],
-  [/^\/studio\/assets\/?$/, Assets],
-  [/^\/studio\/assets\/[^/]+\/?$/, AssetDetail],
-  [/^\/studio\/player\/?$/, Player],
-  [/^\/studio\/upload\/?$/, Upload],
-  [/^\/studio\/developer\/?$/, Developer],
-  [/^\/studio\/analytics\/?$/, Analytics],
-  [/^\/studio\/settings\/?$/, Settings],
+  [/^\/studio\/videos\/?$/, Assets],
+  [/^\/studio\/videos\/[^/]+\/?$/, AssetDetailLoading],
+  [/^\/studio\/developers\/?$/, Quickstart],
+  [/^\/studio\/developers\/keys\/?$/, Keys],
+  [/^\/studio\/developers\/webhooks\/?$/, Webhooks],
+  [/^\/studio\/developers\/webhooks\/[^/]+\/?$/, WebhookDetailLoading],
+  [/^\/studio\/developers\/explorer\/?$/, Explorer],
+  [/^\/studio\/deployment\/?$/, Health],
+  [/^\/studio\/deployment\/metrics\/?$/, Analytics],
+  // settings is one narrow column (SettingsPage)
+  [/^\/studio\/settings\/?$/, Settings, 'max-w-3xl'],
 ];
 
 /**
  * What shows while a page's code loads. It waits 150 ms before fading in, so
- * a chunk that loads quickly never flashes a skeleton.
+ * a chunk that loads quickly never flashes a skeleton. It sits inside
+ * PageTransition, so when the page replaces it there is no second fade.
  */
 export function RouteFallback() {
   const { pathname } = useLocation();
-  const Shape = SKELETONS.find(([pattern]) => pattern.test(pathname))?.[1];
+  // every page draws its own placeholders where these were (PageContainer)
+  useRouteSkeletonVisibility();
+  const [, Shape, width] = SKELETONS.find(([pattern]) => pattern.test(pathname)) ?? [];
   return (
-    <div
-      data-slot="route-fallback"
-      aria-busy="true"
-      className="animate-in duration-200 ease-out-soft fade-in-0 animation-delay-150 fill-mode-backwards"
-    >
+    <div data-slot="route-fallback" aria-busy="true" className={lateReveal}>
+      {/* the page's own h1 replaces this one once its code arrives */}
+      <h1 className="sr-only">Loading page</h1>
       <span className="sr-only" role="status">
         Loading page
       </span>
       {Shape && (
-        <PageContainer>
-          <Shape />
+        <PageContainer className={width}>
+          {/* real headings and table headers take part in the shapes; the
+              status above is what assistive tech gets */}
+          <div aria-hidden="true" inert>
+            <Shape />
+          </div>
         </PageContainer>
       )}
     </div>

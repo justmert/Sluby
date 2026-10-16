@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
 import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
+import { parseOrThrow, playbackIdNameSchema } from '../validation.js';
 
 export interface PlaybackIdRecord {
   id: string;
@@ -55,7 +56,7 @@ export function createPlaybackIdRoutes(deps: PlaybackIdRouteDeps): Router {
     '/assets/:assetId/playback-ids',
     requireScope('manage'),
     async (req: Request, res: Response) => {
-      const { policy, name } = req.body ?? {};
+      const { policy } = req.body ?? {};
 
       if (policy !== undefined && !VALID_POLICIES.includes(policy)) {
         throw new AppError(
@@ -63,6 +64,10 @@ export function createPlaybackIdRoutes(deps: PlaybackIdRouteDeps): Router {
           `Invalid policy '${policy}'. Must be one of: ${VALID_POLICIES.join(', ')}`,
         );
       }
+      const name =
+        req.body?.name === undefined
+          ? undefined
+          : parseOrThrow(playbackIdNameSchema, req.body.name);
 
       const created = await deps.createPlaybackId(
         String(req.params.assetId),

@@ -1,9 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle } from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { jsonFetch, renderPage, reply } from '@/test/render';
+import { checkValue, findOperation, responseSchema } from '@/test/openapi';
+import { jsonFetch, renderPage, reply, type RecordedCall } from '@/test/render';
+import { WithSession } from '@/test/session';
+import { reportUnauthorized } from '@/lib/session-events';
 import AssetDetailPage from './AssetDetailPage';
 
 const setQuality = vi.fn();
@@ -29,9 +32,11 @@ vi.mock('@sluby/player', () => ({
       (props.onDeliveryChange as (m: string) => void)?.('sia');
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-    return <video data-testid="player" />;
+    return <video data-testid="player" aria-label={props.title as string} />;
   }),
 }));
+
+const UPDATED = '2026-10-01T00:00:00.000Z';
 
 const asset = (overrides: Record<string, unknown> = {}) => ({
   id: 'a1',
@@ -46,8 +51,10 @@ const asset = (overrides: Record<string, unknown> = {}) => ({
   creator_address: 'github:dev',
   segment_count: 2,
   total_storage_bytes: 9_000_000,
+  play_count: 128,
+  last_played_at: null,
   created_at: '2026-10-01T00:00:00Z',
-  updated_at: '2026-10-01T00:00:00Z',
+  updated_at: UPDATED,
   ...overrides,
 });
 
@@ -126,37 +133,71 @@ const renditions = {
   ],
 };
 
-const failedJob = {
+const job = (over: Record<string, unknown> = {}) => ({
   id: 'j',
+  status: 'completed',
+  stage: 'completed',
+  progress_percent: 100,
+  retry_count: 0,
+  error_message: null,
+  started_at: null,
+  completed_at: null,
+  created_at: '2026-10-01T00:00:00Z',
+  retryable: false,
+  logs: [{ timestamp: '2026-10-01T00:00:00Z', stage: 'transcode', message: 'Starting' }],
+  ...over,
+});
+
+const failedJob = job({
   status: 'failed',
   stage: 'failed',
   progress_percent: 65,
   retry_count: 3,
   error_message: 'ffmpeg exited with code 1',
-  started_at: null,
-  completed_at: null,
-  created_at: '2026-10-01T00:00:00Z',
-  logs: [{ timestamp: '2026-10-01T00:00:00Z', stage: 'transcode', message: 'Starting' }],
-};
+  retryable: true,
+});
 
-function render(assetBody = asset(), extra: Record<string, unknown> = {}) {
+/** Every If-Match the page sent, in order. */
+let ifMatch: Array<string | null> = [];
+
+function render(
+  assetBody: unknown = asset(),
+  extra: Record<string, unknown> = {},
+  route = '/studio/videos/a1',
+) {
   const server = jsonFetch({
     '/api/v1/assets/a1': assetBody,
     '/api/v1/assets/a1/sia': sia,
     '/api/v1/assets/a1/renditions': renditions,
-    '/api/v1/assets/a1/processing': failedJob,
+    '/api/v1/assets/a1/processing': job(),
     '/api/v1/assets/a1/playback-ids': { data: [] },
     ...extra,
   });
-  vi.stubGlobal('fetch', vi.fn(server));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PATCH') ifMatch.push(new Headers(init.headers).get('If-Match'));
+      return server(input, init);
+    }),
+  );
   return {
     server,
     ...renderPage(
-      <Routes>
-        <Route path="/studio/assets/:id" element={<AssetDetailPage />} />
-        <Route path="/studio/assets" element={<p>Library</p>} />
-      </Routes>,
-      { route: '/studio/assets/a1' },
+      <WithSession>
+        <Routes>
+          <Route
+            path="/studio/videos/:id"
+            element={
+              <>
+                <AssetDetailPage />
+                <Where />
+              </>
+            }
+          />
+          <Route path="/studio/videos" element={<p>Library</p>} />
+        </Routes>
+      </WithSession>,
+      { route },
     ),
   };
 }
@@ -165,352 +206,606 @@ function Where() {
   return <output data-testid="where">{useLocation().search}</output>;
 }
 
-function renderAt(route: string) {
-  const server = jsonFetch({
-    '/api/v1/assets/a1': asset(),
-    '/api/v1/assets/a1/sia': sia,
-    '/api/v1/assets/a1/renditions': renditions,
-    '/api/v1/assets/a1/playback-ids': { data: [] },
-  });
-  vi.stubGlobal('fetch', vi.fn(server));
-  return renderPage(
-    <Routes>
-      <Route
-        path="/studio/assets/:id"
-        element={
-          <>
-            <AssetDetailPage />
-            <Where />
-          </>
-        }
-      />
-    </Routes>,
-    { route },
-  );
+/** jsdom has no layout; the page asks for 640px and up to show the side panel. */
+function viewport(wide: boolean) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: wide && query.includes('min-width: 640px'),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
 }
 
 beforeEach(() => {
+  ifMatch = [];
+  viewport(true);
   setQuality.mockClear();
   playerProps.mockClear();
 });
 afterEach(() => vi.unstubAllGlobals());
 
+const etag = (iso: string) => `"${Date.parse(iso)}"`;
+
 describe('AssetDetailPage', () => {
-  it('embeds the player signed for private assets and switches quality', async () => {
-    render();
-    expect(await screen.findByTestId('player')).toBeInTheDocument();
-    expect(playerProps.mock.calls[0][0]).toMatchObject({ assetId: 'a1', signed: true });
-    expect(screen.getByText('Streaming direct from Sia')).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('radio', { name: '360p' }));
-    expect(setQuality).toHaveBeenLastCalledWith(1);
-    await userEvent.click(screen.getByRole('radio', { name: 'Auto' }));
-    expect(setQuality).toHaveBeenLastCalledWith(-1);
-  });
-
-  it('shows the Sia breakdown with shards, redundancy and countries', async () => {
-    render();
-    await userEvent.click(await screen.findByRole('tab', { name: 'Sia storage' }));
-    expect(await screen.findByText('3.0x')).toBeInTheDocument();
-    expect(screen.getByText('10 data + 20 parity shards')).toBeInTheDocument();
-    // once in the host list, once in the country bars
-    expect(screen.getAllByText('Germany')).toHaveLength(2);
-    expect(screen.getByText('20 sectors, 11 hosts')).toBeInTheDocument();
-    expect(screen.getByText('1 shared')).toBeInTheDocument();
-    expect(screen.getByText('Variant playlist')).toBeInTheDocument();
-  });
-
-  it('lists the real renditions', async () => {
-    render();
-    await screen.findByTestId('player');
-    await userEvent.click(screen.getByRole('tab', { name: 'Renditions' }));
-    const table = await screen.findByRole('table');
-    expect(within(table).getByText('1280x720')).toBeInTheDocument();
-    expect(within(table).getByText('3.5 Mbps')).toBeInTheDocument();
-  });
-
-  it('explains a failure plainly, keeps the raw error under details, and offers a retry', async () => {
-    render(asset({ status: 'failed', manifest_object_id: null }));
-    expect(await screen.findByText('Transcoding the video failed.')).toBeInTheDocument();
-    expect(screen.queryByText('ffmpeg exited with code 1')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Details' }));
-    expect(screen.getByText('ffmpeg exited with code 1')).toBeInTheDocument();
+  it('uses fixtures that match the documented shapes', () => {
+    // play_count, last_played_at (B-09) and retryable (B-15) are documented on final-be,
+    // whose openapi this branch does not have yet; the rest must match today
+    const { play_count: _p, last_played_at: _l, ...documentedAsset } = asset();
+    const { retryable: _r, ...documentedJob } = failedJob;
     expect(
-      within(screen.getByRole('list', { name: 'Pipeline' })).getByText('Transcode'),
-    ).toHaveTextContent('Transcode, failed');
-    expect(screen.getByRole('button', { name: /retry processing/i })).toBeInTheDocument();
-    expect(screen.queryByTestId('player')).not.toBeInTheDocument();
-  });
-
-  it('follows the new run after a retry instead of keeping "Processing failed"', async () => {
-    let status = 'failed';
-    const { server, client } = render(undefined, {
-      '/api/v1/assets/a1': () => asset({ status, manifest_object_id: null }),
-      '/api/v1/assets/a1/processing': () =>
-        status === 'failed'
-          ? failedJob
-          : { ...failedJob, status: 'processing', stage: 'transcode', error_message: null },
-      'POST /api/v1/assets/a1/retry': () => {
-        status = 'processing';
-        return { success: true, stage: 'transcode' };
-      },
-    });
-    client.setQueryData(['assets', 'latest', 6], { data: [] });
-    client.setQueryData(['stats'], {});
-    await screen.findByText('Transcoding the video failed.');
-
-    await userEvent.click(screen.getByRole('button', { name: /retry processing/i }));
-
-    expect(await screen.findByText('Processing restarted from the transcode')).toBeInTheDocument();
-    expect(await screen.findByText('Transcoding, 65%')).toBeInTheDocument();
-    expect(screen.queryByText('Processing failed')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /retry processing/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('progressbar', { name: 'Processing progress' })).toBeInTheDocument();
-    expect(client.getQueryState(['assets', 'latest', 6])?.isInvalidated).toBe(true);
-    expect(client.getQueryState(['stats'])?.isInvalidated).toBe(true);
-    const retryAt = server.calls.findIndex((c) => c.method === 'POST');
+      checkValue(documentedAsset, responseSchema(findOperation('GET', '/api/v1/assets/a1')!)!),
+    ).toEqual([]);
     expect(
-      server.calls.slice(retryAt).some((c) => c.method === 'GET' && c.path === '/api/v1/assets/a1'),
-    ).toBe(true);
-  });
-
-  it('switches to the player when the retried run finishes', async () => {
-    let status = 'failed';
-    render(undefined, {
-      '/api/v1/assets/a1': () =>
-        asset({ status, manifest_object_id: status === 'ready' ? 'master-1' : null }),
-      '/api/v1/assets/a1/processing': () => failedJob,
-      'POST /api/v1/assets/a1/retry': () => {
-        // the run is quick: done by the time the page asks again
-        status = 'ready';
-        return { success: true, stage: 'upload-segments' };
-      },
-    });
-    await screen.findByText('Transcoding the video failed.');
-    await userEvent.click(screen.getByRole('button', { name: /retry processing/i }));
-    expect(await screen.findByTestId('player')).toBeInTheDocument();
-  });
-
-  it('deletes, goes back to the library, and does not fetch the deleted asset again', async () => {
-    const { server } = render(undefined, { 'DELETE /api/v1/assets/a1': { success: true } });
-    await screen.findByTestId('player');
-
-    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    const dialog = await screen.findByRole('alertdialog');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
-
-    expect(await screen.findByText('Library')).toBeInTheDocument();
-    const deletedAt = server.calls.findIndex((c) => c.method === 'DELETE');
-    expect(deletedAt).toBeGreaterThan(-1);
-    // give a stray refetch the chance to happen
-    await new Promise((r) => setTimeout(r, 50));
-    expect(
-      server.calls.slice(deletedAt + 1).filter((c) => c.path.startsWith('/api/v1/assets/a1')),
+      checkValue(
+        documentedJob,
+        responseSchema(findOperation('GET', '/api/v1/assets/a1/processing')!)!,
+      ),
     ).toEqual([]);
   });
 
-  it('refuses an empty title and trims what it saves', async () => {
-    const { server, client } = render(undefined, {
-      'PATCH /api/v1/assets/a1': ({ body }: { body: Record<string, unknown> }) =>
-        asset({ title: body.title, description: body.description }),
+  describe('a ready video', () => {
+    it('titles the page with the video and shows its facts in one meta row', async () => {
+      render();
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Big Buck Bunny' }),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Ready')).toBeInTheDocument();
+      expect(screen.getByText('9:56')).toBeInTheDocument();
+      expect(screen.getByText('1280 × 720')).toBeInTheDocument();
+      expect(screen.getByText('9 MB on Sia')).toBeInTheDocument();
+      expect(screen.getByText('128 plays')).toBeInTheDocument();
+      expect(screen.getByText(/^Created /)).toBeInTheDocument();
+      // no back link: the breadcrumb does that (VIS-19)
+      expect(screen.queryByRole('link', { name: /videos/i })).toBeNull();
     });
-    client.setQueryData(['assets', 'latest', 6], { data: [] });
-    await screen.findByTestId('player');
-    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    const dialog = await screen.findByRole('dialog');
-    const title = within(dialog).getByLabelText('Title');
 
-    await userEvent.clear(title);
-    await userEvent.type(title, '   ');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
-    expect(within(dialog).getByText('Enter a title.')).toBeInTheDocument();
-    expect(title).toHaveAttribute('aria-invalid', 'true');
-    expect(server.calls.some((c) => c.method === 'PATCH')).toBe(false);
-
-    await userEvent.clear(title);
-    await userEvent.type(title, '  New title  ');
-    const description = within(dialog).getByLabelText('Description');
-    await userEvent.clear(description);
-    await userEvent.type(description, '  about it  ');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
-
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(server.calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({
-      title: 'New title',
-      description: 'about it',
+    it('plays a private video signed, named after its title, with qualities', async () => {
+      render();
+      expect(await screen.findByTestId('player')).toHaveAccessibleName('Big Buck Bunny');
+      expect(playerProps).toHaveBeenLastCalledWith(
+        expect.objectContaining({ assetId: 'a1', signed: true, expiresIn: 3600 }),
+      );
+      expect(screen.getByText('Streaming from Sia')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('radio', { name: '360p' }));
+      expect(setQuality).toHaveBeenLastCalledWith(1);
     });
-    expect(await screen.findByRole('heading', { name: 'New title' })).toHaveAttribute(
-      'title',
-      'New title',
-    );
-    expect(client.getQueryState(['assets', 'latest', 6])?.isInvalidated).toBe(true);
-  });
 
-  it('does not poll a job that is not there', async () => {
-    const { server } = render(asset({ status: 'created', manifest_object_id: null }), {
-      '/api/v1/assets/a1/processing': reply(404, { error: 'No processing job found' }),
+    it('opens on Share with the signing code first for a private video (RDS-01)', async () => {
+      render();
+      const panel = await screen.findByRole('tablist', { name: 'Share and details' });
+      expect(within(panel).getByRole('tab', { name: 'Share' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      const share = screen.getByRole('tabpanel', { name: 'Share' });
+      expect(
+        within(share)
+          .getAllByRole('tab')
+          .map((t) => t.textContent),
+      ).toEqual(['Server', 'React', 'HTML']);
+      expect(share.textContent).toContain("getSignedUrl('a1'");
     });
-    expect(await screen.findByText('Waiting for the upload to finish')).toBeInTheDocument();
-    await new Promise((r) => setTimeout(r, 3_500));
-    expect(server.calls.filter((c) => c.path.endsWith('/processing'))).toHaveLength(1);
+
+    it('offers React first for a public video, playing it by this ID', async () => {
+      render(asset({ access_tier: 'public' }));
+      const share = await screen.findByRole('tabpanel', { name: 'Share' });
+      expect(
+        within(share)
+          .getAllByRole('tab')
+          .map((t) => t.textContent),
+      ).toEqual(['React', 'HTML', 'Stream URL']);
+      expect(share.textContent).toContain("streamUrl('a1')");
+    });
+
+    it('opens the panel and the section named in the url, and keeps the choice there', async () => {
+      render(undefined, {}, '/studio/videos/a1?panel=details&tab=renditions');
+      expect(await screen.findByRole('tabpanel', { name: 'Details' })).toBeInTheDocument();
+      expect(screen.getByRole('tabpanel', { name: /Renditions/ })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('tab', { name: 'Storage on Sia' }));
+      expect(screen.getByTestId('where')).toHaveTextContent('panel=details&tab=storage');
+    });
+
+    it('names both tab lists and counts playback IDs and renditions', async () => {
+      render();
+      const sections = await screen.findByRole('tablist', { name: 'Video sections' });
+      await waitFor(() =>
+        expect(
+          within(sections)
+            .getAllByRole('tab')
+            .map((t) => t.textContent),
+        ).toEqual(['Playback IDs(0)', 'Storage on Sia', 'Renditions(1)', 'Activity']),
+      );
+    });
+
+    it('scrolls a tab that is cut off by its sideways strip into view when it takes focus (2.4.11)', async () => {
+      render();
+      await screen.findByTestId('player');
+      const scrolled = vi.fn();
+      Element.prototype.scrollIntoView = scrolled;
+      const tabs = within(
+        await screen.findByRole('tablist', { name: 'Video sections' }),
+      ).getAllByRole('tab');
+      act(() => tabs[tabs.length - 1].focus());
+      expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    });
+
+    it('fades the side of the section tabs that runs past a phone', async () => {
+      render();
+      const sections = await screen.findByRole('tablist', { name: 'Video sections' });
+      expect(sections.closest('[data-slot="scroll-fade"]')).not.toBeNull();
+    });
+
+    it('shows the details with copyable IDs and the description', async () => {
+      render(undefined, {}, '/studio/videos/a1?panel=details');
+      const details = await screen.findByRole('tabpanel', { name: 'Details' });
+      expect(within(details).getByText('Video ID')).toBeInTheDocument();
+      expect(within(details).getByRole('button', { name: /Copy video ID/ })).toBeInTheDocument();
+      expect(within(details).getByText('Main playlist file')).toBeInTheDocument();
+      expect(within(details).getByText('A bunny')).toHaveClass('line-clamp-6', 'wrap-anywhere');
+    });
+
+    it('sets the description label and text like the other details, not as a heading', async () => {
+      // the global h3 rule gave it the heading family at 400, and the text took
+      // the 16px body size on phones while every other value is 14px
+      render(undefined, {}, '/studio/videos/a1?panel=details');
+      const details = await screen.findByRole('tabpanel', { name: 'Details' });
+      expect(within(details).getByRole('heading', { name: 'Description' })).toHaveClass(
+        'font-sans',
+      );
+      expect(within(details).getByText('A bunny').closest('.text-sm')).not.toBeNull();
+    });
   });
 
-  it('words the delete dialog without a gap when the object count is not known', async () => {
-    render(asset({ status: 'failed', manifest_object_id: null }));
-    await screen.findByText('Processing failed');
-    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    const dialog = await screen.findByRole('alertdialog');
-    const text = within(dialog).getByText(/unpinned in the background/).textContent!;
-    expect(text).not.toMatch(/ {2}/);
-    expect(text).toContain('its Sia objects are unpinned');
+  describe('editing in place', () => {
+    const patchRoute = ({ body }: RecordedCall) =>
+      asset({ ...(body as object), updated_at: '2026-10-02T00:00:00.000Z' });
+
+    it('saves only the title, based on the version the edit started from (FLW-06)', async () => {
+      const { server } = render(undefined, { 'PATCH /api/v1/assets/a1': patchRoute });
+      await screen.findByTestId('player');
+      await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+      const input = screen.getByRole('textbox', { name: 'Edit title' });
+      await userEvent.clear(input);
+      await userEvent.type(input, '  Bunny cut  {Enter}');
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Bunny cut'),
+      );
+      const patch = server.calls.find((c) => c.method === 'PATCH')!;
+      expect(patch.body).toEqual({ title: 'Bunny cut' });
+      expect(ifMatch).toEqual([etag(UPDATED)]);
+      expect(await screen.findByText('Changes saved')).toBeInTheDocument();
+    });
+
+    it('keeps the page heading while the title is being edited', async () => {
+      render();
+      await screen.findByTestId('player');
+      const heading = screen.getByRole('heading', { level: 1 });
+      const name = heading.textContent;
+      await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+      expect(screen.getByRole('textbox', { name: 'Edit title' })).toHaveFocus();
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(name!);
+    });
+
+    it('refuses an empty title without a request (CPY-28)', async () => {
+      const { server } = render();
+      await screen.findByTestId('player');
+      await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+      const input = screen.getByRole('textbox', { name: 'Edit title' });
+      await userEvent.clear(input);
+      await userEvent.type(input, '   {Enter}');
+      expect(screen.getByRole('alert')).toHaveTextContent('Enter a title.');
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(server.calls.some((c) => c.method === 'PATCH')).toBe(false);
+    });
+
+    it('stops a stale description edit, keeps what was typed, and saves after Reload', async () => {
+      let version = 0;
+      render(undefined, {
+        'PATCH /api/v1/assets/a1': ({ body }: RecordedCall) =>
+          version++ === 0
+            ? reply(412, {
+                error: 'This video was changed somewhere else.',
+                current: asset({
+                  title: 'Renamed in tab B',
+                  updated_at: '2026-10-03T00:00:00.000Z',
+                }),
+              })
+            : asset({ ...(body as object), title: 'Renamed in tab B' }),
+      });
+      await userEvent.click(await screen.findByRole('tab', { name: 'Details' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Edit description' }));
+      const box = screen.getByRole('textbox', { name: 'Edit description' });
+      await userEvent.clear(box);
+      await userEvent.type(box, 'Mine{Control>}{Enter}{/Control}');
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(
+        'This video was changed somewhere else. Reload it to see the latest, then edit again.',
+      );
+      // nothing typed is lost
+      expect(screen.getByRole('textbox', { name: 'Edit description' })).toHaveValue('Mine');
+
+      await userEvent.click(within(alert).getByRole('button', { name: 'Reload' }));
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Renamed in tab B');
+      // the reload worked: the warning gives way to what to do next, and the text stays
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'Reloaded. Save again to keep what you typed, or press Escape to keep the latest.',
+        ),
+      ).toHaveAttribute('role', 'status');
+      expect(screen.getByRole('textbox', { name: 'Edit description' })).toHaveValue('Mine');
+      await userEvent.type(
+        screen.getByRole('textbox', { name: 'Edit description' }),
+        '{Control>}{Enter}{/Control}',
+      );
+      await waitFor(() => expect(ifMatch).toHaveLength(2));
+      expect(ifMatch).toEqual([etag(UPDATED), etag('2026-10-03T00:00:00.000Z')]);
+      expect(await screen.findByText('Changes saved')).toBeInTheDocument();
+    });
+
+    it('keeps a description whose save met an ended session, and reopens it after sign-in (FLW-15)', async () => {
+      sessionStorage.clear();
+      const first = render(undefined, {
+        // what the app's query client does with a 401
+        'PATCH /api/v1/assets/a1': () => {
+          reportUnauthorized('revoked');
+          return reply(401, { error: 'Not signed in', reason: 'revoked' });
+        },
+      });
+      await userEvent.click(await screen.findByRole('tab', { name: 'Details' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Edit description' }));
+      const box = screen.getByRole('textbox', { name: 'Edit description' });
+      await userEvent.clear(box);
+      await userEvent.type(box, 'Written before the session ended{Control>}{Enter}{/Control}');
+      await waitFor(() => expect(ifMatch).toHaveLength(1));
+      first.unmount();
+
+      render(undefined, {}, '/studio/videos/a1?panel=details');
+      expect(await screen.findByRole('textbox', { name: 'Edit description' })).toHaveValue(
+        'Written before the session ended',
+      );
+    });
+
+    it('caps the description and counts from 4,500 characters (FLW-30)', async () => {
+      render(asset({ description: 'x'.repeat(4500) }), {}, '/studio/videos/a1?panel=details');
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit description' }));
+      const box = screen.getByRole('textbox', { name: 'Edit description' });
+      expect(box).toHaveAttribute('maxLength', '5000');
+      expect(screen.getByText('4,500 of 5,000')).toBeInTheDocument();
+    });
+
+    it('asks before making the video public, then saves the access with If-Match', async () => {
+      const { server } = render(undefined, { 'PATCH /api/v1/assets/a1': patchRoute });
+      await screen.findByTestId('player');
+      const access = screen.getByRole('radiogroup', { name: 'Who can watch' });
+      await userEvent.click(within(access).getByRole('radio', { name: 'Public' }));
+      const confirm = await screen.findByRole('dialog', { name: 'Make this video public?' });
+      expect(server.calls.some((c) => c.method === 'PATCH')).toBe(false);
+      await userEvent.click(within(confirm).getByRole('button', { name: 'Make public' }));
+
+      await waitFor(() =>
+        expect(within(access).getByRole('radio', { name: 'Public' })).toHaveAttribute(
+          'aria-checked',
+          'true',
+        ),
+      );
+      expect(server.calls.find((c) => c.method === 'PATCH')!.body).toEqual({
+        access_tier: 'public',
+      });
+      expect(ifMatch).toEqual([etag(UPDATED)]);
+      expect(await screen.findByText('The video is public now')).toBeInTheDocument();
+    });
   });
 
-  it('counts the Sia objects in the delete dialog once they are known', async () => {
-    const { client } = render();
-    await waitFor(() => expect(client.getQueryData(['assets', 'sia', 'a1'])).toBeDefined());
-    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    const dialog = await screen.findByRole('alertdialog');
-    expect(within(dialog).getByText(/its 2 Sia objects are unpinned/)).toBeInTheDocument();
+  describe('deleting', () => {
+    it('deletes from the overflow menu, goes to the library, and fetches nothing after', async () => {
+      const { server } = render(undefined, { 'DELETE /api/v1/assets/a1': { success: true } });
+      await screen.findByTestId('player');
+      await userEvent.click(screen.getByRole('button', { name: 'More actions' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete video' }));
+      const dialog = await screen.findByRole('alertdialog', { name: 'Delete this video?' });
+      await waitFor(() =>
+        expect(dialog).toHaveTextContent(
+          '“Big Buck Bunny” is removed from your library now and its 2 files are removed from Sia in the background. This cannot be undone.',
+        ),
+      );
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+      expect(await screen.findByText('Library')).toBeInTheDocument();
+      expect(await screen.findByText('Video deleted')).toBeInTheDocument();
+      const deletedAt = server.calls.findIndex((c) => c.method === 'DELETE');
+      expect(deletedAt).toBeGreaterThan(-1);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(
+        server.calls.slice(deletedAt + 1).filter((c) => c.path.startsWith('/api/v1/assets/a1')),
+      ).toEqual([]);
+    });
+
+    it('says why a delete failed and stays on the video', async () => {
+      render(undefined, {
+        'DELETE /api/v1/assets/a1': reply(500, { error: 'Database unavailable' }),
+      });
+      await screen.findByTestId('player');
+      await userEvent.click(screen.getByRole('button', { name: 'More actions' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete video' }));
+      await userEvent.click(
+        within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }),
+      );
+      expect(
+        await screen.findByText(/^Could not delete the video\. The server ran into a problem/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('Library')).toBeNull();
+    });
+
+    it('tells you when the video was deleted somewhere else, then says not found (FLW-44)', async () => {
+      let alive = true;
+      const { client } = render(undefined, {
+        '/api/v1/assets/a1': () =>
+          alive ? asset() : reply(404, { error: 'Video asset not found' }),
+      });
+      await screen.findByTestId('player');
+      alive = false;
+      await act(() => client.refetchQueries({ queryKey: ['assets', 'one', 'a1'] }));
+      expect(
+        await screen.findByText('This video was deleted in another tab or browser'),
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Video not found' }),
+      ).toBeInTheDocument();
+    });
   });
 
-  it('lays the loading state out like the page, back link included', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() => new Promise(() => {})),
-    );
-    renderPage(
-      <Routes>
-        <Route path="/studio/assets/:id" element={<AssetDetailPage />} />
-      </Routes>,
-      { route: '/studio/assets/a1' },
-    );
-    expect(await screen.findByRole('link', { name: 'Assets' })).toHaveAttribute(
-      'href',
-      '/studio/assets',
-    );
-    expect(await screen.findByTestId('asset-detail-skeleton')).toBeInTheDocument();
+  describe('a save that finds the video gone', () => {
+    it('says it was deleted somewhere else and shows not found (FLW-44)', async () => {
+      let alive = true;
+      render(undefined, {
+        '/api/v1/assets/a1': () =>
+          alive ? asset() : reply(404, { error: 'Video asset not found' }),
+        'PATCH /api/v1/assets/a1': () => {
+          alive = false;
+          return reply(404, { error: 'Video asset not found' });
+        },
+      });
+      await screen.findByTestId('player');
+      await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'Edit title' }), 'New{Enter}');
+      expect(
+        await screen.findByText('This video was deleted in another tab or browser'),
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Video not found' }),
+      ).toBeInTheDocument();
+    });
   });
 
-  it('shows an edit at once and keeps it when the save lands', async () => {
-    let release!: () => void;
-    const held = new Promise<void>((r) => (release = r));
-    const { server } = render(asset({ access_tier: 'public' }), {
-      'PATCH /api/v1/assets/a1': async ({ body }: { body: Record<string, unknown> }) => {
+  describe('before the video is ready', () => {
+    it('shows the running step and percent, opens on Details and Activity', async () => {
+      render(asset({ status: 'processing', manifest_object_id: null }), {
+        '/api/v1/assets/a1/processing': job({
+          status: 'processing',
+          stage: 'upload',
+          progress_percent: 72,
+        }),
+      });
+      const card = await screen.findByRole('region', { name: 'Processing' });
+      expect(await within(card).findByText('Storing on Sia')).toBeInTheDocument();
+      expect(within(card).getByText('72%')).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true');
+      expect(
+        within(screen.getByRole('tablist', { name: 'Video sections' }))
+          .getAllByRole('tab')
+          .map((t) => t.textContent),
+      ).toEqual(['Activity']);
+      expect(screen.getByRole('region', { name: 'Processing log' })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('tab', { name: 'Share' }));
+      expect(screen.getByText('Available once the video is ready.')).toBeInTheDocument();
+    });
+
+    it('says it cannot read the processing status and checks again (FLW-11)', async () => {
+      let calls = 0;
+      render(asset({ status: 'processing' }), {
+        '/api/v1/assets/a1/processing': () =>
+          calls++ === 0
+            ? reply(500, { error: 'boom' })
+            : job({ status: 'processing', stage: 'transcode', progress_percent: 20 }),
+      });
+      expect(await screen.findByText('Could not read the processing status.')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Check again' }));
+      const card = screen.getByRole('region', { name: 'Processing' });
+      expect(await within(card).findByText('Transcoding')).toBeInTheDocument();
+    });
+
+    it('turns an upload that stopped long ago into Upload interrupted (FLW-12)', async () => {
+      const { server } = render(
+        asset({ status: 'created', created_at: '2026-01-01T00:00:00Z', manifest_object_id: null }),
+      );
+      expect(
+        await screen.findByRole('heading', { name: 'Upload interrupted' }),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Interrupted')).toBeInTheDocument();
+      // no processing job exists for an upload that never finished, and the log says so
+      expect(server.calls.some((c) => c.path.endsWith('/processing'))).toBe(false);
+      expect(screen.getByText('Nothing has run yet')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Delete video' }));
+      expect(
+        await screen.findByRole('alertdialog', { name: 'Delete this video?' }),
+      ).toHaveTextContent(
+        '“Big Buck Bunny” is removed from your library now. This cannot be undone.',
+      );
+    });
+
+    it('keeps an old upload that another tab of this browser is sending as Uploading', async () => {
+      // another studio tab announces what it sends on the shared channel
+      const otherTab = new BroadcastChannel('sluby-uploads');
+      otherTab.postMessage({
+        type: 'state',
+        tabId: 'other-tab',
+        uploads: [
+          {
+            fingerprint: 'big.mp4-video/mp4-1000-1',
+            uploadId: 'up-1',
+            assetId: 'a1',
+            title: 'Big Buck Bunny',
+            fileName: 'big.mp4',
+            bytesUploaded: 400,
+            bytesTotal: 1000,
+            paused: false,
+          },
+        ],
+      });
+      try {
+        render(
+          asset({
+            status: 'created',
+            created_at: '2026-01-01T00:00:00Z',
+            manifest_object_id: null,
+          }),
+        );
+        expect(await screen.findByRole('heading', { name: 'Uploading' })).toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Upload interrupted' })).toBeNull();
+        expect(screen.queryByText('Interrupted')).toBeNull();
+      } finally {
+        otherTab.postMessage({ type: 'bye', tabId: 'other-tab' });
+        otherTab.close();
+      }
+    });
+
+    it('keeps reading a video another tab is sending, so it moves on once the file is in', async () => {
+      const otherTab = new BroadcastChannel('sluby-uploads');
+      otherTab.postMessage({
+        type: 'state',
+        tabId: 'other-tab',
+        uploads: [
+          {
+            fingerprint: 'big.mp4-video/mp4-1000-1',
+            uploadId: 'up-1',
+            assetId: 'a1',
+            title: 'Big Buck Bunny',
+            fileName: 'big.mp4',
+            bytesUploaded: 900,
+            bytesTotal: 1000,
+            paused: false,
+          },
+        ],
+      });
+      let reads = 0;
+      try {
+        render(() =>
+          asset({
+            status: ++reads > 1 ? 'processing' : 'created',
+            created_at: '2026-01-01T00:00:00Z',
+            manifest_object_id: null,
+          }),
+        );
+        expect(await screen.findByRole('heading', { name: 'Uploading' })).toBeInTheDocument();
+        expect(
+          await screen.findByRole('heading', { name: 'Processing' }, { timeout: 4_000 }),
+        ).toBeInTheDocument();
+      } finally {
+        otherTab.postMessage({ type: 'bye', tabId: 'other-tab' });
+        otherTab.close();
+      }
+    });
+
+    it('explains a failure plainly, raw text under Details, and retries it', async () => {
+      let failed = true;
+      const { server } = render(() => asset({ status: failed ? 'failed' : 'processing' }), {
+        '/api/v1/assets/a1/processing': () =>
+          failed ? failedJob : job({ status: 'queued', stage: 'queued', logs: [] }),
+        'POST /api/v1/assets/a1/retry': () => {
+          failed = false;
+          return reply(202, { stage: 'transcode' });
+        },
+      });
+      expect(await screen.findByText('Transcoding the video failed.')).toBeInTheDocument();
+      expect(screen.getByText('ffmpeg exited with code 1').closest('details')).not.toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: 'Retry processing' }));
+      expect(await screen.findByText('Processing restarted from Transcoding')).toBeInTheDocument();
+      expect(await screen.findByText('Waiting to start')).toBeInTheDocument();
+      expect(server.calls.some((c) => c.method === 'POST' && c.path.endsWith('/retry'))).toBe(true);
+    });
+
+    it('offers a new upload, not Retry, for a file that is not a video (FLW-22)', async () => {
+      render(asset({ status: 'failed' }), {
+        '/api/v1/assets/a1/processing': job({
+          status: 'failed',
+          stage: 'failed',
+          error_message: 'ffprobe exited with code 1: Invalid data found when processing input',
+          retryable: false,
+        }),
+      });
+      expect(await screen.findByText('The file is not a readable video.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Retry processing' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Upload a different file' })).toBeInTheDocument();
+    });
+  });
+
+  describe('page states', () => {
+    it('lays out a loading page with a heading and a status for screen readers (A11Y-37)', async () => {
+      let release!: () => void;
+      const held = new Promise<void>((r) => (release = r));
+      render(async () => {
         await held;
-        return asset({ ...body, access_tier: body.accessTier ?? body.access_tier });
-      },
-    });
-    await screen.findByTestId('player');
-    expect(screen.queryByText('Private')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    const dialog = await screen.findByRole('dialog');
-    const title = within(dialog).getByLabelText('Title');
-    await userEvent.clear(title);
-    await userEvent.type(title, 'Renamed');
-    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Access' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Private' }));
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
-
-    // before the server has answered
-    expect(await screen.findByRole('heading', { name: 'Renamed' })).toBeInTheDocument();
-    expect(screen.getAllByText('Private').length).toBeGreaterThan(0);
-    expect(screen.getByRole('status', { name: 'Saving' })).toBeInTheDocument();
-    expect(server.calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({
-      title: 'Renamed',
-      access_tier: 'private',
+        return asset();
+      });
+      expect(screen.getByRole('heading', { level: 1, name: 'Loading video' })).toBeInTheDocument();
+      expect(screen.getByText('Loading video details')).toHaveAttribute('role', 'status');
+      release();
+      expect(await screen.findByTestId('player')).toBeInTheDocument();
     });
 
-    release();
-    expect(await screen.findByText('Asset updated')).toBeInTheDocument();
-    expect(screen.queryByRole('status', { name: 'Saving' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Renamed' })).toBeInTheDocument();
-  });
-
-  it('puts the old values back when a save fails, and reopens the form on what was typed', async () => {
-    render(undefined, {
-      'PATCH /api/v1/assets/a1': reply(500, { error: 'Database unavailable' }),
+    it('says not found for a missing video and for a malformed ID (FLW-34)', async () => {
+      render(undefined, { '/api/v1/assets/a1': reply(404, { error: 'Video asset not found' }) });
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Video not found' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'Check the link. It may have been deleted, or it belongs to another account.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+      expect(screen.getByRole('link', { name: 'Back to videos' })).toHaveAttribute(
+        'href',
+        '/studio/videos',
+      );
     });
-    await screen.findByTestId('player');
-    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    const dialog = await screen.findByRole('dialog');
-    const title = within(dialog).getByLabelText('Title');
-    await userEvent.clear(title);
-    await userEvent.type(title, 'Doomed');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
 
-    expect(await screen.findByText('Could not save: Database unavailable')).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'Big Buck Bunny' })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('button', { name: 'Edit again' }));
-    const again = await screen.findByRole('dialog');
-    expect(within(again).getByLabelText('Title')).toHaveValue('Doomed');
-  });
-
-  it('reads the processing stage and percent in words, with the pipeline steps', async () => {
-    render(asset({ status: 'processing', manifest_object_id: null }), {
-      '/api/v1/assets/a1/processing': {
-        ...failedJob,
-        status: 'processing',
-        stage: 'upload',
-        error_message: null,
-      },
+    it('treats a 400 for a malformed ID as not found', async () => {
+      render(undefined, {
+        '/api/v1/assets/a1': reply(400, { error: 'Invalid identifier format' }),
+      });
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Video not found' }),
+      ).toBeInTheDocument();
     });
-    expect(await screen.findByText('Storing on Sia, 65%')).toBeInTheDocument();
-    const steps = screen.getByRole('list', { name: 'Pipeline' });
-    expect(within(steps).getByText('Transcode')).toHaveTextContent('Transcode, done');
-    expect(within(steps).getByText('Store on Sia')).toHaveTextContent('Store on Sia, in progress');
-    expect(within(steps).getByText('Finalize')).toHaveTextContent('Finalize, pending');
-    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
-  });
 
-  it('stays busy while the delete runs instead of offering it again', async () => {
-    let release!: () => void;
-    const held = new Promise<void>((r) => (release = r));
-    render(undefined, {
-      'DELETE /api/v1/assets/a1': async () => {
-        await held;
-        return { success: true };
-      },
+    it('offers Try again with the reader sentence when the video did not load', async () => {
+      render(undefined, { '/api/v1/assets/a1': reply(500, { error: 'Database unavailable' }) });
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Could not load this video' }),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/The server ran into a problem \(error 500\)/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     });
-    await screen.findByTestId('player');
-    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    const dialog = await screen.findByRole('alertdialog');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
-
-    expect(await within(dialog).findByRole('button', { name: 'Deleting...' })).toBeDisabled();
-    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled();
-    release();
-    expect(await screen.findByText('Library')).toBeInTheDocument();
   });
 
-  it('opens the tab named in the url and keeps the choice there', async () => {
-    renderAt('/studio/assets/a1?tab=renditions');
-    expect(
-      await screen.findByRole('tab', { name: 'Renditions', selected: true }),
-    ).toBeInTheDocument();
-    expect(within(await screen.findByRole('table')).getByText('1280x720')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: 'Sia storage' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('?tab=storage');
-  });
-
-  it('shows the shared page state for a missing asset, and a retry when loading failed', async () => {
-    render(undefined, { '/api/v1/assets/a1': reply(404, { error: 'Video asset not found' }) });
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Asset not found' }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to assets' })).toHaveAttribute(
-      'href',
-      '/studio/assets',
-    );
-  });
-
-  it('offers a retry and the server message when the asset did not load', async () => {
-    render(undefined, { '/api/v1/assets/a1': reply(500, { error: 'Database unavailable' }) });
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Could not load this asset' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('Database unavailable')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  describe('on a phone', () => {
+    it('puts the share panel in a bottom sheet and the details under the player', async () => {
+      viewport(false);
+      render(asset({ access_tier: 'public' }));
+      await screen.findByTestId('player');
+      expect(screen.queryByRole('tablist', { name: 'Share and details' })).toBeNull();
+      expect(screen.getByRole('heading', { level: 2, name: 'Details' })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Share' }));
+      const sheet = await screen.findByRole('dialog', { name: 'Share' });
+      expect(sheet.textContent).toContain("streamUrl('a1')");
+    });
   });
 });

@@ -64,7 +64,7 @@ describe.skipIf(!hasTestDatabase)('asset status during an upload (postgres)', ()
         deletion: fakeQueue('deletion'),
       },
       pingRedis: async () => {},
-      webhookDispatcher: { dispatch: async () => {} },
+      webhookDispatcher: { dispatch: async () => {}, enqueue: async () => {} },
       triggerReconciliation: async () => ({ enqueued: true }),
     }));
   }, 60_000);

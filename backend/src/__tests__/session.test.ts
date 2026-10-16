@@ -325,6 +325,7 @@ describe('resolveSession', () => {
     userId: UID,
     identityId: IDENTITY,
     expiresAt: new Date(Date.now() + 3600_000),
+    lastSeenAt: null,
   };
   const account: Account = {
     id: UID,
@@ -344,6 +345,7 @@ describe('resolveSession', () => {
     secret: SECRET,
     findActiveSession: async (sid: string) => rows.find((r) => r.id === sid),
     getAccount: async (id: string) => (id === UID ? account : null),
+    markSeen: () => {},
   });
   const saved = env.GITHUB_ALLOWED_USERS;
   afterEach(() => {
@@ -376,6 +378,35 @@ describe('resolveSession', () => {
     env.GITHUB_ALLOWED_USERS = 'alice';
     const token = signSession(SID, UID, SECRET, 3600);
     expect(await resolveSession(cookie(token), opts([row]))).toBeNull();
+  });
+
+  it('records activity when the session was not seen in the last five minutes', async () => {
+    env.GITHUB_ALLOWED_USERS = '';
+    const token = signSession(SID, UID, SECRET, 3600);
+    const seen: string[] = [];
+    const run = (lastSeenAt: Date | null) =>
+      resolveSession(cookie(token), {
+        ...opts([{ ...row, lastSeenAt }]),
+        markSeen: (sid) => seen.push(sid),
+      });
+    await run(null);
+    expect(seen).toEqual([SID]);
+    await run(new Date(Date.now() - 4 * 60_000));
+    expect(seen).toEqual([SID]);
+    await run(new Date(Date.now() - 6 * 60_000));
+    expect(seen).toEqual([SID, SID]);
+  });
+
+  it('records no activity for a session it does not accept', async () => {
+    env.GITHUB_ALLOWED_USERS = 'alice';
+    const seen: string[] = [];
+    const token = signSession(SID, UID, SECRET, 3600);
+    const result = await resolveSession(cookie(token), {
+      ...opts([row]),
+      markSeen: (sid) => seen.push(sid),
+    });
+    expect(result).toBeNull();
+    expect(seen).toEqual([]);
   });
 
   it('never looks a row up for a cookie that does not verify', async () => {

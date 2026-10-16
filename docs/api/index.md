@@ -27,7 +27,7 @@ In the Studio, open **Settings** and find the **API keys** card. Click **Create 
 
 The same card rotates and revokes keys. Rotating issues a new secret with the same name, scopes and limit. The old secret stops working immediately or after a grace period of up to 7 days, which gives running clients time to switch. A key can be rotated once; to rotate again, rotate its replacement.
 
-Keys can also be managed through the API (`GET /api/v1/keys`, `POST /api/v1/keys`, `POST /api/v1/keys/{id}/rotate`, `DELETE /api/v1/keys/{id}`) with a key that has the `manage` scope, or with `client.keys` in `@sluby/sdk`. To get a first key without signing in to the Studio, set `BOOTSTRAP_API_KEY` to a `sluby_...` value of your choice before starting the backend. It is stored with all three scopes and a limit of 1000 requests per minute, once: deleted or rotated, it is never seeded again. In production it must look like a generated key (`sluby_` and at least 32 more letters, digits, `-` or `_`). See [Configuration](/guide/configuration).
+Keys can also be managed through the API (`GET /api/v1/keys`, `POST /api/v1/keys`, `PATCH /api/v1/keys/{id}` to rename, `POST /api/v1/keys/{id}/rotate`, `DELETE /api/v1/keys/{id}`) with a key that has the `manage` scope, or with `client.keys` in `@sluby/sdk`. To get a first key without signing in to the Studio, set `BOOTSTRAP_API_KEY` to a `sluby_...` value of your choice before starting the backend. It is stored with all three scopes and a limit of 1000 requests per minute, once: deleted or rotated, it is never seeded again. A listed key shows its `prefix` (the first 12 characters) and `last_used_at` (to the minute), so you can tell which key a server holds and which old key is safe to revoke, and the list answers the server's `limits` (`max_keys`, `max_rate_limit`). In production the bootstrap key must look like a generated key (`sluby_` and at least 32 more letters, digits, `-` or `_`). See [Configuration](/guide/configuration).
 
 ### Scopes
 
@@ -51,7 +51,7 @@ Deployment-wide operations data is for the platform key and for operators: the a
 
 - `GET /api/v1/system/status` answers every caller, but an ordinary account gets `"scope": "account"`: a health summary (whether the database, Redis and the indexer answer, and the size of the host pool), without the indexer account, the indexer URL, probe error text, uptime, the delivery cache or the last reconciliation. The platform key and operators get `"scope": "deployment"` and all of it.
 - `GET /api/v1/metrics` counts the whole process, every account together, so it answers `403` to anyone but the platform key and operators.
-- `GET /api/v1/reconciliation` gives an ordinary account `"scope": "account"`: the run's times, a `status` about its own assets (`drift` when objects of its assets are missing, `failed` when the run itself failed), and `missing_count` and `missing_ids` for its own assets only. The platform key and operators get `"scope": "deployment"` with the deployment-wide counts, the error text of a failed run, and the full `missing_ids` and `orphaned_ids`. `POST /api/v1/reconciliation/run` scans the whole deployment, so only the platform key or an operator may start one; it queues a run only when none is already waiting or running, and says which happened in `enqueued` and `already_pending`. See [deletion and reconciliation](/architecture/deletion-and-reconciliation#what-each-caller-sees) for the details.
+- `GET /api/v1/reconciliation` gives an ordinary account `"scope": "account"`: the run's times, a `status` about its own assets (`drift` when objects of its assets are missing, `failed` when the run itself failed), and `missing_count`, `missing_ids` and `missing_objects` (each missing id with the `video_asset_id` and `title` of its video, null when no live video holds it) for its own assets only. The platform key and operators get `"scope": "deployment"` with the deployment-wide counts, the error text of a failed run, and the full `missing_ids`, `missing_objects` and `orphaned_ids`. `POST /api/v1/reconciliation/run` scans the whole deployment, so only the platform key or an operator may start one; it queues a run only when none is already waiting or running, and says which happened in `enqueued` and `already_pending`. See [deletion and reconciliation](/architecture/deletion-and-reconciliation#what-each-caller-sees) for the details.
 
 A platform key is one created by `npm run db:seed-key --workspace=backend -- --platform` (in the container, `node dist/db/seed-api-key.js --platform`), which owns the platform address. The `BOOTSTRAP_API_KEY` belongs to its own `platform` account, which is an ordinary account in this respect. A Studio session is never the platform identity, so the Studio shows the health summary unless the account is an operator. `GET /api/v1/auth/me` says which with `operator`. With `AUTH_DISABLED` the local account is an operator. Operations-only endpoints are marked `x-required-identity: operations` in the reference.
 
@@ -106,17 +106,22 @@ Errors are JSON with an `error` message. A `400` from a body or query that faile
 }
 ```
 
-| Status | Meaning                                                                                                                                                                             |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `400`  | Invalid input, such as an unknown filter value, a repeated query parameter, a bad request body or an id that is not a valid identifier (`Invalid identifier format`).               |
-| `401`  | The `Authorization` header is missing, or the key is unknown, deactivated, expired or owned by an account no longer allowed in.                                                     |
-| `403`  | The key lacks the scope the endpoint requires, the endpoint is for the platform identity and operators only, or a write came from another origin without an `Authorization` header. |
-| `404`  | The resource does not exist or belongs to another account. Unknown routes also return `404`, with or without a key.                                                                 |
-| `409`  | The request conflicts with the resource's state, such as playing an asset that is not ready or cancelling a finished upload.                                                        |
-| `429`  | Rate limit exceeded (see below).                                                                                                                                                    |
-| `500`  | Server error. The details go to the backend log.                                                                                                                                    |
-| `502`  | The Sia indexer did not answer, for example while minting share URLs.                                                                                                               |
-| `503`  | The database did not answer while minting share URLs.                                                                                                                               |
+| Status | Meaning                                                                                                                                                                                                                                                |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `400`  | Invalid input, such as an unknown filter value, a repeated query parameter, a bad request body or an id that is not a valid identifier (`Invalid identifier format`).                                                                                  |
+| `401`  | The `Authorization` header is missing, or the key is unknown, deactivated, expired or owned by an account no longer allowed in. Without a key the body adds `reason`: `missing`, `expired`, `revoked` or `not_allowed`, why the browser session ended. |
+| `403`  | The key lacks the scope the endpoint requires, the endpoint is for the platform identity and operators only, or a write came from another origin without an `Authorization` header.                                                                    |
+| `404`  | The resource does not exist or belongs to another account. Unknown routes also return `404`, with or without a key.                                                                                                                                    |
+| `409`  | The request conflicts with the resource's state, such as playing an asset that is not ready, cancelling a finished upload or resending to a paused webhook.                                                                                            |
+| `412`  | `PATCH /api/v1/assets/{id}` with `If-Match`: the asset changed since that version. Nothing was saved; the body's `current` is the asset as it is now.                                                                                                  |
+| `429`  | Rate limit exceeded (see below).                                                                                                                                                                                                                       |
+| `500`  | Server error. The details go to the backend log.                                                                                                                                                                                                       |
+| `502`  | The Sia indexer did not answer, for example while minting share URLs.                                                                                                                                                                                  |
+| `503`  | The database did not answer while minting share URLs.                                                                                                                                                                                                  |
+
+### Editing without lost updates
+
+`GET` and `PATCH /api/v1/assets/{id}` send an `ETag`, the asset's `updated_at` in milliseconds since the epoch, quoted (`"1767225600000"`), so it can also be built from any listing. Behind the bundled nginx a compressed answer carries the weak form, `W/"1767225600000"`, and `If-Match` takes either. Send it back as `If-Match` on `PATCH` and the edit applies only if nobody changed the asset since; otherwise the answer is `412` with the asset as it is now in `current` and its new `ETag`, and you can merge and send again. Without `If-Match` the edit applies as before. Processing changes the version too. In `@sluby/sdk`: `assets.update(id, data, { ifMatch: asset })`, which rejects with a `ConflictError` whose `statusCode` is 412 and whose `current` is the asset.
 
 When the backend runs with `EXPOSE_ERROR_STACKS=true`, errors raised inside a route handler also include `message` and `stack` to help while debugging. It is off by default in every setup, so a server never returns a stack trace unless you turn it on. Each operation in the reference lists the status codes it can answer, and the backend's tests check every answer against that list.
 
@@ -159,7 +164,20 @@ export function readEvent(rawBody: string, headers: IncomingHttpHeaders): Webhoo
 
 A receiver answers with any `2xx` status; anything else, a redirect included, counts as a failure and is retried. Only the status line counts: the response body is never read.
 
-`POST /api/v1/webhooks/{id}/test` sends a signed `webhook.test` event (with `data.webhook_id`) right away and answers how the receiver responded (`delivered`, `status_code`, `error`). `GET /api/v1/webhooks/{id}/deliveries` lists the latest attempts with their event, status code and, for a failure, why. Both need `manage`, like listing endpoints, because receiver URLs often carry credentials. In `@sluby/sdk`, `client.webhookEndpoints` wraps these routes: `list`, `create`, `delete`, `test` and `deliveries`.
+`POST /api/v1/webhooks/{id}/test` sends a signed `webhook.test` event (with `data.webhook_id`) right away and answers how the receiver responded (`delivered`, `status_code`, `error`). `GET /api/v1/webhooks/{id}/deliveries` lists the latest attempts with their event, status code and, for a failure, why. Both need `manage`, like listing endpoints, because receiver URLs often carry credentials. Each listed attempt also carries the `payload` that was sent and `manual` (true for a resend).
+
+To manage an endpoint after creating it:
+
+- `GET /api/v1/webhooks/{id}` answers one endpoint. Listed and single endpoints carry `last_delivery_at` and `last_delivery_ok`, how the newest attempt went.
+- `PATCH /api/v1/webhooks/{id}` changes `url` (checked like at registration, at most 2,048 characters), `events`, or `is_active`: `false` pauses the endpoint, nothing is sent to it and queued deliveries are dropped; `true` resumes it for new events.
+- `POST /api/v1/webhooks/{id}/rotate-secret` replaces the signing secret, for one that leaked, and returns the new one once. The old one stops at once, for queued retries too.
+- `POST /api/v1/webhooks/{id}/deliveries/{deliveryId}/redeliver` sends a logged delivery again, after you fixed your receiver: the stored payload with the same event `id`, so a receiver that handled it already can drop it. It answers `202` with the new `delivery_id` (the `X-Sluby-Delivery` it carries), or `409` while the endpoint is paused.
+
+In `@sluby/sdk`, `client.webhookEndpoints` wraps these routes: `list`, `get`, `create`, `update`, `rotateSecret`, `redeliver`, `delete`, `test` and `deliveries`.
+
+## Plays
+
+Every asset carries `play_count` (all time) and `last_played_at`, and `GET /api/v1/stats/usage?days=30` (scope `read`, 1 to 90 days) answers the account's plays per UTC day, zero-filled, with their `total`. A play is one player load the server saw: the gateway serving a video's master playlist, or `/v1/share/{id}` minting the share map a direct-from-Sia player needs. The same viewer loading a video again within 30 minutes counts once, and previews in the Studio, HEAD, 304 and range requests do not count. Counts reach the API within about 10 seconds. See [Playback](/architecture/playback#plays) for the details and limits.
 
 ## Rate limits
 
@@ -171,7 +189,7 @@ Each API key has its own limit in requests per minute, set when the key is creat
 | `X-RateLimit-Remaining` | Requests left in the current window. |
 | `X-RateLimit-Reset`     | Seconds until the window resets.     |
 
-Over the limit, the server answers `429` with a `Retry-After` header in seconds and a body like `{ "error": "Rate limit exceeded", "retry_after": 37 }`. The body also still carries the older `retryAfter` spelling, which goes away in the next release. `@sluby/sdk` raises this as a `RateLimitError` with `retryAfter` set from the header.
+Over the limit, the server answers `429` with a `Retry-After` header in seconds and a body like `{ "error": "Too many requests. Try again in a few seconds.", "retry_after": 37 }`. The body also carries the older `retryAfter` spelling, so clients written for 0.1.0 keep working. `@sluby/sdk` raises this as a `RateLimitError` with `retryAfter` set from the header.
 
 Calls under `/api/v1` that carry no valid key or session (the OpenAPI document, the reference page, sign-in, and any call whose authentication fails) are counted per client address instead, 600 a minute by default (`API_IP_RATE_LIMIT`). Calls that authenticate are not counted there. Counters live in the backend process's memory, so they reset when the backend restarts. In front of the backend, the web proxy also limits each client address on the delivery routes under `/v1` and on sign-in; see [configuration](/guide/configuration#web-proxy).
 

@@ -1,8 +1,20 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Film, KeyRound, Search, Upload, Webhook, type LucideIcon } from 'lucide-react';
+import {
+  FileText,
+  Film,
+  KeyRound,
+  Link2,
+  LogOut,
+  Search,
+  Upload,
+  Webhook,
+  type LucideIcon,
+} from 'lucide-react';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
+import { AccessBadge } from '@/components/shared/StatusBadge';
+import { Kbd } from '@/components/ui/kbd';
 import { Button } from '@/components/ui/button';
 import {
   Command,
@@ -12,15 +24,18 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from '@/components/ui/command';
 import { Spinner } from '@/components/ui/spinner';
 import { useDebounce } from '@/hooks/useDebounce';
-import { ROUTES, STUDIO_NAV } from '@/lib/constants';
-import { formatDuration } from '@/lib/formatters';
+import { useSignOut } from '@/hooks/useSessions';
+import { LINKS, navItemsFor, ROUTES } from '@/lib/constants';
+import { withLead } from '@/lib/errors';
+import { formatDuration, plural } from '@/lib/formatters';
 import { useSession } from '@/lib/session';
 import { sluby } from '@/lib/sluby';
 import { THEME_OPTIONS, useTheme } from '@/lib/theme';
+import { toastError, toastSuccess } from '@/lib/toast';
+import { useUploadSheet } from '@/lib/upload-sheet';
 
 const isMac = () => /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
 
@@ -76,11 +91,11 @@ function Videos({
 
   let status: ReactNode = null;
   if (videos.isError) {
-    status = `Could not search videos: ${videos.error.message}`;
+    status = withLead('Could not search videos', videos.error);
   } else if (videos.isPending || (typing && !videos.data?.data.length)) {
     status = (
       <>
-        <Spinner aria-hidden="true" className="size-3.5" /> Searching videos...
+        <Spinner aria-hidden="true" className="size-3.5" /> Searching videos…
       </>
     );
   }
@@ -90,9 +105,10 @@ function Videos({
 
   return (
     <CommandGroup heading={heading}>
+      {/* the palette's own status region says this; a listbox may own only options */}
       {status && (
         <div
-          role="status"
+          aria-hidden="true"
           className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground"
         >
           {status}
@@ -102,16 +118,19 @@ function Videos({
         <CommandItem
           key={asset.id}
           value={videoValue(asset.id)}
-          onSelect={() => open(`${ROUTES.STUDIO_ASSETS}/${asset.id}`)}
+          onSelect={() => open(ROUTES.video(asset.id))}
           className={typing ? 'opacity-60' : undefined}
         >
           <Film className="text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">{asset.title || 'Untitled'}</span>
+          <span dir="auto" className="min-w-0 flex-1 truncate">
+            {asset.title || 'Untitled'}
+          </span>
           {asset.durationMs ? (
             <span className="text-xs text-muted-foreground tabular-nums">
               {formatDuration(asset.durationMs)}
             </span>
           ) : null}
+          <AccessBadge access={asset.accessTier} />
           <AssetStatusBadge status={asset.status} />
         </CommandItem>
       ))}
@@ -123,45 +142,72 @@ function PaletteBody({ close }: { close: () => void }) {
   const [term, setTerm] = useState('');
   const found = usePaletteVideos(term);
   const navigate = useNavigate();
-  const { operator } = useSession();
+  const { operator, authDisabled } = useSession();
   const { theme, setTheme } = useTheme();
+  const uploadSheet = useUploadSheet();
+  const { signOut } = useSignOut();
 
   const open = (path: string) => {
     close();
     void navigate(path);
   };
 
-  const pages: Entry[] = STUDIO_NAV.filter((item) => operator || !item.operatorOnly).map(
-    (item) => ({
-      id: `page-${item.path}`,
-      label: item.label,
-      icon: item.icon,
-      keywords: 'go to page open',
-      run: () => open(item.path),
-    }),
-  );
+  const pages: Entry[] = navItemsFor(operator).map((item) => ({
+    id: `page-${item.path}`,
+    label: item.label,
+    icon: item.icon,
+    keywords: 'go to page open',
+    run: () => open(item.path),
+  }));
   const actions: Entry[] = [
     {
       id: 'action-upload',
-      label: 'Upload a video',
+      label: 'Upload video',
       icon: Upload,
       keywords: 'new add file',
-      run: () => open(ROUTES.STUDIO_UPLOAD),
+      run: () => {
+        close();
+        uploadSheet.open();
+      },
     },
     {
       id: 'action-key',
-      label: 'Create an API key',
+      label: 'Create API key',
       icon: KeyRound,
-      // not "settings": typing that should land on the settings page alone
-      keywords: 'new add token secret',
-      run: () => open(`${ROUTES.STUDIO_SETTINGS}?create=key`),
+      keywords: 'new add token secret developers',
+      run: () => open(`${ROUTES.API_KEYS}?create=key`),
     },
     {
-      id: 'action-webhooks',
-      label: 'Manage webhooks',
+      id: 'action-webhook',
+      label: 'Add a webhook',
       icon: Webhook,
-      keywords: 'add events developer',
-      run: () => open(ROUTES.STUDIO_DEVELOPER),
+      keywords: 'new create events developers',
+      run: () => open(`${ROUTES.WEBHOOKS}?create=webhook`),
+    },
+    {
+      id: 'action-base-url',
+      label: 'Copy API base URL',
+      icon: Link2,
+      keywords: 'origin server address endpoint sdk baseurl',
+      run: () => {
+        close();
+        const url = window.location.origin;
+        navigator.clipboard.writeText(url).then(
+          () => toastSuccess('API base URL copied'),
+          // the clipboard needs a secure context and permission; say so
+          () => toastError(`Could not copy the API base URL. It is ${url}`),
+        );
+      },
+    },
+    {
+      id: 'action-reference',
+      label: 'Open API reference',
+      icon: FileText,
+      keywords: 'docs documentation openapi rest endpoints',
+      run: () => {
+        close();
+        window.open(LINKS.API_REFERENCE, '_blank', 'noopener,noreferrer');
+      },
     },
     ...THEME_OPTIONS.map(({ value, label, icon }) => ({
       id: `theme-${value}`,
@@ -174,6 +220,21 @@ function PaletteBody({ close }: { close: () => void }) {
         close();
       },
     })),
+    // with sign-in off nobody is signed in, so there is nothing to sign out of
+    ...(authDisabled
+      ? []
+      : [
+          {
+            id: 'action-sign-out',
+            label: 'Sign out',
+            icon: LogOut,
+            keywords: 'log out logout leave session',
+            run: () => {
+              close();
+              signOut().catch((err: unknown) => toastError(withLead('Could not sign out', err)));
+            },
+          },
+        ]),
   ];
 
   const shownPages = pages.filter((e) => matches(term, e));
@@ -190,10 +251,52 @@ function PaletteBody({ close }: { close: () => void }) {
   ];
   const value = shown.includes(selected) ? selected : (shown[0] ?? '');
 
+  // cmdk 1.1.1 moves aria-activedescendant only when its own keys or the
+  // pointer move the selection, not when the value above does, so after a
+  // search it pointed at an option that was gone; it follows the selected
+  // option here, or goes when there is none
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const sync = () => {
+      const id = el.querySelector('[cmdk-item][aria-selected="true"]')?.id;
+      for (const target of el.querySelectorAll('[cmdk-input], [cmdk-list]')) {
+        if (id && target.getAttribute('aria-activedescendant') !== id) {
+          target.setAttribute('aria-activedescendant', id);
+        } else if (!id && target.hasAttribute('aria-activedescendant')) {
+          target.removeAttribute('aria-activedescendant');
+        }
+      }
+    };
+    const observer = new MutationObserver(sync);
+    observer.observe(el, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['aria-selected', 'aria-activedescendant'],
+    });
+    sync();
+    return () => observer.disconnect();
+  }, []);
+
+  // said once the search settles, not on every key; the active option is
+  // read out on its own as the arrows move
+  const { search, videos } = found;
+  const settled = term.trim() === search && !videos.isPending && !videos.isPlaceholderData;
+  const announcement = videos.isError
+    ? withLead('Could not search videos', videos.error)
+    : term.trim() && settled
+      ? shown.length === 0
+        ? `Nothing matches “${term.trim()}”.`
+        : plural(shown.length, 'result')
+      : '';
+
   return (
     // filtering is done here: video results come from the server, which also
     // matches descriptions and ids that cmdk's own filter would drop
     <Command
+      ref={root}
       shouldFilter={false}
       loop
       label="Search videos, pages and actions"
@@ -203,10 +306,10 @@ function PaletteBody({ close }: { close: () => void }) {
       <CommandInput
         value={term}
         onValueChange={setTerm}
-        placeholder="Search videos, pages and actions..."
+        placeholder="Search videos, pages and actions…"
       />
-      <CommandList className="max-h-[min(24rem,60svh)]">
-        <CommandEmpty>Nothing matches “{term.trim()}”.</CommandEmpty>
+      <CommandList className="max-h-[min(24rem,calc(100svh-8rem))]">
+        <CommandEmpty aria-hidden="true">Nothing matches “{term.trim()}”.</CommandEmpty>
         {shownPages.length > 0 && (
           <CommandGroup heading="Pages">
             {shownPages.map((e) => (
@@ -216,16 +319,17 @@ function PaletteBody({ close }: { close: () => void }) {
         )}
         <Videos term={term} found={found} open={open} />
         {shownActions.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Actions">
-              {shownActions.map((e) => (
-                <EntryItem key={e.id} entry={e} />
-              ))}
-            </CommandGroup>
-          </>
+          // a border, not a CommandSeparator: a listbox may not own a separator
+          <CommandGroup heading="Actions" className="border-t">
+            {shownActions.map((e) => (
+              <EntryItem key={e.id} entry={e} />
+            ))}
+          </CommandGroup>
         )}
       </CommandList>
+      <p className="sr-only" role="status">
+        {announcement}
+      </p>
       <div
         aria-hidden="true"
         className="hidden items-center gap-3 border-t px-3 py-2 text-xs text-muted-foreground sm:flex"
@@ -263,15 +367,17 @@ export function CommandPalette() {
         variant="outline"
         size="sm"
         onClick={() => setOpen(true)}
-        aria-label="Search and commands"
+        // named by its visible word, "Search"; below md the word is only for
+        // screen readers, since the button shrinks to its icon
         aria-keyshortcuts={mac ? 'Meta+K' : 'Control+K'}
-        className="size-8 justify-start gap-2 p-0 text-muted-foreground max-md:justify-center md:w-44 md:px-2.5 xl:w-60"
+        className="size-8 justify-start gap-2 p-0 text-muted-foreground max-md:justify-center max-md:pointer-coarse:size-10 md:w-44 md:px-2.5 md:pointer-coarse:h-10 xl:w-60"
       >
         <Search />
-        <span className="hidden flex-1 text-left font-normal md:inline">Search...</span>
-        <kbd className="pointer-events-none hidden h-5 items-center rounded border bg-muted px-1.5 font-mono text-[0.7rem] md:inline-flex">
+        <span className="flex-1 text-left font-normal max-md:sr-only">Search</span>
+        {/* the shortcut is exposed through aria-keyshortcuts */}
+        <Kbd aria-hidden="true" className="hidden md:inline-flex">
           {mac ? '⌘K' : 'Ctrl K'}
-        </kbd>
+        </Kbd>
       </Button>
       <CommandDialog
         open={open}

@@ -1,5 +1,5 @@
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ThemeProvider } from '@/components/theme-provider';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { renderPage } from '@/test/render';
@@ -23,7 +23,7 @@ function renderAt(route: string, seed?: (c: ReturnType<typeof renderPage>['clien
 
 describe('TopBar', () => {
   it('names the asset page by the title the page loaded', async () => {
-    renderAt('/studio/assets/a1', (client) =>
+    renderAt('/studio/videos/a1', (client) =>
       client.setQueryData(['assets', 'one', 'a1'], { id: 'a1', title: 'Keynote 2026' }),
     );
     expect(await screen.findByText('Keynote 2026')).toBeInTheDocument();
@@ -46,7 +46,7 @@ describe('TopBar', () => {
   });
 
   it('keeps the trail on one line on phones: only the page name, with a back link', () => {
-    const { container } = renderAt('/studio/assets/a1', (client) =>
+    const { container } = renderAt('/studio/videos/a1', (client) =>
       client.setQueryData(['assets', 'one', 'a1'], { id: 'a1', title: 'Keynote 2026' }),
     );
     const list = container.querySelector('[data-slot="breadcrumb-list"]');
@@ -57,9 +57,24 @@ describe('TopBar', () => {
     )) {
       expect(el).toHaveClass('max-sm:hidden');
     }
-    const back = screen.getByRole('link', { name: 'Back to Assets' });
-    expect(back).toHaveAttribute('href', '/studio/assets');
+    const back = screen.getByRole('link', { name: 'Back to Videos' });
+    expect(back).toHaveAttribute('href', '/studio/videos');
     expect(back).toHaveClass('sm:hidden');
+  });
+
+  it('wraps to a second row when large text needs it, and pads the page by its real height (1.4.4, 2.4.11)', () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(112);
+    const { unmount } = renderAt('/studio/videos');
+    const header = screen.getByRole('banner');
+    expect(header).toHaveClass(
+      'max-[24rem]:flex-wrap',
+      'max-[24rem]:h-auto',
+      'max-[24rem]:min-h-14',
+    );
+    expect(document.documentElement.style.getPropertyValue('--top-bar-h')).toBe('112px');
+    unmount();
+    expect(document.documentElement.style.getPropertyValue('--top-bar-h')).toBe('');
+    vi.restoreAllMocks();
   });
 
   it('has no back link on a top level page', () => {

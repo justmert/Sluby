@@ -56,6 +56,7 @@ import {
   transcodeTimeoutMs,
 } from '../transcode/ffmpeg-runner.js';
 import { mkdir } from 'node:fs/promises';
+import { UnreadableSourceError } from '../transcode/source-errors.js';
 
 const PLAYLIST =
   '#EXTM3U\n#EXT-X-MAP:URI="data.m4s",BYTERANGE="10@0"\n' +
@@ -607,9 +608,23 @@ describe('transcode', () => {
       });
       return proc;
     });
-    await expect(transcode('/bad/video.mp4', '/output')).rejects.toThrow(
+    const failure = transcode('/bad/video.mp4', '/output');
+    await expect(failure).rejects.toThrow(
       'ffprobe exited with code 1: /bad/video.mp4: Invalid data found when processing input',
     );
+    // a file that is not a video: retrying cannot help
+    await expect(failure).rejects.toBeInstanceOf(UnreadableSourceError);
+  });
+
+  it('keeps a probe that timed out or crashed an ordinary, retried failure', async () => {
+    mockSpawn.mockImplementation(() => {
+      const proc = createMockProcess();
+      process.nextTick(() => proc.emit('close', null, 'SIGSEGV'));
+      return proc;
+    });
+    const failure = transcode('/in.mp4', '/output');
+    await expect(failure).rejects.toThrow('ffprobe was killed by SIGSEGV');
+    await expect(failure).rejects.not.toBeInstanceOf(UnreadableSourceError);
   });
 
   it('rejects with the encoder error when ffmpeg fails', async () => {
@@ -626,7 +641,9 @@ describe('transcode', () => {
     setupTranscode({
       probe: { format: { duration: '60.0' }, streams: [{ index: 0, codec_type: 'audio' }] },
     });
-    await expect(transcode('/audio-only.mp4', '/output')).rejects.toThrow('No video stream found');
+    const failure = transcode('/audio-only.mp4', '/output');
+    await expect(failure).rejects.toThrow('No video stream found');
+    await expect(failure).rejects.toBeInstanceOf(UnreadableSourceError);
   });
 
   it('reports progress from the -progress lines on stdout, split across chunks', async () => {

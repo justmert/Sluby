@@ -6,7 +6,7 @@
  * against the OpenAPI document, and the last test fails if an operation in
  * the document was never exercised.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import pino from 'pino';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -23,6 +23,7 @@ import {
 import type * as AppModule from '../app.js';
 import type * as AssetQueries from '../db/queries/assets.js';
 import type * as KeyQueries from '../db/queries/api-keys.js';
+import type { WebhookJobData } from '../webhooks/delivery.js';
 
 const A = 'github:alice';
 const B = 'github:bob';
@@ -60,6 +61,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
   const jobs: Array<{ queue: string; name: string; data: unknown; jobId?: string }> = [];
   const events: Array<{ event: string; data: Record<string, unknown>; owner: string }> = [];
   let reconcileTriggers = 0;
+  const queuedDeliveries: WebhookJobData[] = [];
 
   const fakeQueue = (queue: string) => ({
     add: async (name: string, data: unknown, opts?: { jobId?: string }) => {
@@ -102,6 +104,9 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         dispatch: async (event, data, owner) => {
           events.push({ event, data, owner });
         },
+        enqueue: async (job) => {
+          queuedDeliveries.push(job);
+        },
       },
       triggerReconciliation: async () => {
         reconcileTriggers++;
@@ -128,6 +133,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     jobs.length = 0;
     events.length = 0;
     reconcileTriggers = 0;
+    queuedDeliveries.length = 0;
     mkdirSync(uploadDir, { recursive: true });
 
     const all = ['upload', 'read', 'manage'];
@@ -420,6 +426,53 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect((await assetRow(assetA.id)).title).toBe('alice ready');
     });
 
+    it('refuses an edit based on an old version with 412, and applies one on the current', async () => {
+      const got = await call('GET', `/api/v1/assets/${assetA.id}`, 'a');
+      check('GET', '/api/v1/assets/{id}', got);
+      const etag = got.headers.etag;
+      expect(etag).toBe(`"${Date.parse(got.body.updated_at)}"`);
+
+      const first = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
+        title: 'tab one',
+      }).set('If-Match', etag);
+      check('PATCH', '/api/v1/assets/{id}', first);
+      expect(first.status).toBe(200);
+      expect(first.headers.etag).not.toBe(etag);
+
+      const stale = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
+        title: 'tab two',
+      }).set('If-Match', etag);
+      check('PATCH', '/api/v1/assets/{id}', stale);
+      expect(stale.status).toBe(412);
+      expect(stale.body.error).toBe('This video was changed somewhere else.');
+      expect(stale.body.current.title).toBe('tab one');
+      expect(stale.headers.etag).toBe(first.headers.etag);
+      expect((await assetRow(assetA.id)).title).toBe('tab one');
+
+      const retried = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
+        title: 'tab two',
+      }).set('If-Match', stale.headers.etag);
+      expect(retried.status).toBe(200);
+      expect(retried.body.title).toBe('tab two');
+
+      // another tenant's asset is a 404 whatever the version
+      const foreign = await call('PATCH', `/api/v1/assets/${assetB.id}`, 'a', {
+        title: 'x',
+      }).set('If-Match', etag);
+      check('PATCH', '/api/v1/assets/{id}', foreign);
+      expect(foreign.status).toBe(404);
+      const byPlatform = await call('PATCH', `/api/v1/assets/${assetB.id}`, 'platform', {
+        title: 'platform edit',
+      }).set('If-Match', '"1"');
+      check('PATCH', '/api/v1/assets/{id}', byPlatform);
+      expect(byPlatform.status).toBe(412);
+      const badHeader = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
+        title: 'x',
+      }).set('If-Match', 'nope');
+      check('PATCH', '/api/v1/assets/{id}', badHeader);
+      expect(badHeader.status).toBe(400);
+    });
+
     it('updates title, description and tier, trimming the title', async () => {
       const res = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
         title: '  renamed  ',
@@ -461,6 +514,37 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       const gone = await call('POST', `/api/v1/assets/${assetAFailed.id}/retry`, 'a');
       check('POST', '/api/v1/assets/{id}/retry', gone);
       expect(gone.status).toBe(410);
+    });
+
+    it('says whether a failed video can be retried', async () => {
+      const [session] = await tdb.sql`
+        insert into upload_sessions (video_asset_id, upload_url, file_path, file_size, status)
+        values (${assetAFailed.id}, 'u', ${path.join(uploadDir, 'gone.mp4')}, 10, 'completed')
+        returning id`;
+      const [job] = await tdb.sql`
+        insert into processing_jobs (video_asset_id, upload_session_id, status, error_message)
+        values (${assetAFailed.id}, ${session.id}, 'failed', 'ffprobe exited with code 1')
+        returning id`;
+      const retryable = async () => {
+        const res = await call('GET', `/api/v1/assets/${assetAFailed.id}/processing`, 'a');
+        check('GET', '/api/v1/assets/{id}/processing', res);
+        expect(res.status).toBe(200);
+        return res.body.retryable;
+      };
+      // no finished transcode and the original file is gone
+      expect(await retryable()).toBe(false);
+      writeFileSync(path.join(uploadDir, 'gone.mp4'), 'bytes');
+      expect(await retryable()).toBe(true);
+      // a final failure (a file that is not a readable video)
+      await tdb.sql`update processing_jobs set retryable = false where id = ${job.id}`;
+      expect(await retryable()).toBe(false);
+      const byB = await call('GET', `/api/v1/assets/${assetAFailed.id}/processing`, 'b');
+      expect(byB.status).toBe(404);
+      // a manual retry starts a new run, which may be retried again
+      await tdb.sql`update processing_jobs set retryable = true where id = ${job.id}`;
+      const retried = await call('POST', `/api/v1/assets/${assetAFailed.id}/retry`, 'a');
+      expect(retried.status).toBe(200);
+      expect(await retryable()).toBe(false);
     });
 
     it('retries a failed asset whose transcode output is on disk', async () => {
@@ -539,6 +623,11 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       });
       check('POST', '/api/v1/assets/{id}/playback-ids', bad);
       expect(bad.status).toBe(400);
+      const longName = await call('POST', `/api/v1/assets/${assetA.id}/playback-ids`, 'a', {
+        name: 'x'.repeat(101),
+      });
+      check('POST', '/api/v1/assets/{id}/playback-ids', longName);
+      expect(longName.status).toBe(400);
 
       const list = await call('GET', `/api/v1/assets/${assetA.id}/playback-ids`, 'a');
       check('GET', '/api/v1/assets/{id}/playback-ids', list);
@@ -566,12 +655,26 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(res.status).toBe(201);
       expect(res.body.scopes).toEqual(['read', 'upload']);
       expect(res.body.key).toMatch(/^sluby_/);
+      expect(res.body.prefix).toBe(res.body.key.slice(0, 12));
+      expect(res.body.last_used_at).toBeNull();
 
       const list = await call('GET', '/api/v1/keys', 'a');
       check('GET', '/api/v1/keys', list);
       const listed = list.body.data.find((k: { id: string }) => k.id === res.body.id);
       const { key: _secret, ...created } = res.body;
       expect(created).toEqual(listed);
+
+      // using the new key stamps its last use; the write is not awaited by
+      // the request, so wait for it
+      const used = await request(app)
+        .get('/api/v1/assets')
+        .set('Authorization', `Bearer ${res.body.key}`);
+      expect(used.status).toBe(200);
+      await vi.waitFor(async () => {
+        const after = await call('GET', '/api/v1/keys', 'a');
+        const row = after.body.data.find((k: { id: string }) => k.id === res.body.id);
+        expect(Date.parse(row.last_used_at)).toBeGreaterThan(Date.now() - 60_000);
+      });
     });
 
     it('rejects names, scopes and rate limits the database cannot hold', async () => {
@@ -619,6 +722,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       }
       const all = await call('GET', '/api/v1/keys', 'a');
       check('GET', '/api/v1/keys', all);
+      expect(all.body.limits).toEqual({ max_keys: 100, max_rate_limit: 10000 });
       // 55 plus the three fixture keys of alice
       expect(all.body.data).toHaveLength(58);
       expect(all.body.has_more).toBe(false);
@@ -672,6 +776,22 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       check('POST', '/api/v1/keys/{id}/rotate', badGrace);
       expect(badGrace.status).toBe(400);
 
+      const renameByA = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'a', { name: 'mine now' });
+      check('PATCH', '/api/v1/keys/{id}', renameByA);
+      expect(renameByA.status).toBe(404);
+      const renamed = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'b', { name: ' bob ci ' });
+      check('PATCH', '/api/v1/keys/{id}', renamed);
+      expect(renamed.status).toBe(200);
+      expect(renamed.body).toMatchObject({ id: bKeyId, name: 'bob ci' });
+      const badName = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'b', { name: '' });
+      check('PATCH', '/api/v1/keys/{id}', badName);
+      expect(badName.status).toBe(400);
+      const byPlatform = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'platform', {
+        name: 'renamed by the platform',
+      });
+      check('PATCH', '/api/v1/keys/{id}', byPlatform);
+      expect(byPlatform.status).toBe(200);
+
       const deleted = await call('DELETE', `/api/v1/keys/${rotated.body.id}`, 'platform');
       check('DELETE', '/api/v1/keys/{id}', deleted);
       expect(deleted.status).toBe(200);
@@ -708,6 +828,10 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         const list = await call('GET', '/api/v1/webhooks', 'a');
         check('GET', '/api/v1/webhooks', list);
         expect(list.body.data).toHaveLength(1);
+        expect(list.body.data[0]).toMatchObject({ last_delivery_at: null, last_delivery_ok: null });
+        const oneByB = await call('GET', `/api/v1/webhooks/${created.body.id}`, 'b');
+        check('GET', '/api/v1/webhooks/{id}', oneByB);
+        expect(oneByB.status).toBe(404);
 
         const testedByB = await call('POST', `/api/v1/webhooks/${created.body.id}/test`, 'b');
         check('POST', '/api/v1/webhooks/{id}/test', testedByB);
@@ -717,6 +841,11 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         expect(tested.status).toBe(200);
         expect(tested.body).toMatchObject({ delivered: true, status_code: 204 });
         expect(hits).toEqual(['webhook.test']);
+        const one = await call('GET', `/api/v1/webhooks/${created.body.id}`, 'a');
+        check('GET', '/api/v1/webhooks/{id}', one);
+        expect(one.status).toBe(200);
+        expect(one.body).toMatchObject({ id: created.body.id, last_delivery_ok: true });
+        expect(Date.parse(one.body.last_delivery_at)).toBeGreaterThan(Date.now() - 60_000);
 
         const deliveriesByB = await call(
           'GET',
@@ -729,6 +858,128 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         check('GET', '/api/v1/webhooks/{id}/deliveries', deliveries);
         expect(deliveries.status).toBe(200);
         expect(deliveries.body.data).toHaveLength(1);
+
+        // a resend queues the stored payload with its event id; the queued job
+        // is then sent by the real delivery code, as the worker would
+        const first = deliveries.body.data[0];
+        const redeliverPath = '/api/v1/webhooks/{id}/deliveries/{deliveryId}/redeliver';
+        const resendByB = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/deliveries/${first.id}/redeliver`,
+          'b',
+        );
+        check('POST', redeliverPath, resendByB);
+        expect(resendByB.status).toBe(404);
+        const resend = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/deliveries/${first.id}/redeliver`,
+          'a',
+        );
+        check('POST', redeliverPath, resend);
+        expect(resend.status).toBe(202);
+        expect(resend.body.delivery_id).toMatch(/^dlv_/);
+        expect(queuedDeliveries).toHaveLength(1);
+        const [queued] = queuedDeliveries;
+        expect(queued).toMatchObject({
+          endpointId: created.body.id,
+          event: 'webhook.test',
+          deliveryId: resend.body.delivery_id,
+          manual: true,
+        });
+        expect(JSON.parse(queued.body).id).toBe(first.event_id);
+        const { deliverWebhook } = await import('../webhooks/delivery.js');
+        const webhookQueries = await import('../db/queries/webhooks.js');
+        const { webhookEgressPolicy } = await import('../webhooks/policy.js');
+        await deliverWebhook(
+          {
+            getEndpoint: webhookQueries.getWebhookEndpointById,
+            recordDelivery: async (row) => {
+              await webhookQueries.createWebhookDelivery(row);
+            },
+            egress: webhookEgressPolicy(),
+          },
+          queued,
+          0,
+        );
+        expect(hits).toEqual(['webhook.test', 'webhook.test']);
+        const afterResend = await call(
+          'GET',
+          `/api/v1/webhooks/${created.body.id}/deliveries`,
+          'a',
+        );
+        expect(afterResend.body.data).toHaveLength(2);
+        expect(afterResend.body.data[0].event_id).toBe(first.event_id);
+        expect(afterResend.body.data.map((d: { manual: boolean }) => d.manual)).toEqual([
+          true,
+          false,
+        ]);
+        expect(afterResend.body.data[0].payload).toEqual(first.payload);
+        expect(first.payload).toMatchObject({
+          id: first.event_id,
+          event: 'webhook.test',
+          data: { webhook_id: created.body.id },
+        });
+        const unknownDelivery = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/deliveries/${created.body.id}/redeliver`,
+          'a',
+        );
+        check('POST', redeliverPath, unknownDelivery);
+        expect(unknownDelivery.status).toBe(404);
+
+        const rotateByB = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/rotate-secret`,
+          'b',
+        );
+        check('POST', '/api/v1/webhooks/{id}/rotate-secret', rotateByB);
+        expect(rotateByB.status).toBe(404);
+        const rotated = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/rotate-secret`,
+          'a',
+        );
+        check('POST', '/api/v1/webhooks/{id}/rotate-secret', rotated);
+        expect(rotated.status).toBe(200);
+        expect(rotated.body.secret).not.toBe(created.body.secret);
+        const [stored] =
+          await tdb.sql`select secret from webhook_endpoints where id = ${created.body.id}`;
+        expect(stored.secret).toBe(rotated.body.secret);
+
+        const pauseByB = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'b', {
+          is_active: false,
+        });
+        check('PATCH', '/api/v1/webhooks/{id}', pauseByB);
+        expect(pauseByB.status).toBe(404);
+        const paused = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'a', {
+          is_active: false,
+          events: ['asset.ready', 'asset.errored'],
+        });
+        check('PATCH', '/api/v1/webhooks/{id}', paused);
+        expect(paused.status).toBe(200);
+        expect(paused.body).toMatchObject({
+          is_active: false,
+          events: ['asset.ready', 'asset.errored'],
+        });
+        // still listed while paused
+        const listPaused = await call('GET', '/api/v1/webhooks', 'a');
+        expect(listPaused.body.data.map((w: { is_active: boolean }) => w.is_active)).toEqual([
+          false,
+        ]);
+        const resendPaused = await call(
+          'POST',
+          `/api/v1/webhooks/${created.body.id}/deliveries/${first.id}/redeliver`,
+          'a',
+        );
+        check('POST', redeliverPath, resendPaused);
+        expect(resendPaused.status).toBe(409);
+        const badPatch = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'a', {});
+        check('PATCH', '/api/v1/webhooks/{id}', badPatch);
+        expect(badPatch.status).toBe(400);
+        const resumed = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'a', {
+          is_active: true,
+        });
+        expect(resumed.body.is_active).toBe(true);
 
         const byB = await call('DELETE', `/api/v1/webhooks/${created.body.id}`, 'b');
         check('DELETE', '/api/v1/webhooks/{id}', byB);
@@ -749,6 +1000,9 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         const listP = await call('GET', '/api/v1/webhooks', 'platform');
         check('GET', '/api/v1/webhooks', listP);
         expect(listP.body.data.map((w: { id: string }) => w.id)).toEqual([other.body.id]);
+        const oneByP = await call('GET', `/api/v1/webhooks/${other.body.id}`, 'platform');
+        check('GET', '/api/v1/webhooks/{id}', oneByP);
+        expect(oneByP.status).toBe(200);
         const testedByP = await call('POST', `/api/v1/webhooks/${other.body.id}/test`, 'platform');
         check('POST', '/api/v1/webhooks/{id}/test', testedByP);
         expect(testedByP.status).toBe(200);
@@ -760,6 +1014,31 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         check('GET', '/api/v1/webhooks/{id}/deliveries', deliveriesByP);
         expect(deliveriesByP.status).toBe(200);
         expect(deliveriesByP.body.data).toHaveLength(1);
+        const pausedByP = await call('PATCH', `/api/v1/webhooks/${other.body.id}`, 'platform', {
+          is_active: false,
+        });
+        check('PATCH', '/api/v1/webhooks/{id}', pausedByP);
+        expect(pausedByP.status).toBe(200);
+        const rotatedByP = await call(
+          'POST',
+          `/api/v1/webhooks/${other.body.id}/rotate-secret`,
+          'platform',
+        );
+        check('POST', '/api/v1/webhooks/{id}/rotate-secret', rotatedByP);
+        expect(rotatedByP.status).toBe(200);
+        const pDeliveries = await call(
+          'GET',
+          `/api/v1/webhooks/${other.body.id}/deliveries`,
+          'platform',
+        );
+        const resendByP = await call(
+          'POST',
+          `/api/v1/webhooks/${other.body.id}/deliveries/${pDeliveries.body.data[0].id}/redeliver`,
+          'platform',
+        );
+        check('POST', redeliverPath, resendByP);
+        // paused just above
+        expect(resendByP.status).toBe(409);
         const byBAgain = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'b');
         expect(byBAgain.status).toBe(404);
         const byP = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'platform');
@@ -1090,6 +1369,9 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         status: 'drift',
         missing_count: 1,
         missing_ids: ['a1'.repeat(32)],
+        missing_objects: [
+          { object_id: 'a1'.repeat(32), video_asset_id: assetA.id, title: 'alice ready' },
+        ],
       });
       for (const field of [
         'db_object_count',
@@ -1109,7 +1391,16 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         missing_count: 2,
         orphan_count: 1,
         orphaned_ids: ['ff'.repeat(32)],
+        missing_objects: [
+          { object_id: 'a1'.repeat(32), video_asset_id: assetA.id, title: 'alice ready' },
+          { object_id: 'b1'.repeat(32), video_asset_id: assetB.id, title: 'bob ready' },
+        ],
       });
+      const bob = await call('GET', '/api/v1/reconciliation', 'b');
+      check('GET', '/api/v1/reconciliation', bob);
+      expect(bob.body.missing_objects).toEqual([
+        { object_id: 'b1'.repeat(32), video_asset_id: assetB.id, title: 'bob ready' },
+      ]);
     });
 
     it('lets only the platform key start a deployment-wide run', async () => {
@@ -1135,6 +1426,36 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       check('GET', '/api/v1/stats', res);
       expect(res.status).toBe(200);
       expect(res.body.total).toBe(2);
+    });
+
+    it('scopes plays per day to the tenant, and gives the platform key every account', async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      await tdb.sql`
+        insert into asset_plays_daily (video_asset_id, day, plays)
+        values (${assetA.id}, ${today}, 3), (${assetB.id}, ${today}, 4)`;
+      const usage = async (who: Who, query = '') => {
+        const res = await call('GET', `/api/v1/stats/usage${query}`, who);
+        check('GET', '/api/v1/stats/usage', res);
+        return res;
+      };
+      const a = await usage('a', '?days=2');
+      expect(a.status).toBe(200);
+      expect(a.body.days).toEqual([
+        { date: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10), plays: 0 },
+        { date: today, plays: 3 },
+      ]);
+      expect(a.body.total).toBe(3);
+      expect((await usage('b')).body.total).toBe(4);
+      expect((await usage('platform')).body.total).toBe(7);
+      expect((await usage('aRead')).status).toBe(200);
+      expect((await usage('aUpload')).status).toBe(403);
+      expect((await usage('a', '?days=91')).status).toBe(400);
+
+      const asset = await call('GET', `/api/v1/assets/${assetA.id}`, 'a');
+      expect(asset.body.play_count).toBe(3);
+      const list = await call('GET', '/api/v1/assets', 'a');
+      check('GET', '/api/v1/assets', list);
+      expect(list.body.data.find((x: { id: string }) => x.id === assetA.id).play_count).toBe(3);
     });
 
     describe('an operator (OPERATOR_USERS)', () => {
@@ -1345,6 +1666,12 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       const list = await request(app).get('/api/v1/auth/sessions').set('Cookie', mine.cookie);
       check('GET', '/api/v1/auth/sessions', list);
       expect(list.body.data).toHaveLength(1);
+      // the listing request itself is activity; its write is not awaited
+      await vi.waitFor(async () => {
+        const again = await request(app).get('/api/v1/auth/sessions').set('Cookie', mine.cookie);
+        check('GET', '/api/v1/auth/sessions', again);
+        expect(Date.parse(again.body.data[0].last_seen_at)).toBeGreaterThan(Date.now() - 60_000);
+      });
 
       const notMine = await request(app)
         .delete(`/api/v1/auth/sessions/${other.id}`)
@@ -1381,10 +1708,11 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(unknown.status).toBe(404);
       const missing = await call('GET', '/api/v1/auth/github/callback', 'none');
       check('GET', '/api/v1/auth/{provider}/callback', missing);
-      expect(missing.status).toBe(400);
+      expect(missing.status).toBe(302);
+      expect(missing.headers.location).toBe('/studio?signin_error=expired_handshake');
       const badState = await call('GET', '/api/v1/auth/github/callback?code=x&state=nope', 'none');
       check('GET', '/api/v1/auth/{provider}/callback', badState);
-      expect(badState.status).toBe(400);
+      expect(badState.status).toBe(302);
     });
   });
 

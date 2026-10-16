@@ -42,7 +42,8 @@ function server(initial = [row(PB_A, 'public', 'Site embed')], hold?: Promise<vo
   return stub;
 }
 
-const show = () => renderPage(<PlaybackIdsCard assetId="a1" />);
+const show = (accessTier: 'public' | 'private' = 'public') =>
+  renderPage(<PlaybackIdsCard asset={{ id: 'a1', accessTier }} />);
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -59,31 +60,82 @@ describe('PlaybackIdsCard', () => {
     server([row(PB_A, 'public', 'Site embed'), row(PB_B, 'signed')]);
     show();
 
-    const table = await screen.findByRole('table');
-    expect(within(table).getByText('Site embed')).toBeInTheDocument();
+    await screen.findByText('Site embed');
+    const table = screen.getByRole('table', { name: 'Playback IDs' });
     expect(within(table).getByText('Untitled')).toBeInTheDocument();
-    expect(
-      within(table).getByText('Signed', { selector: '[data-slot=badge]' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/plays only with the/)).toBeInTheDocument();
+    expect(within(table).getByText('Signed URL')).toBeInTheDocument();
+    expect(within(table).getByText('Open')).toBeInTheDocument();
+    expect(screen.getByText(/Players need a signed URL for these IDs\./)).toBeInTheDocument();
 
     await act(async () => screen.getByRole('button', { name: `Copy playback ID ${PB_A}` }).click());
     expect(writeText).toHaveBeenLastCalledWith(PB_A);
     await act(async () =>
-      screen.getByRole('button', { name: `Copy stream URL of ${PB_A}` }).click(),
+      screen.getByRole('button', { name: `Copy stream URL for ${PB_A}` }).click(),
     );
     expect(writeText).toHaveBeenLastCalledWith(
       `${window.location.origin}/v1/stream/${PB_A}/master.m3u8`,
     );
   });
 
-  it('says when there are none', async () => {
+  it('says when there are none, with the way to make one', async () => {
     server([]);
     show();
-    expect(await screen.findByText(/No playback IDs yet/)).toBeInTheDocument();
+    expect(await screen.findByText('No playback IDs yet')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Players can use the video ID, or create a playback ID you can delete on its own.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'New playback ID' })).toHaveLength(1);
   });
 
-  it('creates a signed id with a name, showing a pending row until the server answers', async () => {
+  it('wraps a long name to two lines so Copy and the menu stay on screen (A11Y-08)', async () => {
+    const long = 'A'.repeat(100);
+    server([row(PB_A, 'public', long)]);
+    show();
+    const name = await screen.findByText(long);
+    expect(name).toHaveClass('line-clamp-2', 'wrap-anywhere');
+    expect(name).toHaveAttribute('dir', 'auto');
+    expect(name.closest('td')!.className).toContain('max-w-64');
+    // the created date gives way on narrow pages so the row menu stays reachable
+    expect(screen.getByText(/Oct 1, 2026/).closest('td')!.className).toContain(
+      '@3xl/page:table-cell',
+    );
+  });
+
+  it('caps a new name at the 100 characters the server takes', async () => {
+    server([]);
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'New playback ID' }));
+    expect(
+      within(await screen.findByRole('dialog')).getByLabelText('Name (optional)'),
+    ).toHaveAttribute('maxLength', '100');
+  });
+
+  it('copies embed code for a playback ID from its row menu', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    server([row(PB_A, 'public', 'Site embed')]);
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'Actions for Site embed' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Copy embed code' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(writeText.mock.calls[0][0]).toContain(`sluby.playback.streamUrl('${PB_A}')`);
+    expect(await screen.findByText('Embed code copied')).toBeInTheDocument();
+  });
+
+  it('offers a signed URL for every ID of a private video', async () => {
+    server([row(PB_A, 'public', 'Site embed')]);
+    show('private');
+    expect(
+      await screen.findByRole('button', { name: `Copy signed URL for ${PB_A}, valid 1 hour` }),
+    ).toHaveTextContent('Copy signed URL');
+    expect(
+      screen.getByText(/Players need a signed URL for this private video\./),
+    ).toBeInTheDocument();
+  });
+
+  it('creates a signed id with a name, keeping the form open until the server answers', async () => {
     let release!: () => void;
     const stub = server(undefined, new Promise<void>((r) => (release = r)));
     show();
@@ -92,23 +144,46 @@ describe('PlaybackIdsCard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByLabelText('Name (optional)'), '  Partner  ');
-    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Policy' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Signed' }));
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Who can play' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Signed URL required' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
 
-    // the dialog closes at once and a placeholder row stands in
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(screen.getByText('Creating...')).toBeInTheDocument();
-    expect(screen.getByText('Partner')).toBeInTheDocument();
+    // the form waits for the answer, so a refusal can be shown in it
+    const creating = await within(dialog).findByRole('button', { name: 'Creating…' });
+    expect(creating).toBeDisabled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
 
     const body = stub.calls.find((c) => c.method === 'POST')!.body;
     expect(body).toEqual({ policy: 'signed', name: 'Partner' });
     expect(checkValue(body, requestSchema(createOp)!)).toEqual([]);
 
     release();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(await screen.findByText(PB_NEW)).toBeInTheDocument();
-    expect(screen.queryByText('Creating...')).not.toBeInTheDocument();
-    expect(await screen.findByText(`Playback ID ${PB_NEW} created`)).toBeInTheDocument();
+    expect(screen.getByText('Partner')).toBeInTheDocument();
+    expect(screen.queryByText('Creating…')).not.toBeInTheDocument();
+    expect(await screen.findByText('Playback ID created')).toBeInTheDocument();
+  });
+
+  it('on a private video, starts at a signed ID and says an open one still needs signing', async () => {
+    const stub = server([]);
+    show('private');
+    await screen.findByText(/No playback IDs yet/);
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    const dialog = await screen.findByRole('dialog');
+    const policy = within(dialog).getByRole('combobox', { name: 'Who can play' });
+    expect(policy).toHaveTextContent('Signed URL required');
+
+    await userEvent.click(policy);
+    await userEvent.click(await screen.findByRole('option', { name: 'Anyone with the URL' }));
+    expect(policy).toHaveAccessibleDescription(
+      'This video is private, so players still need a signed URL until you make it public.',
+    );
+    await userEvent.click(policy);
+    await userEvent.click(await screen.findByRole('option', { name: 'Signed URL required' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(stub.calls.some((c) => c.method === 'POST')).toBe(true));
+    expect(stub.calls.find((c) => c.method === 'POST')!.body).toEqual({ policy: 'signed' });
   });
 
   it('sends a public create with no name as just the policy', async () => {
@@ -123,7 +198,7 @@ describe('PlaybackIdsCard', () => {
     expect(stub.calls.find((c) => c.method === 'POST')!.body).toEqual({ policy: 'public' });
   });
 
-  it('drops the placeholder and says why when a create fails', async () => {
+  it('keeps what was typed and says why in the form when a create fails', async () => {
     const stub = jsonFetch({
       '/api/v1/assets/a1/playback-ids': { data: [] },
       'POST /api/v1/assets/a1/playback-ids': reply(403, { error: 'Missing scope: manage' }),
@@ -132,22 +207,94 @@ describe('PlaybackIdsCard', () => {
     show();
     await screen.findByText(/No playback IDs yet/);
     await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
-    await userEvent.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Create' }),
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name (optional)'), 'Partner');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Who can play' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Signed URL required' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).toHaveTextContent('Could not create the playback ID');
+    expect(alert).toHaveTextContent('You do not have access to this.');
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(within(dialog).getByLabelText('Name (optional)')).toHaveValue('Partner');
+    expect(within(dialog).getByRole('combobox', { name: 'Who can play' })).toHaveTextContent(
+      'Signed URL required',
     );
+    expect(within(dialog).getByRole('button', { name: 'Create' })).toBeEnabled();
+    // said once, in the form, not again in a toast
+    expect(screen.queryByText(/^Could not create the playback ID\. /)).not.toBeInTheDocument();
+    expect(screen.queryByText('Creating…')).not.toBeInTheDocument();
+  });
+
+  it('still says a create worked when its form was closed and a new one opened meanwhile', async () => {
+    let release!: () => void;
+    server(undefined, new Promise<void>((r) => (release = r)));
+    show();
+    await screen.findByText('Site embed');
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    let dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name (optional)'), 'Partner');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    await within(dialog).findByRole('button', { name: 'Creating…' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    dialog = await screen.findByRole('dialog');
+    release();
+    expect(await screen.findByText('Playback ID created')).toBeInTheDocument();
+    // the answer was for the first form; the one open now stays open
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(within(dialog).getByLabelText('Name (optional)')).toHaveValue('');
+  });
+
+  it('says a create failed, with the name typed, when its form is gone', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        jsonFetch({
+          '/api/v1/assets/a1/playback-ids': { data: [] },
+          'POST /api/v1/assets/a1/playback-ids': async () => {
+            await held;
+            return reply(403, { error: 'Missing scope: manage' });
+          },
+        }),
+      ),
+    );
+    show();
+    await screen.findByText(/No playback IDs yet/);
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    let dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name (optional)'), 'Partner');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    await within(dialog).findByRole('button', { name: 'Creating…' });
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
+    dialog = await screen.findByRole('dialog');
+    release();
     expect(
-      await screen.findByText('Could not create the playback ID: Missing scope: manage'),
+      await screen.findByText(
+        'Could not create the playback ID “Partner”. You do not have access to this. Ask an operator if you need it.',
+      ),
     ).toBeInTheDocument();
-    expect(screen.queryByText('Creating...')).not.toBeInTheDocument();
+    // not shown in the new form, which asked for nothing yet
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('deletes after a confirm, and the dialog keeps naming the id while it closes', async () => {
     const stub = server();
     show();
     await screen.findByText(PB_A);
-    await userEvent.click(screen.getByRole('button', { name: `Delete playback ID ${PB_A}` }));
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for Site embed' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     const dialog = await screen.findByRole('alertdialog');
-    expect(within(dialog).getByText(`Delete playback ID ${PB_A}?`)).toBeInTheDocument();
+    expect(within(dialog).getByText('Delete this playback ID?')).toBeInTheDocument();
+    expect(within(dialog).getByText(PB_A)).toBeInTheDocument();
 
     const seen: string[] = [];
     const observer = new MutationObserver((records) => {
@@ -161,22 +308,24 @@ describe('PlaybackIdsCard', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     observer.disconnect();
 
-    expect(seen.join('\n')).not.toMatch(/Delete playback ID \?/);
+    // the description keeps naming the id while the dialog closes
+    expect(seen.join('\n')).not.toMatch(/Players using\s+stop/);
     await waitFor(() => expect(screen.queryByText(PB_A)).not.toBeInTheDocument());
     expect(stub.calls.some((c) => c.method === 'DELETE' && c.path.endsWith(PB_A))).toBe(true);
-    expect(await screen.findByText(`Playback ID ${PB_A} deleted`)).toBeInTheDocument();
+    expect(await screen.findByText('Playback ID deleted')).toBeInTheDocument();
   });
 
   it('puts a row back when its delete fails', async () => {
     server([row(PB_B, 'signed', 'Keep me')]);
     show();
     await screen.findByText(PB_B);
-    await userEvent.click(screen.getByRole('button', { name: `Delete playback ID ${PB_B}` }));
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for Keep me' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     await userEvent.click(
       within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }),
     );
     expect(
-      await screen.findByText(`Could not delete ${PB_B}: Database unavailable`),
+      await screen.findByText(/^Could not delete the playback ID\. The server ran into a problem/),
     ).toBeInTheDocument();
     expect(screen.getByText(PB_B)).toBeInTheDocument();
   });
@@ -187,10 +336,40 @@ describe('PlaybackIdsCard', () => {
     });
     vi.stubGlobal('fetch', vi.fn(stub));
     show();
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText('Could not load playback IDs')).toBeInTheDocument();
     expect(
-      await screen.findByText('Could not load playback IDs: Database unavailable'),
+      within(alert).getByText(/The server ran into a problem \(error 500\)/),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(within(alert).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('says the copy failed, not the signing, when only the clipboard refuses', async () => {
+    const writeText = vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
+    Object.assign(navigator, { clipboard: { writeText } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        jsonFetch({
+          '/api/v1/assets/a1/playback-ids': { data: [row(PB_B, 'signed')] },
+          [`/api/v1/playback/${PB_B}/signed`]: {
+            signed_url: '/v1/objects/abc?type=manifest&expires=1791489012&sig=deadbeef',
+            poster_url: null,
+            expires_at: '2026-10-08T19:50:12.000Z',
+          },
+        }),
+      ),
+    );
+    show();
+    await userEvent.click(
+      await screen.findByRole('button', { name: `Copy signed URL for ${PB_B}, valid 1 hour` }),
+    );
+    expect(
+      await screen.findByText(
+        'Could not copy the signed URL. Allow this site to use the clipboard, then try again.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Could not create a signed URL/)).not.toBeInTheDocument();
   });
 
   it('copies an hour long signed stream url for a signed id', async () => {
@@ -208,7 +387,7 @@ describe('PlaybackIdsCard', () => {
     show();
     await userEvent.click(
       await screen.findByRole('button', {
-        name: `Copy a signed stream URL of ${PB_B}, valid for one hour`,
+        name: `Copy signed URL for ${PB_B}, valid 1 hour`,
       }),
     );
     await waitFor(() =>
@@ -219,7 +398,7 @@ describe('PlaybackIdsCard', () => {
     expect(stub.calls.find((c) => c.path.endsWith('/signed'))!.query.get('expires_in')).toBe(
       '3600',
     );
-    expect(await screen.findByText(/^Signed URL copied, valid until/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Signed URL copied\. It works until /)).toBeInTheDocument();
   });
 
   it('opens the create form empty each time, with the new row on top like the server', async () => {
@@ -229,8 +408,8 @@ describe('PlaybackIdsCard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
     let dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByLabelText('Name (optional)'), 'First');
-    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Policy' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Signed' }));
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Who can play' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Signed URL required' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
     await screen.findByText(PB_NEW);
     const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1);
@@ -239,6 +418,8 @@ describe('PlaybackIdsCard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'New playback ID' }));
     dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByLabelText('Name (optional)')).toHaveValue('');
-    expect(within(dialog).getByRole('combobox', { name: 'Policy' })).toHaveTextContent('Public');
+    expect(within(dialog).getByRole('combobox', { name: 'Who can play' })).toHaveTextContent(
+      'Anyone with the URL',
+    );
   });
 });

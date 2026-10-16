@@ -1,46 +1,56 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderPage } from '@/test/render';
-import { WithSession } from '@/test/session';
+import { jsonFetch, renderPage, reply, type RecordedCall } from '@/test/render';
+import { WithSession, testSession } from '@/test/session';
 import DashboardPage from './DashboardPage';
 
+const DISMISS_KEY = `sluby:get-started-dismissed:${testSession.id}`;
+const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+
+const emptyStats = {
+  total: 0,
+  by_status: { created: 0, uploading: 0, processing: 0, ready: 0, failed: 0 },
+  stored_bytes: 0,
+  ready_duration_ms: 0,
+  object_count: 0,
+};
+
 const stats = {
-  total: 9,
-  by_status: { created: 2, uploading: 1, processing: 1, ready: 4, failed: 1 },
-  stored_bytes: 5_000_000,
-  ready_duration_ms: 125_000,
+  total: 7,
+  by_status: { created: 2, uploading: 0, processing: 1, ready: 3, failed: 1 },
+  stored_bytes: 545_000_000,
+  ready_duration_ms: 29_000,
   object_count: 42,
 };
 
 // GET /system/status for an ordinary account: a health summary only
 const accountStatus = {
   scope: 'account',
-  status: 'degraded',
+  status: 'ok',
   checked_at: '2026-10-02T00:00:00.000Z',
-  version: '0.1.0',
-  database: { ok: true, latency_ms: 2 },
-  redis: { ok: true, latency_ms: 1 },
+  version: '0.2.0',
+  database: { ok: true, latency_ms: 3 },
+  redis: { ok: true, latency_ms: 7 },
   indexer: {
-    ok: false,
-    latency_ms: 30,
+    ok: true,
+    latency_ms: 218,
     network: 'mainnet',
-    hosts: { total: 213, good_for_upload: 193, countries: 45 },
+    hosts: { total: 213, good_for_upload: 203, countries: 45 },
   },
 };
 
-// the same call for an operator: the whole deployment
 const deploymentStatus = {
   ...accountStatus,
   scope: 'deployment',
   uptime_seconds: 3600,
   indexer: {
     ...accountStatus.indexer,
-    error: 'indexer account is not ready yet',
     url: 'https://sia.storage',
     account: {
       account_key: 'ed25519:abc',
-      ready: false,
+      ready: true,
       app_name: 'Sluby',
       pinned_data: 1_000_000_000,
       pinned_size: 3_000_000_000,
@@ -60,81 +70,107 @@ const deploymentStatus = {
   },
 };
 
-const finished = new Date(Date.now() - 5 * 60_000).toISOString();
-const accountRun = {
+const accountRun = (missing = 0) => ({
   scope: 'account',
   id: 'r1',
-  started_at: finished,
-  finished_at: finished,
-  created_at: finished,
-  status: 'drift',
-  missing_count: 2,
-  missing_ids: ['o1', 'o2'],
-};
-const deploymentRun = {
-  scope: 'deployment',
-  id: 'r1',
-  started_at: finished,
-  finished_at: finished,
-  created_at: finished,
-  status: 'drift',
-  db_object_count: 120,
-  indexer_object_count: 128,
-  in_sync_count: 118,
-  orphan_count: 9,
-  missing_count: 2,
-  error_message: null,
-  missing_ids: ['o1', 'o2'],
-  orphaned_ids: [],
-};
+  started_at: minutesAgo(3),
+  finished_at: minutesAgo(3),
+  created_at: minutesAgo(3),
+  status: missing ? 'drift' : 'ok',
+  missing_count: missing,
+  missing_ids: [],
+  missing_objects: [],
+});
 
-const assets = {
-  data: [
-    {
-      id: 'a1',
-      title: 'Big Buck Bunny',
-      description: '',
-      manifest_object_id: 'm',
-      thumbnail_object_ids: [],
-      duration_ms: 60_000,
-      resolution: '1280x720',
-      status: 'ready',
-      access_tier: 'public',
-      creator_address: 'user:1',
-      segment_count: 1,
-      total_storage_bytes: 1024,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ],
-  total: 1,
+let seq = 0;
+function video(over: Record<string, unknown> = {}) {
+  seq += 1;
+  return {
+    id: `v${seq}`,
+    title: `Video ${seq}`,
+    description: '',
+    manifest_object_id: 'm',
+    thumbnail_object_ids: [],
+    duration_ms: 10_000,
+    resolution: '1280x720',
+    status: 'ready',
+    access_tier: 'public',
+    creator_address: 'user:1',
+    segment_count: 1,
+    total_storage_bytes: 1_000_000,
+    created_at: minutesAgo(1),
+    updated_at: minutesAgo(1),
+    ...over,
+  };
+}
+
+const page = (data: unknown[], total = data.length) => ({
+  data,
+  total,
   page: 1,
-  limit: 6,
-};
+  limit: 20,
+  next_cursor: null,
+});
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+const usage = (total: number) => ({
+  days: Array.from({ length: 90 }, (_, i) => ({
+    date: new Date(Date.UTC(2026, 6, 12) + i * 86_400_000).toISOString().slice(0, 10),
+    plays: i === 89 ? total : 0,
+  })),
+  total,
+});
 
-let routes: Record<string, () => Response>;
-let fetchMock: ReturnType<typeof vi.fn>;
+const job = (over: Record<string, unknown> = {}) => ({
+  id: 'j1',
+  status: 'processing',
+  stage: 'upload',
+  progress_percent: 65,
+  created_at: minutesAgo(2),
+  logs: [],
+  ...over,
+});
+
+/** assets list routes split by the status filter, the way the server answers */
+function assetsRoute(byStatus: Record<string, unknown[]>, all: unknown[]) {
+  return (call: RecordedCall) => {
+    const status = call.query.get('status');
+    if (status) return page(byStatus[status] ?? []);
+    return page(all);
+  };
+}
+
+let routes: Record<string, unknown>;
+let server: ReturnType<typeof jsonFetch>;
+
+function setup(over: Record<string, unknown> = {}) {
+  server = jsonFetch({ ...routes, ...over });
+  vi.stubGlobal('fetch', vi.fn(server));
+}
 
 beforeEach(() => {
+  localStorage.clear();
   routes = {
-    'GET /api/v1/stats': () => json(stats),
-    'GET /api/v1/system/status': () => json(accountStatus),
-    'GET /api/v1/reconciliation': () => json(accountRun),
-    'GET /api/v1/assets': () => json(assets),
+    '/api/v1/stats': stats,
+    '/api/v1/stats/usage': usage(128),
+    '/api/v1/system/status': accountStatus,
+    '/api/v1/reconciliation': accountRun(),
+    '/api/v1/keys': {
+      data: [
+        {
+          id: 'k1',
+          name: 'Server',
+          scopes: ['read'],
+          rate_limit: 100,
+          is_active: true,
+          created_at: minutesAgo(9),
+          expires_at: null,
+        },
+      ],
+      limits: { max_keys: 20, max_rate_limit: 10_000 },
+    },
+    '/api/v1/webhooks': { data: [] },
+    '/api/v1/assets': assetsRoute({}, [video({ title: 'Big Buck Bunny' })]),
   };
-  fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const path = String(input)
-      .replace(/^https?:\/\/[^/]+/, '')
-      .split('?')[0];
-    const key = `${init?.method ?? 'GET'} ${path}`;
-    const route = routes[key];
-    if (!route) throw new Error(`unmocked ${key}`);
-    return route();
-  });
-  vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -142,302 +178,812 @@ afterEach(() => vi.unstubAllGlobals());
 // for assistive tech; queries read the second
 const readable = { ignore: '[aria-hidden="true"], script, style' };
 
+function Where() {
+  const location = useLocation();
+  return <p data-testid="where">{location.pathname + location.search}</p>;
+}
+
 function render(operator = false) {
   return renderPage(
     <WithSession operator={operator}>
-      <DashboardPage />
+      <Routes>
+        <Route
+          path="*"
+          element={
+            <>
+              <DashboardPage />
+              <Where />
+            </>
+          }
+        />
+      </Routes>
     </WithSession>,
+    { route: '/studio' },
   );
 }
 
-describe('DashboardPage', () => {
-  it('shows library totals whose parts add up, created uploads included', async () => {
-    render();
-    expect(await screen.findByText('9', readable)).toBeInTheDocument();
-    expect(screen.getByText('4 ready, 4 in progress, 1 failed')).toBeInTheDocument();
-    expect(screen.getByText('5 MB', readable)).toBeInTheDocument();
-    expect(screen.getByText('42', readable)).toBeInTheDocument();
-  });
+const card = (title: string) =>
+  screen
+    .getByRole('heading', { level: 2, name: title })
+    .closest('[data-slot="card"]') as HTMLElement;
 
-  it('gives an account a health summary and the drift of its own objects only', async () => {
-    render();
-    expect(await screen.findByText('Degraded')).toBeInTheDocument();
-    expect(screen.getByText('193 of 213 accept uploads, 45 countries')).toBeInTheDocument();
-    expect(
-      await screen.findByText('2 objects missing from Sia, checked 5 minutes ago'),
-    ).toBeInTheDocument();
-    expect(screen.getByText('v0.1.0')).toBeInTheDocument();
+const steps = () =>
+  within(screen.getByRole('list', { name: 'Steps' }))
+    .getAllByRole('listitem')
+    .map((li) => li as HTMLElement);
 
-    // nothing the account cannot have, and nothing that never resolves
-    expect(screen.queryByText('Storage usage')).not.toBeInTheDocument();
-    expect(screen.queryByText('Cache statistics')).not.toBeInTheDocument();
-    expect(screen.queryByText('Reconciliation')).not.toBeInTheDocument();
-    expect(screen.queryByText(/NaN|never run|Loading account usage/)).not.toBeInTheDocument();
-    expect(fetchMock.mock.calls.map(([u]) => String(u))).not.toContain('/api/v1/metrics');
-  });
-
-  it('says when no reconciliation run has finished yet', async () => {
-    routes['GET /api/v1/reconciliation'] = () =>
-      json({ error: 'No reconciliation run has completed yet' }, 404);
-    render();
-    expect(await screen.findByText('not checked yet')).toBeInTheDocument();
-  });
-
-  it('shows the error inside the status card instead of a skeleton forever', async () => {
-    routes['GET /api/v1/system/status'] = () => json({ error: 'Internal Server Error' }, 500);
+describe('Overview page', () => {
+  it('is titled Overview with the upload action, and no operator cards for anyone', async () => {
+    setup({ '/api/v1/system/status': deploymentStatus });
     render(true);
-    expect(
-      await screen.findByText('Could not load the status: Internal Server Error'),
-    ).toBeInTheDocument();
-    expect(screen.queryByText('Deployment, shown to operators')).not.toBeInTheDocument();
-  });
-
-  it('shows an operator the indexer account, the cache and the whole run', async () => {
-    routes['GET /api/v1/system/status'] = () => json(deploymentStatus);
-    routes['GET /api/v1/reconciliation'] = () => json(deploymentRun);
-    render(true);
-
-    expect(await screen.findByText('1 GB', readable)).toBeInTheDocument();
-    expect(screen.getByText('of 50 GB')).toBeInTheDocument();
-    expect(screen.getByText('75%', readable)).toBeInTheDocument();
-    expect(screen.getByText('indexer account is not ready yet')).toBeInTheDocument();
-    expect(screen.getByText('v0.1.0, up 1:00:00')).toBeInTheDocument();
-
-    const run = screen.getByText('Reconciliation').closest('[data-slot="card"]') as HTMLElement;
-    expect(await within(run).findByText('Drift')).toBeInTheDocument();
-    expect(within(run).getByText('118')).toBeInTheDocument();
-    expect(within(run).getByText('9')).toBeInTheDocument();
-    // the account row would repeat the run's figures as if they were the operator's own
-    expect(screen.queryByText('Your objects')).not.toBeInTheDocument();
-  });
-
-  it('lets an operator queue a reconciliation run', async () => {
-    routes['GET /api/v1/system/status'] = () => json(deploymentStatus);
-    routes['GET /api/v1/reconciliation'] = () => json(deploymentRun);
-    routes['POST /api/v1/reconciliation/run'] = () =>
-      json({ enqueued: true, already_pending: false }, 202);
-    render(true);
-
-    await userEvent.click(await screen.findByRole('button', { name: /run now/i }));
-    expect(await screen.findByText('Reconciliation run queued')).toBeInTheDocument();
-    await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.filter(
-          ([u, i]) => String(u) === '/api/v1/reconciliation/run' && i?.method === 'POST',
-        ),
-      ).toHaveLength(1),
-    );
-  });
-
-  it('keeps an operator on the summary when the server only grants the account view', async () => {
-    render(true);
-    expect(await screen.findByText('Degraded')).toBeInTheDocument();
-    expect(screen.queryByText('Deployment, shown to operators')).not.toBeInTheDocument();
-  });
-
-  it('lists the latest uploads from the sdk', async () => {
-    render();
-    const link = await screen.findByRole('link', { name: /Big Buck Bunny/ });
-    expect(link).toHaveAttribute('href', '/studio/assets/a1');
-  });
-
-  it('draws stat values with StatValue: a 32px skeleton line that the number replaces', async () => {
-    let answer: (r: Response) => void = () => {};
-    routes['GET /api/v1/stats'] = () => new Promise<Response>((r) => (answer = r)) as never;
-    render();
-    const cards = () => [...document.querySelectorAll('[data-slot="card"][data-size="sm"]')];
-    await waitFor(() => expect(cards()).toHaveLength(4));
-    for (const card of cards()) {
-      expect(card.querySelector('[data-slot="stat-value"]')).toHaveClass('h-8');
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
+    expect(screen.getByText('Your videos and where they are stored')).toBeInTheDocument();
+    await screen.findByRole('heading', { level: 2, name: 'Recent videos' });
+    for (const title of [
+      'Sia account',
+      'Stream cache',
+      'Storage check',
+      'Storage usage',
+      'Cache statistics',
+      'Reconciliation',
+    ]) {
+      expect(screen.queryByRole('heading', { name: title })).not.toBeInTheDocument();
     }
-    // a hint that waits on the totals keeps its line while loading
-    const assetsCard = cards()[0] as HTMLElement;
-    expect(
-      assetsCard.querySelector('[data-slot="card-content"] [data-slot="skeleton"]'),
-    ).not.toBeNull();
-
-    await act(async () => answer(json(stats)));
-    const value = await screen.findByText('9', readable);
-    expect(value.parentElement).toHaveClass('text-2xl', 'leading-8', 'tabular-nums');
-    expect(document.querySelector('[data-slot="stat-value"]')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Upload video' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/studio?upload=1');
   });
 
-  it('lays the operator cards out by the width of the content, not the viewport', async () => {
-    routes['GET /api/v1/system/status'] = () => json(deploymentStatus);
-    routes['GET /api/v1/reconciliation'] = () => json(deploymentRun);
-    render(true);
-    const section = await screen.findByRole('region', { name: 'Deployment' });
-    expect(section.closest('.\\@container\\/page')).not.toBeNull();
-    const grid = section.querySelector('.grid') as HTMLElement;
-    // one column until the container has room for two 336px cards
-    expect(grid.className).toMatch(/@2xl\/page:grid-cols-2/);
-    expect(grid.className).not.toMatch(/(^|\s)(md|lg|xl):grid-cols/);
-    // a long value moves under its label as a whole instead of wrapping per letter
-    const label = await screen.findByText('Objects compared');
-    expect(label.parentElement).toHaveClass('flex-wrap');
-    expect(label).not.toHaveClass('shrink-0');
+  describe('stat cards', () => {
+    it('shows videos with a breakdown that adds up, storage, playable time and plays', async () => {
+      setup();
+      render();
+      expect(await screen.findByText('7', readable)).toBeInTheDocument();
+      expect(
+        screen.getByText('3 ready, 1 failed, 1 processing, 2 waiting for file'),
+      ).toBeInTheDocument();
+      expect(screen.getByText('545 MB', readable)).toBeInTheDocument();
+      expect(screen.getByText("Your files' size, before Sia adds redundancy")).toBeInTheDocument();
+      expect(screen.getByText('Playable time')).toBeInTheDocument();
+      expect(screen.getByText('0:29', readable)).toBeInTheDocument();
+      expect(screen.getByText('Plays, last 30 days')).toBeInTheDocument();
+      expect(screen.getByText('128', readable)).toBeInTheDocument();
+      // the sparkline is decoration; the figure carries the number
+      expect(document.querySelector('[data-slot="plays-sparkline"]')).toHaveAttribute(
+        'aria-hidden',
+        'true',
+      );
+      expect(screen.queryByText('Files on Sia')).not.toBeInTheDocument();
+    });
+
+    it('lets the totals be retried after they fail, in a sentence', async () => {
+      setup({ '/api/v1/stats': reply(500, { error: 'Internal Server Error' }) });
+      render();
+      expect(await screen.findByText('Could not load your totals')).toBeInTheDocument();
+      expect(screen.getByText(/The server ran into a problem \(error 500\)/)).toBeInTheDocument();
+      server = jsonFetch({ ...routes });
+      vi.stubGlobal('fetch', vi.fn(server));
+      await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(await screen.findByText('7', readable)).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.queryByText('Could not load your totals')).not.toBeInTheDocument(),
+      );
+    });
+
+    it('says when the totals last updated', async () => {
+      setup();
+      render();
+      await screen.findByText('7', readable);
+      expect(screen.getByText(/Totals updated just now/)).toBeInTheDocument();
+    });
+
+    it('polls the totals faster while uploads are still moving', async () => {
+      setup();
+      const { client } = render();
+      await screen.findByText('7', readable);
+      const query = client.getQueryCache().find({ queryKey: ['stats'] })!;
+      const interval = query.observers[0].options.refetchInterval as (q: typeof query) => number;
+      expect(interval(query)).toBe(5_000);
+      query.setData({ ...stats, by_status: { ...stats.by_status, processing: 0 } });
+      expect(interval(query)).toBe(15_000);
+    });
   });
 
-  it('keeps the status card at its final size while the status loads', async () => {
-    routes['GET /api/v1/system/status'] = () => new Promise<Response>(() => {}) as never;
-    render();
-    const card = (await screen.findByText('Service status')).closest(
-      '[data-slot="card"]',
-    ) as HTMLElement;
-    // three probes, then network, hosts, your objects and backend: one placeholder per row
-    expect(card.querySelectorAll('.h-5.justify-between')).toHaveLength(7);
-    expect(card.querySelector('.h-40')).toBeNull();
-  });
+  describe('get started', () => {
+    beforeEach(() => {
+      routes['/api/v1/stats'] = emptyStats;
+      routes['/api/v1/stats/usage'] = usage(0);
+      routes['/api/v1/keys'] = { data: [], limits: { max_keys: 20, max_rate_limit: 10_000 } };
+      routes['/api/v1/assets'] = assetsRoute({}, []);
+    });
 
-  it('asks for fresh totals as soon as a latest upload settles', async () => {
-    const processing = { ...assets.data[0], status: 'processing', total_storage_bytes: 0 };
-    routes['GET /api/v1/assets'] = () => json({ ...assets, data: [processing] });
-    routes['GET /api/v1/assets/a1/processing'] = () =>
-      json({
-        id: 'j1',
-        status: 'processing',
-        stage: 'upload',
-        progress_percent: 65,
-        created_at: new Date().toISOString(),
+    it('does not tick the upload step for videos whose file never came', async () => {
+      routes['/api/v1/stats'] = {
+        ...emptyStats,
+        total: 2,
+        by_status: { ...emptyStats.by_status, created: 2 },
+      };
+      setup();
+      render();
+      await screen.findByRole('list', { name: 'Steps' });
+      expect(within(steps()[1]).getByText(', Not done')).toBeInTheDocument();
+      expect(within(steps()[1]).getByRole('button', { name: 'Upload video' })).toBeInTheDocument();
+    });
+
+    it('leads an empty account with the checklist, step 1 read from the real probe', async () => {
+      setup();
+      render();
+      const list = await screen.findByRole('list', { name: 'Steps' });
+      expect(card('Get started')).toHaveTextContent('1 of 4 done');
+      const [sia, upload, play, key, hook] = steps();
+      expect(within(sia).getByText('Connected to Sia mainnet')).toBeInTheDocument();
+      expect(within(sia).getByText(', Done')).toBeInTheDocument();
+      expect(within(upload).getByText(', Not done')).toBeInTheDocument();
+      expect(within(play).getByRole('button', { name: 'Get embed code' })).toBeDisabled();
+      expect(within(play).getByText('Available once a video is ready.')).toBeInTheDocument();
+      expect(within(key).getByRole('link', { name: 'Create key' })).toHaveAttribute(
+        'href',
+        '/studio/developers/keys?create=key',
+      );
+      expect(within(hook).getByText('Optional')).toBeInTheDocument();
+      expect(within(hook).getByRole('link', { name: 'Add webhook' })).toHaveAttribute(
+        'href',
+        '/studio/developers/webhooks?create=webhook',
+      );
+      expect(list.tagName).toBe('OL');
+      // the empty library says what to do
+      expect(within(card('Recent videos')).getByText('No videos yet')).toBeInTheDocument();
+    });
+
+    it('opens the upload sheet in place from step 2', async () => {
+      setup();
+      render();
+      await screen.findByRole('list', { name: 'Steps' });
+      await userEvent.click(within(steps()[1]).getByRole('button', { name: 'Upload video' }));
+      expect(screen.getByTestId('where')).toHaveTextContent('/studio?upload=1');
+    });
+
+    it('tells a member whose server cannot reach Sia to ask the operator', async () => {
+      setup({
+        '/api/v1/system/status': {
+          ...accountStatus,
+          status: 'degraded',
+          indexer: { ...accountStatus.indexer, ok: false },
+        },
       });
-    const { client } = render();
-    await screen.findByRole('link', { name: /Big Buck Bunny/ });
-    const statsCalls = () =>
-      fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/api/v1/stats')).length;
-    await waitFor(() => expect(statsCalls()).toBe(1));
+      render();
+      await screen.findByRole('list', { name: 'Steps' });
+      const sia = steps()[0];
+      expect(
+        within(sia).getByText('This server cannot reach the Sia indexer.'),
+      ).toBeInTheDocument();
+      expect(within(sia).getByText('Ask the operator of this server.')).toBeInTheDocument();
+      expect(card('Get started')).toHaveTextContent('0 of 4 done');
+    });
 
-    routes['GET /api/v1/assets'] = () => json(assets);
-    await act(() => client.refetchQueries({ queryKey: ['assets', 'latest'] }));
-    await waitFor(() => expect(statsCalls()).toBe(2));
-  });
-
-  it('shows where a processing upload is and how far along', async () => {
-    const processing = { ...assets.data[0], status: 'processing', total_storage_bytes: 0 };
-    routes['GET /api/v1/assets'] = () => json({ ...assets, data: [processing] });
-    routes['GET /api/v1/assets/a1/processing'] = () =>
-      json({
-        id: 'j1',
-        status: 'processing',
-        stage: 'upload',
-        progress_percent: 65,
-        created_at: new Date().toISOString(),
+    it('gives an operator the probe error under Details and a way to Health', async () => {
+      setup({
+        '/api/v1/system/status': {
+          ...deploymentStatus,
+          status: 'degraded',
+          indexer: {
+            ...deploymentStatus.indexer,
+            ok: false,
+            error: 'connect ECONNREFUSED 10.0.0.4:9980',
+          },
+        },
       });
-    render();
-    expect(await screen.findByText(/Storing on Sia, 65%/)).toBeInTheDocument();
-    expect(
-      screen.getByRole('progressbar', { name: 'Big Buck Bunny: processing progress' }),
-    ).toHaveAttribute('aria-valuenow', '65');
+      render(true);
+      await screen.findByRole('list', { name: 'Steps' });
+      const sia = steps()[0];
+      expect(within(sia).getByRole('link', { name: 'Open health' })).toHaveAttribute(
+        'href',
+        '/studio/deployment',
+      );
+      expect(
+        within(sia).getByText('connect ECONNREFUSED 10.0.0.4:9980').closest('details'),
+      ).not.toHaveAttribute('open');
+    });
+
+    it('counts an operator whose Sia account is not ready as not connected', async () => {
+      setup({
+        '/api/v1/system/status': {
+          ...deploymentStatus,
+          indexer: {
+            ...deploymentStatus.indexer,
+            account: { ...deploymentStatus.indexer.account, ready: false },
+          },
+        },
+      });
+      render(true);
+      await screen.findByRole('list', { name: 'Steps' });
+      expect(within(steps()[0]).getByText('The Sia account is not ready yet.')).toBeInTheDocument();
+    });
+
+    it('shows what step 2 is doing while the first video processes', async () => {
+      const busy = video({ id: 'p1', title: 'Product walkthrough', status: 'processing' });
+      setup({
+        '/api/v1/stats': {
+          ...emptyStats,
+          total: 1,
+          by_status: { ...emptyStats.by_status, processing: 1 },
+        },
+        '/api/v1/assets': assetsRoute({}, [busy]),
+        '/api/v1/assets/p1/processing': job(),
+      });
+      render();
+      await screen.findByRole('list', { name: 'Steps' });
+      await waitFor(() =>
+        expect(steps()[1]).toHaveTextContent('Processing “Product walkthrough”, 65%'),
+      );
+      expect(within(steps()[1]).getByText(', Done')).toBeInTheDocument();
+    });
+
+    it('points step 3 at a ready video and ticks it on a real play', async () => {
+      const ready = video({ id: 'r1', title: 'Teaser' });
+      setup({
+        '/api/v1/stats': {
+          ...emptyStats,
+          total: 1,
+          by_status: { ...emptyStats.by_status, ready: 1 },
+        },
+        '/api/v1/assets': assetsRoute({ ready: [ready] }, [ready]),
+      });
+      const { client } = render();
+      await screen.findByRole('list', { name: 'Steps' });
+      expect(
+        await within(steps()[2]).findByRole('link', { name: 'Get embed code' }),
+      ).toHaveAttribute('href', '/studio/videos/r1?panel=share');
+
+      server = jsonFetch({
+        ...routes,
+        '/api/v1/stats/usage': usage(1),
+        '/api/v1/stats': {
+          ...emptyStats,
+          total: 1,
+          by_status: { ...emptyStats.by_status, ready: 1 },
+        },
+        '/api/v1/assets': assetsRoute({ ready: [ready] }, [ready]),
+      });
+      vi.stubGlobal('fetch', vi.fn(server));
+      await act(() => client.refetchQueries({ queryKey: ['stats', 'usage'] }));
+      expect(await within(steps()[2]).findByText(', Done')).toBeInTheDocument();
+      expect(card('Get started')).toHaveTextContent('3 of 4 done');
+    });
+
+    it('explains that only a play on your site ticks step 3', async () => {
+      const ready = video({ id: 'r1', title: 'Teaser' });
+      setup({
+        '/api/v1/stats': {
+          ...emptyStats,
+          total: 1,
+          by_status: { ...emptyStats.by_status, ready: 1 },
+        },
+        '/api/v1/assets': assetsRoute({ ready: [ready] }, [ready]),
+      });
+      render();
+      await screen.findByRole('list', { name: 'Steps' });
+      expect(
+        await within(steps()[2]).findByText(/previews in the Studio do not count/),
+      ).toBeInTheDocument();
+    });
+
+    it('ticks step 3 from a video that has been played, even outside the 90 days of usage', async () => {
+      const played = video({ id: 'r1', title: 'Teaser', play_count: 4 });
+      setup({
+        '/api/v1/stats': {
+          ...emptyStats,
+          total: 1,
+          by_status: { ...emptyStats.by_status, ready: 1 },
+        },
+        '/api/v1/assets': assetsRoute({ ready: [played] }, [played]),
+      });
+      render();
+      await screen.findByRole('list', { name: 'Steps' });
+      expect(within(steps()[2]).getByText(', Done')).toBeInTheDocument();
+    });
+
+    it('stays hidden after it is dismissed, also after a reload', async () => {
+      setup();
+      const first = render();
+      await screen.findByRole('list', { name: 'Steps' });
+      await userEvent.click(screen.getByRole('button', { name: 'Hide get started' }));
+      await waitFor(() =>
+        expect(screen.queryByRole('list', { name: 'Steps' })).not.toBeInTheDocument(),
+      );
+      expect(localStorage.getItem(DISMISS_KEY)).toBe('dismissed');
+      first.unmount();
+      render();
+      await screen.findByRole('heading', { level: 2, name: 'Recent videos' });
+      expect(screen.queryByRole('heading', { name: 'Get started' })).not.toBeInTheDocument();
+    });
+
+    it('is not drawn when the data it needs could not load', async () => {
+      setup({ '/api/v1/keys': reply(500, { error: 'boom' }) });
+      render();
+      await screen.findByRole('heading', { level: 2, name: 'Recent videos' });
+      await waitFor(() => expect(server.calls.some((c) => c.path === '/api/v1/keys')).toBe(true));
+      expect(screen.queryByRole('heading', { name: 'Get started' })).not.toBeInTheDocument();
+    });
+
+    it('still shows when the browser blocks storage', async () => {
+      const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('SecurityError');
+      });
+      setup();
+      render();
+      expect(await screen.findByRole('list', { name: 'Steps' })).toBeInTheDocument();
+      get.mockRestore();
+    });
+
+    it('never draws for an account that finished it, and remembers that', async () => {
+      setup({
+        '/api/v1/stats': stats,
+        '/api/v1/stats/usage': usage(5),
+        '/api/v1/keys': routes['/api/v1/keys'] ?? {
+          data: [],
+          limits: { max_keys: 20, max_rate_limit: 10_000 },
+        },
+      });
+      server = jsonFetch({
+        ...routes,
+        '/api/v1/stats': stats,
+        '/api/v1/stats/usage': usage(5),
+        '/api/v1/keys': {
+          data: [
+            {
+              id: 'k1',
+              name: 'Server',
+              scopes: ['read'],
+              rate_limit: 100,
+              is_active: true,
+              created_at: minutesAgo(9),
+              expires_at: null,
+            },
+          ],
+          limits: { max_keys: 20, max_rate_limit: 10_000 },
+        },
+        '/api/v1/assets': assetsRoute({}, [video()]),
+      });
+      vi.stubGlobal('fetch', vi.fn(server));
+      render();
+      await screen.findByRole('heading', { level: 2, name: 'Recent videos' });
+      expect(screen.queryByRole('heading', { name: 'Get started' })).not.toBeInTheDocument();
+      await waitFor(() => expect(localStorage.getItem(DISMISS_KEY)).toBe('done'));
+    });
   });
 
-  it('polls the totals faster while uploads are still moving', async () => {
-    const { client } = render();
-    await screen.findByText('9', readable);
-    const query = client.getQueryCache().find({ queryKey: ['stats'] })!;
-    // the interval is an observer option, set by the page's useQuery
-    const interval = query.observers[0].options.refetchInterval as (q: typeof query) => number;
-    expect(interval(query)).toBe(5_000);
-    query.setData({ ...stats, by_status: { ...stats.by_status, uploading: 0, processing: 0 } });
-    expect(interval(query)).toBe(15_000);
+  describe('needs attention', () => {
+    it('does not call the library empty when its only video is a stalled upload', async () => {
+      const stalled = video({
+        id: 's1',
+        title: 'Lost upload',
+        status: 'created',
+        created_at: minutesAgo(25),
+        updated_at: minutesAgo(25),
+      });
+      setup({ '/api/v1/assets': assetsRoute({ created: [stalled] }, [stalled]) });
+      render();
+      await screen.findByRole('list', { name: 'Needs attention' });
+      const recent = card('Recent videos');
+      expect(within(recent).queryByText('No videos yet')).not.toBeInTheDocument();
+      expect(within(recent).getByText('No finished videos yet')).toBeInTheDocument();
+      expect(
+        within(recent).getByText('Uploads that did not finish are listed under Needs attention.'),
+      ).toBeInTheDocument();
+    });
+
+    it('counts every stalled upload, not only the five it lists', async () => {
+      const waiting = Array.from({ length: 12 }, (_, i) =>
+        video({
+          id: `s${i}`,
+          title: `Lost ${i}`,
+          status: 'created',
+          created_at: minutesAgo(60 + i),
+          updated_at: minutesAgo(60 + i),
+        }),
+      );
+      setup({
+        '/api/v1/assets': (call: RecordedCall) => {
+          const status = call.query.get('status');
+          if (status !== 'created') return page([]);
+          // the list it shows asks for five; the count walks every page
+          const limit = Number(call.query.get('limit'));
+          return page(waiting.slice(0, limit), waiting.length);
+        },
+      });
+      render();
+      const attention = await screen.findByRole('list', { name: 'Needs attention' });
+      await waitFor(() => expect(within(attention).getAllByRole('listitem')).toHaveLength(5));
+      await waitFor(() => expect(card('Needs attention')).toHaveTextContent('and 7 more'));
+      expect(card('Needs attention')).toHaveTextContent('12');
+    });
+
+    it('is not drawn when nothing needs attention', async () => {
+      setup();
+      render();
+      await screen.findByRole('heading', { level: 2, name: 'Recent videos' });
+      expect(screen.queryByRole('heading', { name: 'Needs attention' })).not.toBeInTheDocument();
+    });
+
+    it('lists a failed video with its reason, missing files, a failing webhook and a stalled upload', async () => {
+      const broken = video({ id: 'f1', title: 'Broken upload', status: 'failed' });
+      const stalled = video({
+        id: 's1',
+        title: 'Lost upload',
+        status: 'created',
+        created_at: minutesAgo(25),
+        updated_at: minutesAgo(25),
+      });
+      const fresh = video({
+        id: 's2',
+        title: 'Just started',
+        status: 'created',
+        created_at: minutesAgo(2),
+        updated_at: minutesAgo(2),
+      });
+      setup({
+        '/api/v1/reconciliation': accountRun(2),
+        '/api/v1/webhooks': {
+          data: [
+            {
+              id: 'w1',
+              url: 'https://example.com/hooks/sluby',
+              events: ['video.ready'],
+              is_active: true,
+              created_at: minutesAgo(60),
+              last_delivery_at: minutesAgo(5),
+              last_delivery_ok: false,
+            },
+          ],
+        },
+        '/api/v1/assets': assetsRoute({ failed: [broken], created: [stalled, fresh] }, [
+          fresh,
+          broken,
+          stalled,
+        ]),
+        '/api/v1/assets/f1/processing': job({
+          status: 'failed',
+          stage: 'failed',
+          error_message: 'ffprobe: Invalid data found when processing input',
+          retryable: false,
+        }),
+      });
+      render();
+      const attention = await screen.findByRole('list', { name: 'Needs attention' });
+      const rows = () => within(attention).getAllByRole('listitem');
+      await waitFor(() => expect(rows()).toHaveLength(4));
+      const text = rows().map((r) => r.textContent);
+      expect(text[0]).toContain('2 files are missing from Sia');
+      expect(text[1]).toContain('“Broken upload” failed');
+      expect(
+        await within(rows()[1]).findByText('The file is not a readable video.'),
+      ).toBeInTheDocument();
+      expect(
+        within(rows()[1]).getByRole('link', { name: 'Open video Broken upload' }),
+      ).toHaveAttribute('href', '/studio/videos/f1');
+      expect(text[2]).toContain('Deliveries to example.com/hooks/sluby are failing');
+      expect(text[2]).toContain('Last attempt 5 minutes ago');
+      // named after its endpoint, like the video rows, so several read apart
+      expect(
+        within(rows()[2]).getByRole('link', { name: 'Open webhook example.com/hooks/sluby' }),
+      ).toHaveAttribute('href', '/studio/developers/webhooks/w1');
+      // wraps at a large text size instead of running out of the card (1.4.4)
+      expect(
+        within(rows()[2]).getByRole('link', { name: 'Open webhook example.com/hooks/sluby' }),
+      ).toHaveClass('whitespace-normal', 'shrink', 'pointer-coarse:h-auto');
+      expect(text[3]).toContain('“Lost upload” did not finish uploading');
+      expect(attention.textContent).not.toContain('Just started');
+      // a member cannot open health
+      expect(
+        within(attention).queryByRole('link', { name: 'Open health' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('puts a service that is down first, with Health for operators', async () => {
+      setup({
+        '/api/v1/system/status': {
+          ...deploymentStatus,
+          status: 'down',
+          redis: { ok: false, latency_ms: 0 },
+        },
+        '/api/v1/reconciliation': reply(404, { error: 'none' }),
+      });
+      render(true);
+      const attention = await screen.findByRole('list', { name: 'Needs attention' });
+      const row = within(attention).getAllByRole('listitem')[0];
+      expect(row).toHaveTextContent('The job queue is not responding');
+      expect(within(row).getByRole('link', { name: 'Open health' })).toHaveAttribute(
+        'href',
+        '/studio/deployment',
+      );
+    });
+
+    it('draws a failed video in recent videos with the same failed thumbnail as the library', async () => {
+      const failed = video({ id: 'f1', title: 'Teaser', status: 'failed' });
+      setup({
+        '/api/v1/assets': assetsRoute({ failed: [failed] }, [failed]),
+        '/api/v1/assets/f1/processing': job({
+          status: 'failed',
+          stage: 'failed',
+          retryable: false,
+        }),
+      });
+      render();
+      const recent = await screen.findByRole('list', { name: 'Recent videos' });
+      const link = await within(recent).findByRole('link', { name: /Teaser/ });
+      expect(link.querySelector('[data-state="failed"]')).not.toBeNull();
+    });
+
+    it('offers Retry processing on a failed video that retrying can fix', async () => {
+      const failed = video({ id: 'f1', title: 'Teaser', status: 'failed' });
+      setup({
+        '/api/v1/assets': assetsRoute({ failed: [failed] }, []),
+        '/api/v1/assets/f1/processing': job({
+          status: 'failed',
+          stage: 'failed',
+          error_message: 'sia upload timed out',
+          retryable: true,
+          logs: [{ stage: 'upload', message: 'x', at: minutesAgo(1) }],
+        }),
+        'POST /api/v1/assets/f1/retry': reply(202, { stage: 'upload-segments' }),
+      });
+      render();
+      const attention = await screen.findByRole('list', { name: 'Needs attention' });
+      await userEvent.click(
+        await within(attention).findByRole('button', { name: 'Retry processing' }),
+      );
+      expect(await screen.findByText(/^“Teaser”: processing restarted from/)).toBeInTheDocument();
+    });
+
+    it('shows five rows at most and counts the rest, linking to the failed videos', async () => {
+      const failed = Array.from({ length: 5 }, (_, i) =>
+        video({ id: `f${i}`, title: `Failed ${i}`, status: 'failed' }),
+      );
+      const routesFor: Record<string, unknown> = {
+        '/api/v1/system/status': {
+          ...accountStatus,
+          status: 'down',
+          database: { ok: false, latency_ms: 0 },
+        },
+        '/api/v1/assets': (call: RecordedCall) =>
+          call.query.get('status') === 'failed' ? page(failed, 9) : page([]),
+      };
+      for (let i = 0; i < 5; i++)
+        routesFor[`/api/v1/assets/f${i}/processing`] = job({
+          status: 'failed',
+          stage: 'failed',
+          error_message: 'boom',
+        });
+      setup(routesFor);
+      render();
+      const attention = await screen.findByRole('list', { name: 'Needs attention' });
+      expect(within(attention).getAllByRole('listitem')).toHaveLength(5);
+      // 1 service + 9 failed = 10, five shown
+      expect(card('Needs attention')).toHaveTextContent('10');
+      expect(screen.getByRole('link', { name: 'and 5 more' })).toHaveAttribute(
+        'href',
+        '/studio/videos?status=failed',
+      );
+    });
   });
 
-  it('gives the latest upload rows the same focus ring as buttons', async () => {
-    render();
-    const link = await screen.findByRole('link', { name: /Big Buck Bunny/ });
-    expect(link).toHaveClass('focus-visible:ring-3', 'focus-visible:ring-ring/50', 'outline-none');
+  describe('recent videos', () => {
+    it('leaves out uploads whose file never came, and shows six rows at most', async () => {
+      const rows = Array.from({ length: 8 }, (_, i) => video({ title: `Clip ${i}` }));
+      const stale = video({ title: 'Abandoned', status: 'created', created_at: minutesAgo(30) });
+      setup({ '/api/v1/assets': assetsRoute({}, [stale, ...rows]) });
+      render();
+      const list = await screen.findByRole('list', { name: 'Recent videos' });
+      expect(within(list).getAllByRole('listitem')).toHaveLength(6);
+      expect(list).not.toHaveTextContent('Abandoned');
+      expect(within(list).getByRole('link', { name: /Clip 0/ })).toHaveAttribute(
+        'href',
+        `/studio/videos/${rows[0].id}`,
+      );
+    });
+
+    it('shows where a processing video is, with a calm dot instead of a spinner', async () => {
+      const busy = video({ id: 'p1', title: 'Big Buck Bunny', status: 'processing' });
+      setup({ '/api/v1/assets': assetsRoute({}, [busy]), '/api/v1/assets/p1/processing': job() });
+      render();
+      expect(await screen.findByText(/Storing on Sia, 65%/)).toBeInTheDocument();
+      expect(
+        screen.getByRole('progressbar', { name: 'Big Buck Bunny, processing progress' }),
+      ).toHaveAttribute('aria-valuenow', '65');
+      const row = screen.getByRole('link', { name: /Big Buck Bunny/ });
+      expect(row.querySelector('[data-slot="status-dot"]')).not.toBeNull();
+      expect(row.querySelector('[data-slot="spinner"], .animate-spin')).toBeNull();
+    });
+
+    it('lets a title wrap to two lines and set its own direction', async () => {
+      setup({ '/api/v1/assets': assetsRoute({}, [video({ title: 'عنوان طويل جدا' })]) });
+      render();
+      const title = await screen.findByText('عنوان طويل جدا');
+      expect(title).toHaveAttribute('dir', 'auto');
+      expect(title).toHaveClass('line-clamp-2', 'wrap-anywhere');
+    });
+
+    it('retries a failed video that retrying can fix, with the toast in plain words', async () => {
+      const failed = video({ id: 'f1', title: 'Big Buck Bunny', status: 'failed' });
+      setup({
+        '/api/v1/assets': assetsRoute({ failed: [failed] }, [failed]),
+        '/api/v1/assets/f1/processing': job({
+          status: 'failed',
+          stage: 'failed',
+          error_message: 'sia upload timed out',
+          retryable: true,
+          logs: [{ stage: 'upload', message: 'x', at: minutesAgo(1) }],
+        }),
+        'POST /api/v1/assets/f1/retry': reply(202, { stage: 'upload-segments' }),
+      });
+      render();
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Retry processing Big Buck Bunny' }),
+      );
+      expect(
+        await screen.findByText('“Big Buck Bunny”: processing restarted from Storing on Sia'),
+      ).toBeInTheDocument();
+    });
+
+    it('offers no retry for a file that is not a video', async () => {
+      const failed = video({ id: 'f1', title: 'Broken', status: 'failed' });
+      setup({
+        '/api/v1/assets': assetsRoute({ failed: [failed] }, [failed]),
+        '/api/v1/assets/f1/processing': job({
+          status: 'failed',
+          stage: 'failed',
+          error_message: 'Invalid data found when processing input',
+          retryable: false,
+        }),
+      });
+      render();
+      await screen.findByRole('link', { name: /^Broken/ });
+      await waitFor(() =>
+        expect(server.calls.some((c) => c.path === '/api/v1/assets/f1/processing')).toBe(true),
+      );
+      expect(screen.queryByRole('button', { name: /Retry processing/ })).not.toBeInTheDocument();
+    });
+
+    it('never asks the gateway for a private thumbnail', async () => {
+      const priv = video({ title: 'Secret', access_tier: 'private', thumbnail_object_ids: ['t1'] });
+      const pub = video({ title: 'Open clip', thumbnail_object_ids: ['t2'] });
+      setup({ '/api/v1/assets': assetsRoute({}, [priv, pub]) });
+      const { container } = render();
+      const row = await screen.findByRole('link', { name: /Secret/ });
+      expect(
+        within(row).getByRole('img', { name: 'Private video, no preview' }),
+      ).toBeInTheDocument();
+      const srcs = [...container.querySelectorAll('img')].map((i) => i.getAttribute('src'));
+      expect(srcs.some((src) => src?.includes('t2'))).toBe(true);
+      expect(srcs.some((src) => src?.includes('t1'))).toBe(false);
+    });
+
+    it('says when the list cannot load, with Try again', async () => {
+      setup({ '/api/v1/assets': reply(502, { error: 'Bad Gateway' }) });
+      render();
+      expect(await screen.findByText('Could not load your videos')).toBeInTheDocument();
+    });
   });
 
-  it('offers a retry on a failed upload row', async () => {
-    const failedAsset = { ...assets.data[0], status: 'failed' };
-    routes['GET /api/v1/assets'] = () => json({ ...assets, data: [failedAsset] });
-    routes['POST /api/v1/assets/a1/retry'] = () => json({ stage: 'transcode' }, 202);
+  describe('status', () => {
+    it('folds the database and job queue into one row for a member, and says the files are on Sia', async () => {
+      setup();
+      render();
+      await screen.findByText('218 ms');
+      const c = card('Status');
+      expect(within(c).getByText('Operational')).toBeInTheDocument();
+      expect(within(c).getByText('Sia storage')).toBeInTheDocument();
+      expect(within(c).getByText('218 ms')).toBeInTheDocument();
+      expect(within(c).getByText('This server')).toBeInTheDocument();
+      expect(within(c).getByText('7 ms')).toBeInTheDocument();
+      expect(within(c).getByText('Your files on Sia')).toBeInTheDocument();
+      expect(within(c).getByText('All on Sia (checked 3 minutes ago)')).toBeInTheDocument();
+      expect(within(c).queryByText(/Redis|Job queue|Database/)).not.toBeInTheDocument();
+      expect(within(c).queryByRole('link', { name: 'Open health' })).not.toBeInTheDocument();
+    });
+
+    it('gives an operator a way to Health', async () => {
+      setup({ '/api/v1/system/status': deploymentStatus });
+      render(true);
+      await screen.findByText('218 ms');
+      const c = card('Status');
+      expect(within(c).getByRole('link', { name: 'Open health' })).toHaveAttribute(
+        'href',
+        '/studio/deployment',
+      );
+    });
+
+    it('shows the error in the card with Try again instead of a skeleton forever', async () => {
+      setup({ '/api/v1/system/status': reply(500, { error: 'Internal Server Error' }) });
+      render();
+      expect(await screen.findByText('Could not load the status')).toBeInTheDocument();
+    });
+
+    it('says the storage check could not load instead of claiming it never ran', async () => {
+      setup({ '/api/v1/reconciliation': reply(500, { error: 'boom' }) });
+      render();
+      expect(await screen.findByText('Could not load the storage check')).toBeInTheDocument();
+      expect(screen.queryByText('Not checked yet')).not.toBeInTheDocument();
+    });
+
+    it('says a check has not run yet', async () => {
+      setup({ '/api/v1/reconciliation': reply(404, { error: 'none' }) });
+      render();
+      expect(await screen.findByText('Not checked yet')).toBeInTheDocument();
+    });
+  });
+
+  it('holds its first draw until the answers that decide the layout are in', async () => {
+    let answer: (r: Response) => void = () => {};
+    setup({
+      '/api/v1/webhooks': () =>
+        new Promise<Response>((r) => {
+          answer = r;
+        }),
+    });
     render();
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Retry processing Big Buck Bunny' }),
+    // stats are in, but whether Needs attention shows is not known yet
+    await waitFor(() => expect(server.calls.some((c) => c.path === '/api/v1/stats')).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('7', readable)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Recent videos' })).toBeInTheDocument();
+    await act(async () =>
+      answer(new Response('{"data":[]}', { headers: { 'content-type': 'application/json' } })),
     );
-    expect(
-      await screen.findByText('Big Buck Bunny: processing restarted from the transcode'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('7', readable)).toBeInTheDocument();
   });
 
-  it('lets the totals be retried after they fail', async () => {
-    routes['GET /api/v1/stats'] = () => json({ error: 'Internal Server Error' }, 500);
-    render();
-    expect(await screen.findByText('Could not load library totals')).toBeInTheDocument();
-    routes['GET /api/v1/stats'] = () => json(stats);
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByText('9', readable)).toBeInTheDocument();
-    expect(screen.queryByText('Could not load library totals')).not.toBeInTheDocument();
-  });
-
-  it('says when the totals last updated', async () => {
-    render();
-    await screen.findByText('9', readable);
-    expect(screen.getByText(/Totals updated just now/)).toBeInTheDocument();
-  });
-
-  it('explains drift that is only untracked objects', async () => {
-    routes['GET /api/v1/system/status'] = () => json(deploymentStatus);
-    routes['GET /api/v1/reconciliation'] = () =>
-      json({ ...deploymentRun, missing_count: 0, missing_ids: [], orphan_count: 16 });
-    render(true);
-    const run = (await screen.findByText('Reconciliation')).closest(
-      '[data-slot="card"]',
-    ) as HTMLElement;
-    const badge = await within(run).findByText('Drift');
-    badge.focus();
-    expect(
-      (await screen.findAllByText(/Nothing is missing\. The indexer holds 16 objects/))[0],
-    ).toBeInTheDocument();
-  });
-
-  it('holds as many placeholder rows as the list showed last time', async () => {
-    localStorage.setItem('sluby-dashboard-latest-rows', '2');
-    routes['GET /api/v1/stats'] = () => new Promise<Response>(() => {}) as never;
-    routes['GET /api/v1/assets'] = () => new Promise<Response>(() => {}) as never;
-    render();
-    const card = (await screen.findByText('Latest uploads')).closest(
-      '[data-slot="card"]',
-    ) as HTMLElement;
-    expect(card.querySelectorAll('[data-slot="card-content"] .py-2\\.5')).toHaveLength(2);
-    localStorage.removeItem('sluby-dashboard-latest-rows');
-  });
-
-  it('keeps a long probe error to two lines with the full text on focus', async () => {
-    const tls =
-      'request to https://sia.storage/api/v2/account failed, reason: unable_to_verify_leaf_signature:certificate_chain_could_not_be_built_for_sia.storage';
-    routes['GET /api/v1/system/status'] = () =>
-      json({
-        ...deploymentStatus,
-        indexer: { ...deploymentStatus.indexer, ok: false, error: tls },
+  describe('with an answer that decides the layout coming slowly', () => {
+    const failingHook = {
+      data: [
+        {
+          id: 'w1',
+          url: 'https://example.com/hooks/sluby',
+          events: ['video.ready'],
+          is_active: true,
+          created_at: minutesAgo(60),
+          last_delivery_at: minutesAgo(5),
+          last_delivery_ok: false,
+        },
+      ],
+    };
+    let answer: (r: Response) => void;
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      setup({
+        '/api/v1/webhooks': () =>
+          new Promise<Response>((r) => {
+            answer = r;
+          }),
       });
-    routes['GET /api/v1/reconciliation'] = () => json(deploymentRun);
-    render(true);
-    const shown = await screen.findByText(tls, { selector: 'span[tabindex="0"]' });
-    expect(shown).toHaveClass('line-clamp-2', '[overflow-wrap:anywhere]');
-    act(() => shown.focus());
-    await waitFor(() => expect(screen.getAllByText(tls).length).toBeGreaterThan(1));
-  });
+    });
+    afterEach(() => vi.useRealTimers());
+    const hooks = () =>
+      act(async () =>
+        answer(
+          new Response(JSON.stringify(failingHook), {
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      );
 
-  it('never asks the gateway for a private upload thumbnail', async () => {
-    const privateAsset = {
-      ...assets.data[0],
-      access_tier: 'private',
-      thumbnail_object_ids: ['t1'],
-    };
-    const publicAsset = {
-      ...assets.data[0],
-      id: 'a2',
-      title: 'Open clip',
-      thumbnail_object_ids: ['t2'],
-    };
-    routes['GET /api/v1/assets'] = () => json({ ...assets, data: [privateAsset, publicAsset] });
-    const { container } = render();
-    const row = await screen.findByRole('link', { name: /Big Buck Bunny/ });
-    expect(within(row).getByRole('img', { name: 'Private video, no preview' })).toBeInTheDocument();
-    expect(row.querySelector('img')).toBeNull();
-    // the public row still loads its thumbnail
-    const srcs = [...container.querySelectorAll('img')].map((i) => i.getAttribute('src'));
-    expect(srcs.some((src) => src?.includes('t2'))).toBe(true);
-    expect(srcs.some((src) => src?.includes('t1'))).toBe(false);
+    it('keeps its first draw for it, so Needs attention is there from the start instead of pushing the totals down', async () => {
+      render();
+      await waitFor(() => expect(server.calls.some((c) => c.path === '/api/v1/stats')).toBe(true));
+      // 8 s: a slow server, well past the old 1.5 s wait
+      await act(async () => vi.advanceTimersByTime(8_000));
+      expect(screen.queryByText('7', readable)).not.toBeInTheDocument();
+      await hooks();
+      expect(await screen.findByText('7', readable)).toBeInTheDocument();
+      expect(screen.getByRole('list', { name: 'Needs attention' })).toBeInTheDocument();
+    });
+
+    it('draws what it has once the wait is over, rather than holding the page for good', async () => {
+      render();
+      await waitFor(() => expect(server.calls.some((c) => c.path === '/api/v1/stats')).toBe(true));
+      await act(async () => vi.advanceTimersByTime(10_000));
+      expect(await screen.findByText('7', readable)).toBeInTheDocument();
+      expect(screen.queryByRole('list', { name: 'Needs attention' })).not.toBeInTheDocument();
+    });
   });
 });

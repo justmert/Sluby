@@ -61,6 +61,24 @@ describe.skipIf(!hasTestDatabase)('studio session queries (postgres)', () => {
     expect(await q.revokeStudioSession(s.id, await uid('octocat'))).toBe(false);
   });
 
+  it('records activity at most once in five minutes', async () => {
+    const s = await newSession();
+    expect(s.lastSeenAt).toBeNull();
+    await q.markStudioSessionSeen(s.id);
+    const first = (await q.findActiveStudioSession(s.id))!.lastSeenAt;
+    expect(first).toBeInstanceOf(Date);
+    await q.markStudioSessionSeen(s.id);
+    expect((await q.findActiveStudioSession(s.id))!.lastSeenAt!.getTime()).toBe(first!.getTime());
+
+    await tdb.sql`update studio_sessions set last_seen_at = now() - interval '301 seconds' where id = ${s.id}`;
+    await q.markStudioSessionSeen(s.id);
+    expect((await q.findActiveStudioSession(s.id))!.lastSeenAt!.getTime()).toBeGreaterThan(
+      first!.getTime(),
+    );
+    const [listed] = await q.listActiveStudioSessions(await uid('octocat'));
+    expect(listed.lastSeenAt).toBeInstanceOf(Date);
+  });
+
   it('does not find an expired session', async () => {
     const s = await newSession('octocat', new Date(Date.now() - 1000));
     expect(await q.findActiveStudioSession(s.id)).toBeUndefined();

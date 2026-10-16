@@ -118,12 +118,12 @@ http {
       try_files /v1/objects/slow =404;
       limit_rate 4k;
     }
-    # share maps: the backend marks a public map briefly cacheable and a gated
-    # one private, no-store
+    # share maps: the backend marks every map no-store, since each is a play
+    # to count, and a gated one private, no-store
     location /v1/share/ {
       root /origin;
       default_type application/json;
-      add_header Cache-Control "public, max-age=30" always;
+      add_header Cache-Control "no-store" always;
       add_header Access-Control-Allow-Origin * always;
       add_header Access-Control-Allow-Credentials true always;
     }
@@ -438,14 +438,15 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       expect(signed.headers.get('x-cache-status')).toBe('BYPASS');
     });
 
-    it('proxies share maps with one set of cors headers, caching only public ones', async () => {
+    it('proxies share maps with one set of cors headers, keeping none', async () => {
       const origin = { Origin: 'http://example.test' };
       const first = await fetchThroughNginx(base, '/v1/share/public', origin);
       const second = await fetchThroughNginx(base, '/v1/share/public', origin);
       expect(first.status).toBe(200);
       expect(JSON.parse(first.buf.toString()).master_object_id).toBe('master');
       expect(first.headers.get('x-cache-status')).toBe('MISS');
-      expect(second.headers.get('x-cache-status')).toBe('HIT');
+      // every load reaches the backend, which counts it as a play
+      expect(second.headers.get('x-cache-status')).toBe('MISS');
 
       const gatedFirst = await fetchThroughNginx(base, '/v1/share/gated?expires=1&sig=a', origin);
       const gatedSecond = await fetchThroughNginx(base, '/v1/share/gated?expires=1&sig=a', origin);
@@ -495,12 +496,26 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       }
     });
 
-    it('answers 404 for missing files and unknown paths, not the app', async () => {
-      for (const path of ['/studio/assets/nope.js', '/assets/nope.js', '/metrics', '/nope']) {
+    it('answers a plain 404 for missing files, not the app', async () => {
+      for (const path of ['/studio/assets/nope.js', '/assets/nope.js', '/nope.js']) {
         const r = await fetchThroughNginx(base, path);
         expect(r.status, path).toBe(404);
         expect(r.buf.toString(), path).not.toContain('<div id="root">');
       }
+    });
+
+    it('answers unknown paths with a 404 that is the studio, so its not-found page shows', async () => {
+      for (const path of ['/nope', '/metrics', '/some/deep/path']) {
+        const r = await rawGet(base + path);
+        expect(r.status, path).toBe(404);
+        expect(r.body.toString(), path).toContain('<div id="root">');
+        // the same headers as the app itself
+        expect(headerValues(r.raw, 'content-security-policy'), path).toHaveLength(1);
+        expect(headerValues(r.raw, 'cache-control'), path).toEqual(['no-store']);
+        expect(headerValues(r.raw, 'x-frame-options'), path).toEqual(['DENY']);
+      }
+      // the favicon at the root still loads
+      expect((await fetchThroughNginx(base, '/favicon.svg')).status).toBe(200);
     });
 
     it('sends the security headers once each on the app, with a csp that matches the theme script', async () => {
@@ -514,7 +529,8 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
         expect(headerValues(r.raw, 'x-content-type-options')).toEqual(['nosniff']);
         expect(headerValues(r.raw, 'x-frame-options')).toEqual(['DENY']);
         expect(headerValues(r.raw, 'referrer-policy')).toEqual(['strict-origin-when-cross-origin']);
-        expect(headerValues(r.raw, 'cache-control')).toEqual(['no-cache']);
+        // no-store keeps the signed-in studio out of the back/forward cache
+        expect(headerValues(r.raw, 'cache-control')).toEqual(['no-store']);
         const csp = headerValues(r.raw, 'content-security-policy');
         expect(csp).toHaveLength(1);
         expect(csp[0]).toContain(`'sha256-${hash}'`);
@@ -579,7 +595,9 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       expect(statuses.slice(4)).toEqual([429, 429]);
       expect(last!.headers.get('retry-after')).toBe('1');
       expect(last!.headers.get('access-control-allow-origin')).toBe('*');
-      expect(JSON.parse(last!.buf.toString())).toEqual({ error: 'Too many requests' });
+      expect(JSON.parse(last!.buf.toString())).toEqual({
+        error: 'Too many requests. Try again in a few seconds.',
+      });
 
       const neighbour = await fetchThroughNginx(limited, '/v1/objects/master?limit=1', {
         'X-Forwarded-For': '203.0.113.2',
@@ -816,7 +834,7 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
         startedAt: new Date(),
         queues: { transcode: queue, uploadSegments: queue, finalize: queue, deletion: queue },
         pingRedis: async () => {},
-        webhookDispatcher: { dispatch: async () => {} },
+        webhookDispatcher: { dispatch: async () => {}, enqueue: async () => {} },
         triggerReconciliation: async () => ({ enqueued: false }),
       });
       server = http.createServer(app);
@@ -870,16 +888,22 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
     const objectPath = (id: string) => `/v1/objects/${id}`;
 
     it('stops serving cached copies within the shared window after a tier change or a delete, and keeps playing next to a new signed handle', async () => {
-      // fill nginx with every object and master of the three assets
+      // fill nginx with every object of the three assets. A master playlist
+      // is where a play starts, so it is never kept: each load reaches the
+      // backend, which counts it
       for (const a of Object.values(assets)) {
-        for (const id of a.ids) {
+        const [masterId, ...children] = a.ids;
+        for (const id of children) {
           expect((await fetchThroughNginx(base, objectPath(id))).status).toBe(200);
           const again = await fetchThroughNginx(base, objectPath(id));
           expect(again.headers.get('x-cache-status')).toBe('HIT');
         }
-        const master = `/v1/stream/${a.id}/master.m3u8`;
-        expect((await fetchThroughNginx(base, master)).status).toBe(200);
-        expect((await fetchThroughNginx(base, master)).headers.get('x-cache-status')).toBe('HIT');
+        for (const path of [objectPath(masterId), `/v1/stream/${a.id}/master.m3u8`]) {
+          expect((await fetchThroughNginx(base, path)).status).toBe(200);
+          const again = await fetchThroughNginx(base, path);
+          expect(again.status).toBe(200);
+          expect(again.headers.get('x-cache-status')).toBe('MISS');
+        }
       }
       const filledAt = Date.now();
 
@@ -929,11 +953,12 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
 
       // a signed handle gates only its own entry: every object and the
       // asset's own master keep playing, revalidated rather than refetched
-      for (const id of assets.handle.ids) {
+      for (const id of assets.handle.ids.slice(1)) {
         const r = await fetchThroughNginx(base, objectPath(id));
         expect(r.status, `handle ${id}`).toBe(200);
         expect(r.headers.get('x-cache-status')).toBe('REVALIDATED');
       }
+      expect((await fetchThroughNginx(base, objectPath(assets.handle.ids[0]))).status).toBe(200);
       expect(
         (await fetchThroughNginx(base, `/v1/stream/${assets.handle.id}/master.m3u8`)).status,
       ).toBe(200);
@@ -941,6 +966,31 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
         403,
       );
     }, 180_000);
+
+    it('takes the etag gzip weakened on the way out back in If-Match', async () => {
+      const url = `${base}/api/v1/assets/${assets.handle.id}`;
+      const got = await fetch(url, { headers: { ...auth, 'Accept-Encoding': 'gzip' } });
+      expect(got.status).toBe(200);
+      expect(got.headers.get('content-encoding')).toBe('gzip');
+      const etag = got.headers.get('etag')!;
+      expect(etag).toMatch(/^W\/"\d+"$/);
+
+      const edit = await fetch(url, {
+        method: 'PATCH',
+        headers: { ...auth, 'Content-Type': 'application/json', 'If-Match': etag },
+        body: JSON.stringify({ title: 'renamed through the proxy' }),
+      });
+      expect(edit.status).toBe(200);
+      expect(((await edit.json()) as { title: string }).title).toBe('renamed through the proxy');
+
+      // the weak tag of a version that has moved on still refuses the edit
+      const stale = await fetch(url, {
+        method: 'PATCH',
+        headers: { ...auth, 'Content-Type': 'application/json', 'If-Match': etag },
+        body: JSON.stringify({ title: 'too late' }),
+      });
+      expect(stale.status).toBe(412);
+    });
 
     it('serves the signed playback of the private asset through the proxy, per request', async () => {
       const signed = await fetch(`${base}/api/v1/playback/${assets.tier.id}/signed`, {

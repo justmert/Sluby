@@ -1,36 +1,55 @@
+import { NAV_GROUPS, ROUTES } from '@/lib/constants';
+import { LEGACY_PATHS } from '@/lib/redirects';
+
 export interface Crumb {
   label: string;
   path?: string;
 }
 
-const SECTION_LABELS: Record<string, string> = {
-  upload: 'Upload',
-  assets: 'Assets',
-  player: 'Player',
-  developer: 'Developer',
-  analytics: 'Analytics',
-  settings: 'Settings',
-};
-
-const STUDIO: Crumb = { label: 'Studio', path: '/studio' };
+const OVERVIEW: Crumb = { label: 'Overview', path: ROUTES.OVERVIEW };
 const NOT_FOUND: Crumb = { label: 'Not found' };
+
+// every page in the nav, by path; the overview is the root crumb itself
+const PAGES: Crumb[] = NAV_GROUPS.flatMap((g) => g.items)
+  .filter((item) => item.path !== ROUTES.OVERVIEW)
+  .map((item) => ({ label: item.label, path: item.path }));
+
+/** Pages with an id in the path: the list they belong to, and their name until the record loads. */
+const DETAILS: Array<{ parent: string; fallback: string }> = [
+  { parent: ROUTES.VIDEOS, fallback: 'Video' },
+  { parent: ROUTES.WEBHOOKS, fallback: 'Webhook' },
+];
+
+// old urls redirect at once; their trail stays empty instead of reading "Not found"
+const LEGACY = LEGACY_PATHS.map((p) => new RegExp(`^${p.replace(/:[^/]+/g, '[^/]+')}$`));
 
 /**
  * The trail for a path, matching the routes in App.tsx: a path no route
- * serves reads "Not found" rather than echoing its segments. An asset page
- * shows the asset's title once it is known.
+ * serves reads "Not found" rather than echoing its segments. A detail page
+ * shows the record's name once it is known (`detailTitle`), or what went
+ * wrong loading it.
  */
-export function getBreadcrumbs(pathname: string, assetTitle?: string): Crumb[] {
-  const segments = pathname.split('/').filter(Boolean);
-  if (segments.length === 0) return [];
-  if (segments[0] !== 'studio') return [NOT_FOUND];
-  const [, section, detail, ...rest] = segments;
-  if (!section) return [STUDIO];
+export function getBreadcrumbs(pathname: string, detailTitle?: string): Crumb[] {
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  if (path === '/' || path === '') return [];
+  if (path !== ROUTES.OVERVIEW && !path.startsWith(`${ROUTES.OVERVIEW}/`)) return [NOT_FOUND];
+  if (path === ROUTES.OVERVIEW) return [OVERVIEW];
+  if (LEGACY.some((re) => re.test(path))) return [];
 
-  const label = SECTION_LABELS[section];
-  if (!label) return [STUDIO, NOT_FOUND];
-  const sectionCrumb = { label, path: `/studio/${section}` };
-  if (!detail) return [STUDIO, sectionCrumb];
-  if (section !== 'assets' || rest.length > 0) return [STUDIO, sectionCrumb, NOT_FOUND];
-  return [STUDIO, sectionCrumb, { label: assetTitle || 'Asset' }];
+  const page = PAGES.find((p) => p.path === path);
+  if (page) return [OVERVIEW, page];
+
+  for (const { parent, fallback } of DETAILS) {
+    const rest = path.startsWith(`${parent}/`) ? path.slice(parent.length + 1) : null;
+    if (rest === null) continue;
+    const list = PAGES.find((p) => p.path === parent)!;
+    if (rest.includes('/')) return [OVERVIEW, list, NOT_FOUND];
+    return [OVERVIEW, list, { label: detailTitle || fallback }];
+  }
+
+  // below a real page, such as /studio/settings/extra: keep the way back to it
+  const above = PAGES.filter((p) => path.startsWith(`${p.path}/`)).sort(
+    (a, b) => b.path!.length - a.path!.length,
+  )[0];
+  return above ? [OVERVIEW, above, NOT_FOUND] : [OVERVIEW, NOT_FOUND];
 }

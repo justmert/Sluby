@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '@/test/render';
@@ -39,6 +39,20 @@ function viewport(width: number) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('AppShell', () => {
+  it('says the browser is offline above the page, and stops saying it once back online', async () => {
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    renderShell();
+    const status = screen.getByRole('status', { name: 'Connection' });
+    expect(status).toHaveTextContent(
+      'You are offline. Pages keep what last loaded and update when the connection is back.',
+    );
+    // first in the main landmark, so it is inside a landmark and read before the page
+    expect(screen.getByRole('main').firstElementChild).toBe(status);
+    online.mockReturnValue(true);
+    act(() => void window.dispatchEvent(new Event('online')));
+    await vi.waitFor(() => expect(status).toHaveTextContent(''));
+  });
+
   it('lets the content column shrink below a wide table instead of scrolling the page', () => {
     const { container } = renderShell();
     const inset = container.querySelector('[data-slot="sidebar-inset"]');
@@ -59,11 +73,13 @@ describe('AppShell', () => {
   it('gives focus back to the menu button when the phone sidebar closes', async () => {
     viewport(390);
     renderShell();
-    const toggle = screen.getByRole('button', { name: 'Toggle Sidebar' });
+    const toggle = screen.getByRole('button', { name: 'Show or hide sidebar' });
     toggle.focus();
     await userEvent.keyboard('{Enter}');
-    const sheet = await screen.findByRole('dialog', { name: 'Sidebar' });
-    expect(within(sheet).getByRole('link', { name: 'Assets' })).toBeInTheDocument();
+    const sheet = await screen.findByRole('dialog', { name: 'Navigation' });
+    expect(within(sheet).getByRole('link', { name: 'Videos' })).toBeInTheDocument();
+    // one Escape closes it, with focus on the current page's link (A11Y-41)
+    expect(within(sheet).getByRole('link', { name: 'Overview' })).toHaveFocus();
     await userEvent.keyboard('{Escape}');
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(toggle).toHaveFocus();
@@ -90,7 +106,7 @@ describe('AppShell', () => {
     viewport(1024);
     const { container } = renderShell();
     await userEvent.click(
-      within(screen.getByRole('banner')).getByRole('button', { name: 'Toggle Sidebar' }),
+      within(screen.getByRole('banner')).getByRole('button', { name: 'Show or hide sidebar' }),
     );
     expect(container.querySelector('[data-slot="sidebar"]')).toHaveAttribute(
       'data-state',
@@ -99,21 +115,21 @@ describe('AppShell', () => {
   });
 
   it('names the browser tab after the page', () => {
-    renderShell('/studio/assets');
-    expect(document.title).toBe('Assets · Sluby Studio');
+    renderShell('/studio/videos');
+    expect(document.title).toBe('Videos · Sluby Studio');
   });
 
-  it('names the dashboard tab and an unknown page', () => {
+  it('names the overview tab and an unknown page', () => {
     const view = renderShell('/studio');
-    expect(document.title).toBe('Dashboard · Sluby Studio');
+    expect(document.title).toBe('Overview · Sluby Studio');
     view.unmount();
     renderShell('/studio/nope');
     expect(document.title).toBe('Not found · Sluby Studio');
   });
 
-  it('names an asset tab by the title the page loaded', async () => {
-    const { client } = renderShell('/studio/assets/a1');
-    expect(document.title).toBe('Asset · Sluby Studio');
+  it('names a video tab by the title the page loaded', async () => {
+    const { client } = renderShell('/studio/videos/a1');
+    expect(document.title).toBe('Video · Sluby Studio');
     client.setQueryData(['assets', 'one', 'a1'], { id: 'a1', title: 'Keynote 2026' });
     await vi.waitFor(() => expect(document.title).toBe('Keynote 2026 · Sluby Studio'));
   });

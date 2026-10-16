@@ -25,7 +25,7 @@ import {
 import { createErrorHandler, notFoundHandler } from './api/middleware/error-handler.js';
 import { loggableUrl } from './api/log-url.js';
 import { buildDeleteAsset } from './deletion/service.js';
-import { buildRetryAsset } from './queue/retry.js';
+import { buildRetryAsset, buildRetrySourceCheck } from './queue/retry.js';
 import type { TranscodeJobData, UploadSegmentsJobData } from './queue/bull-config.js';
 
 import {
@@ -60,19 +60,32 @@ import {
   listApiKeys as dbListApiKeys,
   deleteApiKey as dbDeleteApiKey,
   rotateApiKey as dbRotateApiKey,
+  renameApiKey as dbRenameApiKey,
+  touchApiKeyLastUsed,
 } from './db/queries/api-keys.js';
+import { createKeyUseRecorder } from './api/auth/key-usage.js';
 import type { ApiKey, VideoAsset } from './db/schema.js';
+import type { WebhookEndpointWithHealth } from './db/queries/webhooks.js';
 import {
   createWebhookEndpoint,
   createWebhookDelivery,
   getWebhookEndpointForOwner,
+  getWebhookEndpointWithHealth,
+  updateWebhookEndpoint,
+  setWebhookSecret,
+  getWebhookDelivery,
   listWebhookDeliveries,
   listWebhookEndpointsByOwner,
   deleteWebhookEndpoint,
 } from './db/queries/webhooks.js';
 import { EgressError, vetUrl } from './webhooks/egress.js';
 import { webhookEgressPolicy } from './webhooks/policy.js';
-import { attemptDelivery, eventBody, newDeliveryId } from './webhooks/delivery.js';
+import {
+  attemptDelivery,
+  eventBody,
+  newDeliveryId,
+  type WebhookJobData,
+} from './webhooks/delivery.js';
 import {
   createPlaybackIdForAsset,
   listPlaybackIdsByAsset,
@@ -83,6 +96,8 @@ import {
   createStudioSession,
   findActiveStudioSession,
   listActiveStudioSessions,
+  findStudioSession,
+  markStudioSessionSeen,
   pruneStudioSessions,
   revokeAllStudioSessions,
   revokeStudioSession,
@@ -96,8 +111,13 @@ import {
 } from './db/queries/accounts.js';
 import type { CallerDeps } from './api/auth/caller.js';
 import { LOCAL_DEV_SUBJECT, LOCAL_PROVIDER } from './api/auth/providers/index.js';
-import { getLatestReconciliationRun, filterObjectIdsOwnedBy } from './db/queries/reconciliation.js';
+import {
+  getLatestReconciliationRun,
+  filterObjectIdsOwnedBy,
+  findVideosForObjectIds,
+} from './db/queries/reconciliation.js';
 import { getAssetStats } from './db/queries/stats.js';
+import { getDailyPlays, getPlayCounts } from './db/queries/plays.js';
 import { getArtifacts, getRenditions } from './db/queries/storage-records.js';
 import { createCachedSystemStatus } from './system/status.js';
 import {
@@ -135,6 +155,8 @@ export interface AppContext {
   pingRedis: () => Promise<void>;
   webhookDispatcher: {
     dispatch: (event: string, data: Record<string, unknown>, owner: string) => Promise<void>;
+    /** Queue one delivery as it is (a resend). */
+    enqueue: (job: WebhookJobData) => Promise<void>;
   };
   triggerReconciliation: () => Promise<{ enqueued: boolean }>;
 }
@@ -243,9 +265,16 @@ export function buildLocalDevAccount() {
 /** How the REST api and tus resolve a request's caller, from the database. */
 export function buildCallerDeps(
   localDevAccount: ReturnType<typeof buildLocalDevAccount>,
+  logger: Logger,
 ): CallerDeps {
   return {
     findActiveSession: findActiveStudioSession,
+    findSession: findStudioSession,
+    markSessionSeen: (sid) => {
+      markStudioSessionSeen(sid).catch((err: unknown) =>
+        logger.warn({ err, sessionId: sid }, 'Could not record session activity'),
+      );
+    },
     getAccount,
     findLegacyClaim,
     isAllowlistEntryPinned,
@@ -261,8 +290,13 @@ export function buildCallerDeps(
         creatorAddress: apiKey.creatorAddress,
         isActive: apiKey.isActive,
         expiresAt: apiKey.expiresAt,
+        lastUsedAt: apiKey.lastUsedAt,
       };
     },
+    recordKeyUse: createKeyUseRecorder({
+      write: touchApiKeyLastUsed,
+      onError: (err, id) => logger.warn({ err, keyId: id }, 'Could not record key use'),
+    }),
   };
 }
 
@@ -406,7 +440,7 @@ export function buildUploadExpiry(
  * expect. Single place so the field list does not drift across the
  * list/get/update adapters.
  */
-function toAssetRecord(asset: VideoAsset) {
+function toAssetRecord(asset: VideoAsset, playCount: number) {
   return {
     id: asset.id,
     title: asset.title,
@@ -422,8 +456,28 @@ function toAssetRecord(asset: VideoAsset) {
     creatorAddress: asset.creatorAddress,
     segmentCount: asset.segmentCount,
     totalStorageBytes: asset.totalStorageBytes,
+    playCount,
+    lastPlayedAt: asset.lastPlayedAt,
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt,
+  };
+}
+
+/** Asset records with their play counts, read in one query for the lot. */
+async function withPlayCounts(assets: VideoAsset[]) {
+  const counts = await getPlayCounts(assets.map((a) => a.id));
+  return assets.map((a) => toAssetRecord(a, counts.get(a.id) ?? 0));
+}
+
+function toWebhookRecord(ep: WebhookEndpointWithHealth) {
+  return {
+    id: ep.id,
+    url: ep.url,
+    events: ep.events,
+    isActive: ep.isActive,
+    createdAt: ep.createdAt,
+    lastDeliveryAt: ep.lastDeliveryAt,
+    lastDeliveryOk: ep.lastDeliveryOk,
   };
 }
 
@@ -436,8 +490,16 @@ function toKeyRecord(k: ApiKey) {
     isActive: k.isActive,
     createdAt: k.createdAt,
     expiresAt: k.expiresAt,
+    prefix: k.prefix,
+    lastUsedAt: k.lastUsedAt,
   };
 }
+
+const retrySourceCheck = buildRetrySourceCheck({
+  getUploadSession: (videoAssetId) => getCompletedUploadSessionForAsset(videoAssetId),
+  findCompletedOutput: (videoAssetId) =>
+    findCompletedOutput(env.TRANSCODE_OUTPUT_DIR, videoAssetId),
+});
 
 export function buildApiDeps(
   ctx: AppContext,
@@ -500,7 +562,7 @@ export function buildApiDeps(
       return {
         nextCursor: result.nextCursor,
         hasMore: result.hasMore,
-        data: result.data.map(toAssetRecord),
+        data: await withPlayCounts(result.data),
         total: result.total,
       };
     },
@@ -508,10 +570,10 @@ export function buildApiDeps(
     getAsset: async (id, owner) => {
       const asset = await getVideoAssetById(id, owner);
       if (!asset) return null;
-      return toAssetRecord(asset);
+      return (await withPlayCounts([asset]))[0];
     },
 
-    updateAsset: async (id, data, owner) => {
+    updateAsset: async (id, data, owner, ifMatch) => {
       const updated = await updateAssetMetadata(
         id,
         {
@@ -520,8 +582,16 @@ export function buildApiDeps(
           ...(data.accessTier !== undefined ? { accessTier: data.accessTier } : {}),
         },
         owner,
+        ifMatch,
       );
-      if (!updated) return null;
+      if (!updated) {
+        // a conditional edit that matched nothing: the asset moved on, or
+        // there is no such asset for this caller
+        const current = ifMatch !== undefined ? await getVideoAssetById(id, owner) : undefined;
+        return current
+          ? { status: 'conflict', current: (await withPlayCounts([current]))[0] }
+          : { status: 'not_found' };
+      }
 
       // A tier change must take effect on the delivery path at once: drop the
       // asset's cached state so the gateway reads the new tier and signing
@@ -529,7 +599,7 @@ export function buildApiDeps(
       // up to a minute by this process).
       if (data.accessTier !== undefined) invalidateAssetAccess(id);
 
-      return toAssetRecord(updated);
+      return { status: 'updated', asset: (await withPlayCounts([updated]))[0] };
     },
 
     deleteAsset,
@@ -562,7 +632,15 @@ export function buildApiDeps(
       // processing record cannot be read across tenants.
       const asset = await getVideoAssetById(videoAssetId, owner);
       if (!asset) return undefined;
-      return getProcessingJobByVideoAssetId(videoAssetId);
+      const job = await getProcessingJobByVideoAssetId(videoAssetId);
+      if (!job) return undefined;
+      // only a failed video can be retried, and only when the failure was not
+      // final and there is still something to start the new run from
+      const retryable =
+        asset.status === 'failed' &&
+        job.retryable &&
+        (await retrySourceCheck(videoAssetId)).available;
+      return { ...job, retryable };
     },
 
     retryAsset: buildRetryAsset({
@@ -640,6 +718,7 @@ export function buildApiDeps(
     },
 
     getAssetStats: (owner) => getAssetStats(owner),
+    getDailyPlays,
     getSystemStatus: createCachedSystemStatus({
       version: ctx.version,
       startedAt: ctx.startedAt,
@@ -696,6 +775,7 @@ export function buildApiDeps(
     },
 
     filterReconciliationIdsOwnedBy: filterObjectIdsOwnedBy,
+    findVideosForObjectIds,
 
     triggerRun: () => ctx.triggerReconciliation(),
 
@@ -742,13 +822,42 @@ export function buildApiDeps(
 
     listWebhooks: async (creatorAddress) => {
       const endpoints = await listWebhookEndpointsByOwner(creatorAddress);
-      return endpoints.map((ep) => ({
-        id: ep.id,
-        url: ep.url,
-        events: ep.events,
-        isActive: ep.isActive,
-        createdAt: ep.createdAt,
-      }));
+      return endpoints.map(toWebhookRecord);
+    },
+
+    getWebhook: async (id, creatorAddress) => {
+      const endpoint = await getWebhookEndpointWithHealth(id, creatorAddress);
+      return endpoint ? toWebhookRecord(endpoint) : null;
+    },
+
+    updateWebhook: async (id, creatorAddress, patch) => {
+      const updated = await updateWebhookEndpoint(id, creatorAddress, patch);
+      if (!updated) return null;
+      const endpoint = await getWebhookEndpointWithHealth(updated.id, undefined);
+      return endpoint ? toWebhookRecord(endpoint) : null;
+    },
+
+    rotateWebhookSecret: async (id, creatorAddress, secret) =>
+      Boolean(await setWebhookSecret(id, creatorAddress, secret)),
+
+    redeliverWebhook: async (id, creatorAddress, deliveryId) => {
+      const endpoint = await getWebhookEndpointForOwner(id, creatorAddress);
+      if (!endpoint) return { status: 'not_found' };
+      const delivery = await getWebhookDelivery(deliveryId, endpoint.id);
+      if (!delivery) return { status: 'not_found' };
+      if (!endpoint.isActive) return { status: 'paused' };
+      const job: WebhookJobData = {
+        endpointId: endpoint.id,
+        event: delivery.eventType,
+        // the stored payload carries the original event id; jsonb keeps no
+        // key order, so the bytes can differ, and the signature is made over
+        // what is sent
+        body: JSON.stringify(delivery.payload),
+        deliveryId: newDeliveryId(),
+        manual: true,
+      };
+      await ctx.webhookDispatcher.enqueue(job);
+      return { status: 'queued', deliveryId: job.deliveryId! };
     },
 
     deleteWebhook: async (id, creatorAddress) => {
@@ -758,7 +867,7 @@ export function buildApiDeps(
 
     vetWebhookUrl: async (url) => {
       try {
-        await vetUrl(url, webhookEgressPolicy(), AbortSignal.timeout(10_000));
+        await vetUrl(url, webhookEgressPolicy(), AbortSignal.timeout(10_000), 10_000);
         return null;
       } catch (err) {
         if (err instanceof EgressError) return err.message;
@@ -784,6 +893,7 @@ export function buildApiDeps(
         error: outcome.error,
         deliveredAt: outcome.delivered ? new Date() : null,
         retryCount: 0,
+        manual: false,
       });
       return outcome;
     },
@@ -800,6 +910,8 @@ export function buildApiDeps(
         error: d.error,
         attempt: d.retryCount + 1,
         createdAt: d.createdAt,
+        payload: d.payload,
+        manual: d.manual,
       }));
     },
 
@@ -818,14 +930,19 @@ export function buildApiDeps(
       };
     },
 
-    rotateApiKey: async (id, owner, { keyHash }, retireAt) => {
-      const result = await dbRotateApiKey(id, owner, keyHash, retireAt);
+    rotateApiKey: async (id, owner, replacement, retireAt) => {
+      const result = await dbRotateApiKey(id, owner, replacement, retireAt);
       if (result.status !== 'rotated') return result;
       return {
         status: 'rotated',
         replacement: toKeyRecord(result.replacement),
         retiredAt: result.retiredAt,
       };
+    },
+
+    renameApiKey: async (id, owner, name) => {
+      const row = await dbRenameApiKey(id, owner, name);
+      return row ? toKeyRecord(row) : null;
     },
 
     deleteApiKey: async (id, owner) => {
@@ -850,7 +967,7 @@ export function createApp(ctx: AppContext): {
   const sessionManager = buildSessionManager();
   const deleteAsset = buildAssetDeleter(ctx);
   const localDevAccount = buildLocalDevAccount();
-  const callers = buildCallerDeps(localDevAccount);
+  const callers = buildCallerDeps(localDevAccount, logger);
 
   const app = express();
   app.disable('x-powered-by');

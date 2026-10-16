@@ -159,11 +159,23 @@ export class SiaSession {
    * public share endpoint and carries no credentials; without it, the
    * authenticated API route. Rejects with a `SlubyError` when the answer has
    * no usable `expires_at`.
+   *
+   * `renew` says this replaces a map the player already holds, so the server
+   * does not count it as another play.
    */
-  async getShareMap(assetId: string, source?: SiaShareSource): Promise<SiaShareMap> {
-    const res = source?.src
-      ? await this._fetchPublic(this.shareMapUrl(assetId, source.src))
-      : await this._fetch(`/api/v1/playback/${encodeURIComponent(assetId)}/share`);
+  async getShareMap(
+    assetId: string,
+    source?: SiaShareSource,
+    options?: { renew?: boolean },
+  ): Promise<SiaShareMap> {
+    let res: Response;
+    if (source?.src) {
+      const url = new URL(this.shareMapUrl(assetId, source.src));
+      if (options?.renew) url.searchParams.set('renew', '1');
+      res = await this._fetchPublic(url.toString());
+    } else {
+      res = await this._fetch(`/api/v1/playback/${encodeURIComponent(assetId)}/share`);
+    }
     const body = await readJson<{
       master_object_id: string;
       shares?: Record<string, string>;
@@ -395,7 +407,8 @@ export class SiaSession {
     const inflight = this._shareMapFetches.get(key);
     if (inflight) return inflight;
     const fetching = (async () => {
-      const map = await this.getShareMap(assetId, source);
+      // a map already held is being refreshed: the same play to the server
+      const map = await this.getShareMap(assetId, source, { renew: cached !== undefined });
       this._shareMaps.set(key, {
         map,
         expiresAtMs: Date.parse(map.expiresAt),

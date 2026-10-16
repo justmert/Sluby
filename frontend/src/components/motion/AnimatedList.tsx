@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AnimatePresence } from 'motion/react';
+import { AnimatePresence, PresenceContext, type TargetAndTransition } from 'motion/react';
 import * as m from 'motion/react-m';
 import { listContainer, listItem, spring } from '@/lib/motion';
 
@@ -35,9 +35,16 @@ export function AnimatedList({
 }: AnimatedListProps) {
   const Comp = listTags[as] as ListElement;
   return (
-    <Comp variants={listContainer} initial="hidden" animate="visible" {...props}>
-      <AnimatePresence mode={presence}>{children}</AnimatePresence>
-    </Comp>
+    // an outer presence that skips its first animation (an open Collapse on
+    // a cold load) would skip the list's too, while the items under the
+    // list's own presence still start hidden and never hear "visible". the
+    // list owns its enter, so it stays out of the outer presence; the outer
+    // element still animates and exits on its own
+    <PresenceContext.Provider value={null}>
+      <Comp variants={listContainer} initial="hidden" animate="visible" {...props}>
+        <AnimatePresence mode={presence}>{children}</AnimatePresence>
+      </Comp>
+    </PresenceContext.Provider>
   );
 }
 
@@ -54,9 +61,12 @@ interface AnimatedItemProps extends Omit<React.ComponentProps<ListElement>, 'var
 export function AnimatedItem({ as = 'li', layout = 'position', ...props }: AnimatedItemProps) {
   const Comp = itemTags[as] as ListElement;
   return (
+    // exit as a target, not the "exit" label: any variant label makes the item
+    // its own variant root, and it would then never take the list's hidden and
+    // visible, so nothing would stagger or fade in
     <Comp
       variants={listItem}
-      exit="exit"
+      exit={listItem.exit as TargetAndTransition}
       layout={layout === false ? undefined : layout}
       transition={{ layout: spring }}
       {...props}

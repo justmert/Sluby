@@ -433,6 +433,10 @@ describe('SiaSession with a playback url source', () => {
     expect(fetchPublic).toHaveBeenCalledTimes(2);
     expect(fetchFn).not.toHaveBeenCalled();
     expect(h.sharedObject).toHaveBeenCalledWith('sia://new#k');
+    // the first fetch is a play to the server, the refresh is not
+    const [first, second] = fetchPublic.mock.calls.map((c) => new URL(String(c[0])));
+    expect(first.searchParams.has('renew')).toBe(false);
+    expect(second.searchParams.get('renew')).toBe('1');
   });
 });
 

@@ -40,6 +40,18 @@ describe('webhook routes', () => {
     deps = {
       createWebhook: vi.fn().mockResolvedValue({ id: 'wh-1' }),
       listWebhooks: vi.fn().mockResolvedValue([]),
+      getWebhook: vi.fn().mockResolvedValue(null),
+      rotateWebhookSecret: vi.fn().mockResolvedValue(true),
+      redeliverWebhook: vi.fn().mockResolvedValue({ status: 'queued', deliveryId: 'dlv_2' }),
+      updateWebhook: vi.fn(async (id, _owner, patch) => ({
+        id,
+        url: patch.url ?? 'https://example.com/hook',
+        events: patch.events ?? ['asset.ready'],
+        isActive: patch.isActive ?? true,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+        lastDeliveryAt: null,
+        lastDeliveryOk: null,
+      })),
       deleteWebhook: vi.fn().mockResolvedValue(undefined),
       // the real check, with no operator exemptions and a resolver that knows
       // a few test names, so registration is judged exactly as in production
@@ -224,6 +236,8 @@ describe('webhook routes', () => {
           events: ['upload.completed'],
           isActive: true,
           createdAt: new Date('2025-01-01T00:00:00Z'),
+          lastDeliveryAt: new Date('2025-01-03T00:00:00Z'),
+          lastDeliveryOk: false,
         },
         {
           id: 'wh-2',
@@ -231,6 +245,8 @@ describe('webhook routes', () => {
           events: ['asset.ready', 'asset.errored'],
           isActive: false,
           createdAt: new Date('2025-01-02T00:00:00Z'),
+          lastDeliveryAt: null,
+          lastDeliveryOk: null,
         },
       ]);
 
@@ -244,6 +260,13 @@ describe('webhook routes', () => {
         events: ['upload.completed'],
         is_active: true,
         created_at: '2025-01-01T00:00:00.000Z',
+        last_delivery_at: '2025-01-03T00:00:00.000Z',
+        last_delivery_ok: false,
+      });
+      expect(res.body.data[1]).toMatchObject({
+        is_active: false,
+        last_delivery_at: null,
+        last_delivery_ok: null,
       });
     });
 
@@ -290,6 +313,112 @@ describe('webhook routes', () => {
     });
   });
 
+  describe('GET /:id', () => {
+    it("answers one of the caller's endpoints", async () => {
+      vi.mocked(deps.getWebhook).mockResolvedValue({
+        id: 'wh-1',
+        url: 'https://example.com/hook',
+        events: ['asset.ready'],
+        isActive: true,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+        lastDeliveryAt: new Date('2025-01-02T00:00:00Z'),
+        lastDeliveryOk: true,
+      });
+      const res = await request(createApp()).get('/wh-1');
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ id: 'wh-1', last_delivery_ok: true });
+      expect(deps.getWebhook).toHaveBeenCalledWith('wh-1', '0xabc123');
+    });
+
+    it("answers 404 for an endpoint that is not the caller's", async () => {
+      const res = await request(createApp()).get('/wh-9');
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('PATCH /:id', () => {
+    it('pauses and resumes an endpoint', async () => {
+      const paused = await request(createApp()).patch('/wh-1').send({ is_active: false });
+      expect(paused.status).toBe(200);
+      expect(paused.body.is_active).toBe(false);
+      expect(deps.updateWebhook).toHaveBeenCalledWith('wh-1', '0xabc123', { isActive: false });
+      const resumed = await request(createApp()).patch('/wh-1').send({ is_active: true });
+      expect(resumed.body.is_active).toBe(true);
+    });
+
+    it('changes the url after checking it, and the events once each', async () => {
+      const res = await request(createApp())
+        .patch('/wh-1')
+        .send({ url: 'https://example.com/new', events: ['asset.ready', 'asset.ready'] });
+      expect(res.status).toBe(200);
+      expect(deps.vetWebhookUrl).toHaveBeenCalledWith('https://example.com/new');
+      expect(deps.updateWebhook).toHaveBeenCalledWith('wh-1', '0xabc123', {
+        url: 'https://example.com/new',
+        events: ['asset.ready'],
+      });
+    });
+
+    it.each([
+      [{}, /at least one of url, events and is_active/],
+      [{ secret: 'x' }, /unknown field: secret/],
+      [{ events: [] }, /At least one event type/],
+      [{ events: ['asset.deleted'] }, /Invalid events: asset.deleted/],
+      [{ is_active: 'no' }, /is_active must be true or false/],
+      [{ url: 42 }, /URL is required/],
+      [{ url: `https://example.com/${'a'.repeat(2048)}` }, /longer than 2,048 characters/],
+      [{ url: 'http://127.0.0.1/hook' }, /points to this machine/],
+    ])('rejects %j', async (body, message) => {
+      const res = await request(createApp()).patch('/wh-1').send(body);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(message);
+      expect(deps.updateWebhook).not.toHaveBeenCalled();
+    });
+
+    it("answers 404 for an endpoint that is not the caller's", async () => {
+      vi.mocked(deps.updateWebhook).mockResolvedValue(null);
+      const res = await request(createApp()).patch('/wh-9').send({ is_active: false });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /:id/rotate-secret', () => {
+    it('stores a new secret and shows it once', async () => {
+      const res = await request(createApp()).post('/wh-1/rotate-secret');
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe('wh-1');
+      expect(res.body.secret).toMatch(/^[0-9a-f]{64}$/);
+      expect(deps.rotateWebhookSecret).toHaveBeenCalledWith('wh-1', '0xabc123', res.body.secret);
+    });
+
+    it("answers 404 for an endpoint that is not the caller's", async () => {
+      vi.mocked(deps.rotateWebhookSecret).mockResolvedValue(false);
+      const res = await request(createApp()).post('/wh-9/rotate-secret');
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /:id/deliveries/:deliveryId/redeliver', () => {
+    it('queues the delivery again and answers 202 with the new delivery id', async () => {
+      const res = await request(createApp()).post('/wh-1/deliveries/d-1/redeliver');
+      expect(res.status).toBe(202);
+      expect(res.body).toEqual({ delivery_id: 'dlv_2' });
+      expect(deps.redeliverWebhook).toHaveBeenCalledWith('wh-1', '0xabc123', 'd-1');
+    });
+
+    it('answers 409 while the endpoint is paused', async () => {
+      vi.mocked(deps.redeliverWebhook).mockResolvedValue({ status: 'paused' });
+      const res = await request(createApp()).post('/wh-1/deliveries/d-1/redeliver');
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('This webhook is paused. Resume it to resend.');
+    });
+
+    it('answers 404 for a delivery or endpoint that is not the caller’s', async () => {
+      vi.mocked(deps.redeliverWebhook).mockResolvedValue({ status: 'not_found' });
+      const res = await request(createApp()).post('/wh-1/deliveries/d-9/redeliver');
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe('DELETE /:id', () => {
     it('should delete a webhook and return success', async () => {
       vi.mocked(deps.deleteWebhook).mockResolvedValue(true);
@@ -320,6 +449,15 @@ describe('webhook routes', () => {
       expect(res.status).toBe(403);
     });
   });
+  it('refuses a url longer than 2,048 characters at registration', async () => {
+    const res = await request(createApp())
+      .post('/')
+      .send({ url: `https://example.com/${'a'.repeat(2048)}`, events: ['asset.ready'] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('The URL is longer than 2,048 characters.');
+    expect(deps.vetWebhookUrl).not.toHaveBeenCalled();
+  });
+
   describe('receiver url checks at registration', () => {
     it.each([
       'http://127.0.0.1:3000/api/v1/keys',
@@ -359,7 +497,8 @@ describe('webhook routes', () => {
         .post('/')
         .send({ url: 'http://internal.example.com/hook', events: ['asset.ready'] });
       expect(res.body.error).toBe(
-        'URL refused: internal.example.com resolves to an address webhooks may not reach: private (10.0.0.0/8)',
+        'Webhooks can only reach public addresses, and internal.example.com points to a private ' +
+          'network. To allow it, add the network to WEBHOOK_ALLOWED_NETWORKS on the server.',
       );
       expect(JSON.stringify(res.body)).not.toContain('10.1.2.3');
     });
@@ -407,6 +546,8 @@ describe('webhook routes', () => {
           error: null,
           attempt: 2,
           createdAt: new Date('2026-10-01T00:00:10Z'),
+          payload: { id: 'evt_2', event: 'asset.ready' },
+          manual: true,
         },
         {
           id: 'd1',
@@ -416,6 +557,8 @@ describe('webhook routes', () => {
           error: 'timed out',
           attempt: 1,
           createdAt: new Date('2026-10-01T00:00:00Z'),
+          payload: { id: 'evt_2', event: 'asset.ready' },
+          manual: false,
         },
       ]);
       const res = await request(createApp()).get('/wh-1/deliveries').query({ limit: 10 });
@@ -431,6 +574,8 @@ describe('webhook routes', () => {
           error: null,
           attempt: 2,
           created_at: '2026-10-01T00:00:10.000Z',
+          payload: { id: 'evt_2', event: 'asset.ready' },
+          manual: true,
         },
         {
           id: 'd1',
@@ -441,6 +586,8 @@ describe('webhook routes', () => {
           error: 'timed out',
           attempt: 1,
           created_at: '2026-10-01T00:00:00.000Z',
+          payload: { id: 'evt_2', event: 'asset.ready' },
+          manual: false,
         },
       ]);
     });

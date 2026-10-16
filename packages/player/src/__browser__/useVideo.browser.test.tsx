@@ -78,6 +78,10 @@ describe('useVideo with real hls.js', () => {
       ]);
       expect(api().currentQuality).not.toBeNull();
       expect(api().duration).toBeCloseTo(3, 0);
+      // settled: webkit can stop the clock for good when play() is pending
+      // during hls.js's seek over the gap before the first buffered frame
+      expect(latest.video!.readyState).toBeGreaterThanOrEqual(HTMLMediaElement.HAVE_FUTURE_DATA);
+      expect(latest.video!.seeking).toBe(false);
     });
     expect(api().isPlaying).toBe(false);
 

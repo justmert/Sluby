@@ -179,7 +179,7 @@ describe('buildRetryAsset', () => {
 
     await expect(buildRetryAsset(deps())(A1, 'acct')).rejects.toMatchObject({
       statusCode: 410,
-      message: 'Source file not found, please re-upload the video',
+      message: 'Could not retry because the original file is gone. Upload the video again.',
     });
     expect(w.assets.get(A1)!.status).toBe('failed');
     expect(w.jobs.get(A1)!.status).toBe('failed');
@@ -230,7 +230,7 @@ describe('buildRetryAsset', () => {
 
     await expect(buildRetryAsset(deps())(A1, 'acct')).rejects.toMatchObject({
       statusCode: 400,
-      message: 'Asset is not in failed state',
+      message: 'Only a failed video can be retried. It may have restarted already.',
     });
     expect(w.uploadQueue).toEqual([]);
   });
@@ -284,13 +284,13 @@ describe('POST /assets/:id/retry through the real error handler', () => {
         w.assets.get(A1)!.status = 'processing';
       },
       400,
-      'Asset is not in failed state',
+      'Only a failed video can be retried. It may have restarted already.',
     ],
     [
       'without its source',
       () => failedAsset(),
       410,
-      'Source file not found, please re-upload the video',
+      'Could not retry because the original file is gone. Upload the video again.',
     ],
   ])('maps a %s asset to %i', async (_label, setup, status, message) => {
     setup();

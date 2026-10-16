@@ -110,6 +110,7 @@ describe('deliverWebhook', () => {
         error: null,
         deliveredAt: expect.any(Date),
         retryCount: 2,
+        manual: false,
       },
     ]);
     expect(recorded[0].deliveredAt!.getTime()).toBeGreaterThanOrEqual(before);
@@ -126,7 +127,7 @@ describe('deliverWebhook', () => {
     expect(recorded).toEqual([
       expect.objectContaining({
         statusCode: 503,
-        error: 'the receiver answered 503',
+        error: 'Your endpoint answered 503',
         deliveredAt: null,
       }),
     ]);
@@ -151,7 +152,7 @@ describe('deliverWebhook', () => {
       expect.objectContaining({
         statusCode: null,
         retryCount: 1,
-        error: 'connection failed (ECONNREFUSED)',
+        error: 'Could not connect (ECONNREFUSED)',
       }),
     ]);
   });
@@ -167,7 +168,9 @@ describe('deliverWebhook', () => {
       expect(err).toBeInstanceOf(WebhookDeliveryError);
       expect(Date.now() - started).toBeGreaterThanOrEqual(290);
       expect(Date.now() - started).toBeLessThan(3000);
-      expect(recorded).toEqual([expect.objectContaining({ statusCode: null, error: 'timed out' })]);
+      expect(recorded).toEqual([
+        expect.objectContaining({ statusCode: null, error: 'No response within 0.3 seconds' }),
+      ]);
     } finally {
       await hung.close();
     }
@@ -180,7 +183,8 @@ describe('deliverWebhook', () => {
     expect(recorded).toEqual([
       expect.objectContaining({
         statusCode: null,
-        error: '127.0.0.1 resolves to an address webhooks may not reach: loopback (127.0.0.0/8)',
+        error:
+          'Webhooks can only reach public addresses, and 127.0.0.1 points to this machine. To allow it, add the network to WEBHOOK_ALLOWED_NETWORKS on the server.',
       }),
     ]);
   });
@@ -223,6 +227,29 @@ describe('deliverWebhook', () => {
     expect(new Set(receiver.requests.map((r) => r.headers['x-sluby-delivery']))).toEqual(
       new Set(['dlv_1']),
     );
+  });
+
+  it('signs a retry with the secret the endpoint has at that moment', async () => {
+    const { deps, endpoints } = setup(receiver.url);
+    respond = (n) => (n < 2 ? [500, ''] : [200, '']);
+
+    await expect(deliverWebhook(deps, job, 0)).rejects.toThrow();
+    // the secret is rotated while the retry waits in the queue
+    endpoints.set('ep-1', { ...endpoints.get('ep-1')!, secret: 'whsec_rotated' });
+    await expect(deliverWebhook(deps, job, 1)).resolves.toBe('delivered');
+
+    const retry = receiver.requests[1];
+    const timestamp = retry.headers['x-sluby-timestamp'] as string;
+    const v1 = retry.headers['x-sluby-signature-v1'] as string;
+    expect(verifySignature(`${timestamp}.${job.body}`, v1, 'whsec_rotated')).toBe(true);
+    expect(verifySignature(`${timestamp}.${job.body}`, v1, 'whsec_test')).toBe(false);
+  });
+
+  it('logs a resend as manual, and an ordinary delivery as not', async () => {
+    const { deps, recorded } = setup(receiver.url);
+    await deliverWebhook(deps, job, 0);
+    await deliverWebhook(deps, { ...job, manual: true }, 0);
+    expect(recorded.map((r) => r.manual)).toEqual([false, true]);
   });
 
   it('omits the delivery header for a job queued by an older version', async () => {

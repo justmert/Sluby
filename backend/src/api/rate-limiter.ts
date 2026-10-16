@@ -65,7 +65,11 @@ function enforce(
   // read; the body says it too. retryAfter is the old spelling, kept one
   // more release.
   res.set('Retry-After', String(reset));
-  res.status(429).json({ error: 'Rate limit exceeded', retry_after: reset, retryAfter: reset });
+  res.status(429).json({
+    error: 'Too many requests. Try again in a few seconds.',
+    retry_after: reset,
+    retryAfter: reset,
+  });
   return false;
 }
 

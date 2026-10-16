@@ -35,4 +35,26 @@ describe('CopyButton', () => {
     expect(screen.getByRole('button')).toHaveTextContent('Copied');
     expect(screen.getByRole('button')).toHaveAccessibleName('Copy API key');
   });
+
+  it('tells the caller once the value is copied, and not when copying failed', async () => {
+    const onCopied = vi.fn();
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('no')) },
+    });
+    const { rerender } = render(<CopyButton value="abc" onCopied={onCopied} />);
+    await act(async () => screen.getByRole('button').click());
+    expect(onCopied).not.toHaveBeenCalled();
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    rerender(<CopyButton value="abc" onCopied={onCopied} />);
+    await act(async () => screen.getByRole('button').click());
+    expect(onCopied).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows its own text before copying, and Copied after', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    render(<CopyButton value="abc" label="Copy embed code" text="Copy embed code" withText />);
+    expect(screen.getByRole('button')).toHaveTextContent('Copy embed code');
+    await act(async () => screen.getByRole('button').click());
+    expect(screen.getByRole('button')).toHaveTextContent('Copied');
+  });
 });

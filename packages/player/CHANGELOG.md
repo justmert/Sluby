@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `title`: the video's name for screen readers, set as the `<video>`'s `aria-label`. Without it a screen reader announced only "video".
+- `tracks`: WebVTT caption and subtitle files rendered as `<track>` elements, and `crossOrigin` for the `<video>`, which tracks on another origin need. The player sets no `crossorigin` unless asked, so media loads as before.
+
+### Changed
+
+- Quality names use the short side of the picture, so a portrait 720 × 1280 rendition is `720p` (it was `1280p`), matching the landscape ladder.
+
 ## 0.2.0 (2026-10-08)
 
 ### Breaking

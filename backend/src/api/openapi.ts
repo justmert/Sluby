@@ -62,6 +62,16 @@ const nullable = (type: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+const assetEtagHeader = {
+  ETag: {
+    description:
+      'The asset’s version: its `updated_at` in milliseconds since the epoch, quoted. Send it ' +
+      'back in If-Match on PATCH. Plays do not change it, so it never validates a cached copy: ' +
+      'GET answers with `Cache-Control: no-store` and ignores If-None-Match.',
+    schema: { type: 'string', example: '"1767225600000"' },
+  },
+};
+
 const idParam = (name: string, description: string) => ({
   name,
   in: 'path' as const,
@@ -164,7 +174,9 @@ export const openapiDocument = {
     },
     responses: {
       BadRequest: errorWith('Invalid input; `details` lists the fields.'),
-      Unauthorized: errorWith('No valid API key or session.'),
+      Unauthorized: errorWith(
+        'No valid API key or session. Without a key, `reason` says why the session ended.',
+      ),
       Forbidden: errorWith('The key lacks the scope (or identity) the operation needs.'),
       NotFound: errorWith('No such resource in the caller’s account.'),
       TooManyRequests: {
@@ -206,6 +218,15 @@ export const openapiDocument = {
             type: 'string',
             description: 'Only with EXPOSE_ERROR_STACKS=true: the stack trace.',
           },
+          reason: {
+            type: 'string',
+            enum: ['missing', 'expired', 'revoked', 'not_allowed'],
+            description:
+              'On a 401 to a request without an API key (a browser session): `missing` (no ' +
+              'session cookie, or one this server did not sign), `expired`, `revoked` (signed ' +
+              'out, here or from another browser) or `not_allowed` (the account is no longer on ' +
+              'the allowlist).',
+          },
         },
         required: ['error'],
       },
@@ -218,7 +239,8 @@ export const openapiDocument = {
           retryAfter: {
             type: 'integer',
             deprecated: true,
-            description: 'Old spelling of retry_after, removed in the next release.',
+            description:
+              'Older spelling of retry_after, kept so clients written for 0.1.0 keep working.',
           },
         },
       },
@@ -242,6 +264,8 @@ export const openapiDocument = {
           'creator_address',
           'segment_count',
           'total_storage_bytes',
+          'play_count',
+          'last_played_at',
           'created_at',
           'updated_at',
         ],
@@ -265,6 +289,19 @@ export const openapiDocument = {
           creator_address: { type: 'string' },
           segment_count: { type: 'integer' },
           total_storage_bytes: { type: 'integer' },
+          play_count: {
+            type: 'integer',
+            minimum: 0,
+            description:
+              'All-time plays: player loads this server saw, through the gateway or by minting ' +
+              'a share map to play direct from Sia. One viewer loading the same video again ' +
+              'within 30 minutes counts once, previews in the Studio do not count, and counts ' +
+              'reach the API within about 10 seconds.',
+          },
+          last_played_at: nullable('string', {
+            format: 'date-time',
+            description: 'When the newest counted play happened; null before the first.',
+          }),
           created_at: { type: 'string', format: 'date-time' },
           updated_at: { type: 'string', format: 'date-time' },
         },
@@ -319,6 +356,7 @@ export const openapiDocument = {
           'completed_at',
           'created_at',
           'logs',
+          'retryable',
         ],
         properties: {
           id: { type: 'string' },
@@ -329,7 +367,10 @@ export const openapiDocument = {
           stage: {
             type: 'string',
             enum: ['queued', 'transcode', 'upload', 'finalize', 'completed', 'failed'],
-            description: 'Pipeline step, from the latest stage-tagged log line.',
+            description:
+              'Pipeline step, from the latest stage-tagged log line. `upload` starts as soon as ' +
+              'the transcode hands off, with the line "Waiting for the Sia uploader" while the ' +
+              'video waits its turn to be stored on Sia.',
           },
           progress_percent: { type: 'integer' },
           retry_count: {
@@ -341,6 +382,13 @@ export const openapiDocument = {
           started_at: { type: ['string', 'null'], format: 'date-time' },
           completed_at: { type: ['string', 'null'], format: 'date-time' },
           created_at: { type: 'string', format: 'date-time' },
+          retryable: {
+            type: 'boolean',
+            description:
+              'Whether POST /retry can start a new run: true only for a failed video whose ' +
+              'failure was not final (a file that is not a readable video is final) and whose ' +
+              'finished transcode or original file is still on the server.',
+          },
           logs: {
             type: 'array',
             items: {
@@ -465,6 +513,7 @@ export const openapiDocument = {
           'error_message',
           'created_at',
           'missing_ids',
+          'missing_objects',
           'orphaned_ids',
         ],
         properties: {
@@ -485,6 +534,14 @@ export const openapiDocument = {
             items: { type: 'string' },
             description: 'Tracked by an asset, absent from the indexer.',
           },
+          missing_objects: {
+            type: 'array',
+            description:
+              'Each of `missing_ids`, in the same order, with the video that holds it, so a ' +
+              'report can link to it. `video_asset_id` and `title` are null when no live video ' +
+              'holds the object any more (its video was deleted since the run).',
+            items: { $ref: '#/components/schemas/MissingObject' },
+          },
           orphaned_ids: {
             type: 'array',
             items: { type: 'string' },
@@ -503,6 +560,7 @@ export const openapiDocument = {
           'status',
           'missing_count',
           'missing_ids',
+          'missing_objects',
         ],
         properties: {
           scope: { const: 'account' },
@@ -522,6 +580,23 @@ export const openapiDocument = {
             description: 'Missing objects of the caller’s assets.',
           },
           missing_ids: { type: 'array', items: { type: 'string' } },
+          missing_objects: {
+            type: 'array',
+            description:
+              'Each of `missing_ids`, in the same order, with the video that holds it, so a ' +
+              'report can link to it. `video_asset_id` and `title` are null when no live video ' +
+              'holds the object any more (its video was deleted since the run).',
+            items: { $ref: '#/components/schemas/MissingObject' },
+          },
+        },
+      },
+      MissingObject: {
+        type: 'object',
+        required: ['object_id', 'video_asset_id', 'title'],
+        properties: {
+          object_id: { type: 'string' },
+          video_asset_id: nullable('string', { format: 'uuid' }),
+          title: nullable('string'),
         },
       },
       ReconciliationTrigger: {
@@ -736,7 +811,17 @@ export const openapiDocument = {
       },
       ApiKey: {
         type: 'object',
-        required: ['id', 'name', 'scopes', 'rate_limit', 'is_active', 'created_at', 'expires_at'],
+        required: [
+          'id',
+          'name',
+          'scopes',
+          'rate_limit',
+          'is_active',
+          'created_at',
+          'expires_at',
+          'prefix',
+          'last_used_at',
+        ],
         properties: {
           id: { type: 'string', format: 'uuid' },
           name: { type: 'string' },
@@ -749,15 +834,42 @@ export const openapiDocument = {
             format: 'date-time',
             description: 'Set while a rotated-out key is in its grace period.',
           },
+          prefix: nullable('string', {
+            description:
+              'The first 12 characters of the key (`sluby_` and 6 more), to tell keys apart. ' +
+              'Null for keys created before prefixes were stored.',
+          }),
+          last_used_at: nullable('string', {
+            format: 'date-time',
+            description:
+              'When the key last authenticated a request, to the minute: it is written at most ' +
+              'once a minute per key. Null if never used since this was recorded.',
+          }),
         },
       },
       ApiKeyList: {
         type: 'object',
-        required: ['data', 'has_more', 'next_cursor'],
+        required: ['data', 'has_more', 'next_cursor', 'limits'],
         properties: {
           data: { type: 'array', items: { $ref: '#/components/schemas/ApiKey' } },
           has_more: { type: 'boolean' },
           next_cursor: { type: ['string', 'null'] },
+          limits: {
+            type: 'object',
+            description: 'This server’s limits on keys, to check a new key against.',
+            required: ['max_keys', 'max_rate_limit'],
+            properties: {
+              max_keys: {
+                type: 'integer',
+                description:
+                  'How many usable keys one account may hold (`API_KEYS_PER_ACCOUNT_MAX`).',
+              },
+              max_rate_limit: {
+                type: 'integer',
+                description: 'The highest `rate_limit` a key may have (`API_KEY_RATE_LIMIT_MAX`).',
+              },
+            },
+          },
         },
       },
       ApiKeyCreated: {
@@ -786,13 +898,33 @@ export const openapiDocument = {
       },
       Webhook: {
         type: 'object',
-        required: ['id', 'url', 'events', 'is_active', 'created_at'],
+        required: [
+          'id',
+          'url',
+          'events',
+          'is_active',
+          'created_at',
+          'last_delivery_at',
+          'last_delivery_ok',
+        ],
         properties: {
           id: { type: 'string', format: 'uuid' },
           url: { type: 'string' },
           events: { type: 'array', items: { type: 'string' } },
-          is_active: { type: 'boolean' },
+          is_active: {
+            type: 'boolean',
+            description: 'False while the endpoint is paused: no events are sent to it.',
+          },
           created_at: { type: 'string', format: 'date-time' },
+          last_delivery_at: nullable('string', {
+            format: 'date-time',
+            description: 'When the newest delivery attempt was made; null before the first.',
+          }),
+          last_delivery_ok: nullable('boolean', {
+            description:
+              'Whether the newest attempt got a 2xx answer; null before the first. Attempts are ' +
+              'kept for 30 days.',
+          }),
         },
       },
       WebhookList: {
@@ -850,17 +982,20 @@ export const openapiDocument = {
           providerLabel: {
             type: ['string', 'null'],
             deprecated: true,
-            description: 'Old spelling of provider_label, removed in the next release.',
+            description:
+              'Older spelling of provider_label, kept so clients written for 0.1.0 keep working.',
           },
           authDisabled: {
             type: 'boolean',
             deprecated: true,
-            description: 'Old spelling of auth_disabled, removed in the next release.',
+            description:
+              'Older spelling of auth_disabled, kept so clients written for 0.1.0 keep working.',
           },
           expiresAt: {
             type: 'integer',
             deprecated: true,
-            description: 'Old unix-seconds form of expires_at, removed in the next release.',
+            description:
+              'Older unix-seconds form of expires_at, kept so clients written for 0.1.0 keep working.',
           },
         },
       },
@@ -872,12 +1007,18 @@ export const openapiDocument = {
             type: 'array',
             items: {
               type: 'object',
-              required: ['id', 'user_agent', 'created_at', 'expires_at', 'current'],
+              required: ['id', 'user_agent', 'created_at', 'expires_at', 'last_seen_at', 'current'],
               properties: {
                 id: { type: 'string', format: 'uuid' },
                 user_agent: { type: ['string', 'null'] },
                 created_at: { type: 'string', format: 'date-time' },
                 expires_at: { type: 'string', format: 'date-time' },
+                last_seen_at: nullable('string', {
+                  format: 'date-time',
+                  description:
+                    'The last request made with the session, to within five minutes. Null until ' +
+                    'its first request on a server that records it.',
+                }),
                 current: { type: 'boolean', description: 'The session making the request.' },
               },
             },
@@ -1100,9 +1241,12 @@ export const openapiDocument = {
           },
         ],
         responses: {
-          '302': { description: 'Redirect to the provider.' },
+          '302': {
+            description:
+              'Redirect to the provider, or to `/studio?signin_error=not_configured` when the ' +
+              'provider is not configured on this server.',
+          },
           '404': errorWith('No such sign-in provider.'),
-          '500': errorWith('The provider is not configured on this server.'),
         },
       },
     },
@@ -1111,10 +1255,15 @@ export const openapiDocument = {
         tags: ['Auth'],
         summary: "The provider's redirect back after sign-in.",
         description:
-          'Browser-facing: failures answer plain text, not JSON. Accepted only from the browser ' +
-          'that started the sign-in: the `state` must match the `sluby_signin` cookie set by the ' +
-          "login route, within ten minutes. The account is the provider's stable id (GitHub: the " +
-          'numeric account id), never the login.',
+          'Browser-facing: every outcome is a redirect into the Studio. Accepted only from the ' +
+          'browser that started the sign-in: the `state` must match the `sluby_signin` cookie set ' +
+          "by the login route, within ten minutes. The account is the provider's stable id " +
+          '(GitHub: the numeric account id), never the login. A failure redirects to the ' +
+          'page the sign-in started from (or `/studio` once the handshake is lost) with ' +
+          '`signin_error=<code>` added: `expired_handshake` (expired, or started in another ' +
+          'browser), `not_allowed` (with `&handle=<login>`, the account is not on the allowlist), ' +
+          '`cancelled` (the person declined at the provider), `provider_failed` (the provider ' +
+          'refused the code or could not be reached) or `not_configured`.',
         security: [],
         parameters: [
           {
@@ -1126,11 +1275,12 @@ export const openapiDocument = {
           },
         ],
         responses: {
-          '302': { description: 'Signed in; redirect into the Studio with a session cookie.' },
-          '400': textResponse('Expired or foreign handshake, cancelled or malformed sign-in.'),
-          '403': textResponse('The account is not on the allowlist.'),
+          '302': {
+            description:
+              'Signed in (redirect to `next` with a session cookie), or failed (redirect to ' +
+              '`next`, or `/studio`, with `signin_error=<code>`).',
+          },
           '404': errorWith('No such sign-in provider.'),
-          '500': textResponse('The provider is not configured or could not be reached.'),
         },
       },
     },
@@ -1379,7 +1529,7 @@ export const openapiDocument = {
         'x-required-scope': 'read',
         parameters: [idParam('id', 'Asset id.')],
         responses: {
-          '200': jsonResponse('Asset', 'The asset.'),
+          '200': { ...jsonResponse('Asset', 'The asset.'), headers: assetEtagHeader },
           '400': badId,
           '404': ref('NotFound'),
           ...authFailures,
@@ -1390,9 +1540,23 @@ export const openapiDocument = {
         summary: 'Update asset metadata.',
         description:
           'Changing access_tier takes effect on the delivery gateway at once. An asset being ' +
-          'deleted answers 404, as it does to every read.',
+          'deleted answers 404, as it does to every read. Send If-Match with the ETag of the ' +
+          'version you edited (from GET or an earlier PATCH, or built from `updated_at` as ' +
+          '`"<epoch milliseconds>"`) and the edit applies only if nobody changed the asset since; ' +
+          'otherwise 412 with the asset as it is now. Processing changes the version too.',
         'x-required-scope': 'manage',
-        parameters: [idParam('id', 'Asset id.')],
+        parameters: [
+          idParam('id', 'Asset id.'),
+          {
+            name: 'If-Match',
+            in: 'header' as const,
+            required: false,
+            schema: { type: 'string' },
+            description:
+              'One or more ETags, or `*` for any version. The weak form of an ETag (`W/"…"`, as a ' +
+              'compressing proxy such as the bundled nginx sends it) matches the same version.',
+          },
+        ],
         requestBody: {
           content: {
             'application/json': {
@@ -1418,9 +1582,25 @@ export const openapiDocument = {
           },
         },
         responses: {
-          '200': jsonResponse('Asset', 'Updated.'),
-          '400': ref('BadRequest'),
+          '200': { ...jsonResponse('Asset', 'Updated.'), headers: assetEtagHeader },
+          '400': errorWith('Invalid input, or an If-Match that is not an ETag.'),
           '404': ref('NotFound'),
+          '412': {
+            description: 'The asset changed since the If-Match version; nothing was saved.',
+            headers: assetEtagHeader,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['error', 'current'],
+                  properties: {
+                    error: { type: 'string' },
+                    current: { $ref: '#/components/schemas/Asset' },
+                  },
+                },
+              },
+            },
+          },
           ...authFailures,
         },
       },
@@ -1523,7 +1703,12 @@ export const openapiDocument = {
                 type: 'object',
                 properties: {
                   policy: { type: 'string', enum: ['public', 'signed'], default: 'public' },
-                  name: { type: 'string' },
+                  name: {
+                    type: 'string',
+                    maxLength: 100,
+                    description:
+                      'A label to tell playback IDs apart. Trimmed; no control characters.',
+                  },
                 },
               },
             },
@@ -1531,7 +1716,7 @@ export const openapiDocument = {
         },
         responses: {
           '201': jsonResponse('PlaybackId', 'Created.'),
-          '400': errorWith('A malformed id or an unknown policy.'),
+          '400': errorWith('A malformed id, an unknown policy or a name over 100 characters.'),
           '404': ref('NotFound'),
           ...authFailures,
         },
@@ -1637,6 +1822,14 @@ export const openapiDocument = {
         parameters: [
           idParam('id', 'Asset UUID or pb_ playback ID.'),
           { name: 'expires_in', in: 'query', schema: { type: 'integer', default: 3600 } },
+          {
+            name: 'renew',
+            in: 'query',
+            schema: { type: 'string' },
+            description:
+              'Set (any value) when replacing a map the player already holds during one ' +
+              'watch, so it is not counted as another play. The SDK sets it.',
+          },
         ],
         responses: {
           '200': jsonResponse('SharePlaybackInfo', 'Share URL map.'),
@@ -1755,12 +1948,47 @@ export const openapiDocument = {
           '201': jsonResponse('ApiKeyRotated', 'The replacement key, with its secret shown once.'),
           '400': errorWith('A malformed id or grace period.'),
           '404': ref('NotFound'),
-          '409': errorWith('The key was already rotated; rotate its replacement instead.'),
+          '409': errorWith('The key was already rotated. Rotate its replacement instead.'),
           ...authFailures,
         },
       },
     },
     '/api/v1/keys/{id}': {
+      patch: {
+        tags: ['Keys'],
+        summary: 'Rename an API key.',
+        description:
+          'Changes only the name; the secret, scopes and rate limit stay. A key of another ' +
+          'account, a revoked key and a key past its grace period answer 404.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Key id.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['name'],
+                properties: {
+                  name: {
+                    type: 'string',
+                    minLength: 1,
+                    maxLength: 100,
+                    description: 'Trimmed; no control characters.',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': jsonResponse('ApiKey', 'The renamed key.'),
+          '400': ref('BadRequest'),
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
+      },
       delete: {
         tags: ['Keys'],
         summary: 'Delete an API key.',
@@ -1801,6 +2029,7 @@ export const openapiDocument = {
                   url: {
                     type: 'string',
                     format: 'uri',
+                    maxLength: 2048,
                     description: 'Absolute http(s) URL on a public address.',
                   },
                   events: {
@@ -1833,7 +2062,9 @@ export const openapiDocument = {
       get: {
         tags: ['Webhooks'],
         summary: 'List webhook endpoints.',
-        description: 'Needs `manage`, like creating them: receiver URLs often carry credentials.',
+        description:
+          'Every endpoint of the account, paused ones included, newest first. Needs `manage`, ' +
+          'like creating them: receiver URLs often carry credentials.',
         'x-required-scope': 'manage',
         responses: {
           '200': jsonResponse('WebhookList', 'Endpoints.'),
@@ -1872,13 +2103,42 @@ export const openapiDocument = {
         },
       },
     },
+    '/api/v1/webhooks/{id}/rotate-secret': {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Replace the signing secret of a webhook endpoint.',
+        description:
+          'For a secret that leaked. The old secret stops at once: every request from now on, ' +
+          'retries of earlier events included, is signed with the new one, which is returned ' +
+          'only here.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Endpoint id.')],
+        responses: {
+          '200': jsonSchemaResponse(
+            {
+              type: 'object',
+              required: ['id', 'secret'],
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                secret: { type: 'string', description: 'The new signing secret, shown once.' },
+              },
+            },
+            'The new secret.',
+          ),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
+      },
+    },
     '/api/v1/webhooks/{id}/deliveries': {
       get: {
         tags: ['Webhooks'],
         summary: "The endpoint's latest delivery attempts, newest first.",
         description:
           'One entry per attempt: id, event_id, event, status_code, delivered, error, attempt ' +
-          '(1 for the first try) and created_at. Response bodies are never stored.',
+          '(1 for the first try), created_at, the payload that was sent, and manual (true for a ' +
+          'resend). Response bodies are never stored. Attempts are kept for 30 days.',
         'x-required-scope': 'manage',
         parameters: [
           idParam('id', 'Endpoint id.'),
@@ -1908,6 +2168,8 @@ export const openapiDocument = {
                       'error',
                       'attempt',
                       'created_at',
+                      'payload',
+                      'manual',
                     ],
                     properties: {
                       id: { type: 'string' },
@@ -1918,6 +2180,15 @@ export const openapiDocument = {
                       error: nullable('string'),
                       attempt: { type: 'integer', minimum: 1 },
                       created_at: { type: 'string', format: 'date-time' },
+                      payload: {
+                        type: 'object',
+                        description:
+                          'The JSON body that was sent: `{ id, event, timestamp, data }`.',
+                      },
+                      manual: {
+                        type: 'boolean',
+                        description: 'True for an attempt of a resend someone asked for.',
+                      },
                     },
                   },
                 },
@@ -1931,7 +2202,109 @@ export const openapiDocument = {
         },
       },
     },
+    '/api/v1/webhooks/{id}/deliveries/{deliveryId}/redeliver': {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Send a logged delivery again.',
+        description:
+          'Queues the stored payload of the delivery again, with the same event `id` so a ' +
+          'receiver that already handled it can drop the repeat. It is signed with the current ' +
+          'secret, gets a new X-Sluby-Delivery id and the usual retries, and each attempt is ' +
+          'logged with `manual: true`. A paused endpoint answers 409.',
+        'x-required-scope': 'manage',
+        parameters: [
+          idParam('id', 'Endpoint id.'),
+          idParam('deliveryId', 'The `id` of an entry in the delivery log.'),
+        ],
+        responses: {
+          '202': jsonSchemaResponse(
+            {
+              type: 'object',
+              required: ['delivery_id'],
+              properties: {
+                delivery_id: {
+                  type: 'string',
+                  description: 'The X-Sluby-Delivery header the resend carries.',
+                },
+              },
+            },
+            'Queued.',
+          ),
+          '400': badId,
+          '404': ref('NotFound'),
+          '409': errorWith('The endpoint is paused.'),
+          ...authFailures,
+        },
+      },
+    },
     '/api/v1/webhooks/{id}': {
+      get: {
+        tags: ['Webhooks'],
+        summary: 'Get a webhook endpoint.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Endpoint id.')],
+        responses: {
+          '200': jsonResponse('Webhook', 'The endpoint.'),
+          '400': badId,
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
+      },
+      patch: {
+        tags: ['Webhooks'],
+        summary: 'Edit, pause or resume a webhook endpoint.',
+        description:
+          'Send any of `url`, `events` and `is_active`. A new URL is checked like at registration. ' +
+          '`is_active: false` pauses the endpoint: nothing is sent to it, and deliveries already ' +
+          'queued for it are dropped. `is_active: true` resumes it for new events. The signing ' +
+          'secret does not change.',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Endpoint id.')],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                minProperties: 1,
+                properties: {
+                  url: {
+                    type: 'string',
+                    format: 'uri',
+                    maxLength: 2048,
+                    description: 'Absolute http(s) URL on a public address.',
+                  },
+                  events: {
+                    type: 'array',
+                    minItems: 1,
+                    items: {
+                      type: 'string',
+                      enum: [
+                        'upload.started',
+                        'upload.completed',
+                        'upload.failed',
+                        'processing.started',
+                        'asset.ready',
+                        'asset.errored',
+                      ],
+                    },
+                    description:
+                      'Replaces the subscribed events. An event listed twice counts once.',
+                  },
+                  is_active: { type: 'boolean', description: 'False pauses, true resumes.' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': jsonResponse('Webhook', 'The endpoint as it is now.'),
+          '400': ref('BadRequest'),
+          '404': ref('NotFound'),
+          ...authFailures,
+        },
+      },
       delete: {
         tags: ['Webhooks'],
         summary: 'Delete a webhook endpoint.',
@@ -1991,6 +2364,50 @@ export const openapiDocument = {
           'like any other account.',
         'x-required-scope': 'read',
         responses: { '200': jsonResponse('AssetStats', 'Totals.'), ...authFailures },
+      },
+    },
+    '/api/v1/stats/usage': {
+      get: {
+        tags: ['Ops'],
+        summary: 'Plays per day of your videos.',
+        description:
+          'Plays of the caller’s videos per UTC day for the last `days` days, today included, ' +
+          'oldest first, with days without plays as 0. What counts as a play is described on ' +
+          '`play_count` of an asset. The platform identity gets every account together.',
+        'x-required-scope': 'read',
+        parameters: [
+          {
+            name: 'days',
+            in: 'query' as const,
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 90, default: 30 },
+          },
+        ],
+        responses: {
+          '200': jsonSchemaResponse(
+            {
+              type: 'object',
+              required: ['days', 'total'],
+              properties: {
+                days: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['date', 'plays'],
+                    properties: {
+                      date: { type: 'string', format: 'date', description: 'YYYY-MM-DD, UTC.' },
+                      plays: { type: 'integer', minimum: 0 },
+                    },
+                  },
+                },
+                total: { type: 'integer', minimum: 0, description: 'Plays over all the days.' },
+              },
+            },
+            'Plays per day.',
+          ),
+          '400': ref('BadRequest'),
+          ...authFailures,
+        },
       },
     },
     '/api/v1/system/status': {
@@ -2091,7 +2508,9 @@ export const openapiDocument = {
           'asset’s signed master url; the child urls in the answer are then signed too. A ' +
           'signed playback ID gates only this entry: on a public asset its objects stay ' +
           'public, so the bytes are not private (make the asset private for that), and other ' +
-          'embeds of the asset keep playing. A public answer is cached like a public object.',
+          'embeds of the asset keep playing. A public answer carries an ETag and ' +
+          '`public, no-cache`, but no shared cache keeps it: each 200 GET counts as a play ' +
+          '(see `play_count` on an asset); HEAD and 304 do not.',
         security: [],
         parameters: [
           idParam('videoAssetId', 'Asset UUID or pb_ playback ID.'),
@@ -2128,8 +2547,9 @@ export const openapiDocument = {
           '`sig` of its signed master URL, and the shares then never outlive `expires`. ' +
           'Expiries are capped like the authenticated route (six hours, one hour when gated) ' +
           'and rounded to five-minute slots that the server caches, so repeated calls do not ' +
-          'mint again. A gated map is sent `private, no-store`; a public one may be kept by ' +
-          'the shipped nginx for up to a minute and is revalidated by every other cache. ' +
+          'mint again. Every map is sent `no-store` (`private, no-store` when gated): minting ' +
+          'one is how a direct-from-Sia play reaches the server, and each counts as a play ' +
+          '(see `play_count` on an asset), unless `renew` is set. ' +
           'Share URLs already handed out keep working until they expire, whatever happens to ' +
           'the asset meanwhile.',
         security: [],

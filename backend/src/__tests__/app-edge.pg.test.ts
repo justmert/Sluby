@@ -38,7 +38,7 @@ describe.skipIf(!hasTestDatabase)('app edge: cors, limits and headers (postgres)
       startedAt: new Date(),
       queues: { transcode: queue, uploadSegments: queue, finalize: queue, deletion: queue },
       pingRedis: async () => {},
-      webhookDispatcher: { dispatch: async () => {} },
+      webhookDispatcher: { dispatch: async () => {}, enqueue: async () => {} },
       triggerReconciliation: async () => ({ enqueued: false }),
     }).app;
   }

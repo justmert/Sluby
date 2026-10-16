@@ -22,6 +22,9 @@ export interface ApiKeyRecord {
   isActive: boolean;
   createdAt: Date;
   expiresAt: Date | null;
+  /** Null for keys created before prefixes were stored. */
+  prefix: string | null;
+  lastUsedAt: Date | null;
 }
 
 export interface KeyRouteDeps {
@@ -29,6 +32,7 @@ export interface KeyRouteDeps {
   createApiKey: (
     data: {
       keyHash: string;
+      prefix: string;
       name: string;
       scopes: string[];
       rateLimit: number;
@@ -44,6 +48,12 @@ export interface KeyRouteDeps {
     owner: string | undefined,
     page: { limit: number; cursor?: CursorKey },
   ) => Promise<{ data: ApiKeyRecord[]; hasMore: boolean; nextCursor: string | null }>;
+  /** Renames a usable key of `owner`; null when there is none. */
+  renameApiKey: (
+    id: string,
+    owner: string | undefined,
+    name: string,
+  ) => Promise<ApiKeyRecord | null>;
   /** Deletes only if the key belongs to `owner`; false when it does not. */
   deleteApiKey: (id: string, owner?: string) => Promise<boolean>;
   /**
@@ -54,7 +64,7 @@ export interface KeyRouteDeps {
   rotateApiKey: (
     id: string,
     owner: string | undefined,
-    replacement: { keyHash: string },
+    replacement: { keyHash: string; prefix: string },
     retireAt: Date,
   ) => Promise<
     | { status: 'rotated'; replacement: ApiKeyRecord; retiredAt: Date }
@@ -79,6 +89,8 @@ function formatKey(k: ApiKeyRecord) {
     is_active: k.isActive,
     created_at: k.createdAt.toISOString(),
     expires_at: k.expiresAt ? k.expiresAt.toISOString() : null,
+    prefix: k.prefix,
+    last_used_at: k.lastUsedAt ? k.lastUsedAt.toISOString() : null,
   };
 }
 
@@ -99,6 +111,8 @@ const createBodySchema = z
       .optional(),
   })
   .strict();
+
+const updateBodySchema = z.object({ name: keyNameSchema }).strict();
 
 const listQuerySchema = z.object({
   limit: integerParam('limit', 1, LIST_LIMIT_MAX).optional(),
@@ -135,10 +149,11 @@ export function createKeyRoutes(
       throw new AppError(400, `rate_limit must be at most ${limits.rateLimitMax}`);
     }
 
-    const { key, hash } = generateApiKey();
+    const { key, hash, prefix } = generateApiKey();
     const created = await deps.createApiKey(
       {
         keyHash: hash,
+        prefix,
         name: body.name,
         scopes,
         rateLimit,
@@ -149,7 +164,8 @@ export function createKeyRoutes(
     if (!created) {
       throw new AppError(
         409,
-        `This account already has ${limits.keysPerAccountMax} API keys; delete one first`,
+        `This account already has ${limits.keysPerAccountMax} API keys, the most allowed. ` +
+          'Revoke one you no longer use, then try again.',
       );
     }
 
@@ -178,6 +194,8 @@ export function createKeyRoutes(
       data: page.data.map(formatKey),
       has_more: page.hasMore,
       next_cursor: page.nextCursor,
+      // so a form can check a new key against them before sending it
+      limits: { max_keys: limits.keysPerAccountMax, max_rate_limit: limits.rateLimitMax },
     });
   });
 
@@ -200,18 +218,18 @@ export function createKeyRoutes(
     // rotating the key you are calling with is fine: the request is already
     // authenticated, and the grace period decides how long it keeps working
 
-    const { key, hash } = generateApiKey();
+    const { key, hash, prefix } = generateApiKey();
     const result = await deps.rotateApiKey(
       id,
       ownerFilter(req.apiKey!.creatorAddress),
-      { keyHash: hash },
+      { keyHash: hash, prefix },
       new Date(Date.now() + grace * 1000),
     );
     if (result.status === 'not_found') {
       throw new AppError(404, 'API key not found');
     }
     if (result.status === 'already_rotated') {
-      throw new AppError(409, 'API key was already rotated; rotate its replacement instead');
+      throw new AppError(409, 'This key was already rotated. Rotate its replacement instead.');
     }
 
     res.status(201).json({
@@ -220,6 +238,21 @@ export function createKeyRoutes(
       rotated_from: id,
       previous_key_expires_at: result.retiredAt.toISOString(),
     });
+  });
+
+  /**
+   * PATCH /api/v1/keys/:id
+   * Rename a key. Its secret, scopes and limit stay as they are.
+   */
+  router.patch('/:id', requireScope('manage'), async (req: Request, res: Response) => {
+    const body = parseOrThrow(updateBodySchema, req.body ?? {});
+    const updated = await deps.renameApiKey(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+      body.name,
+    );
+    if (!updated) throw new AppError(404, 'API key not found');
+    res.json(formatKey(updated));
   });
 
   /**

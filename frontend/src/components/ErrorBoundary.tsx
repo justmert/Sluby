@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { CircleAlert, RotateCcw, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PageState } from '@/components/layout/PageState';
 import { reloadPage } from '@/lib/navigation';
@@ -18,6 +18,23 @@ function isChunkLoadError(error: Error): boolean {
 }
 
 const RELOADED_AT_KEY = 'sluby-chunk-reload-at';
+
+// firefox rejects the dynamic imports in flight once the page starts to
+// unload, with the same message as a missing chunk; reloading then would
+// replace the navigation the user just started. a leave that was called off
+// (a "leave site?" prompt) counts for a few seconds only.
+const LEAVING_MS = 5_000;
+let leavingSince = 0;
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    leavingSince = Date.now();
+  });
+  // back from the back/forward cache: the page is alive again
+  window.addEventListener('pageshow', () => {
+    leavingSince = 0;
+  });
+}
+const leaving = () => Date.now() - leavingSince < LEAVING_MS;
 
 /**
  * A redeploy replaces the hashed chunks, so a tab opened before it fails to
@@ -56,8 +73,23 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
-    if (isChunkLoadError(error)) reloadForNewBuild();
+    if (!isChunkLoadError(error)) return;
+    // offline, the chunk is missing because the network is, not because of a
+    // new build; reloading now would swap the studio for the browser's
+    // offline page. wait for the connection and try the page again then.
+    if (!navigator.onLine) {
+      window.addEventListener('online', this.retryOnline, { once: true });
+      return;
+    }
+    if (leaving()) return;
+    reloadForNewBuild();
   }
+
+  componentWillUnmount(): void {
+    window.removeEventListener('online', this.retryOnline);
+  }
+
+  private retryOnline = () => reloadPage();
 
   componentDidUpdate(prev: ErrorBoundaryProps): void {
     if (this.state.error && prev.resetKey !== this.props.resetKey) {
@@ -69,9 +101,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     const { error } = this.state;
     if (!error) return this.props.children;
     const chunk = isChunkLoadError(error);
+    if (chunk && !navigator.onLine) {
+      return (
+        <PageState
+          icon={WifiOff}
+          title="You are offline"
+          description="This page loads when the connection is back."
+          detail={error.message}
+        />
+      );
+    }
     return (
       <PageState
-        icon={AlertTriangle}
+        icon={CircleAlert}
         tone="error"
         title={chunk ? 'This page could not be loaded' : 'Something went wrong'}
         description={

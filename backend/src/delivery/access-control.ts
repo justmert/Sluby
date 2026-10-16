@@ -28,14 +28,16 @@ export type ObjectAccess =
   | { kind: 'unknown' }
   /** the owning asset is being deleted: not served */
   | { kind: 'gone' }
-  | { kind: 'public'; assetId: string }
+  /** `isMaster`: the object is the asset's HLS master playlist (a play starts there) */
+  | { kind: 'public'; assetId: string; isMaster: boolean }
   /** needs a signed url verified against `signing` */
-  | { kind: 'private'; assetId: string; signing: SigningState };
+  | { kind: 'private'; assetId: string; signing: SigningState; isMaster: boolean };
 
 interface AssetAccessState {
   tier: AccessTier;
   deleted: boolean;
   signing: SigningState;
+  masterObjectId: string | null;
 }
 
 const OBJECT_ID_RE = /^[0-9a-f]{64}$/;
@@ -62,6 +64,7 @@ interface StateRow {
   deleted: boolean;
   signing_generation: number;
   legacy_until: string | number | null;
+  manifest_object_id: string | null;
 }
 
 function toState(row: StateRow): AssetAccessState {
@@ -72,6 +75,7 @@ function toState(row: StateRow): AssetAccessState {
       generation: Number(row.signing_generation),
       legacyUntilSec: row.legacy_until === null ? null : Number(row.legacy_until),
     },
+    masterObjectId: row.manifest_object_id,
   };
 }
 
@@ -81,7 +85,8 @@ const stateColumns = sql`
   va.access_tier,
   va.deleted_at is not null as deleted,
   va.signing_generation,
-  floor(extract(epoch from va.legacy_signatures_until))::bigint as legacy_until
+  floor(extract(epoch from va.legacy_signatures_until))::bigint as legacy_until,
+  va.manifest_object_id
 `;
 
 /**
@@ -150,8 +155,19 @@ export async function resolveObjectAccess(objectId: string): Promise<ObjectAcces
   if (states.length === 0) return { kind: 'unknown' };
   if (states.some((s) => s.state.deleted)) return { kind: 'gone' };
   const priv = states.find((s) => s.state.tier === 'private');
-  if (priv) return { kind: 'private', assetId: priv.assetId, signing: priv.state.signing };
-  return { kind: 'public', assetId: states[0].assetId };
+  if (priv) {
+    return {
+      kind: 'private',
+      assetId: priv.assetId,
+      signing: priv.state.signing,
+      isMaster: priv.state.masterObjectId === objectId,
+    };
+  }
+  return {
+    kind: 'public',
+    assetId: states[0].assetId,
+    isMaster: states[0].state.masterObjectId === objectId,
+  };
 }
 
 /**

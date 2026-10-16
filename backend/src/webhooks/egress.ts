@@ -196,14 +196,35 @@ export interface EgressPolicy {
 export type EgressFailure =
   'invalid_url' | 'dns' | 'blocked' | 'timeout' | 'connect' | 'tls' | 'request';
 
+/**
+ * A receiver that could not be or may not be contacted. The message is shown
+ * to people as it is (registration refusals, the delivery log), so it is
+ * written for them; `detail` keeps the technical reason for the server log.
+ */
 export class EgressError extends Error {
   constructor(
     readonly kind: EgressFailure,
     message: string,
+    readonly detail?: string,
   ) {
     super(message);
     this.name = 'EgressError';
   }
+}
+
+/** Where a blocked address points, in the words of the refusal. */
+function blockedPlace(why: string): string {
+  if (/loopback|unspecified|this-network/.test(why)) return 'this machine';
+  if (/private|unique local|link-local|site-local|shared address/.test(why)) {
+    return 'a private network';
+  }
+  return 'a reserved address';
+}
+
+function noResponse(timeoutMs: number | undefined): string {
+  if (timeoutMs === undefined) return 'No response in time';
+  const seconds = timeoutMs / 1000;
+  return `No response within ${seconds} second${seconds === 1 ? '' : 's'}`;
 }
 
 function isAllowedByOperator(ip: string, policy: EgressPolicy): boolean {
@@ -219,10 +240,10 @@ const systemResolve = async (hostname: string): Promise<ResolvedAddress[]> =>
     family: a.family as 4 | 6,
   }));
 
-function rejectOnAbort(signal: AbortSignal | undefined): Promise<never> {
+function rejectOnAbort(signal: AbortSignal | undefined, timeoutMs?: number): Promise<never> {
   return new Promise((_, reject) => {
     if (!signal) return;
-    const fail = () => reject(new EgressError('timeout', 'timed out'));
+    const fail = () => reject(new EgressError('timeout', noResponse(timeoutMs)));
     if (signal.aborted) fail();
     else signal.addEventListener('abort', fail, { once: true });
   });
@@ -237,15 +258,20 @@ export async function vetUrl(
   raw: string,
   policy: EgressPolicy,
   signal?: AbortSignal,
+  /** How long `signal` allows, for the message when it runs out. */
+  timeoutMs?: number,
 ): Promise<{ url: URL; addresses: ResolvedAddress[] }> {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    throw new EgressError('invalid_url', 'not an absolute URL');
+    throw new EgressError(
+      'invalid_url',
+      'Enter a full URL, such as https://example.com/sluby-hook.',
+    );
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new EgressError('invalid_url', 'only http and https URLs are allowed');
+    throw new EgressError('invalid_url', 'The URL must start with https:// or http://.');
   }
   const host = url.hostname.replace(/^\[(.*)\]$/, '$1');
 
@@ -257,14 +283,14 @@ export async function vetUrl(
     try {
       addresses = await Promise.race([
         (policy.resolve ?? systemResolve)(host),
-        rejectOnAbort(signal),
+        rejectOnAbort(signal, timeoutMs),
       ]);
     } catch (err) {
       if (err instanceof EgressError) throw err;
-      throw new EgressError('dns', `the host name ${host} could not be resolved`);
+      throw new EgressError('dns', `${host} could not be found. Check the address.`);
     }
     if (addresses.length === 0) {
-      throw new EgressError('dns', `the host name ${host} has no addresses`);
+      throw new EgressError('dns', `${host} could not be found. Check the address.`);
     }
   }
 
@@ -273,7 +299,9 @@ export async function vetUrl(
     if (why && !isAllowedByOperator(address, policy)) {
       throw new EgressError(
         'blocked',
-        `${host} resolves to an address webhooks may not reach: ${why}`,
+        `Webhooks can only reach public addresses, and ${host} points to ${blockedPlace(why)}. ` +
+          'To allow it, add the network to WEBHOOK_ALLOWED_NETWORKS on the server.',
+        why,
       );
     }
   }
@@ -296,7 +324,7 @@ function pinnedLookup(addresses: ResolvedAddress[]): net.LookupFunction {
     const usable =
       wanted === 4 || wanted === 6 ? addresses.filter((a) => a.family === wanted) : addresses;
     if (usable.length === 0) {
-      cb(new EgressError('dns', 'no checked address of the requested family'), '');
+      cb(new EgressError('connect', 'Could not connect (no address of the requested family)'), '');
       return;
     }
     if ((options as { all?: boolean }).all) cb(null, usable);
@@ -304,17 +332,17 @@ function pinnedLookup(addresses: ResolvedAddress[]): net.LookupFunction {
   };
 }
 
-function classify(err: unknown, signal: AbortSignal): EgressError {
+function classify(err: unknown, signal: AbortSignal, timeoutMs: number): EgressError {
   if (err instanceof EgressError) return err;
-  if (signal.aborted) return new EgressError('timeout', 'timed out');
+  if (signal.aborted) return new EgressError('timeout', noResponse(timeoutMs));
   const code = (err as { code?: string }).code ?? '';
   if (['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE'].includes(code)) {
-    return new EgressError('connect', `connection failed (${code})`);
+    return new EgressError('connect', `Could not connect (${code})`);
   }
   if (code.startsWith('ERR_TLS') || code.includes('CERT') || code.startsWith('ERR_SSL')) {
-    return new EgressError('tls', `TLS failed (${code})`);
+    return new EgressError('tls', `Could not make a secure connection (${code})`);
   }
-  return new EgressError('request', code ? `request failed (${code})` : 'request failed');
+  return new EgressError('request', code ? `The request failed (${code})` : 'The request failed');
 }
 
 /**
@@ -334,7 +362,7 @@ export async function postToReceiver(
   },
 ): Promise<{ status: number }> {
   const signal = AbortSignal.timeout(opts.timeoutMs);
-  const { url, addresses } = await vetUrl(rawUrl, opts.policy, signal);
+  const { url, addresses } = await vetUrl(rawUrl, opts.policy, signal, opts.timeoutMs);
   const client = url.protocol === 'https:' ? https : http;
   const payload = Buffer.from(opts.body, 'utf8');
 
@@ -355,10 +383,10 @@ export async function postToReceiver(
         resolve(code);
       },
     );
-    req.on('error', (err) => reject(classify(err, signal)));
+    req.on('error', (err) => reject(classify(err, signal, opts.timeoutMs)));
     req.end(payload);
   }).catch((err: unknown) => {
-    throw classify(err, signal);
+    throw classify(err, signal, opts.timeoutMs);
   });
   return { status };
 }

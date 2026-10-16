@@ -8,6 +8,8 @@ export class AppError extends Error {
     message: string,
     /** Sent to the client as `details`, e.g. the list of invalid fields. */
     public details?: unknown,
+    /** More top-level fields of the body, such as a 401's `reason`. */
+    public extra?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'AppError';
@@ -74,7 +76,9 @@ export function createErrorHandler(
     // a 502 from an upstream; only unexpected errors get the generic text
     const exposeMessage = statusCode < 500 || err instanceof AppError;
     const details = err instanceof AppError ? err.details : undefined;
+    const extra = err instanceof AppError ? err.extra : undefined;
     res.status(statusCode).json({
+      ...extra,
       error: exposeMessage ? err.message : 'Internal Server Error',
       ...(details !== undefined ? { details } : {}),
       ...(opts.exposeStacks ? { message: err.message, stack: err.stack } : {}),

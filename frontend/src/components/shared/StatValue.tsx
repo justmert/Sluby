@@ -11,7 +11,8 @@ interface StatValueProps {
 }
 
 /**
- * The big number on a stat card. It sets its own size (24px, tabular digits)
+ * The big number on a stat card. It sets its own size (the figure role:
+ * 24/32 semibold, tabular digits)
  * so it does not depend on the card title, and it counts to new values
  * through NumberTicker. The loading skeleton is the number's 32px line box,
  * so nothing shifts when the value lands.
@@ -24,7 +25,7 @@ export function StatValue({ value, format, className }: StatValueProps) {
     <NumberTicker
       value={value}
       format={format}
-      className={cn('block font-heading text-2xl leading-8 font-semibold', className)}
+      className={cn('block font-heading text-figure tabular-nums', className)}
     />
   );
 }

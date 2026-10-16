@@ -36,6 +36,8 @@ function createMockAsset(overrides: Record<string, unknown> = {}) {
     creatorAddress: '0xabc123',
     segmentCount: 20,
     totalStorageBytes: 50_000_000,
+    playCount: 7,
+    lastPlayedAt: new Date('2025-01-02T00:00:00Z'),
     createdAt: new Date('2025-01-01T00:00:00Z'),
     updatedAt: new Date('2025-01-01T01:00:00Z'),
     ...overrides,
@@ -49,7 +51,7 @@ describe('asset routes', () => {
     deps = {
       listAssets: vi.fn().mockResolvedValue({ data: [], total: 0 }),
       getAsset: vi.fn().mockResolvedValue(null),
-      updateAsset: vi.fn().mockResolvedValue(null),
+      updateAsset: vi.fn().mockResolvedValue({ status: 'not_found' }),
       deleteAsset: vi.fn().mockResolvedValue(true),
       getProcessingJob: vi.fn().mockResolvedValue(undefined),
       getAssetRenditions: vi.fn().mockResolvedValue(null),
@@ -209,6 +211,22 @@ describe('asset routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.id).toBe('asset-1');
       expect(res.body.title).toBe('Test Video');
+      expect(res.body.play_count).toBe(7);
+      expect(res.body.last_played_at).toBe('2025-01-02T00:00:00.000Z');
+      // the version is updated_at in epoch milliseconds
+      expect(res.headers.etag).toBe(`"${Date.parse('2025-01-01T01:00:00Z')}"`);
+    });
+
+    it('answers a revalidation in full: plays change the body but not the version', async () => {
+      vi.mocked(deps.getAsset).mockResolvedValue(createMockAsset());
+      const first = await request(createApp()).get('/asset-1');
+      expect(first.headers['cache-control']).toBe('no-store');
+
+      const again = await request(createApp())
+        .get('/asset-1')
+        .set('If-None-Match', first.headers.etag);
+      expect(again.status).toBe(200);
+      expect(again.body.play_count).toBe(7);
     });
 
     it('should return 404 when asset not found', async () => {
@@ -252,7 +270,7 @@ describe('asset routes', () => {
   describe('PATCH /:id', () => {
     it('should update asset metadata', async () => {
       const updated = createMockAsset({ title: 'Updated Title' });
-      vi.mocked(deps.updateAsset).mockResolvedValue(updated);
+      vi.mocked(deps.updateAsset).mockResolvedValue({ status: 'updated', asset: updated });
 
       const res = await request(createApp())
         .patch('/asset-1')
@@ -264,11 +282,13 @@ describe('asset routes', () => {
         'asset-1',
         { title: 'Updated Title', description: 'New desc', accessTier: undefined },
         '0xabc123',
+        undefined,
       );
+      expect(res.headers.etag).toBe(`"${updated.updatedAt.getTime()}"`);
     });
 
     it('should return 404 when asset not found', async () => {
-      vi.mocked(deps.updateAsset).mockResolvedValue(null);
+      vi.mocked(deps.updateAsset).mockResolvedValue({ status: 'not_found' });
 
       const res = await request(createApp()).patch('/nonexistent').send({ title: 'New' });
 
@@ -286,7 +306,10 @@ describe('asset routes', () => {
     });
 
     it('should map access_tier to accessTier in dep call', async () => {
-      vi.mocked(deps.updateAsset).mockResolvedValue(createMockAsset());
+      vi.mocked(deps.updateAsset).mockResolvedValue({
+        status: 'updated',
+        asset: createMockAsset(),
+      });
 
       await request(createApp()).patch('/asset-1').send({ access_tier: 'private' });
 
@@ -294,7 +317,58 @@ describe('asset routes', () => {
         'asset-1',
         expect.objectContaining({ accessTier: 'private' }),
         '0xabc123',
+        undefined,
       );
+    });
+
+    it('passes the If-Match versions on, and answers 412 with the asset as it is now', async () => {
+      const current = createMockAsset({ title: 'Changed elsewhere' });
+      vi.mocked(deps.updateAsset).mockResolvedValue({ status: 'conflict', current });
+
+      const res = await request(createApp())
+        .patch('/asset-1')
+        .set('If-Match', '"1767225600000", W/"5"')
+        .send({ title: 'Mine' });
+
+      expect(deps.updateAsset).toHaveBeenCalledWith(
+        'asset-1',
+        expect.objectContaining({ title: 'Mine' }),
+        '0xabc123',
+        [1767225600000, 5],
+      );
+      expect(res.status).toBe(412);
+      expect(res.body.error).toBe('This video was changed somewhere else.');
+      expect(res.body.current).toMatchObject({ id: current.id, title: 'Changed elsewhere' });
+      expect(res.headers.etag).toBe(`"${current.updatedAt.getTime()}"`);
+    });
+
+    it('accepts the weak form of the etag, which a gzipping proxy such as the bundled nginx sends', async () => {
+      const asset = createMockAsset();
+      const version = asset.updatedAt.getTime();
+      vi.mocked(deps.updateAsset).mockResolvedValue({ status: 'updated', asset });
+
+      const res = await request(createApp())
+        .patch('/asset-1')
+        .set('If-Match', `W/"${version}"`)
+        .send({ title: 'Mine' });
+
+      expect(res.status).toBe(200);
+      expect(vi.mocked(deps.updateAsset).mock.calls[0][3]).toEqual([version]);
+    });
+
+    it('treats If-Match: * as no condition', async () => {
+      vi.mocked(deps.updateAsset).mockResolvedValue({
+        status: 'updated',
+        asset: createMockAsset(),
+      });
+      await request(createApp()).patch('/asset-1').set('If-Match', '*').send({ title: 'x' });
+      expect(vi.mocked(deps.updateAsset).mock.calls[0][3]).toBeUndefined();
+    });
+
+    it.each(['1767225600000', '"abc"', '"1", nope'])('rejects If-Match %s with 400', async (h) => {
+      const res = await request(createApp()).patch('/asset-1').set('If-Match', h).send({});
+      expect(res.status).toBe(400);
+      expect(deps.updateAsset).not.toHaveBeenCalled();
     });
   });
 
@@ -342,6 +416,7 @@ describe('asset routes', () => {
           { timestamp: 't1', stage: 'transcode', message: 'Transcode complete' },
           { timestamp: 't2', stage: 'upload', message: 'Uploading segments to Sia' },
         ],
+        retryable: false,
       });
 
       const res = await request(createApp()).get('/asset-1/processing');
@@ -352,6 +427,7 @@ describe('asset routes', () => {
         stage: 'upload',
         progress_percent: 72,
         retry_count: 0,
+        retryable: false,
       });
       expect(deps.getProcessingJob).toHaveBeenCalledWith('asset-1', '0xabc123');
     });
@@ -359,6 +435,15 @@ describe('asset routes', () => {
 });
 
 describe('processingStage', () => {
+  it('reports upload, not transcode, once the transcode handed off to the Sia uploader', () => {
+    expect(
+      processingStage('processing', [
+        { stage: 'transcode' },
+        { stage: 'upload' }, // Waiting for the Sia uploader
+      ]),
+    ).toBe('upload');
+  });
+
   it('prefers terminal job states and defaults to queued', () => {
     expect(processingStage('completed', [{ stage: 'upload' }])).toBe('completed');
     expect(processingStage('failed', [{ stage: 'transcode' }])).toBe('failed');

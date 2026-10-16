@@ -1,7 +1,8 @@
 import { eq, and, desc, or, isNull, gt, count, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { apiKeys, type ApiKey, type NewApiKey } from '../schema.js';
-import { generateApiKey, hashApiKey } from '../../api/auth/api-key.js';
+import { generateApiKey, hashApiKey, keyPrefix } from '../../api/auth/api-key.js';
+import { KEY_USE_INTERVAL_MS } from '../../api/auth/key-usage.js';
 import { paginateRows, type CursorKey, type Page } from '../../api/pagination.js';
 
 /**
@@ -17,7 +18,7 @@ export async function createApiKey(
   const { rawKey: _rawKey, ...rest } = data;
   const [apiKey] = await db
     .insert(apiKeys)
-    .values({ ...rest, keyHash })
+    .values({ ...rest, keyHash, prefix: keyPrefix(rawKey) })
     .returning();
 
   return { apiKey, rawKey };
@@ -30,7 +31,10 @@ export async function createApiKey(
  * the count and overshoot the cap. Null when the account is full.
  */
 export async function createApiKeyWithinCap(
-  values: Pick<NewApiKey, 'keyHash' | 'name' | 'scopes' | 'rateLimit' | 'creatorAddress'>,
+  values: Pick<
+    NewApiKey,
+    'keyHash' | 'prefix' | 'name' | 'scopes' | 'rateLimit' | 'creatorAddress'
+  >,
   maxKeys: number,
 ): Promise<ApiKey | null> {
   return db.transaction(async (tx) => {
@@ -120,6 +124,29 @@ export async function deleteApiKey(id: string, owner?: string): Promise<ApiKey |
   return deleted;
 }
 
+/**
+ * Rename a usable (active, unexpired) key. `owner` scopes it like deletion;
+ * undefined for the platform identity. Undefined when no such key.
+ */
+export async function renameApiKey(
+  id: string,
+  owner: string | undefined,
+  name: string,
+): Promise<ApiKey | undefined> {
+  const conditions = [
+    eq(apiKeys.id, id),
+    eq(apiKeys.isActive, true),
+    or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
+  ];
+  if (owner !== undefined) conditions.push(eq(apiKeys.creatorAddress, owner));
+  const [row] = await db
+    .update(apiKeys)
+    .set({ name })
+    .where(and(...conditions))
+    .returning();
+  return row;
+}
+
 export type RotateResult =
   | { status: 'rotated'; replacement: ApiKey; retiredAt: Date }
   | { status: 'not_found' }
@@ -135,7 +162,7 @@ export type RotateResult =
 export async function rotateApiKey(
   id: string,
   owner: string | undefined,
-  replacementHash: string,
+  replacement: { keyHash: string; prefix: string },
   retireAt: Date,
 ): Promise<RotateResult> {
   return db.transaction(async (tx) => {
@@ -157,10 +184,11 @@ export async function rotateApiKey(
     // successor; a second replacement would leave two live keys behind
     if (old.replacedById) return { status: 'already_rotated', replacedById: old.replacedById };
 
-    const [replacement] = await tx
+    const [created] = await tx
       .insert(apiKeys)
       .values({
-        keyHash: replacementHash,
+        keyHash: replacement.keyHash,
+        prefix: replacement.prefix,
         name: old.name,
         scopes: old.scopes,
         rateLimit: old.rateLimit,
@@ -171,8 +199,26 @@ export async function rotateApiKey(
     const retiredAt = old.expiresAt && old.expiresAt < retireAt ? old.expiresAt : retireAt;
     await tx
       .update(apiKeys)
-      .set({ expiresAt: retiredAt, replacedById: replacement.id })
+      .set({ expiresAt: retiredAt, replacedById: created.id })
       .where(eq(apiKeys.id, old.id));
-    return { status: 'rotated', replacement, retiredAt };
+    return { status: 'rotated', replacement: created, retiredAt };
   });
+}
+
+/**
+ * Mark key `id` as used now, unless the stored use is under a minute old.
+ * The condition makes replicas that each throttle on their own write at most
+ * about once a minute between them.
+ */
+export async function touchApiKeyLastUsed(id: string): Promise<void> {
+  const interval = `${KEY_USE_INTERVAL_MS} milliseconds`;
+  await db
+    .update(apiKeys)
+    .set({ lastUsedAt: sql`now()` })
+    .where(
+      and(
+        eq(apiKeys.id, id),
+        or(isNull(apiKeys.lastUsedAt), sql`${apiKeys.lastUsedAt} < now() - ${interval}::interval`),
+      ),
+    );
 }

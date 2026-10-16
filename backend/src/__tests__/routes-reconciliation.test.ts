@@ -63,6 +63,9 @@ describe('reconciliation routes', () => {
       getLatestRun: vi.fn().mockResolvedValue(sampleRun),
       // stands in for the postgres ownership query, which has its own tests
       filterReconciliationIdsOwnedBy: vi.fn().mockResolvedValue(['missing-2']),
+      findVideosForObjectIds: vi
+        .fn()
+        .mockResolvedValue([{ objectId: 'missing-2', videoAssetId: 'video-2', title: 'Two' }]),
       triggerRun: vi.fn().mockResolvedValue({ enqueued: true }),
     };
   });
@@ -85,11 +88,13 @@ describe('reconciliation routes', () => {
         status: 'drift',
         missing_count: 1,
         missing_ids: ['missing-2'],
+        missing_objects: [{ object_id: 'missing-2', video_asset_id: 'video-2', title: 'Two' }],
       });
       expect(deps.filterReconciliationIdsOwnedBy).toHaveBeenCalledWith(
         ['missing-1', 'missing-2'],
         '0xabc123',
       );
+      expect(deps.findVideosForObjectIds).toHaveBeenCalledWith(['missing-2'], '0xabc123');
     });
 
     it('tells a tenant with nothing missing that it is in sync, whatever the others have', async () => {
@@ -137,8 +142,17 @@ describe('reconciliation routes', () => {
         ...aggregates,
         scope: 'deployment',
         missing_ids: ['missing-1', 'missing-2'],
+        // an id no live video holds keeps its place, with no link
+        missing_objects: [
+          { object_id: 'missing-1', video_asset_id: null, title: null },
+          { object_id: 'missing-2', video_asset_id: 'video-2', title: 'Two' },
+        ],
         orphaned_ids: ['orphan-1'],
       });
+      expect(deps.findVideosForObjectIds).toHaveBeenCalledWith(
+        ['missing-1', 'missing-2'],
+        undefined,
+      );
       expect(deps.filterReconciliationIdsOwnedBy).not.toHaveBeenCalled();
     });
 
@@ -146,12 +160,17 @@ describe('reconciliation routes', () => {
       const res = await request(app(operatorKey)).get('/reconciliation');
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({
+      expect(res.body).toMatchObject({
         ...aggregates,
         scope: 'deployment',
         missing_ids: ['missing-1', 'missing-2'],
         orphaned_ids: ['orphan-1'],
       });
+      expect(res.body.missing_objects).toHaveLength(2);
+      expect(deps.findVideosForObjectIds).toHaveBeenCalledWith(
+        ['missing-1', 'missing-2'],
+        undefined,
+      );
       expect(deps.filterReconciliationIdsOwnedBy).not.toHaveBeenCalled();
     });
 

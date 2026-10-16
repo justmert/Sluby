@@ -7,6 +7,14 @@ export function loadPage(path: string): void {
   window.location.assign(path);
 }
 
+/**
+ * Like loadPage, but the current entry is replaced, so Back does not return
+ * to it. Used on sign out, where the page left behind showed private data.
+ */
+export function replacePage(path: string): void {
+  window.location.replace(path);
+}
+
 /** Load the current page again from the server. */
 export function reloadPage(): void {
   window.location.reload();

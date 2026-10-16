@@ -1,9 +1,24 @@
 import { env } from '../../config/env.js';
 import { hashApiKey } from './api-key.js';
-import { resolveSession, type FindActiveSession } from './session.js';
+import {
+  resolveSession,
+  whySessionEnded,
+  type FindActiveSession,
+  type FindSession,
+  type SessionEndReason,
+} from './session.js';
 import { resolveKeyOwner, type OwnerAccessDeps } from './access.js';
 import { isOperatorAccount } from './operators.js';
 import { userAddress } from '../ownership.js';
+
+// what a 401 says, by why the cookie did not count; with no cookie at all the
+// request simply lacked credentials
+const ENDED: Record<SessionEndReason, string> = {
+  missing: 'Missing or invalid Authorization header',
+  expired: 'This session has expired',
+  revoked: 'This session was signed out',
+  not_allowed: 'This account is not allowed on this server',
+};
 
 /** Who is making a request, as every route and tus see it. */
 export interface Caller {
@@ -30,16 +45,26 @@ export interface StoredApiKey {
   creatorAddress: string;
   isActive: boolean;
   expiresAt: Date | null;
+  lastUsedAt: Date | null;
 }
 
 export interface CallerDeps extends OwnerAccessDeps {
   findApiKeyByHash: (hash: string) => Promise<StoredApiKey | null>;
+  /** Note that a key authenticated; must not throw or wait (see key-usage.ts). */
+  recordKeyUse: (id: string, lastUsedAt: Date | null) => void;
   findActiveSession: FindActiveSession;
+  /** Any session row, to say why a cookie no longer signs in (see whySessionEnded). */
+  findSession: FindSession;
+  /** Note a session was used now; must not throw or wait. */
+  markSessionSeen: (sid: string) => void;
   /** The local dev account AUTH_DISABLED runs as, created on first use. */
   localDevAccount: () => Promise<{ userId: string; username: string; displayName: string }>;
 }
 
-export type CallerResult = { ok: true; caller: Caller } | { ok: false; error: string };
+export type CallerResult =
+  | { ok: true; caller: Caller }
+  /** `reason` is set when no key was sent, so the request was a browser's session. */
+  | { ok: false; error: string; reason?: SessionEndReason };
 
 // a studio session drives the whole api for its account, like a full key
 function accountCaller(userId: string, username: string, operator: boolean): Caller {
@@ -73,6 +98,7 @@ export async function resolveCaller(
     secret: env.SESSION_SECRET,
     findActiveSession: deps.findActiveSession,
     getAccount: deps.getAccount,
+    markSeen: deps.markSessionSeen,
   });
   if (signedIn) {
     const identity = signedIn.account.identities.find((i) => i.id === signedIn.session.identityId);
@@ -88,7 +114,12 @@ export async function resolveCaller(
 
   const auth = headers.authorization;
   if (!auth?.startsWith('Bearer ')) {
-    return { ok: false, error: 'Missing or invalid Authorization header' };
+    const reason = await whySessionEnded(headers.cookie, {
+      secret: env.SESSION_SECRET,
+      findSession: deps.findSession,
+      getAccount: deps.getAccount,
+    });
+    return { ok: false, error: ENDED[reason], reason };
   }
   const key = await deps.findApiKeyByHash(hashApiKey(auth.slice(7)));
   if (!key) return { ok: false, error: 'Invalid API key' };
@@ -101,6 +132,7 @@ export async function resolveCaller(
   if (!owner.allowed) {
     return { ok: false, error: "API key's account is not allowed on this server" };
   }
+  deps.recordKeyUse(key.id, key.lastUsedAt);
   return {
     ok: true,
     caller: {

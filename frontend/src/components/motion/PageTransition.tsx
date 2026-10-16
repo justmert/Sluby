@@ -3,7 +3,10 @@ import { useLocation } from 'react-router';
 import { cn } from '@/lib/utils';
 
 /**
- * Fades and lifts the routed page in when the pathname changes. Enter only:
+ * Fades and lifts the routed page in when the pathname changes. It wraps the
+ * route's suspense boundary too, so its one fade covers whichever shows first,
+ * the page or its skeleton; the skeleton then swaps to the page with no
+ * second fade (they share a shape). Enter only:
  * there is no exit, so the old page is never kept alive next to the new one
  * and no page mounts (or fetches) twice. Search and hash changes keep the
  * page mounted, so filters in the url do not replay the transition.
@@ -25,7 +28,7 @@ export function PageTransition({
       key={pathname}
       data-slot="page-transition"
       className={cn(
-        'flex min-h-full flex-col animate-in duration-200 ease-out-soft fade-in-0 slide-in-from-bottom-1',
+        'flex min-h-full flex-col animate-in transition-none duration-200 ease-out-soft fade-in-0 slide-in-from-bottom-1',
         className,
       )}
     >

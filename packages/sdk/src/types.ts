@@ -21,7 +21,17 @@ export interface VideoAsset {
   creatorAddress: string;
   segmentCount: number;
   totalStorageBytes: number;
+  /**
+   * All-time plays: player loads the server saw, through the gateway or by
+   * minting a share map to play direct from Sia. One viewer loading the same
+   * video again within 30 minutes counts once, and Studio previews do not
+   * count. New plays show up within about 10 seconds.
+   */
+  playCount: number;
+  /** When the newest counted play happened; null before the first. */
+  lastPlayedAt: string | null;
   createdAt: string;
+  /** Also the asset's version: `assets.update` can send it as If-Match. */
   updatedAt: string;
 }
 
@@ -43,6 +53,12 @@ export interface ProcessingJob {
   completedAt: string | null;
   createdAt: string;
   logs: Array<{ timestamp: string; stage: string; message: string }>;
+  /**
+   * Whether `assets.retry` can start a new run: true only for a failed asset
+   * whose failure was not final (a file that is not a readable video is) and
+   * whose transcode output or original file is still on the server.
+   */
+  retryable: boolean;
 }
 
 /** Where an asset's failed processing restarted: the whole run, or only the Sia upload. */
@@ -125,6 +141,63 @@ export interface AssetStats {
   objectCount: number;
 }
 
+/** A missing object of the storage check, with the video that holds it. */
+export interface MissingObject {
+  objectId: string;
+  /** Null when no live video holds the object any more. */
+  videoAssetId: string | null;
+  title: string | null;
+}
+
+interface ReconciliationReportBase {
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  createdAt: string;
+  /** `drift` when objects are missing (for `account`: objects of the caller's videos). */
+  status: 'ok' | 'drift' | 'failed';
+  missingCount: number;
+  /** Tracked by a video, absent from the indexer. */
+  missingIds: string[];
+  /** `missingIds` in the same order, each with its video. */
+  missingObjects: MissingObject[];
+}
+
+/** The whole deployment's check, for the platform identity and operators. */
+export interface ReconciliationReportDeployment extends ReconciliationReportBase {
+  scope: 'deployment';
+  dbObjectCount: number;
+  indexerObjectCount: number;
+  inSyncCount: number;
+  orphanCount: number;
+  /** Pinned on the indexer, tracked by no video. */
+  orphanedIds: string[];
+  errorMessage: string | null;
+}
+
+/** One account's part of the check: only its own missing objects. */
+export interface ReconciliationReportAccount extends ReconciliationReportBase {
+  scope: 'account';
+}
+
+/** The latest storage check from `reconciliation.latest()`. */
+export type ReconciliationReport = ReconciliationReportDeployment | ReconciliationReportAccount;
+
+/** The answer of `reconciliation.run()`. */
+export interface ReconciliationTrigger {
+  enqueued: boolean;
+  /** A check was already waiting or running, so nothing new was queued. */
+  alreadyPending: boolean;
+}
+
+/** Plays per UTC day from `assets.usage()`. */
+export interface UsageReport {
+  /** Oldest first, today last; a day without plays has `plays: 0`. */
+  days: Array<{ date: string; plays: number }>;
+  /** Plays over all the days. */
+  total: number;
+}
+
 /** Who may play through a playback id: anyone, or only signed URLs. */
 export type PlaybackPolicy = 'public' | 'signed';
 
@@ -154,6 +227,20 @@ export interface ApiKey {
   createdAt: string;
   /** Set while a rotated-out key is in its grace period; null otherwise. */
   expiresAt: string | null;
+  /** The first 12 characters of the key, to tell keys apart; null for keys made before it was stored. */
+  prefix: string | null;
+  /** When the key last authenticated a request, to the minute; null if never since recorded. */
+  lastUsedAt: string | null;
+}
+
+/** A page of keys, with the server's limits on keys. */
+export interface ApiKeyPage extends CursorPage<ApiKey> {
+  limits: {
+    /** How many usable keys one account may hold. */
+    maxKeys: number;
+    /** The highest `rateLimit` a key may have. */
+    maxRateLimit: number;
+  };
 }
 
 /** A newly created key: the listing shape plus the raw secret, shown only here. */
@@ -175,8 +262,22 @@ export interface WebhookEndpoint {
   id: string;
   url: string;
   events: WebhookEventName[];
+  /** False while the endpoint is paused: nothing is sent to it. */
   isActive: boolean;
   createdAt: string;
+  /** When the newest delivery attempt was made; null before the first. */
+  lastDeliveryAt: string | null;
+  /** Whether that attempt got a 2xx answer; null before the first. */
+  lastDeliveryOk: boolean | null;
+}
+
+/** Fields to change on a webhook endpoint; send at least one. */
+export interface UpdateWebhookEndpointInput {
+  url?: string;
+  /** Replaces the subscribed events. */
+  events?: WebhookEventName[];
+  /** False pauses the endpoint, true resumes it. */
+  isActive?: boolean;
 }
 
 /** A newly registered endpoint with its signing secret, shown only here. */
@@ -211,6 +312,22 @@ export interface WebhookDelivery {
   /** 1 for the first try. */
   attempt: number;
   createdAt: string;
+  /** The JSON body that was sent: `{ id, event, timestamp, data }`. */
+  payload: Record<string, unknown>;
+  /** True for an attempt of a resend made with `webhookEndpoints.redeliver`. */
+  manual: boolean;
+}
+
+/** A browser signed in to the Studio, from `sessions.list()`. */
+export interface StudioSession {
+  id: string;
+  userAgent: string | null;
+  createdAt: string;
+  expiresAt: string;
+  /** The last request made with it, to within five minutes; null if none since recorded. */
+  lastSeenAt: string | null;
+  /** The session making the request. */
+  current: boolean;
 }
 
 /** A page of a list that pages by cursor only. */

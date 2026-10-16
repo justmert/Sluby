@@ -116,7 +116,7 @@ describe.skipIf(!hasTestDatabase)('sdk uploads against the backend (postgres)', 
         deletion: fakeQueue(),
       },
       pingRedis: async () => {},
-      webhookDispatcher: { dispatch: async () => {} },
+      webhookDispatcher: { dispatch: async () => {}, enqueue: async () => {} },
       triggerReconciliation: async () => ({ enqueued: true }),
     });
     server.on('request', app);

@@ -1,16 +1,33 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
-import { statusOf } from './api-client';
+import { retryAfterOf, statusOf } from './api-client';
+import { isTimeout } from './errors';
+import { sessionEndReasonOf } from './session';
 import { reportUnauthorized } from './session-events';
 
 function onError(err: unknown) {
-  if (statusOf(err) === 401) reportUnauthorized();
+  if (statusOf(err) === 401) reportUnauthorized(sessionEndReasonOf(err));
 }
 
-// a 4xx answer will not change on a second try; a 5xx or a network error might
-function retry(failureCount: number, err: unknown): boolean {
+// a 4xx answer will not change on a second try; a 5xx or a network error
+// might. a 429 is worth one quiet retry after a short wait; a longer one is
+// shown, since the page would sit on its skeletons for all of it. a timeout
+// is not retried: a second 15 s wait would put the timeout message at 31 s,
+// twice the budget people were promised
+const QUIET_RATE_WAIT_S = 5;
+
+export function retry(failureCount: number, err: unknown): boolean {
+  if (isTimeout(err)) return false;
   const status = statusOf(err);
+  if (status === 429) return failureCount < 1 && (retryAfterOf(err) ?? 0) <= QUIET_RATE_WAIT_S;
   if (status !== undefined && status >= 400 && status < 500) return false;
   return failureCount < 1;
+}
+
+// waits as long as a 429 asked, else react query's usual backoff
+export function retryDelay(failureCount: number, err: unknown): number {
+  const after = retryAfterOf(err);
+  if (after !== undefined) return Math.min(after, 30) * 1000;
+  return Math.min(1000 * 2 ** failureCount, 30_000);
 }
 
 export function createQueryClient(): QueryClient {
@@ -18,7 +35,7 @@ export function createQueryClient(): QueryClient {
     queryCache: new QueryCache({ onError }),
     mutationCache: new MutationCache({ onError }),
     defaultOptions: {
-      queries: { staleTime: 30_000, retry },
+      queries: { staleTime: 30_000, retry, retryDelay },
     },
   });
 }

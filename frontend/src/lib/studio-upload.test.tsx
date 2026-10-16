@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthGate } from '@/components/AuthGate';
 import { fakeUploadClient } from '@/test/fake-uploads';
 import { createQueryClient } from './query-client';
-import { uploadStore } from './studio-upload';
+import { onUnauthorized } from './session-events';
+import { readUploadLimit, uploadStore } from './studio-upload';
 
 // tus cannot run in jsdom, so the studio's sdk client is the hand-driven fake;
 // the store, the session events and the gate are the real ones
@@ -51,6 +52,8 @@ describe('studio upload store', () => {
     uploadStore.start(new File([new Uint8Array(10)], 'clip.mp4', { type: 'video/mp4' }), {
       title: 'Clip',
     });
+    // the transfer starts once this tab has claimed the file from the others
+    await vi.waitFor(() => expect(fake.current!.upload).toHaveBeenCalled());
     fake.current!.current().fail(new AuthenticationError('Not signed in'));
 
     expect(
@@ -59,5 +62,42 @@ describe('studio upload store', () => {
     expect(screen.getByRole('button', { name: /sign in with github/i })).toBeInTheDocument();
     expect(screen.queryByText('studio')).not.toBeInTheDocument();
     expect(uploadStore.getState().uploads[0]).toMatchObject({ authFailed: true });
+  });
+
+  it('reads the upload limit from the tus OPTIONS answer', async () => {
+    const fetchStub = vi.fn(
+      async () => new Response(null, { status: 204, headers: { 'Tus-Max-Size': '10737418240' } }),
+    );
+    vi.stubGlobal('fetch', fetchStub);
+    expect(await readUploadLimit()).toBe(10_737_418_240);
+    expect(fetchStub).toHaveBeenCalledWith(
+      '/api/v1/uploads',
+      expect.objectContaining({ method: 'OPTIONS' }),
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 204 })),
+    );
+    expect(await readUploadLimit()).toBeNull();
+  });
+
+  it('tells the gate why the session ended when an upload answers 401 with a reason', async () => {
+    const reasons: unknown[] = [];
+    const stop = onUnauthorized((reason) => reasons.push(reason));
+    uploadStore.start(new File([new Uint8Array(10)], 'other.mp4', { type: 'video/mp4' }), {
+      title: 'Other',
+    });
+    await vi.waitFor(() => expect(fake.current!.upload).toHaveBeenCalled());
+    fake
+      .current!.current()
+      .fail(
+        new AuthenticationError(
+          'Session revoked',
+          401,
+          JSON.stringify({ error: 'Session revoked', reason: 'revoked' }),
+        ),
+      );
+    await vi.waitFor(() => expect(reasons).toEqual(['revoked']));
+    stop();
   });
 });

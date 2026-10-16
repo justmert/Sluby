@@ -95,6 +95,51 @@ describe.skipIf(!hasTestDatabase)('asset queries (postgres)', () => {
     });
   });
 
+  describe('updateAssetMetadata with If-Match', () => {
+    const version = (d: Date) => d.getTime();
+
+    it('applies an edit made from the current version and moves the version on', async () => {
+      const a = await asset({ title: 'old' });
+      const edited = await q.updateAssetMetadata(a.id, { title: 'new' }, 'alice', [
+        version(a.updatedAt),
+      ]);
+      expect(edited?.title).toBe('new');
+      expect(version(edited!.updatedAt)).toBeGreaterThan(version(a.updatedAt));
+    });
+
+    it('refuses an edit made from an older version', async () => {
+      const a = await asset({ title: 'old' });
+      const first = await q.updateAssetMetadata(a.id, { title: 'tab one' }, 'alice', [
+        version(a.updatedAt),
+      ]);
+      expect(first?.title).toBe('tab one');
+      // the second tab still holds the version it loaded
+      const second = await q.updateAssetMetadata(a.id, { title: 'tab two' }, 'alice', [
+        version(a.updatedAt),
+      ]);
+      expect(second).toBeUndefined();
+      expect((await q.getVideoAssetById(a.id, 'alice'))?.title).toBe('tab one');
+    });
+
+    it('gives two edits within one millisecond two versions', async () => {
+      const a = await asset();
+      await tdb.sql`update video_assets set updated_at = now() + interval '1 hour' where id = ${a.id}`;
+      const [row] = await tdb.sql`select updated_at from video_assets where id = ${a.id}`;
+      const one = await q.updateAssetMetadata(a.id, { title: 'one' }, 'alice');
+      const two = await q.updateAssetMetadata(a.id, { title: 'two' }, 'alice');
+      expect(version(one!.updatedAt)).toBe(version(row.updated_at as Date) + 1);
+      expect(version(two!.updatedAt)).toBe(version(one!.updatedAt) + 1);
+    });
+
+    it('matches any of several versions, and none of an empty list', async () => {
+      const a = await asset();
+      expect(
+        await q.updateAssetMetadata(a.id, { title: 'x' }, 'alice', [1, version(a.updatedAt)]),
+      ).toBeDefined();
+      expect(await q.updateAssetMetadata(a.id, { title: 'y' }, 'alice', [])).toBeUndefined();
+    });
+  });
+
   describe('listVideoAssets', () => {
     it('lists only the owner’s assets and counts only those', async () => {
       await asset({ creatorAddress: 'alice', title: 'a1' });

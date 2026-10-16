@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
-import type { VideoAssetStatus } from '@sluby/sdk';
-import { failedForGood } from '@/hooks/asset-queries';
+import { useRef } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ProcessingJob, VideoAsset, VideoAssetStatus } from '@sluby/sdk';
+import { errorStatus, failedForGood, useSendingAssetIds } from '@/hooks/asset-queries';
 import { apiClient } from '@/lib/api-client';
 import { sluby } from '@/lib/sluby';
 
@@ -76,27 +77,118 @@ export function useAssetSiaInfo(id: string | undefined, enabled: boolean) {
   });
 }
 
+/** Poll fast while the job moves, slowly while it sits still (FLW-26). */
+export const JOB_POLL_FAST_MS = 2_000;
+export const JOB_POLL_SLOW_MS = 10_000;
+/** How long a job may sit without a change before polling slows down. */
+export const JOB_STILL_AFTER_MS = 10_000;
+
+// what changes when a job moves on: stage, percent, status and new log lines
+const jobSignature = (job: ProcessingJob | undefined) =>
+  job ? `${job.status}:${job.stage}:${job.progressPercent}:${job.logs.length}` : '';
+
+export interface JobPollState {
+  signature: string;
+  /** when the job last changed */
+  at: number;
+}
+
+/**
+ * How long to wait before reading a running job again, and the state to
+ * keep for the next call: 2 seconds while it moves, 10 once it has not
+ * changed for 10 seconds.
+ */
+export function nextJobPoll(
+  job: ProcessingJob | undefined,
+  last: JobPollState,
+  now: number,
+): { delay: number; state: JobPollState } {
+  const signature = jobSignature(job);
+  const state = signature === last.signature ? last : { signature, at: now };
+  const delay = now - state.at < JOB_STILL_AFTER_MS ? JOB_POLL_FAST_MS : JOB_POLL_SLOW_MS;
+  return { delay, state };
+}
+
 /**
  * The asset's processing job. It is keyed on the asset's status too: the job
  * appears when the upload finishes and restarts on a retry, and both show up
- * as a status change first.
+ * as a status change first. While the job runs it is read every 2 seconds
+ * while it moves and every 10 once it has sat still for 10 seconds (a long
+ * wait for the Sia uploader, say); react query stops polling while the tab
+ * is hidden.
  */
+const ended = (job: ProcessingJob) => job.status === 'completed' || job.status === 'failed';
+
 export function useProcessingJob(
   id: string | undefined,
   assetStatus: VideoAssetStatus | undefined,
   enabled: boolean,
-  interval = 3_000,
+  /** a fixed interval instead of the fast-then-slow one */
+  interval?: number,
 ) {
+  const seen = useRef<JobPollState>({ signature: '', at: 0 });
+  const queryClient = useQueryClient();
+  const queryKey = ['assets', 'processing', id, assetStatus];
   return useQuery({
-    queryKey: ['assets', 'processing', id, assetStatus],
-    queryFn: () => sluby.assets.processing(id!),
+    queryKey,
+    queryFn: async () => {
+      const before = queryClient.getQueryData<ProcessingJob>(queryKey);
+      const job = await sluby.assets.processing(id!);
+      // the video reads slowly while it waits; when the job ends here, its
+      // status has moved too, so read it now instead of on its next slow turn
+      if (before && !ended(before) && ended(job)) {
+        void queryClient.invalidateQueries({ queryKey: ['assets', 'one', id], exact: true });
+      }
+      return job;
+    },
     enabled: !!id && enabled,
     refetchInterval: (query) => {
       // a 404 (no job yet, or the asset is gone) or a 401 does not change by asking again
       if (failedForGood(query)) return false;
-      const s = query.state.data?.status;
-      return s === 'completed' || s === 'failed' ? false : interval;
+      const job = query.state.data;
+      if (job?.status === 'completed' || job?.status === 'failed') return false;
+      if (interval !== undefined) return interval;
+      const { delay, state } = nextJobPoll(job, seen.current, Date.now());
+      seen.current = state;
+      return delay;
     },
     retry: false,
+  });
+}
+
+/** Whether this browser, in this tab or another, is sending the file of the asset right now. */
+export function useSendingHere(assetId: string | undefined): boolean {
+  const sending = useSendingAssetIds();
+  return assetId ? sending.has(assetId) : false;
+}
+
+type VideoPatch = Partial<Pick<VideoAsset, 'title' | 'description' | 'accessTier'>>;
+
+/**
+ * Save one field of a video. `base` is the video as the edit started from:
+ * it goes out as If-Match, so a change made elsewhere since then comes back
+ * as a 412 ConflictError instead of being overwritten (B-13, FLW-06). Only
+ * the field that changed is sent.
+ */
+export function useUpdateVideo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ base, patch }: { base: VideoAsset; patch: VideoPatch }) =>
+      sluby.assets.update(base.id, patch, { ifMatch: base }),
+    onError: (err, { base }) => {
+      // deleted somewhere else: read it again, so the page says so (FLW-44)
+      if (errorStatus(err) === 404) {
+        void queryClient.invalidateQueries({ queryKey: ['assets', 'one', base.id], exact: true });
+      }
+    },
+    onSuccess: (asset) => {
+      queryClient.setQueryData(['assets', 'one', asset.id], asset);
+      // titles and access show on every list (library, overview, palette)
+      void queryClient.invalidateQueries({
+        queryKey: ['assets'],
+        predicate: (q) => !(q.queryKey[1] === 'one' && q.queryKey[2] === asset.id),
+      });
+      void queryClient.invalidateQueries({ queryKey: ['stats'] });
+    },
   });
 }

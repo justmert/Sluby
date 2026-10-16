@@ -32,14 +32,20 @@ function mockSystem(dark: boolean) {
 }
 
 describe('ThemeProvider', () => {
-  it('defaults to dark and puts the class on <html>', () => {
+  it.each([
+    [false, 'light'],
+    [true, 'dark'],
+  ])('with nothing saved follows the os (os dark %s) and puts the class on <html>', (dark, cls) => {
+    mockSystem(dark);
     render(
       <ThemeProvider>
         <Probe />
       </ThemeProvider>,
     );
-    expect(screen.getByTestId('theme')).toHaveTextContent('dark');
-    expect(document.documentElement).toHaveClass('dark');
+    expect(screen.getByTestId('theme')).toHaveTextContent('system');
+    expect(document.documentElement).toHaveClass(cls);
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    vi.restoreAllMocks();
   });
 
   it('applies and persists an explicit choice', () => {
@@ -48,7 +54,7 @@ describe('ThemeProvider', () => {
         <Probe />
       </ThemeProvider>,
     );
-    act(() => screen.getByText('light').click());
+    act(() => screen.getByRole('button', { name: 'light' }).click());
     expect(document.documentElement).toHaveClass('light');
     expect(document.documentElement).not.toHaveClass('dark');
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
@@ -72,7 +78,7 @@ describe('ThemeProvider', () => {
         <Probe />
       </ThemeProvider>,
     );
-    act(() => screen.getByText('system').click());
+    act(() => screen.getByRole('button', { name: 'system' }).click());
     expect(screen.getByTestId('resolved')).toHaveTextContent('light');
     expect(document.documentElement).toHaveClass('light');
 
@@ -80,5 +86,51 @@ describe('ThemeProvider', () => {
     expect(screen.getByTestId('resolved')).toHaveTextContent('dark');
     expect(document.documentElement).toHaveClass('dark');
     vi.restoreAllMocks();
+  });
+});
+
+describe('ThemeProvider switching', () => {
+  it('switches inside a view transition when the browser has one', () => {
+    const calls: string[] = [];
+    const start = vi.fn((update: () => void) => {
+      calls.push(`before:${document.documentElement.className}`);
+      update();
+      calls.push(`after:${document.documentElement.className}`);
+    });
+    Object.assign(document, { startViewTransition: start });
+    localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    act(() => screen.getByRole('button', { name: 'light' }).click());
+    expect(start).toHaveBeenCalledTimes(1);
+    // the class lands inside the callback, so the new snapshot shows the new theme
+    expect(calls).toEqual(['before:dark', 'after:light']);
+    delete (document as { startViewTransition?: unknown }).startViewTransition;
+  });
+
+  it('snaps without a view transition under reduced motion', () => {
+    const start = vi.fn();
+    Object.assign(document, { startViewTransition: start });
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (q: string) =>
+        ({
+          matches: q.includes('reduce'),
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList,
+    );
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    act(() => screen.getByRole('button', { name: 'light' }).click());
+    expect(start).not.toHaveBeenCalled();
+    expect(document.documentElement).toHaveClass('light');
+    vi.restoreAllMocks();
+    delete (document as { startViewTransition?: unknown }).startViewTransition;
   });
 });

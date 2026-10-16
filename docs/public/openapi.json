@@ -146,7 +146,7 @@
         }
       },
       "Unauthorized": {
-        "description": "No valid API key or session.",
+        "description": "No valid API key or session. Without a key, `reason` says why the session ended.",
         "content": {
           "application/json": {
             "schema": {
@@ -235,6 +235,16 @@
           "stack": {
             "type": "string",
             "description": "Only with EXPOSE_ERROR_STACKS=true: the stack trace."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "expired",
+              "revoked",
+              "not_allowed"
+            ],
+            "description": "On a 401 to a request without an API key (a browser session): `missing` (no session cookie, or one this server did not sign), `expired`, `revoked` (signed out, here or from another browser) or `not_allowed` (the account is no longer on the allowlist)."
           }
         },
         "required": [
@@ -258,7 +268,7 @@
           "retryAfter": {
             "type": "integer",
             "deprecated": true,
-            "description": "Old spelling of retry_after, removed in the next release."
+            "description": "Older spelling of retry_after, kept so clients written for 0.1.0 keep working."
           }
         }
       },
@@ -288,6 +298,8 @@
           "creator_address",
           "segment_count",
           "total_storage_bytes",
+          "play_count",
+          "last_played_at",
           "created_at",
           "updated_at"
         ],
@@ -353,6 +365,19 @@
           },
           "total_storage_bytes": {
             "type": "integer"
+          },
+          "play_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "All-time plays: player loads this server saw, through the gateway or by minting a share map to play direct from Sia. One viewer loading the same video again within 30 minutes counts once, previews in the Studio do not count, and counts reach the API within about 10 seconds."
+          },
+          "last_played_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the newest counted play happened; null before the first."
           },
           "created_at": {
             "type": "string",
@@ -454,7 +479,8 @@
           "started_at",
           "completed_at",
           "created_at",
-          "logs"
+          "logs",
+          "retryable"
         ],
         "properties": {
           "id": {
@@ -480,7 +506,7 @@
               "completed",
               "failed"
             ],
-            "description": "Pipeline step, from the latest stage-tagged log line."
+            "description": "Pipeline step, from the latest stage-tagged log line. `upload` starts as soon as the transcode hands off, with the line \"Waiting for the Sia uploader\" while the video waits its turn to be stored on Sia."
           },
           "progress_percent": {
             "type": "integer"
@@ -512,6 +538,10 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "retryable": {
+            "type": "boolean",
+            "description": "Whether POST /retry can start a new run: true only for a failed video whose failure was not final (a file that is not a readable video is final) and whose finished transcode or original file is still on the server."
           },
           "logs": {
             "type": "array",
@@ -719,6 +749,7 @@
           "error_message",
           "created_at",
           "missing_ids",
+          "missing_objects",
           "orphaned_ids"
         ],
         "properties": {
@@ -777,6 +808,13 @@
             },
             "description": "Tracked by an asset, absent from the indexer."
           },
+          "missing_objects": {
+            "type": "array",
+            "description": "Each of `missing_ids`, in the same order, with the video that holds it, so a report can link to it. `video_asset_id` and `title` are null when no live video holds the object any more (its video was deleted since the run).",
+            "items": {
+              "$ref": "#/components/schemas/MissingObject"
+            }
+          },
           "orphaned_ids": {
             "type": "array",
             "items": {
@@ -796,7 +834,8 @@
           "created_at",
           "status",
           "missing_count",
-          "missing_ids"
+          "missing_ids",
+          "missing_objects"
         ],
         "properties": {
           "scope": {
@@ -836,6 +875,39 @@
             "items": {
               "type": "string"
             }
+          },
+          "missing_objects": {
+            "type": "array",
+            "description": "Each of `missing_ids`, in the same order, with the video that holds it, so a report can link to it. `video_asset_id` and `title` are null when no live video holds the object any more (its video was deleted since the run).",
+            "items": {
+              "$ref": "#/components/schemas/MissingObject"
+            }
+          }
+        }
+      },
+      "MissingObject": {
+        "type": "object",
+        "required": [
+          "object_id",
+          "video_asset_id",
+          "title"
+        ],
+        "properties": {
+          "object_id": {
+            "type": "string"
+          },
+          "video_asset_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -1285,7 +1357,9 @@
           "rate_limit",
           "is_active",
           "created_at",
-          "expires_at"
+          "expires_at",
+          "prefix",
+          "last_used_at"
         ],
         "properties": {
           "id": {
@@ -1324,6 +1398,21 @@
             ],
             "format": "date-time",
             "description": "Set while a rotated-out key is in its grace period."
+          },
+          "prefix": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The first 12 characters of the key (`sluby_` and 6 more), to tell keys apart. Null for keys created before prefixes were stored."
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the key last authenticated a request, to the minute: it is written at most once a minute per key. Null if never used since this was recorded."
           }
         }
       },
@@ -1332,7 +1421,8 @@
         "required": [
           "data",
           "has_more",
-          "next_cursor"
+          "next_cursor",
+          "limits"
         ],
         "properties": {
           "data": {
@@ -1349,6 +1439,24 @@
               "string",
               "null"
             ]
+          },
+          "limits": {
+            "type": "object",
+            "description": "This server’s limits on keys, to check a new key against.",
+            "required": [
+              "max_keys",
+              "max_rate_limit"
+            ],
+            "properties": {
+              "max_keys": {
+                "type": "integer",
+                "description": "How many usable keys one account may hold (`API_KEYS_PER_ACCOUNT_MAX`)."
+              },
+              "max_rate_limit": {
+                "type": "integer",
+                "description": "The highest `rate_limit` a key may have (`API_KEY_RATE_LIMIT_MAX`)."
+              }
+            }
           }
         }
       },
@@ -1403,7 +1511,9 @@
           "url",
           "events",
           "is_active",
-          "created_at"
+          "created_at",
+          "last_delivery_at",
+          "last_delivery_ok"
         ],
         "properties": {
           "id": {
@@ -1420,11 +1530,27 @@
             }
           },
           "is_active": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "False while the endpoint is paused: no events are sent to it."
           },
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "last_delivery_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the newest delivery attempt was made; null before the first."
+          },
+          "last_delivery_ok": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the newest attempt got a 2xx answer; null before the first. Attempts are kept for 30 days."
           }
         }
       },
@@ -1530,17 +1656,17 @@
               "null"
             ],
             "deprecated": true,
-            "description": "Old spelling of provider_label, removed in the next release."
+            "description": "Older spelling of provider_label, kept so clients written for 0.1.0 keep working."
           },
           "authDisabled": {
             "type": "boolean",
             "deprecated": true,
-            "description": "Old spelling of auth_disabled, removed in the next release."
+            "description": "Older spelling of auth_disabled, kept so clients written for 0.1.0 keep working."
           },
           "expiresAt": {
             "type": "integer",
             "deprecated": true,
-            "description": "Old unix-seconds form of expires_at, removed in the next release."
+            "description": "Older unix-seconds form of expires_at, kept so clients written for 0.1.0 keep working."
           }
         }
       },
@@ -1559,6 +1685,7 @@
                 "user_agent",
                 "created_at",
                 "expires_at",
+                "last_seen_at",
                 "current"
               ],
               "properties": {
@@ -1579,6 +1706,14 @@
                 "expires_at": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "last_seen_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time",
+                  "description": "The last request made with the session, to within five minutes. Null until its first request on a server that records it."
                 },
                 "current": {
                   "type": "boolean",
@@ -2010,20 +2145,10 @@
         ],
         "responses": {
           "302": {
-            "description": "Redirect to the provider."
+            "description": "Redirect to the provider, or to `/studio?signin_error=not_configured` when the provider is not configured on this server."
           },
           "404": {
             "description": "No such sign-in provider.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The provider is not configured on this server.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2041,7 +2166,7 @@
           "Auth"
         ],
         "summary": "The provider's redirect back after sign-in.",
-        "description": "Browser-facing: failures answer plain text, not JSON. Accepted only from the browser that started the sign-in: the `state` must match the `sluby_signin` cookie set by the login route, within ten minutes. The account is the provider's stable id (GitHub: the numeric account id), never the login.",
+        "description": "Browser-facing: every outcome is a redirect into the Studio. Accepted only from the browser that started the sign-in: the `state` must match the `sluby_signin` cookie set by the login route, within ten minutes. The account is the provider's stable id (GitHub: the numeric account id), never the login. A failure redirects to the page the sign-in started from (or `/studio` once the handshake is lost) with `signin_error=<code>` added: `expired_handshake` (expired, or started in another browser), `not_allowed` (with `&handle=<login>`, the account is not on the allowlist), `cancelled` (the person declined at the provider), `provider_failed` (the provider refused the code or could not be reached) or `not_configured`.",
         "security": [],
         "parameters": [
           {
@@ -2059,27 +2184,7 @@
         ],
         "responses": {
           "302": {
-            "description": "Signed in; redirect into the Studio with a session cookie."
-          },
-          "400": {
-            "description": "Expired or foreign handshake, cancelled or malformed sign-in.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The account is not on the allowlist.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
+            "description": "Signed in (redirect to `next` with a session cookie), or failed (redirect to `next`, or `/studio`, with `signin_error=<code>`)."
           },
           "404": {
             "description": "No such sign-in provider.",
@@ -2087,16 +2192,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The provider is not configured or could not be reached.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
                 }
               }
             }
@@ -2820,6 +2915,15 @@
                   "$ref": "#/components/schemas/Asset"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "description": "The asset’s version: its `updated_at` in milliseconds since the epoch, quoted. Send it back in If-Match on PATCH. Plays do not change it, so it never validates a cached copy: GET answers with `Cache-Control: no-store` and ignores If-None-Match.",
+                "schema": {
+                  "type": "string",
+                  "example": "\"1767225600000\""
+                }
+              }
             }
           },
           "400": {
@@ -2851,7 +2955,7 @@
           "Assets"
         ],
         "summary": "Update asset metadata.",
-        "description": "Changing access_tier takes effect on the delivery gateway at once. An asset being deleted answers 404, as it does to every read.",
+        "description": "Changing access_tier takes effect on the delivery gateway at once. An asset being deleted answers 404, as it does to every read. Send If-Match with the ETag of the version you edited (from GET or an earlier PATCH, or built from `updated_at` as `\"<epoch milliseconds>\"`) and the edit applies only if nobody changed the asset since; otherwise 412 with the asset as it is now. Processing changes the version too.",
         "x-required-scope": "manage",
         "parameters": [
           {
@@ -2862,6 +2966,15 @@
               "type": "string"
             },
             "description": "Asset id."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "One or more ETags, or `*` for any version. The weak form of an ETag (`W/\"…\"`, as a compressing proxy such as the bundled nginx sends it) matches the same version."
           }
         ],
         "requestBody": {
@@ -2903,10 +3016,26 @@
                   "$ref": "#/components/schemas/Asset"
                 }
               }
+            },
+            "headers": {
+              "ETag": {
+                "description": "The asset’s version: its `updated_at` in milliseconds since the epoch, quoted. Send it back in If-Match on PATCH. Plays do not change it, so it never validates a cached copy: GET answers with `Cache-Control: no-store` and ignores If-None-Match.",
+                "schema": {
+                  "type": "string",
+                  "example": "\"1767225600000\""
+                }
+              }
             }
           },
           "400": {
-            "$ref": "#/components/responses/BadRequest"
+            "description": "Invalid input, or an If-Match that is not an ETag.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -2916,6 +3045,37 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "description": "The asset changed since the If-Match version; nothing was saved.",
+            "headers": {
+              "ETag": {
+                "description": "The asset’s version: its `updated_at` in milliseconds since the epoch, quoted. Send it back in If-Match on PATCH. Plays do not change it, so it never validates a cached copy: GET answers with `Cache-Control: no-store` and ignores If-None-Match.",
+                "schema": {
+                  "type": "string",
+                  "example": "\"1767225600000\""
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "current"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "current": {
+                      "$ref": "#/components/schemas/Asset"
+                    }
+                  }
+                }
+              }
+            }
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
@@ -3254,7 +3414,9 @@
                     "default": "public"
                   },
                   "name": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "A label to tell playback IDs apart. Trimmed; no control characters."
                   }
                 }
               }
@@ -3273,7 +3435,7 @@
             }
           },
           "400": {
-            "description": "A malformed id or an unknown policy.",
+            "description": "A malformed id, an unknown policy or a name over 100 characters.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3612,6 +3774,14 @@
               "type": "integer",
               "default": 3600
             }
+          },
+          {
+            "name": "renew",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Set (any value) when replacing a map the player already holds during one watch, so it is not counted as another play. The SDK sets it."
           }
         ],
         "responses": {
@@ -3883,7 +4053,7 @@
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "description": "The key was already rotated; rotate its replacement instead.",
+            "description": "The key was already rotated. Rotate its replacement instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3899,6 +4069,74 @@
       }
     },
     "/api/v1/keys/{id}": {
+      "patch": {
+        "tags": [
+          "Keys"
+        ],
+        "summary": "Rename an API key.",
+        "description": "Changes only the name; the secret, scopes and rate limit stay. A key of another account, a revoked key and a key past its grace period answer 404.",
+        "x-required-scope": "manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Key id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "description": "Trimmed; no control characters."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The renamed key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Keys"
@@ -3969,6 +4207,7 @@
                   "url": {
                     "type": "string",
                     "format": "uri",
+                    "maxLength": 2048,
                     "description": "Absolute http(s) URL on a public address."
                   },
                   "events": {
@@ -4025,7 +4264,7 @@
           "Webhooks"
         ],
         "summary": "List webhook endpoints.",
-        "description": "Needs `manage`, like creating them: receiver URLs often carry credentials.",
+        "description": "Every endpoint of the account, paused ones included, newest first. Needs `manage`, like creating them: receiver URLs often carry credentials.",
         "x-required-scope": "manage",
         "responses": {
           "200": {
@@ -4115,13 +4354,82 @@
         }
       }
     },
+    "/api/v1/webhooks/{id}/rotate-secret": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Replace the signing secret of a webhook endpoint.",
+        "description": "For a secret that leaked. The old secret stops at once: every request from now on, retries of earlier events included, is signed with the new one, which is returned only here.",
+        "x-required-scope": "manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Endpoint id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new secret.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "secret"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "secret": {
+                      "type": "string",
+                      "description": "The new signing secret, shown once."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, such as a malformed id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
     "/api/v1/webhooks/{id}/deliveries": {
       "get": {
         "tags": [
           "Webhooks"
         ],
         "summary": "The endpoint's latest delivery attempts, newest first.",
-        "description": "One entry per attempt: id, event_id, event, status_code, delivered, error, attempt (1 for the first try) and created_at. Response bodies are never stored.",
+        "description": "One entry per attempt: id, event_id, event, status_code, delivered, error, attempt (1 for the first try), created_at, the payload that was sent, and manual (true for a resend). Response bodies are never stored. Attempts are kept for 30 days.",
         "x-required-scope": "manage",
         "parameters": [
           {
@@ -4168,7 +4476,9 @@
                           "delivered",
                           "error",
                           "attempt",
-                          "created_at"
+                          "created_at",
+                          "payload",
+                          "manual"
                         ],
                         "properties": {
                           "id": {
@@ -4205,6 +4515,14 @@
                           "created_at": {
                             "type": "string",
                             "format": "date-time"
+                          },
+                          "payload": {
+                            "type": "object",
+                            "description": "The JSON body that was sent: `{ id, event, timestamp, data }`."
+                          },
+                          "manual": {
+                            "type": "boolean",
+                            "description": "True for an attempt of a resend someone asked for."
                           }
                         }
                       }
@@ -4246,7 +4564,228 @@
         }
       }
     },
+    "/api/v1/webhooks/{id}/deliveries/{deliveryId}/redeliver": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Send a logged delivery again.",
+        "description": "Queues the stored payload of the delivery again, with the same event `id` so a receiver that already handled it can drop the repeat. It is signed with the current secret, gets a new X-Sluby-Delivery id and the usual retries, and each attempt is logged with `manual: true`. A paused endpoint answers 409.",
+        "x-required-scope": "manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Endpoint id."
+          },
+          {
+            "name": "deliveryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The `id` of an entry in the delivery log."
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "delivery_id"
+                  ],
+                  "properties": {
+                    "delivery_id": {
+                      "type": "string",
+                      "description": "The X-Sluby-Delivery header the resend carries."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, such as a malformed id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "The endpoint is paused.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
     "/api/v1/webhooks/{id}": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Get a webhook endpoint.",
+        "x-required-scope": "manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Endpoint id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The endpoint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Webhook"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, such as a malformed id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Edit, pause or resume a webhook endpoint.",
+        "description": "Send any of `url`, `events` and `is_active`. A new URL is checked like at registration. `is_active: false` pauses the endpoint: nothing is sent to it, and deliveries already queued for it are dropped. `is_active: true` resumes it for new events. The signing secret does not change.",
+        "x-required-scope": "manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Endpoint id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "minProperties": 1,
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 2048,
+                    "description": "Absolute http(s) URL on a public address."
+                  },
+                  "events": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "upload.started",
+                        "upload.completed",
+                        "upload.failed",
+                        "processing.started",
+                        "asset.ready",
+                        "asset.errored"
+                      ]
+                    },
+                    "description": "Replaces the subscribed events. An event listed twice counts once."
+                  },
+                  "is_active": {
+                    "type": "boolean",
+                    "description": "False pauses, true resumes."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The endpoint as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Webhook"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Webhooks"
@@ -4391,6 +4930,85 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/v1/stats/usage": {
+      "get": {
+        "tags": [
+          "Ops"
+        ],
+        "summary": "Plays per day of your videos.",
+        "description": "Plays of the caller’s videos per UTC day for the last `days` days, today included, oldest first, with days without plays as 0. What counts as a play is described on `play_count` of an asset. The platform identity gets every account together.",
+        "x-required-scope": "read",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plays per day.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "days",
+                    "total"
+                  ],
+                  "properties": {
+                    "days": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "date",
+                          "plays"
+                        ],
+                        "properties": {
+                          "date": {
+                            "type": "string",
+                            "format": "date",
+                            "description": "YYYY-MM-DD, UTC."
+                          },
+                          "plays": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Plays over all the days."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -4599,7 +5217,7 @@
           "Delivery"
         ],
         "summary": "Master HLS manifest for an asset or playback ID.",
-        "description": "A private asset or a signed-policy playback ID needs the `expires` and `sig` of the asset’s signed master url; the child urls in the answer are then signed too. A signed playback ID gates only this entry: on a public asset its objects stay public, so the bytes are not private (make the asset private for that), and other embeds of the asset keep playing. A public answer is cached like a public object.",
+        "description": "A private asset or a signed-policy playback ID needs the `expires` and `sig` of the asset’s signed master url; the child urls in the answer are then signed too. A signed playback ID gates only this entry: on a public asset its objects stay public, so the bytes are not private (make the asset private for that), and other embeds of the asset keep playing. A public answer carries an ETag and `public, no-cache`, but no shared cache keeps it: each 200 GET counts as a play (see `play_count` on an asset); HEAD and 304 do not.",
         "security": [],
         "parameters": [
           {
@@ -4687,7 +5305,7 @@
           "Delivery"
         ],
         "summary": "Per-object sia:// share URLs for direct-from-Sia playback, without credentials.",
-        "description": "Gated like /v1/stream: a public asset by its id or a public playback ID needs nothing. A private asset or a signed-policy playback ID needs the `expires` and `sig` of its signed master URL, and the shares then never outlive `expires`. Expiries are capped like the authenticated route (six hours, one hour when gated) and rounded to five-minute slots that the server caches, so repeated calls do not mint again. A gated map is sent `private, no-store`; a public one may be kept by the shipped nginx for up to a minute and is revalidated by every other cache. Share URLs already handed out keep working until they expire, whatever happens to the asset meanwhile.",
+        "description": "Gated like /v1/stream: a public asset by its id or a public playback ID needs nothing. A private asset or a signed-policy playback ID needs the `expires` and `sig` of its signed master URL, and the shares then never outlive `expires`. Expiries are capped like the authenticated route (six hours, one hour when gated) and rounded to five-minute slots that the server caches, so repeated calls do not mint again. Every map is sent `no-store` (`private, no-store` when gated): minting one is how a direct-from-Sia play reaches the server, and each counts as a play (see `play_count` on an asset), unless `renew` is set. Share URLs already handed out keep working until they expire, whatever happens to the asset meanwhile.",
         "security": [],
         "parameters": [
           {

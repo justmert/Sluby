@@ -324,10 +324,15 @@ describe.skipIf(!hasTestDatabase || !hasTestRedis)(
       expect(events.map(([e]) => e)).toEqual(['processing.started', 'asset.ready']);
       expect(existsSync(path.join(dirs.out, a.id))).toBe(false);
       expect(existsSync(a.filePath)).toBe(false);
-      expect(await jobs.getProcessingJobByVideoAssetId(a.id)).toMatchObject({
-        status: 'completed',
-        retryCount: 0,
-      });
+      const job = await jobs.getProcessingJobByVideoAssetId(a.id);
+      expect(job).toMatchObject({ status: 'completed', retryCount: 0 });
+      const lines = (job!.logs ?? []).map((l) => `${l.stage}: ${l.message}`);
+      expect(lines[0]).toBe(`transcode: Starting transcode of video ${a.id}`);
+      // the hand-off is its own upload-stage line, before the upload starts
+      const waiting = lines.indexOf('upload: Waiting for the Sia uploader');
+      expect(waiting).toBeGreaterThan(0);
+      expect(lines[waiting - 1]).toMatch(/^transcode: /);
+      expect(lines[waiting + 1]).toBe('upload: Uploading segments to Sia');
     });
 
     it('fails the asset and sends asset.errored when a transcode stalls twice', async () => {
@@ -351,6 +356,41 @@ describe.skipIf(!hasTestDatabase || !hasTestRedis)(
         error: expect.stringContaining('stalled'),
       });
       expect(await jobs.getProcessingJobByVideoAssetId(a.id)).toMatchObject({ status: 'failed' });
+    });
+
+    it('fails a file that is not a video at once, without retries, and marks it not retryable', async () => {
+      const a = await uploadedAsset();
+      const { UnreadableSourceError } = await import('../transcode/source-errors.js');
+      ff.hook = async () => {
+        throw new UnreadableSourceError(
+          'ffprobe exited with code 1: in.mp4: Invalid data found when processing input',
+        );
+      };
+      await start(a);
+      await waitFor(statusIs(a.id, 'failed'));
+      await waitFor(async () => events.some(([e]) => e === 'asset.errored'));
+      // one execution only: BullMQ did not retry it
+      expect(ff.outputDirs).toHaveLength(1);
+      expect(await jobs.getProcessingJobByVideoAssetId(a.id)).toMatchObject({
+        status: 'failed',
+        retryable: false,
+        retryCount: 0,
+        errorMessage: expect.stringContaining('Invalid data found'),
+      });
+    });
+
+    it('keeps an ordinary transcode failure retryable', async () => {
+      const a = await uploadedAsset();
+      ff.hook = async () => {
+        throw new Error('FFmpeg exited with code 1: out of memory');
+      };
+      await start(a);
+      await waitFor(statusIs(a.id, 'failed'));
+      expect(ff.outputDirs.length).toBeGreaterThan(1);
+      expect(await jobs.getProcessingJobByVideoAssetId(a.id)).toMatchObject({
+        status: 'failed',
+        retryable: true,
+      });
     });
 
     it('never rewrites the directory an upload reads when a transcode loses its lock', async () => {

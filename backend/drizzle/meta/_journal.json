@@ -113,6 +113,48 @@
       "when": 1791385233328,
       "tag": "0015_bootstrap_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791504403806,
+      "tag": "0016_key_prefix_last_used",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791505122716,
+      "tag": "0017_delivery_manual",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791505381571,
+      "tag": "0018_session_last_seen",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791518033859,
+      "tag": "0019_processing_retryable",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791518726169,
+      "tag": "0020_asset_plays",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791539106351,
+      "tag": "0021_backfill_unreadable_not_retryable",
+      "breakpoints": true
     }
   ]
 }

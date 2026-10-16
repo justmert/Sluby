@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import {
   keepPreviousData,
   useMutation,
@@ -6,13 +6,18 @@ import {
   useQueryClient,
   type Query,
 } from '@tanstack/react-query';
-import type { ListAssetsOptions, PaginatedResponse, VideoAsset } from '@sluby/sdk';
+import type { AccessTier, ListAssetsOptions, PaginatedResponse, VideoAsset } from '@sluby/sdk';
+import { errorText } from '@/lib/errors';
 import { sluby } from '@/lib/sluby';
-import { uploadStore } from '@/lib/studio-upload';
+import { uploadStore, uploadTabs } from '@/lib/studio-upload';
+import { forgetUpload } from '@/lib/upload-history';
+import { isTransferring } from '@/lib/upload-store';
 
-// the backend forgets an unfinished tus upload after a day and sweeps its
-// asset; a `created` asset older than that is not going anywhere
-const UPLOAD_EXPIRY_MS = 24 * 60 * 60 * 1000;
+// a browser that is still sending a file moves its upload along well within
+// this; past it the transfer has stopped (the tab closed, the laptop slept).
+// the server only sweeps such uploads after a day, so without a cutoff the
+// studio would poll them for that whole day (FLW-12)
+export const STALE_UPLOAD_MS = 10 * 60 * 1000;
 
 /** The HTTP status of an sdk or api-client error, if it has one. */
 export function errorStatus(err: unknown): number | undefined {
@@ -31,13 +36,71 @@ const isClientError = (err: unknown) => {
 export const failedForGood = (query: Pick<Query, 'state'>) =>
   query.state.status === 'error' && isClientError(query.state.error);
 
+/** An upload that never finished and stopped moving: waiting for a file nobody is sending. */
+export function isStaleUpload(
+  asset: Pick<VideoAsset, 'status' | 'createdAt'>,
+  now = Date.now(),
+): boolean {
+  return (
+    (asset.status === 'created' || asset.status === 'uploading') &&
+    now - Date.parse(asset.createdAt) >= STALE_UPLOAD_MS
+  );
+}
+
+// ids joined into one string: a snapshot that only changes when the set does
+function sendingSnapshot(): string {
+  const ids = new Set<string>();
+  for (const u of uploadStore.getState().uploads) {
+    if (u.assetId && isTransferring(u)) ids.add(u.assetId);
+  }
+  for (const u of uploadTabs.remote()) if (u.assetId) ids.add(u.assetId);
+  return [...ids].sort().join(' ');
+}
+
+function subscribeSending(onChange: () => void) {
+  const offStore = uploadStore.subscribe(onChange);
+  const offTabs = uploadTabs.subscribe(onChange);
+  return () => {
+    offStore();
+    offTabs();
+  };
+}
+
+/** Whether this browser sends the asset's file right now, outside React. */
+const sendingInBrowser = (assetId: string) => sendingSnapshot().split(' ').includes(assetId);
+
+/**
+ * The videos whose file this browser is sending right now, from this tab or
+ * another one (the tabs announce their uploads to each other). An old upload
+ * in this set is still arriving, not interrupted.
+ */
+export function useSendingAssetIds(): ReadonlySet<string> {
+  const snapshot = useSyncExternalStore(subscribeSending, sendingSnapshot, () => '');
+  return useMemo(() => new Set(snapshot ? snapshot.split(' ') : []), [snapshot]);
+}
+
 /** Whether an asset is still moving through upload and processing. */
 export function isInFlight(asset: VideoAsset, now = Date.now()): boolean {
   if (asset.status === 'ready' || asset.status === 'failed') return false;
-  if (asset.status === 'created' || asset.status === 'uploading') {
-    return now - Date.parse(asset.createdAt) < UPLOAD_EXPIRY_MS;
+  return !isStaleUpload(asset, now);
+}
+
+// a video unchanged this long is waiting (in the sia queue, mostly); the job
+// poll says when its stage moves, so the video itself can be read slower
+const QUIET_AFTER_MS = 30_000;
+
+/** How often to read one video: often while it moves, slower while it sits in processing. */
+export function assetPollMs(
+  asset: VideoAsset,
+  sendingHere: boolean,
+  now = Date.now(),
+): number | false {
+  if (sendingHere) return 3_000;
+  if (!isInFlight(asset, now)) return false;
+  if (asset.status === 'processing' && now - Date.parse(asset.updatedAt) > QUIET_AFTER_MS) {
+    return 10_000;
   }
-  return true;
+  return 3_000;
 }
 
 // the version of the upload store's asset changes these hooks already acted
@@ -118,14 +181,18 @@ export function useAssetById(id: string | undefined) {
       return asset;
     },
     enabled: !!id,
-    refetchInterval: (query) =>
-      !failedForGood(query) && query.state.data && isInFlight(query.state.data) ? 3_000 : false,
+    // an old upload is still read while another tab sends its file, so the
+    // page moves on when that tab finishes
+    refetchInterval: (query) => {
+      const asset = query.state.data;
+      if (failedForGood(query) || !asset) return false;
+      return assetPollMs(asset, sendingInBrowser(asset.id));
+    },
   });
 }
 
 type AssetPage = PaginatedResponse<VideoAsset>;
 type AssetPages = { pages: AssetPage[]; pageParams: unknown[] };
-type AssetMeta = Partial<Pick<VideoAsset, 'title' | 'description' | 'accessTier'>>;
 
 // the queries that hold lists of assets: the library, the dashboard's latest
 // uploads and the player's picker. other ['assets', ...] queries hold one
@@ -171,41 +238,6 @@ function snapshotLists(queryClient: ReturnType<typeof useQueryClient>): Snapshot
   return listQueries(queryClient).map((q) => [q.queryKey, q.state.data]);
 }
 
-/**
- * Save title, description or access tier. The new values show at once on
- * the asset and in every cached list; a failed save puts the old ones back.
- */
-export function useUpdateAssetMeta() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: AssetMeta }) => sluby.assets.update(id, data),
-    onMutate: async ({ id, data }) => {
-      // a poll landing mid-save would put the old values back on screen
-      await queryClient.cancelQueries({ queryKey: ['assets', 'one', id] });
-      const previous = queryClient.getQueryData<VideoAsset>(['assets', 'one', id]);
-      const lists = snapshotLists(queryClient);
-      if (previous) queryClient.setQueryData(['assets', 'one', id], { ...previous, ...data });
-      mapCachedLists(queryClient, (rows) => rows.map((a) => (a.id === id ? { ...a, ...data } : a)));
-      return { previous, lists };
-    },
-    onError: (_err, { id }, context) => {
-      if (context?.previous) queryClient.setQueryData(['assets', 'one', id], context.previous);
-      for (const [key, data] of context?.lists ?? []) queryClient.setQueryData(key, data);
-    },
-    onSuccess: (asset) => {
-      queryClient.setQueryData(['assets', 'one', asset.id], asset);
-    },
-    onSettled: (_asset, _err, { id }) => {
-      // titles and tiers show on every list (library, dashboard, player)
-      void queryClient.invalidateQueries({
-        queryKey: ['assets'],
-        predicate: (q) => !(q.queryKey[1] === 'one' && q.queryKey[2] === id),
-      });
-      void queryClient.invalidateQueries({ queryKey: ['stats'] });
-    },
-  });
-}
-
 /** Restart processing of a failed asset. */
 export function useRetryProcessing() {
   const queryClient = useQueryClient();
@@ -223,6 +255,18 @@ export function useRetryProcessing() {
   });
 }
 
+// how many edits or deletes run at once; enough to finish 500 in seconds
+// without queueing hundreds of requests in the browser
+const BULK_CONCURRENCY = 4;
+
+async function eachLimited<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 export interface DeleteFailure {
   id: string;
   error: string;
@@ -236,13 +280,34 @@ export function useDeleteAssets() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (ids: string[]): Promise<DeleteFailure[]> => {
-      const results = await Promise.allSettled(ids.map((id) => sluby.assets.delete(id)));
-      return results.flatMap((r, i) =>
+      // a few at a time: "select all results" can hand over 500 ids
+      const results: PromiseSettledResult<void>[] = new Array(ids.length);
+      await eachLimited(
+        ids.map((id, i) => [id, i] as const),
+        BULK_CONCURRENCY,
+        async ([id, i]) => {
+          results[i] = await sluby.assets.delete(id).then(
+            (value) => ({ status: 'fulfilled', value }),
+            (reason: unknown) => ({ status: 'rejected', reason }),
+          );
+        },
+      );
+      // allSettled never rejects, so a 401 has to be rethrown for the query
+      // client to end the session (FLW-13) instead of becoming a row failure
+      const signedOut = results.find(
+        (r): r is PromiseRejectedResult => r.status === 'rejected' && errorStatus(r.reason) === 401,
+      );
+      if (signedOut) throw signedOut.reason;
+      const failures = results.flatMap((r, i) =>
         // already gone is what a delete asks for
         r.status === 'rejected' && errorStatus(r.reason) !== 404
-          ? [{ id: ids[i], error: r.reason instanceof Error ? r.reason.message : String(r.reason) }]
+          ? [{ id: ids[i], error: errorText(r.reason) }]
           : [],
       );
+      // a deleted video's file is new again to the upload sheet
+      const failed = new Set(failures.map((f) => f.id));
+      for (const id of ids) if (!failed.has(id)) forgetUpload(id);
+      return failures;
     },
     onMutate: async (ids) => {
       // before the first await, so no poll can slip in between
@@ -332,4 +397,119 @@ export function useForgetAsset() {
     },
     [queryClient],
   );
+}
+
+// the api's largest page, for the calls that walk a whole result set
+const WALK_PAGE = 100;
+
+/**
+ * How many uploads never got their file: `created` and older than
+ * STALE_UPLOAD_MS. Newest first, so the young ones come first and the walk
+ * stops at the first old one; the rest of the total is stale.
+ */
+export function useStaleUploadCount() {
+  return useQuery({
+    queryKey: ['assets', 'stale-uploads'],
+    queryFn: async ({ signal }) => {
+      const now = Date.now();
+      let young = 0;
+      for (let page = 1; ; page++) {
+        const res = await sluby.assets.list({
+          status: 'created',
+          sort: 'created_at',
+          order: 'desc',
+          limit: WALK_PAGE,
+          page,
+          signal,
+        });
+        const firstOld = res.data.findIndex((a) => isStaleUpload(a, now));
+        if (firstOld >= 0) return res.total - (young + firstOld);
+        young += res.data.length;
+        if (!res.hasMore || res.data.length === 0) return Math.max(0, res.total - young);
+      }
+    },
+    // the count only moves when an upload goes stale or is deleted; a delete
+    // invalidates ['assets'], and a slow refresh covers the rest
+    refetchInterval: 60_000,
+  });
+}
+
+/** The most rows "Select all results" takes, so one bulk action stays bounded. */
+export const SELECT_ALL_CAP = 500;
+
+/**
+ * Every video matching a list's filters, page by page, up to `cap`. For
+ * selecting a whole result set across pages; the order is the list's.
+ */
+export async function fetchAllMatching(
+  options: Omit<ListAssetsOptions, 'page' | 'limit' | 'cursor'>,
+  cap = SELECT_ALL_CAP,
+): Promise<VideoAsset[]> {
+  const rows: VideoAsset[] = [];
+  for (let page = 1; rows.length < cap; page++) {
+    const res = await sluby.assets.list({ ...options, page, limit: WALK_PAGE });
+    rows.push(...withoutPendingDeletes(res).data);
+    if (!res.hasMore || res.data.length === 0) break;
+  }
+  return rows.slice(0, cap);
+}
+
+export interface AccessFailure {
+  id: string;
+  error: unknown;
+}
+
+/**
+ * Make several videos public or private. Each edit carries If-Match with the
+ * version the page showed (B-13), so a video someone changed meanwhile is
+ * refused instead of overwritten; that refusal counts as a failure. The new
+ * access shows in every list at once and failed rows go back. Resolves with
+ * the failures; a 401 rejects, so the session ends instead.
+ */
+export function useSetAccess() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      assets,
+      accessTier,
+    }: {
+      assets: VideoAsset[];
+      accessTier: AccessTier;
+    }): Promise<AccessFailure[]> => {
+      const failures: AccessFailure[] = [];
+      let signedOut: unknown;
+      await eachLimited(assets, BULK_CONCURRENCY, async (asset) => {
+        if (signedOut) return;
+        try {
+          await sluby.assets.update(asset.id, { accessTier }, { ifMatch: asset });
+        } catch (err) {
+          if (errorStatus(err) === 401) signedOut = err;
+          else failures.push({ id: asset.id, error: err });
+        }
+      });
+      if (signedOut) throw signedOut;
+      return failures;
+    },
+    onMutate: async ({ assets, accessTier }) => {
+      await queryClient.cancelQueries({
+        queryKey: ['assets'],
+        predicate: (q) => LIST_KINDS.has(q.queryKey[1] as string),
+      });
+      const ids = new Set(assets.map((a) => a.id));
+      mapCachedLists(queryClient, (rows) =>
+        rows.map((a) => (ids.has(a.id) ? { ...a, accessTier } : a)),
+      );
+    },
+    onSettled: (failures, err, { assets }) => {
+      const failed = new Set(err ? assets.map((a) => a.id) : (failures ?? []).map((f) => f.id));
+      if (failed.size > 0) {
+        // the old access back on the rows that did not change
+        const before = new Map(assets.map((a) => [a.id, a.accessTier]));
+        mapCachedLists(queryClient, (rows) =>
+          rows.map((a) => (failed.has(a.id) ? { ...a, accessTier: before.get(a.id)! } : a)),
+        );
+      }
+      void queryClient.invalidateQueries({ queryKey: ['assets'] });
+    },
+  });
 }

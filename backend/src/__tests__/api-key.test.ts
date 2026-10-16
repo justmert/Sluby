@@ -50,7 +50,10 @@ function createMockRes(): Response & { _status: number; _json: unknown } {
 function keyDeps(overrides: Partial<ApiKeyMiddlewareDeps>): ApiKeyMiddlewareDeps {
   return {
     findActiveSession: vi.fn(async () => undefined),
+    markSessionSeen: vi.fn(),
+    findSession: vi.fn(async () => undefined),
     findApiKeyByHash: vi.fn(),
+    recordKeyUse: vi.fn(),
     getAccount: vi.fn(async () => null),
     findLegacyClaim: vi.fn(async () => null),
     isAllowlistEntryPinned: vi.fn(async () => false),
@@ -73,6 +76,7 @@ describe('api-key middleware', () => {
     creatorAddress: '0xabc123',
     isActive: true,
     expiresAt: null,
+    lastUsedAt: null,
   };
 
   describe('createApiKeyMiddleware', () => {
@@ -87,7 +91,10 @@ describe('api-key middleware', () => {
       await middleware(req, res as any, next);
 
       expect(res._status).toBe(401);
-      expect(res._json).toEqual({ error: 'Missing or invalid Authorization header' });
+      expect(res._json).toEqual({
+        error: 'Missing or invalid Authorization header',
+        reason: 'missing',
+      });
       expect(next).not.toHaveBeenCalled();
     });
 
@@ -177,6 +184,29 @@ describe('api-key middleware', () => {
       });
     });
 
+    it('records the use of a key that authenticates, and of no other', async () => {
+      const lastUsedAt = new Date(Date.now() - 120_000);
+      const deps = keyDeps({
+        findApiKeyByHash: vi.fn().mockResolvedValue({ ...activeApiKey, lastUsedAt }),
+      });
+      await createApiKeyMiddleware(deps)(
+        createMockReq({ authorization: `Bearer ${testToken}` }),
+        createMockRes() as any,
+        vi.fn(),
+      );
+      expect(deps.recordKeyUse).toHaveBeenCalledWith('key-1', lastUsedAt);
+
+      const refused = keyDeps({
+        findApiKeyByHash: vi.fn().mockResolvedValue({ ...activeApiKey, isActive: false }),
+      });
+      await createApiKeyMiddleware(refused)(
+        createMockReq({ authorization: `Bearer ${testToken}` }),
+        createMockRes() as any,
+        vi.fn(),
+      );
+      expect(refused.recordKeyUse).not.toHaveBeenCalled();
+    });
+
     it('should allow API key with expiresAt in the future', async () => {
       const futureDate = new Date(Date.now() + 86400_000);
       const deps = keyDeps({
@@ -206,7 +236,7 @@ describe('api-key middleware', () => {
       await middleware(req, res as any, next);
 
       expect(res._status).toBe(500);
-      expect(res._json).toEqual({ error: 'Internal server error' });
+      expect(res._json).toEqual({ error: 'Internal Server Error' });
       expect(next).not.toHaveBeenCalled();
       // the mocked logger, so this also proves the mock is the one in use
       expect(logger.error).toHaveBeenCalledWith(
@@ -289,6 +319,20 @@ describe('api-key middleware', () => {
       accounts.addKey('sluby_other', { creatorAddress: 'platform' });
       const { req } = await run({ cookie, authorization: 'Bearer sluby_other' });
       expect(req.apiKey?.creatorAddress).toBe(`user:${userId}`);
+    });
+
+    it('says why the session ended when a browser sends no key', async () => {
+      const { userId, cookie } = await sessionCookie();
+      const sid = accounts.sessions.find((x) => x.userId === userId)!.id;
+      await accounts.authDeps.revokeSession(sid, userId);
+      const { res, next } = await run({ cookie });
+      expect(next).not.toHaveBeenCalled();
+      expect(res._status).toBe(401);
+      // the text says what happened, not that a header was missing
+      expect(res._json).toEqual({
+        error: 'This session was signed out',
+        reason: 'revoked',
+      });
     });
 
     it('falls back to the bearer key when the cookie is not a live session', async () => {

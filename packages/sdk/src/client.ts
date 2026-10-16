@@ -1,6 +1,8 @@
 import { AssetManager } from './assets.js';
 import { AbortError, TimeoutError, errorFromResponse } from './errors.js';
 import { KeyManager } from './keys.js';
+import { SessionManager } from './sessions.js';
+import { ReconciliationManager } from './reconciliation.js';
 import { PlaybackIdManager } from './playback-ids.js';
 import { PlaybackManager } from './playback.js';
 import { SiaSession } from './sia-session.js';
@@ -57,8 +59,14 @@ export class SlubyClient {
   /** Registered webhook endpoints: list, create, delete, test and deliveries. */
   readonly webhookEndpoints: WebhookEndpointManager;
 
-  /** The account's API keys: list, create, rotate and revoke. */
+  /** The account's API keys: list, create, rename, rotate and revoke. */
   readonly keys: KeyManager;
+
+  /** The browsers signed in to the Studio; needs a browser session, not a key. */
+  readonly sessions: SessionManager;
+
+  /** The storage check: what is missing on Sia, and the video it belongs to. */
+  readonly reconciliation: ReconciliationManager;
 
   /**
    * Direct-from-Sia viewer session (browser only). Present only when
@@ -111,6 +119,8 @@ export class SlubyClient {
     this.webhooks = new WebhookManager();
     this.webhookEndpoints = new WebhookEndpointManager(boundFetch);
     this.keys = new KeyManager(boundFetch);
+    this.sessions = new SessionManager(boundFetch);
+    this.reconciliation = new ReconciliationManager(boundFetch);
     this.sia = this._config.sia
       ? new SiaSession(boundFetch, this._config.sia, {
           fetchPublic: this._fetchPublic.bind(this),

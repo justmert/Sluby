@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, existsSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { transcode, type TranscodeResult } from '../transcode/ffmpeg-runner.js';
+import { UnreadableSourceError } from '../transcode/source-errors.js';
 import { extractThumbnails } from '../transcode/thumbnail-extractor.js';
 import {
   parseMasterVariants,
@@ -813,9 +814,11 @@ describe.skipIf(!HAS_FFMPEG)('ffmpeg integration (real binaries)', () => {
     it('names the cause for a file that is not a video', async () => {
       const bogus = path.join(work, 'not-a-video.mp4');
       writeFileSync(bogus, 'hello');
-      await expect(transcode(bogus, path.join(work, 'bogus-out'))).rejects.toThrow(
+      const failure = transcode(bogus, path.join(work, 'bogus-out'));
+      await expect(failure).rejects.toThrow(
         /^ffprobe exited with code 1: .*Invalid data found when processing input/,
       );
+      await expect(failure).rejects.toBeInstanceOf(UnreadableSourceError);
     });
 
     it('names the cause for a zero-length file', async () => {

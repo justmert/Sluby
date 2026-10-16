@@ -53,6 +53,17 @@ export const accessTierSchema = z.enum(ACCESS_TIERS, {
   message: `access_tier must be one of: ${ACCESS_TIERS.join(', ')}`,
 });
 
+export const PLAYBACK_ID_NAME_MAX = 100;
+
+/** A playback ID's label; may be empty, it is only for telling them apart. */
+export const playbackIdNameSchema = z
+  .string({ message: 'name must be a string' })
+  .trim()
+  .max(PLAYBACK_ID_NAME_MAX, {
+    message: `name must be at most ${PLAYBACK_ID_NAME_MAX} characters`,
+  })
+  .refine((v) => !hasControlCharacter(v), { message: 'name must not contain control characters' });
+
 export const keyNameSchema = z
   .string({ message: 'name must be a string' })
   .trim()

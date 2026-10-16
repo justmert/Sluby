@@ -175,6 +175,11 @@ jobs:
       - name: SDK browser tests
         run: npm run test:browser --workspace=@sluby/sdk
 
+      # studio parts that only show in a real browser, such as the sign-in
+      # screen appearing while motion's features are still loading
+      - name: Studio browser tests
+        run: npm run test:browser --workspace=sluby-frontend
+
   studio-build:
     name: Studio builds
     runs-on: ubuntu-latest

@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { durationMs } from '@/lib/motion';
+import {
+  useCallback,
+  useLayoutEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
+import { flushSync } from 'react-dom';
 import { THEME_STORAGE_KEY, ThemeContext, parseTheme, resolveTheme, type Theme } from '@/lib/theme';
 
 const systemQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
@@ -19,14 +25,21 @@ function readStoredTheme(): Theme {
   }
 }
 
-let switchTimer: number | undefined;
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// eases colors for one switch; see .theme-switching in index.css
-function markThemeSwitch() {
-  const root = document.documentElement;
-  root.classList.add('theme-switching');
-  window.clearTimeout(switchTimer);
-  switchTimer = window.setTimeout(() => root.classList.remove('theme-switching'), durationMs.slow);
+/**
+ * Runs a theme change inside a view transition, so the browser crossfades one
+ * snapshot of the page (see ::view-transition in index.css). Fading every
+ * element's colors instead started about 2,600 css transitions at once and
+ * dropped frames on a slow cpu. Without view transitions, or under reduced
+ * motion, the theme snaps.
+ */
+function withCrossfade(apply: () => void) {
+  if (typeof document.startViewTransition !== 'function' || reducedMotion()) {
+    apply();
+    return;
+  }
+  document.startViewTransition(apply);
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -35,20 +48,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const systemDark = useSyncExternalStore(subscribeToSystem, () => systemQuery().matches);
   const resolvedTheme = resolveTheme(theme, systemDark);
 
-  useEffect(() => {
+  // a layout effect, so the class is on <html> by the time a view transition
+  // takes its second snapshot
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.classList.remove('light', 'dark');
     root.classList.add(resolvedTheme);
   }, [resolvedTheme]);
 
   const setTheme = useCallback((next: Theme) => {
-    markThemeSwitch();
-    setThemeState(next);
     try {
       localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch {
       // not persisted, but still applied for this session
     }
+    withCrossfade(() => flushSync(() => setThemeState(next)));
   }, []);
 
   return (

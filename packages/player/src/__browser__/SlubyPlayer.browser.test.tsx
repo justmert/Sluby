@@ -69,6 +69,37 @@ function renderPlayer(props: Partial<React.ComponentProps<typeof SlubyPlayer>> =
 }
 
 describe('SlubyPlayer with real hls.js', () => {
+  it('names the video and loads a captions track while hls.js plays it', async () => {
+    const vtt = URL.createObjectURL(
+      new Blob(['WEBVTT\n\n00:00.000 --> 00:05.000\nHello from a caption\n'], {
+        type: 'text/vtt',
+      }),
+    );
+    try {
+      const { video } = renderPlayer({
+        title: 'Fixture clip',
+        tracks: [{ src: vtt, kind: 'captions', srclang: 'en', label: 'English', default: true }],
+      });
+      await vi.waitFor(() => expect(video().currentTime).toBeGreaterThan(0.2), {
+        timeout: 15_000,
+        interval: 50,
+      });
+      expect(video().getAttribute('aria-label')).toBe('Fixture clip');
+      const el = video().querySelector('track')!;
+      expect(el.default).toBe(true);
+      const track = video().textTracks[0];
+      expect(track.kind).toBe('captions');
+      expect(track.language).toBe('en');
+      // whether a default track starts on is the browser's caption preference
+      // (headless webkit on linux leaves it off), so turn it on as a viewer would
+      track.mode = 'showing';
+      await vi.waitFor(() => expect(track.cues?.length).toBe(1), { timeout: 5_000 });
+      expect((track.cues![0] as VTTCue).text).toBe('Hello from a caption');
+    } finally {
+      URL.revokeObjectURL(vtt);
+    }
+  });
+
   it('attaches hls.js to the video, loads the master, picks a level, and plays', async () => {
     const { ref, events, video } = renderPlayer();
 

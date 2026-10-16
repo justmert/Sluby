@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { AlertTriangle, ExternalLink } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
+import { DataTable } from '@/components/shared/DataTable';
+import { InlineError } from '@/components/shared/InlineError';
 import { ObjectIdBadge } from '@/components/shared/ObjectIdBadge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -7,32 +9,37 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ResponsiveCell, ResponsiveTable } from '@/components/ui/responsive-table';
-import { TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Collapse } from '@/components/motion';
 import type { ObjectRole, SiaStorageInfo } from '@/hooks/asset-detail-queries';
-import { formatBytes, truncateMiddle } from '@/lib/formatters';
+import {
+  formatBytes,
+  formatCount,
+  formatRatio,
+  NO_VALUE,
+  plural,
+  truncateMiddle,
+} from '@/lib/formatters';
+import { SECTOR_BYTES, storageSummary } from '@/lib/sia';
 import { EXTERNAL_LINK_PROPS, explorerFor } from '@/lib/sia-explorer';
+import { SiaStorageExplainer } from './SiaStorageExplainer';
 
 const ROLE_LABELS: Record<ObjectRole, string> = {
-  master_manifest: 'Master playlist',
-  variant_playlist: 'Variant playlist',
-  rendition_data: 'Media',
+  master_manifest: 'Main playlist',
+  variant_playlist: 'Playlist',
+  rendition_data: 'Video',
   thumbnail: 'Thumbnail',
 };
 
 const HOSTS_SHOWN = 12;
 const COUNTRIES_SHOWN = 8;
-// every sector on a host is 4 MiB, and a slab holds one sector per shard
-const SECTOR_BYTES = 4 * 1024 * 1024;
 
-const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+type SiaObject = SiaStorageInfo['objects'][number];
 
 function Stat({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
   return (
     <div className="rounded-lg border p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
+      <p className="mt-1 font-heading text-figure-sm tabular-nums">{value}</p>
       {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
@@ -54,10 +61,14 @@ export function SiaStorageBreakdown({
   info,
   isLoading,
   error,
+  onRetry,
+  retrying = false,
 }: {
   info?: SiaStorageInfo;
   isLoading: boolean;
-  error: Error | null;
+  error: unknown;
+  onRetry?: () => unknown;
+  retrying?: boolean;
 }) {
   const [showAllHosts, setShowAllHosts] = useState(false);
   const [showAllCountries, setShowAllCountries] = useState(false);
@@ -69,7 +80,7 @@ export function SiaStorageBreakdown({
         <Card>
           <CardHeader>
             <CardTitle>Sia storage</CardTitle>
-            <CardDescription>Asking the indexer about every object...</CardDescription>
+            <CardDescription>Loading storage details…</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {Array.from({ length: 8 }, (_, i) => (
@@ -93,13 +104,14 @@ export function SiaStorageBreakdown({
       </div>
     );
   }
-  if (error || !info) {
+  if (!info) {
     return (
-      <Alert variant="destructive">
-        <AlertTriangle />
-        <AlertTitle>Could not load the Sia breakdown</AlertTitle>
-        <AlertDescription>{error?.message ?? 'No data'}</AlertDescription>
-      </Alert>
+      <InlineError
+        title="Could not load Sia storage details"
+        error={error ?? new Error('The server sent no storage details.')}
+        onRetry={onRetry}
+        retrying={retrying}
+      />
     );
   }
 
@@ -120,13 +132,12 @@ export function SiaStorageBreakdown({
     <div className="flex flex-col gap-4">
       {info.unavailable_object_ids.length > 0 && (
         <Alert>
-          <AlertTriangle />
           <AlertTitle>
-            The indexer did not describe {info.unavailable_object_ids.length} of {t.object_count}{' '}
-            objects
+            The Sia indexer did not describe {formatCount(info.unavailable_object_ids.length)} of{' '}
+            {plural(t.object_count, 'object')}
           </AlertTitle>
           <AlertDescription>
-            Totals below cover only the objects it answered for. Reload to ask again.
+            The totals below cover only the objects it answered for. Reload to ask again.
           </AlertDescription>
         </Alert>
       )}
@@ -134,106 +145,134 @@ export function SiaStorageBreakdown({
       <Card>
         <CardHeader>
           <CardTitle>Sia storage</CardTitle>
-          <CardDescription>
-            Live from the indexer at {info.indexer.url} ({info.indexer.network})
+          <CardDescription className="flex flex-col items-start gap-1">
+            <span>{storageSummary(t)}</span>
+            <SiaStorageExplainer dataShards={t.data_shards} parityShards={t.parity_shards} />
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat label="Objects" value={t.object_count} />
-          <Stat label="Stored" value={formatBytes(t.raw_bytes)} hint="Before erasure coding" />
-          <Stat
-            label="Encoded"
-            value={formatBytes(t.encoded_bytes)}
-            hint={
-              padding !== null && padding > 0
-                ? `After erasure coding. Slabs are filled to a fixed size, so ${formatBytes(padding)} of this is padding.`
-                : 'After erasure coding, in whole slabs'
-            }
-          />
-          <Stat
-            label="Redundancy"
-            value={
-              t.redundancy_ratio !== null
-                ? `${t.redundancy_ratio.toFixed(1)}x`
-                : described
-                  ? 'mixed'
-                  : '-'
-            }
-            hint={
-              t.data_shards !== null
-                ? `${t.data_shards} data + ${t.parity_shards} parity shards`
-                : described
-                  ? 'Slabs use different shard configs'
-                  : 'No slab was described'
-            }
-          />
-          <Stat label="Slabs" value={t.unique_slab_count} hint="Shared slabs counted once" />
-          <Stat label="Sectors" value={t.unique_sector_count} hint="4 MiB each on a host" />
-          <Stat label="Hosts" value={t.host_count} />
-          <Stat label="Countries" value={t.country_count} />
+        <CardContent className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Stat label="Objects" value={formatCount(t.object_count)} />
+            <Stat label="Size" value={formatBytes(t.raw_bytes)} hint="Your files' size" />
+            <Stat
+              label="On Sia"
+              value={formatBytes(t.encoded_bytes)}
+              hint={
+                padding !== null && padding > 0
+                  ? `With redundancy and ${formatBytes(padding)} of padding`
+                  : 'With redundancy, in whole slabs'
+              }
+            />
+            <Stat
+              label="Redundancy"
+              value={
+                t.redundancy_ratio !== null
+                  ? formatRatio(t.redundancy_ratio)
+                  : described
+                    ? 'Mixed'
+                    : NO_VALUE
+              }
+              hint={
+                t.data_shards !== null && t.parity_shards !== null
+                  ? `${formatCount(t.data_shards)} data + ${formatCount(t.parity_shards)} parity shards`
+                  : described
+                    ? 'Slabs use different shard counts'
+                    : 'No slab was described'
+              }
+            />
+            <Stat
+              label="Slabs"
+              value={formatCount(t.unique_slab_count)}
+              hint="Shared slabs counted once"
+            />
+            <Stat
+              label="Sectors"
+              value={formatCount(t.unique_sector_count)}
+              hint={`About ${formatBytes(SECTOR_BYTES)} each, on one host`}
+            />
+            <Stat label="Hosts" value={formatCount(t.host_count)} />
+            <Stat label="Countries" value={formatCount(t.country_count)} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            From the Sia indexer at {info.indexer.url} ({info.indexer.network})
+          </p>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Objects</CardTitle>
-          <CardDescription>
+      <section aria-labelledby="sia-objects" className="flex flex-col gap-2">
+        <div>
+          <h2 id="sia-objects" className="font-heading text-heading">
+            Objects
+          </h2>
+          <p className="text-sm text-muted-foreground">
             Every Sia object behind this video. Objects uploaded together share slabs.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="px-0">
-          <ResponsiveTable className="max-sm:px-4">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-4">Object</TableHead>
-                <TableHead>Object ID</TableHead>
-                <TableHead className="text-right">Size</TableHead>
-                <TableHead className="text-right">Slabs</TableHead>
-                <TableHead className="text-right">Sectors</TableHead>
-                <TableHead className="pr-4 text-right">Hosts</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {info.objects.map((o) => (
-                <TableRow key={o.object_id}>
-                  <ResponsiveCell cell="primary" className="pl-4">
-                    <span className="font-medium">{o.role ? ROLE_LABELS[o.role] : 'Object'}</span>
-                    {o.rendition && (
-                      <span className="ml-1.5 font-normal text-muted-foreground">
-                        {o.rendition}
-                      </span>
-                    )}
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Object ID">
-                    <ObjectIdBadge value={o.object_id} truncate={6} />
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Size" className="text-right tabular-nums">
-                    {formatBytes(o.size)}
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Slabs" className="text-right tabular-nums">
-                    {o.slab_count}
-                    {o.shared_slab_count > 0 && (
-                      <Badge
-                        variant="secondary"
-                        className="ml-1.5"
-                        title="Slabs shared with other objects of this video"
-                      >
-                        {o.shared_slab_count} shared
-                      </Badge>
-                    )}
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Sectors" className="text-right tabular-nums">
-                    {o.sector_count}
-                  </ResponsiveCell>
-                  <ResponsiveCell label="Hosts" className="pr-4 text-right tabular-nums">
-                    {o.host_count}
-                  </ResponsiveCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </ResponsiveTable>
-        </CardContent>
-      </Card>
+          </p>
+        </div>
+        <DataTable<SiaObject>
+          caption="Sia objects"
+          rows={info.objects}
+          getRowId={(o) => o.object_id}
+          getRowLabel={(o) => (o.role ? ROLE_LABELS[o.role] : 'Object')}
+          columns={[
+            {
+              id: 'object',
+              header: 'Object',
+              primary: true,
+              cell: (o) => (
+                <>
+                  {o.role ? ROLE_LABELS[o.role] : 'Object'}
+                  {o.rendition && (
+                    <span className="ml-1.5 font-normal text-muted-foreground">{o.rendition}</span>
+                  )}
+                </>
+              ),
+            },
+            {
+              id: 'id',
+              header: 'Object ID',
+              cell: (o) => (
+                <ObjectIdBadge
+                  value={o.object_id}
+                  truncate={6}
+                  copyLabel={`Copy object ID ${o.object_id.slice(0, 8)}`}
+                />
+              ),
+            },
+            { id: 'size', header: 'Size', align: 'right', cell: (o) => formatBytes(o.size) },
+            {
+              id: 'slabs',
+              header: 'Slabs',
+              align: 'right',
+              cell: (o) => (
+                <>
+                  {formatCount(o.slab_count)}
+                  {o.shared_slab_count > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="ml-1.5"
+                      title="Slabs shared with other objects of this video"
+                    >
+                      {formatCount(o.shared_slab_count)} shared
+                    </Badge>
+                  )}
+                </>
+              ),
+            },
+            {
+              id: 'sectors',
+              header: 'Sectors',
+              align: 'right',
+              cell: (o) => formatCount(o.sector_count),
+            },
+            {
+              id: 'hosts',
+              header: 'Hosts',
+              align: 'right',
+              cell: (o) => formatCount(o.host_count),
+            },
+          ]}
+        />
+      </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -307,8 +346,7 @@ export function SiaStorageBreakdown({
             )}
             {info.hosts.some((h) => !h.country_code) && (
               <p className="text-xs text-muted-foreground">
-                Unknown means the host is not in the host list the indexer returns, so its location
-                was not reported.
+                &ldquo;Unknown&rdquo; means the Sia indexer did not report the host&apos;s location.
               </p>
             )}
           </CardContent>
@@ -366,14 +404,12 @@ function HostRows({ hosts, explorer }: { hosts: SiaStorageInfo['hosts']; explore
         className="flex min-w-0 items-center gap-1.5 font-mono text-xs hover:underline"
         title={h.public_key}
       >
-        {shortKey(h.public_key)}
+        <span className="truncate">{shortKey(h.public_key)}</span>
         <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
       </a>
-      <span className="flex items-center gap-3 text-muted-foreground">
-        <span>{h.country_code ? countryName(h.country_code) : 'unknown'}</span>
-        <span className="w-16 text-right tabular-nums">
-          {h.sectors} sector{h.sectors === 1 ? '' : 's'}
-        </span>
+      <span className="flex shrink-0 items-center gap-3 text-muted-foreground">
+        <span>{h.country_code ? countryName(h.country_code) : 'Unknown'}</span>
+        <span className="w-20 text-right tabular-nums">{plural(h.sectors, 'sector')}</span>
       </span>
     </div>
   ));

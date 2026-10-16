@@ -1,4 +1,5 @@
 import { SlubyClient, type SiaViewerConfig } from '@sluby/sdk';
+import { REQUEST_TIMEOUT_MS } from './api-client';
 
 // the studio is served from the same origin as the api, so the sdk rides on
 // the session cookie and needs no api key
@@ -13,4 +14,7 @@ function viewerConfig(): SiaViewerConfig | undefined {
 export const sluby = new SlubyClient({
   baseUrl: window.location.origin,
   sia: viewerConfig(),
+  // a stalled api answer fails like any other error instead of leaving a
+  // card loading forever
+  timeoutMs: REQUEST_TIMEOUT_MS,
 });

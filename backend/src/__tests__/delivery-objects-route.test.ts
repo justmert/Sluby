@@ -95,11 +95,12 @@ function largeHandle(id: string, size: number): ObjectHandle {
 
 let handles: Map<string, ObjectHandle>;
 let access: Map<string, ObjectAccess>;
-const PUBLIC = (assetId = 'a'): ObjectAccess => ({ kind: 'public', assetId });
+const PUBLIC = (assetId = 'a'): ObjectAccess => ({ kind: 'public', assetId, isMaster: false });
 const PRIVATE = (generation = 0): ObjectAccess => ({
   kind: 'private',
   assetId: 'a',
   signing: { generation, legacyUntilSec: null },
+  isMaster: false,
 });
 
 function app() {

@@ -38,18 +38,58 @@ describe.skipIf(!hasTestDatabase)('webhook queries (postgres)', () => {
       expect((await q.getWebhookEndpointById(h.id))?.url).toBe('https://hooks.example/a');
     });
 
-    it('lists only the owner’s active endpoints, newest first', async () => {
+    it('lists the owner’s endpoints, paused ones too, newest first', async () => {
       const first = await hook({ url: 'https://h/1' });
       await tdb.sql`update webhook_endpoints set created_at = now() - interval '1 hour' where id = ${first.id}`;
       await hook({ url: 'https://h/2' });
       const off = await hook({ url: 'https://h/off' });
-      await tdb.sql`update webhook_endpoints set is_active = false where id = ${off.id}`;
+      await tdb.sql`update webhook_endpoints set is_active = false, created_at = now() - interval '2 hours' where id = ${off.id}`;
       await hook({ url: 'https://h/bob', creatorAddress: 'bob' });
 
-      expect((await q.listWebhookEndpointsByOwner('alice')).map((h) => h.url)).toEqual([
-        'https://h/2',
-        'https://h/1',
+      const listed = await q.listWebhookEndpointsByOwner('alice');
+      expect(listed.map((h) => [h.url, h.isActive])).toEqual([
+        ['https://h/2', true],
+        ['https://h/1', true],
+        ['https://h/off', false],
       ]);
+    });
+
+    it('reports how the newest delivery of each endpoint went', async () => {
+      const quiet = await hook({ url: 'https://h/quiet' });
+      const flaky = await hook({ url: 'https://h/flaky' });
+      const fine = await hook({ url: 'https://h/fine' });
+      const at = (ago: string) => tdb.sql`now() - ${ago}::interval`;
+      const delivery = async (endpoint: string, ago: string, delivered: boolean) => {
+        const d = await q.createWebhookDelivery({
+          webhookEndpointId: endpoint,
+          eventType: 'asset.ready',
+          payload: { id: 'evt' },
+          statusCode: delivered ? 200 : 500,
+          deliveredAt: delivered ? new Date() : null,
+        });
+        await tdb.sql`update webhook_deliveries set created_at = ${at(ago)} where id = ${d.id}`;
+      };
+      // flaky: delivered earlier, failed last; fine: failed earlier, delivered last
+      await delivery(flaky.id, '2 hours', true);
+      await delivery(flaky.id, '1 hour', false);
+      await delivery(fine.id, '2 hours', false);
+      await delivery(fine.id, '1 hour', true);
+
+      const byUrl = Object.fromEntries(
+        (await q.listWebhookEndpointsByOwner('alice')).map((h) => [h.url, h]),
+      );
+      expect(byUrl['https://h/quiet']).toMatchObject({
+        lastDeliveryAt: null,
+        lastDeliveryOk: null,
+      });
+      expect(byUrl['https://h/flaky'].lastDeliveryOk).toBe(false);
+      expect(byUrl['https://h/fine'].lastDeliveryOk).toBe(true);
+      expect(byUrl['https://h/fine'].lastDeliveryAt).toBeInstanceOf(Date);
+
+      const one = await q.getWebhookEndpointWithHealth(flaky.id, 'alice');
+      expect(one).toMatchObject({ id: flaky.id, lastDeliveryOk: false });
+      expect(await q.getWebhookEndpointWithHealth(flaky.id, 'bob')).toBeUndefined();
+      expect((await q.getWebhookEndpointWithHealth(quiet.id, undefined))?.id).toBe(quiet.id);
     });
 
     it('lists, finds and deletes across accounts only for an undefined owner', async () => {
@@ -87,6 +127,20 @@ describe.skipIf(!hasTestDatabase)('webhook queries (postgres)', () => {
       expect(await q.findEndpointsForEvent('asset', 'alice')).toEqual([]);
       expect(await q.findEndpointsForEvent('asset.%', 'alice')).toEqual([]);
       expect(await q.findEndpointsForEvent("asset.ready'] or true --", 'alice')).toEqual([]);
+    });
+
+    it('updates only within the owner’s account', async () => {
+      const h = await hook();
+      expect(await q.updateWebhookEndpoint(h.id, 'bob', { isActive: false })).toBeUndefined();
+      const paused = await q.updateWebhookEndpoint(h.id, 'alice', {
+        isActive: false,
+        events: ['asset.errored'],
+      });
+      expect(paused).toMatchObject({ isActive: false, events: ['asset.errored'], url: h.url });
+      // a paused endpoint gets no events
+      expect(await q.findEndpointsForEvent('asset.errored', 'alice')).toEqual([]);
+      const moved = await q.updateWebhookEndpoint(h.id, undefined, { url: 'https://h/new' });
+      expect(moved?.url).toBe('https://h/new');
     });
 
     it('deletes only within the owner’s account, along with its deliveries', async () => {

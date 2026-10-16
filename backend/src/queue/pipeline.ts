@@ -1,4 +1,11 @@
-import { Worker, type ConnectionOptions, type Job, type Queue, type WorkerOptions } from 'bullmq';
+import {
+  UnrecoverableError,
+  Worker,
+  type ConnectionOptions,
+  type Job,
+  type Queue,
+  type WorkerOptions,
+} from 'bullmq';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { TranscodeJobData, UploadSegmentsJobData, FinalizeJobData } from './bull-config.js';
@@ -13,6 +20,7 @@ import {
 } from './output-dirs.js';
 import { TRANSCODE_CONCURRENCY, transcode } from '../transcode/ffmpeg-runner.js';
 import { extractThumbnails } from '../transcode/thumbnail-extractor.js';
+import { UnreadableSourceError } from '../transcode/source-errors.js';
 import { uploadSegments } from '../storage/segment-uploader.js';
 import { runLedger, releaseObjects, unpinReleasedObjects } from '../storage/object-ledger.js';
 import { warmObjects } from '../storage/blob-manager.js';
@@ -78,6 +86,18 @@ export interface PipelineWorkers {
   uploadSegments: Worker<UploadSegmentsJobData>;
   finalize: Worker<FinalizeJobData>;
   close(): Promise<void>;
+}
+
+/**
+ * A source file FFmpeg cannot read as a video. BullMQ fails the job without
+ * its retries (the name is what it and isFinalFailure look at), and the
+ * processing job is marked not retryable.
+ */
+class UnreadableSource extends UnrecoverableError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnrecoverableError';
+  }
 }
 
 /** Thrown inside a stage when its asset was deleted or left processing. */
@@ -230,7 +250,12 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
           `Reusing the finished transcode in ${path.basename(output.outputDir)}`,
         );
       } else {
-        output = await runTranscode(job, filePath, pj);
+        try {
+          output = await runTranscode(job, filePath, pj);
+        } catch (err) {
+          if (err instanceof UnreadableSourceError) throw new UnreadableSource(err.message);
+          throw err;
+        }
         if (!output) return { skipped: 'stopped' };
       }
 
@@ -243,6 +268,10 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
         return { skipped: 'stopped' };
       }
 
+      // the upload worker may not pick this up for a while (it runs one Sia
+      // upload at a time), so the log and the stage say what the video waits
+      // for instead of leaving it at "transcode, 65%"
+      await note(pj, 'upload', 'Waiting for the Sia uploader');
       await queues.uploadSegments.add(
         'upload-segments',
         {
@@ -284,7 +313,8 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
   ): Promise<CompletedOutput | null> {
     const { videoAssetId } = job.data;
     const outputDir = await createRunDir(outputRoot, videoAssetId);
-    await note(pj, 'transcode', `Starting transcode for ${path.basename(filePath)}`);
+    // the log is shown next to the video, so it names the video, not the upload file
+    await note(pj, 'transcode', `Starting transcode of video ${videoAssetId}`);
 
     const result = await transcode(filePath, outputDir, {
       // transcode progress is 0-60% of the pipeline
@@ -726,7 +756,11 @@ async function recordFailure(
     }
     failedAsset = failedAsset || (await failProcessingAsset(videoAssetId));
     if (failedAsset && pj) {
-      await updateProcessingJobStatus(pj, { status: 'failed', errorMessage: error.message });
+      await updateProcessingJobStatus(pj, {
+        status: 'failed',
+        errorMessage: error.message,
+        retryable: !(error instanceof UnreadableSource),
+      });
     }
   });
   if (failedAsset) {

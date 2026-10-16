@@ -18,6 +18,8 @@ export interface WebhookJobData {
   event: string;
   body: string;
   deliveryId?: string;
+  /** A resend someone asked for; recorded as such in the delivery log. */
+  manual?: boolean;
 }
 
 /** Waits before the 2nd, 3rd and 4th attempt; the first runs immediately. */
@@ -72,6 +74,7 @@ export interface DeliveryRecord {
   /** When the receiver answered 2xx; null for a failed attempt. */
   deliveredAt: Date | null;
   retryCount: number;
+  manual: boolean;
 }
 
 export interface WebhookDeliveryDeps {
@@ -126,12 +129,12 @@ export async function attemptDelivery(
       return {
         delivered: false,
         statusCode: status,
-        error: `the receiver answered ${status}; redirects are not followed`,
+        error: `Your endpoint answered ${status}. Redirects are not followed.`,
       };
     }
-    return { delivered: false, statusCode: status, error: `the receiver answered ${status}` };
+    return { delivered: false, statusCode: status, error: `Your endpoint answered ${status}` };
   } catch (err) {
-    const message = err instanceof EgressError ? err.message : 'request failed';
+    const message = err instanceof EgressError ? err.message : 'The request failed';
     if (!(err instanceof EgressError)) logger.warn({ err }, 'Unexpected webhook request error');
     return { delivered: false, statusCode: null, error: message };
   }
@@ -169,6 +172,7 @@ export async function deliverWebhook(
       error: outcome.error,
       deliveredAt: outcome.delivered ? new Date() : null,
       retryCount,
+      manual: data.manual === true,
     });
   } catch (err) {
     logger.error(

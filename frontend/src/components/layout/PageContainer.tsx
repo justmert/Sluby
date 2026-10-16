@@ -21,12 +21,11 @@
  * stacking changes, and position: fixed children still place against the
  * viewport (checked in chrome).
  *
- * PageHeader: the page title row. Props:
- * - title
- * - description, optional, under the title
- * - actions, optional, at the end of the row on wide pages and under the
- *   title on narrow ones
+ * PageHeader and SectionHeader: see components/shared/PageHeader.tsx.
  */
+import { useEffect, useRef, useState } from 'react';
+import { routeSkeletonWasVisible } from '@/components/dashboard/live';
+import { lateRevealSelector } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 interface PageContainerProps {
@@ -35,9 +34,30 @@ interface PageContainerProps {
 }
 
 export function PageContainer({ children, className }: PageContainerProps) {
+  // a page taking over from a route skeleton people already see draws its
+  // own placeholders at once; their usual 150 ms wait would blink them out.
+  // once those are gone, skeletons that show later (a refetch, a tab) wait
+  // again, so a quick answer never flashes one
+  const [instant, setInstant] = useState(routeSkeletonWasVisible);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!instant || !el) return;
+    const settle = () => {
+      if (el.querySelector(lateRevealSelector)) return false;
+      setInstant(false);
+      return true;
+    };
+    if (settle()) return;
+    const observer = new MutationObserver(() => settle() && observer.disconnect());
+    observer.observe(el, { childList: true, subtree: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, [instant]);
   return (
     <div
+      ref={ref}
       data-slot="page-container"
+      data-instant-skeletons={instant || undefined}
       className={cn(
         '@container/page mx-auto w-full max-w-7xl px-4 py-6 sm:px-8 sm:py-8',
         className,
@@ -48,20 +68,6 @@ export function PageContainer({ children, className }: PageContainerProps) {
   );
 }
 
-interface PageHeaderProps {
-  title: string;
-  description?: React.ReactNode;
-  actions?: React.ReactNode;
-}
-
-export function PageHeader({ title, description, actions }: PageHeaderProps) {
-  return (
-    <div className="mb-6 flex flex-col gap-4 @xl/page:flex-row @xl/page:items-end @xl/page:justify-between">
-      <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
-      </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
-    </div>
-  );
-}
+// the page title block lives with the other shared components; it is
+// re-exported here so existing imports keep working
+export { PageHeader, SectionHeader } from '@/components/shared/PageHeader';

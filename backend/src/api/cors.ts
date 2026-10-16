@@ -11,6 +11,7 @@ const ALLOWED_HEADERS = [
   'Upload-Concat',
   'Upload-Defer-Length',
   'X-Requested-With',
+  'If-Match',
 ];
 
 const EXPOSED_HEADERS = [
@@ -26,6 +27,7 @@ const EXPOSED_HEADERS = [
   'X-RateLimit-Limit',
   'X-RateLimit-Remaining',
   'X-RateLimit-Reset',
+  'ETag',
 ];
 
 const BASE: CorsOptions = {
@@ -107,6 +109,13 @@ export function createApiCors(policy: ApiCorsPolicy): RequestHandler {
     // the answer depends on the origin whenever some origins are treated
     // differently, so caches must key on it
     if (policy.credentialedOrigins.length > 0 || policy.authDisabled) res.vary('Origin');
+    // an OPTIONS without Access-Control-Request-Method is no preflight but a
+    // request of its own: the tus discovery that tells the studio the upload
+    // limit. browsers send it with an Origin, and cors would answer it empty
+    if (req.method === 'OPTIONS' && !req.headers['access-control-request-method']) {
+      next();
+      return;
+    }
     middleware(req, res, next);
   };
 }

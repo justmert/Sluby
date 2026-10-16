@@ -4,6 +4,31 @@ import { AppError } from '../middleware/error-handler.js';
 import { ownerFilter } from '../ownership.js';
 import { randomBytes } from 'node:crypto';
 
+/** An endpoint as the routes answer it. */
+export interface WebhookRecord {
+  id: string;
+  url: string;
+  events: string[];
+  isActive: boolean;
+  createdAt: Date;
+  /** When the newest delivery attempt was made; null before the first. */
+  lastDeliveryAt: Date | null;
+  /** Whether that attempt was delivered; null before the first. */
+  lastDeliveryOk: boolean | null;
+}
+
+function formatWebhook(w: WebhookRecord) {
+  return {
+    id: w.id,
+    url: w.url,
+    events: w.events,
+    is_active: w.isActive,
+    created_at: w.createdAt.toISOString(),
+    last_delivery_at: w.lastDeliveryAt ? w.lastDeliveryAt.toISOString() : null,
+    last_delivery_ok: w.lastDeliveryOk,
+  };
+}
+
 export interface WebhookRouteDeps {
   createWebhook: (data: {
     creatorAddress: string;
@@ -17,14 +42,28 @@ export interface WebhookRouteDeps {
    * The owner arguments below come from ownerFilter: undefined (the platform
    * identity) means every account.
    */
-  listWebhooks: (owner: string | undefined) => Promise<
-    Array<{
-      id: string;
-      url: string;
-      events: string[];
-      isActive: boolean;
-      createdAt: Date;
-    }>
+  listWebhooks: (owner: string | undefined) => Promise<WebhookRecord[]>;
+  /** One endpoint, or null when it is not the account's. */
+  getWebhook: (id: string, owner: string | undefined) => Promise<WebhookRecord | null>;
+  /** Changes the given fields of an endpoint of the account; null when it is not theirs. */
+  updateWebhook: (
+    id: string,
+    owner: string | undefined,
+    patch: { url?: string; events?: string[]; isActive?: boolean },
+  ) => Promise<WebhookRecord | null>;
+  /** Stores a new signing secret; false when the endpoint is not the account's. */
+  rotateWebhookSecret: (id: string, owner: string | undefined, secret: string) => Promise<boolean>;
+  /**
+   * Queue the stored payload of delivery `deliveryId` again, unchanged (same
+   * event id). `not_found` when the endpoint is not the account's or has no
+   * such delivery, `paused` when the endpoint is paused.
+   */
+  redeliverWebhook: (
+    id: string,
+    owner: string | undefined,
+    deliveryId: string,
+  ) => Promise<
+    { status: 'queued'; deliveryId: string } | { status: 'not_found' } | { status: 'paused' }
   >;
   /** Deletes only if the endpoint belongs to the account; false when it does not. */
   deleteWebhook: (id: string, owner: string | undefined) => Promise<boolean>;
@@ -51,6 +90,9 @@ export interface WebhookRouteDeps {
     error: string | null;
     attempt: number;
     createdAt: Date;
+    /** The JSON body that was sent. */
+    payload: Record<string, unknown>;
+    manual: boolean;
   }> | null>;
 }
 
@@ -64,6 +106,32 @@ export const WEBHOOK_EVENTS = [
   'asset.errored',
 ];
 
+const newSigningSecret = () => randomBytes(32).toString('hex');
+
+/** Longest receiver URL accepted, well past any real one. */
+export const WEBHOOK_URL_MAX = 2048;
+
+const PATCH_FIELDS = ['url', 'events', 'is_active'];
+
+function checkUrlShape(url: unknown): asserts url is string {
+  if (!url || typeof url !== 'string') {
+    throw new AppError(400, 'URL is required');
+  }
+  if (url.length > WEBHOOK_URL_MAX) {
+    throw new AppError(400, 'The URL is longer than 2,048 characters.');
+  }
+}
+
+function checkEvents(events: unknown): asserts events is string[] {
+  if (!events || !Array.isArray(events) || events.length === 0) {
+    throw new AppError(400, 'At least one event type is required');
+  }
+  const invalidEvents = events.filter((e: unknown) => !WEBHOOK_EVENTS.includes(e as string));
+  if (invalidEvents.length > 0) {
+    throw new AppError(400, `Invalid events: ${invalidEvents.join(', ')}`);
+  }
+}
+
 export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
   const router = Router();
 
@@ -74,23 +142,14 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
   router.post('/', requireScope('manage'), async (req: Request, res: Response) => {
     const { url, events } = req.body ?? {};
 
-    if (!url || typeof url !== 'string') {
-      throw new AppError(400, 'URL is required');
-    }
+    checkUrlShape(url);
     // checked again before every delivery, since dns can change after this
     const refused = await deps.vetWebhookUrl(url);
-    if (refused) throw new AppError(400, `URL refused: ${refused}`);
+    if (refused) throw new AppError(400, refused);
 
-    if (!events || !Array.isArray(events) || events.length === 0) {
-      throw new AppError(400, 'At least one event type is required');
-    }
+    checkEvents(events);
 
-    const invalidEvents = events.filter((e: string) => !WEBHOOK_EVENTS.includes(e));
-    if (invalidEvents.length > 0) {
-      throw new AppError(400, `Invalid events: ${invalidEvents.join(', ')}`);
-    }
-
-    const secret = randomBytes(32).toString('hex');
+    const secret = newSigningSecret();
 
     const caller = req.apiKey!;
     const webhook = await deps.createWebhook({
@@ -118,16 +177,106 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
   router.get('/', requireScope('manage'), async (req: Request, res: Response) => {
     const webhooks = await deps.listWebhooks(ownerFilter(req.apiKey!.creatorAddress));
 
-    res.json({
-      data: webhooks.map((w) => ({
-        id: w.id,
-        url: w.url,
-        events: w.events,
-        is_active: w.isActive,
-        created_at: w.createdAt.toISOString(),
-      })),
-    });
+    res.json({ data: webhooks.map(formatWebhook) });
   });
+
+  /**
+   * GET /api/v1/webhooks/:id
+   * One endpoint, with how its newest delivery went.
+   */
+  router.get('/:id', requireScope('manage'), async (req: Request, res: Response) => {
+    const webhook = await deps.getWebhook(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+    );
+    if (!webhook) throw new AppError(404, 'Webhook endpoint not found');
+    res.json(formatWebhook(webhook));
+  });
+
+  /**
+   * PATCH /api/v1/webhooks/:id
+   * Change the receiver URL or the events, or pause (`is_active: false`) and
+   * resume the endpoint. A paused endpoint is sent nothing, and deliveries
+   * already queued for it are dropped when their turn comes.
+   */
+  router.patch('/:id', requireScope('manage'), async (req: Request, res: Response) => {
+    const body: Record<string, unknown> =
+      req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const unknown = Object.keys(body).filter((k) => !PATCH_FIELDS.includes(k));
+    if (unknown.length > 0) {
+      throw new AppError(
+        400,
+        `unknown field${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}`,
+      );
+    }
+    if (!PATCH_FIELDS.some((k) => body[k] !== undefined)) {
+      throw new AppError(400, 'Send at least one of url, events and is_active');
+    }
+    const patch: { url?: string; events?: string[]; isActive?: boolean } = {};
+    if (body.url !== undefined) {
+      checkUrlShape(body.url);
+      const refused = await deps.vetWebhookUrl(body.url);
+      if (refused) throw new AppError(400, refused);
+      patch.url = body.url;
+    }
+    if (body.events !== undefined) {
+      checkEvents(body.events);
+      patch.events = [...new Set(body.events)];
+    }
+    if (body.is_active !== undefined) {
+      if (typeof body.is_active !== 'boolean') {
+        throw new AppError(400, 'is_active must be true or false');
+      }
+      patch.isActive = body.is_active;
+    }
+    const updated = await deps.updateWebhook(
+      String(req.params.id),
+      ownerFilter(req.apiKey!.creatorAddress),
+      patch,
+    );
+    if (!updated) throw new AppError(404, 'Webhook endpoint not found');
+    res.json(formatWebhook(updated));
+  });
+
+  /**
+   * POST /api/v1/webhooks/:id/rotate-secret
+   * Replace the signing secret, for one that leaked. The old secret stops
+   * at once, retries already queued included; the new one is shown only here.
+   */
+  router.post('/:id/rotate-secret', requireScope('manage'), async (req: Request, res: Response) => {
+    const id = String(req.params.id);
+    const secret = newSigningSecret();
+    const rotated = await deps.rotateWebhookSecret(
+      id,
+      ownerFilter(req.apiKey!.creatorAddress),
+      secret,
+    );
+    if (!rotated) throw new AppError(404, 'Webhook endpoint not found');
+    res.json({ id, secret });
+  });
+
+  /**
+   * POST /api/v1/webhooks/:id/deliveries/:deliveryId/redeliver
+   * Send a logged delivery's payload again, with the same event id so a
+   * receiver that already handled it can drop it. Queued like any delivery,
+   * with the usual retries; its attempts are logged with `manual: true`.
+   */
+  router.post(
+    '/:id/deliveries/:deliveryId/redeliver',
+    requireScope('manage'),
+    async (req: Request, res: Response) => {
+      const result = await deps.redeliverWebhook(
+        String(req.params.id),
+        ownerFilter(req.apiKey!.creatorAddress),
+        String(req.params.deliveryId),
+      );
+      if (result.status === 'not_found') throw new AppError(404, 'Delivery not found');
+      if (result.status === 'paused') {
+        throw new AppError(409, 'This webhook is paused. Resume it to resend.');
+      }
+      res.status(202).json({ delivery_id: result.deliveryId });
+    },
+  );
 
   /**
    * DELETE /api/v1/webhooks/:id
@@ -166,8 +315,8 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
   /**
    * GET /api/v1/webhooks/:id/deliveries
    * The endpoint's latest delivery attempts, newest first: the event, the
-   * receiver's status code and, for a failure, why. Response bodies are
-   * never stored.
+   * payload that was sent, the receiver's status code and, for a failure,
+   * why. Response bodies are never stored.
    */
   router.get('/:id/deliveries', requireScope('manage'), async (req: Request, res: Response) => {
     const raw = req.query.limit;
@@ -191,6 +340,8 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
         error: d.error,
         attempt: d.attempt,
         created_at: d.createdAt.toISOString(),
+        payload: d.payload,
+        manual: d.manual,
       })),
     });
   });

@@ -4,10 +4,11 @@ import { renderPage } from '@/test/render';
 import NotFoundPage from './NotFoundPage';
 
 describe('NotFoundPage', () => {
-  it('says the page does not exist and links back to the dashboard', () => {
+  it('says the page does not exist and links back to the overview (CPY-35)', () => {
     renderPage(<NotFoundPage />, { route: '/studio/nope' });
     expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to dashboard' })).toHaveAttribute(
+    expect(screen.getByText('This page does not exist.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to overview' })).toHaveAttribute(
       'href',
       '/studio',
     );

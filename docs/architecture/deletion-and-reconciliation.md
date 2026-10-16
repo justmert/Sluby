@@ -119,6 +119,8 @@ A run covers every tenant's objects, but only the platform identity and operator
 
 The ownership of a missing id is looked up when the report is read, not when the run was made, so an asset deleted since the run no longer contributes its ids to anyone's list.
 
+Both scopes also answer `missing_objects`: each of `missing_ids`, in the same order, with `video_asset_id` and `title` of the video that holds it, so the Studio can link a missing object to its video. The video is found through the same sources (`artifacts` and the id columns of `video_assets`), within the caller's scope: a tenant's own videos, every account's for the platform identity and operators. Only live videos are named; an id whose video is being deleted, or that no video holds any more, keeps its place with `video_asset_id` and `title` null.
+
 ```json
 {
   "id": "6f1c...",
@@ -128,7 +130,10 @@ The ownership of a missing id is looked up when the report is read, not when the
   "scope": "account",
   "status": "drift",
   "missing_count": 1,
-  "missing_ids": ["8a2f..."]
+  "missing_ids": ["8a2f..."],
+  "missing_objects": [
+    { "object_id": "8a2f...", "video_asset_id": "0b6d...", "title": "Launch trailer" }
+  ]
 }
 ```
 

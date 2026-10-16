@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
+import { formatAgo } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
-import { agoText } from './live';
 
 function useNow(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
@@ -22,6 +22,11 @@ function useNow(intervalMs: number): number {
 interface UpdatedAgoProps {
   /** when the data on screen arrived, as react query's dataUpdatedAt; 0 before any */
   updatedAt: number;
+  /**
+   * the data itself. react query keeps the same object when a refetch brings
+   * the same figures, so the dot pops only when this changes, not on every poll
+   */
+  data?: unknown;
   /** the latest refresh failed, so the figures are getting old */
   stale?: boolean;
   /** what came in, e.g. "Totals updated" */
@@ -30,18 +35,22 @@ interface UpdatedAgoProps {
 }
 
 /**
- * A quiet live indicator: a dot that pops once each time fresh data lands,
- * and how long ago that was.
+ * A quiet live indicator: how long ago the figures arrived, and a dot that
+ * pops once when they change.
  */
 export function UpdatedAgo({
   updatedAt,
+  data,
   stale = false,
   label = 'Updated',
   className,
 }: UpdatedAgoProps) {
   const now = useNow(1000);
-  // the first reading is the page load, not news
-  const [firstAt] = useState(updatedAt);
+  // how many times the figures changed while on screen; the first reading is the page load, not news
+  const [seen, setSeen] = useState<{ data: unknown; changes: number }>({ data, changes: 0 });
+  if (!Object.is(seen.data, data)) {
+    setSeen({ data, changes: seen.data === undefined ? 0 : seen.changes + 1 });
+  }
   // the line is there before the first answer, so it does not push anything when it fills
   if (!updatedAt) return <p aria-hidden="true" className={cn('h-4', className)} />;
   return (
@@ -50,17 +59,19 @@ export function UpdatedAgo({
       title={new Date(updatedAt).toLocaleString()}
     >
       <span
-        key={updatedAt}
+        key={seen.changes}
         aria-hidden="true"
+        data-slot="updated-dot"
         data-stale={stale || undefined}
         className={cn(
-          'size-1.5 shrink-0 rounded-full bg-success transition-colors duration-200 data-stale:bg-warning',
-          updatedAt !== firstAt && 'animate-in duration-500 ease-out-soft fade-in-30 zoom-in-0',
+          'size-1.5 shrink-0 rounded-full bg-success transition-colors duration-200 data-stale:bg-warning-foreground',
+          seen.changes > 0 &&
+            'animate-in duration-300 ease-out-soft fade-in-30 zoom-in-0 transition-none',
         )}
       />
       <span className="tabular-nums">
-        {label} {agoText(now - updatedAt)}
-        {stale && ', refresh failed'}
+        {label} {formatAgo(now - updatedAt)}
+        {stale && ', could not refresh'}
       </span>
     </p>
   );

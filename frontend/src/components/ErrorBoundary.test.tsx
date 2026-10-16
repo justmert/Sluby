@@ -19,6 +19,16 @@ const MissingChunk = lazy(() =>
   ),
 );
 
+// firefox rejects the imports in flight when the page starts to unload
+const AbortedChunk = lazy(
+  () =>
+    new Promise<never>((_, reject) =>
+      setTimeout(() =>
+        reject(new TypeError('error loading dynamically imported module: /assets/HealthPage.js')),
+      ),
+    ),
+);
+
 function Shell() {
   const { pathname } = useLocation();
   return (
@@ -29,6 +39,7 @@ function Shell() {
           <Routes>
             <Route path="/broken" element={<Broken />} />
             <Route path="/analytics" element={<MissingChunk />} />
+            <Route path="/health" element={<AbortedChunk />} />
             <Route path="/assets" element={<p>Assets page</p>} />
           </Routes>
         </Suspense>
@@ -49,7 +60,10 @@ beforeEach(() => {
   sessionStorage.clear();
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  window.dispatchEvent(new Event('pageshow'));
+});
 
 describe('ErrorBoundary', () => {
   it('recovers when the user navigates away from a broken page', async () => {
@@ -58,6 +72,24 @@ describe('ErrorBoundary', () => {
     await userEvent.click(screen.getByRole('link', { name: 'Assets' }));
     expect(await screen.findByText('Assets page')).toBeInTheDocument();
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
+    expect(reloadPage).not.toHaveBeenCalled();
+  });
+
+  it('waits for the connection instead of reloading when a chunk fails offline', async () => {
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    renderAt('/analytics');
+    expect(await screen.findByText('You are offline')).toBeInTheDocument();
+    expect(reloadPage).not.toHaveBeenCalled();
+    online.mockReturnValue(true);
+    window.dispatchEvent(new Event('online'));
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reload over a navigation the user started, which cancels the chunk in firefox', async () => {
+    renderAt('/health');
+    // the user typed another address: the page starts to unload
+    window.dispatchEvent(new Event('beforeunload'));
+    expect(await screen.findByText('This page could not be loaded')).toBeInTheDocument();
     expect(reloadPage).not.toHaveBeenCalled();
   });
 

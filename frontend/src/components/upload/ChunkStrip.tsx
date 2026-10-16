@@ -1,3 +1,4 @@
+import { formatBytes } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 import { chunkProgress } from './chunk-progress';
 
@@ -9,7 +10,7 @@ interface ChunkStripProps {
 }
 
 export function ChunkStrip({ bytesUploaded, bytesTotal, chunkSize, active }: ChunkStripProps) {
-  const { chunks, perCell, fills, done } = chunkProgress(bytesUploaded, bytesTotal, chunkSize);
+  const { chunks, fills, done } = chunkProgress(bytesUploaded, bytesTotal, chunkSize);
   // only the cell being sent moves; the rest stay still so the strip reads calmly
   const sending = active ? fills.findIndex((f) => f < 1) : -1;
 
@@ -33,10 +34,12 @@ export function ChunkStrip({ bytesUploaded, bytesTotal, chunkSize, active }: Chu
           </div>
         ))}
       </div>
-      <p className="text-xs text-muted-foreground tabular-nums">
-        {done} of {chunks} chunk{chunks === 1 ? '' : 's'}
-        {perCell > 1 && `, ${perCell} chunks per cell`}
-      </p>
+      {/* one part says nothing the bar does not (CPY-32) */}
+      {chunks > 1 && (
+        <p className="text-xs text-muted-foreground tabular-nums">
+          Sent in {formatBytes(chunkSize)} parts: {done} of {chunks}
+        </p>
+      )}
     </div>
   );
 }

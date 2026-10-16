@@ -6,6 +6,7 @@ import {
   integer,
   boolean,
   timestamp,
+  date,
   jsonb,
   pgEnum,
   index,
@@ -123,6 +124,9 @@ export const videoAssets = pgTable(
     // A non-null value means "deletion in progress"; the row is gone once the
     // objects are unpinned.
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    // the newest counted play (see delivery/plays.ts); written without
+    // touching updated_at, so a play never changes the asset's ETag
+    lastPlayedAt: timestamp('last_played_at', { withTimezone: true }),
     // millisecond precision, the precision of a js date and so of a listing
     // cursor, which lets the listing order and page on the plain column
     createdAt: timestamp('created_at', { withTimezone: true, precision: 3 }).notNull().defaultNow(),
@@ -142,6 +146,23 @@ export const videoAssets = pgTable(
     // the deletion gc sweep looks for rows stuck mid-deletion
     index('video_assets_deleted_at_idx').on(t.deletedAt),
   ],
+);
+
+/**
+ * asset_plays_daily counts plays per asset and UTC day; what counts as a
+ * play is in delivery/plays.ts. One row per asset and day keeps the table
+ * small and the per-day usage a range read of the primary key.
+ */
+export const assetPlaysDaily = pgTable(
+  'asset_plays_daily',
+  {
+    videoAssetId: uuid('video_asset_id')
+      .notNull()
+      .references(() => videoAssets.id, { onDelete: 'cascade' }),
+    day: date('day', { mode: 'string' }).notNull(),
+    plays: integer('plays').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.videoAssetId, t.day] })],
 );
 
 /**
@@ -166,6 +187,9 @@ export const processingJobs = pgTable(
     completedAt: timestamp('completed_at', { withTimezone: true }),
     // automatic and manual retries of the asset's pipeline stages
     retryCount: integer('retry_count').notNull().default(0),
+    // false when the run failed in a way another run cannot fix (a source
+    // file that is not a readable video); set back by a manual retry
+    retryable: boolean('retryable').notNull().default(true),
     logs: jsonb('logs')
       .$type<Array<{ timestamp: string; stage: string; message: string }>>()
       .default([]),
@@ -380,6 +404,11 @@ export const apiKeys = pgTable(
     replacedById: uuid('replaced_by_id').references((): AnyPgColumn => apiKeys.id, {
       onDelete: 'set null',
     }),
+    // the first 12 characters of the raw key, null for keys made before it
+    // was stored
+    prefix: text('prefix'),
+    // written at most once a minute per key, see api/auth/key-usage.ts
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   },
   (t) => [
     index('api_keys_creator_address_idx').on(t.creatorAddress),
@@ -483,6 +512,10 @@ export const studioSessions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    // the last request made with it, kept to within five minutes so a busy
+    // browser does not write on every request; null until its first request
+    // after this was added
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
   },
   (t) => [
     index('studio_sessions_user_id_idx').on(t.userId),
@@ -536,6 +569,8 @@ export const webhookDeliveries = pgTable(
     error: text('error'),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     retryCount: integer('retry_count').notNull().default(0),
+    // a resend someone asked for, of a payload sent before
+    manual: boolean('manual').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

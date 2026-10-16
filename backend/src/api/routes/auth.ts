@@ -10,8 +10,10 @@ import {
   parseCookieHeader,
   resolveSession,
   signSession,
+  whySessionEnded,
   type ActiveSession,
   type FindActiveSession,
+  type FindSession,
 } from '../auth/session.js';
 import type { Account } from '../auth/access.js';
 import { isOperatorAccount, operatorAllowlist } from '../auth/operators.js';
@@ -26,23 +28,34 @@ function callbackUrl(provider: SignInProvider): string {
   return `${env.PUBLIC_URL.replace(/\/$/, '')}/api/v1/auth/${provider.id}/callback`;
 }
 
-/**
- * Answer with fixed text. Never put request or provider input in it: the
- * callback runs on the Studio's origin, so an echoed value would be script
- * running with the user's session.
- */
-function plain(res: Response, status: number, message: string): void {
-  res
-    .status(status)
-    .set({
-      'Content-Type': 'text/plain; charset=utf-8',
-      'X-Content-Type-Options': 'nosniff',
-      'Cache-Control': 'no-store',
-    })
-    .send(message);
-}
-
 const DEFAULT_LANDING = '/studio';
+
+/**
+ * Why a sign-in did not finish, as the Studio reads it from `signin_error`:
+ * the handshake expired or came from another browser, the account is not on
+ * the allowlist, the person cancelled at the provider, the provider failed,
+ * or the provider is not configured on this server.
+ */
+export type SignInFailure =
+  'expired_handshake' | 'not_allowed' | 'cancelled' | 'provider_failed' | 'not_configured';
+
+/**
+ * Send the browser back to the Studio with the failure in the query, so it
+ * can explain it on its own sign-in screen. `handle` is the provider login
+ * that was refused; the Studio must show it as text, never as markup. When
+ * the handshake survived, `next` is where the sign-in started, so trying
+ * again from that screen still lands on the page the person wanted.
+ */
+function signInFailed(
+  res: Response,
+  code: SignInFailure,
+  opts: { handle?: string; next?: string } = {},
+): void {
+  const url = new URL(safeRedirectPath(opts.next), env.PUBLIC_URL);
+  url.searchParams.set('signin_error', code);
+  if (opts.handle !== undefined) url.searchParams.set('handle', opts.handle);
+  res.set('Cache-Control', 'no-store').redirect(`${url.pathname}${url.search}${url.hash}`);
+}
 
 /**
  * Where to send the browser after sign-in: a path on this server, or /studio.
@@ -128,6 +141,7 @@ export interface StudioSessionRecord {
   userAgent: string | null;
   createdAt: Date;
   expiresAt: Date;
+  lastSeenAt: Date | null;
 }
 
 export interface AuthRouteDeps {
@@ -143,6 +157,10 @@ export interface AuthRouteDeps {
     userAgent: string | null;
   }) => Promise<{ id: string }>;
   findActiveSession: FindActiveSession;
+  /** Any session row, to say why a cookie no longer signs in. */
+  findSession: FindSession;
+  /** Note a session was used now; must not throw or wait. */
+  markSessionSeen: (sid: string) => void;
   listActiveSessions: (userId: string) => Promise<StudioSessionRecord[]>;
   revokeSession: (id: string, userId: string) => Promise<boolean>;
   revokeAllSessions: (userId: string) => Promise<number>;
@@ -163,6 +181,16 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       secret: env.SESSION_SECRET,
       findActiveSession: deps.findActiveSession,
       getAccount: deps.getAccount,
+      markSeen: deps.markSessionSeen,
+    });
+
+  const notSignedIn = async (req: Request) =>
+    new AppError(401, 'Not signed in', undefined, {
+      reason: await whySessionEnded(req.headers.cookie, {
+        secret: env.SESSION_SECRET,
+        findSession: deps.findSession,
+        getAccount: deps.getAccount,
+      }),
     });
 
   /** The caller's live session, or a 401. Only a Studio session, never a key. */
@@ -171,7 +199,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       throw new AppError(409, 'Sign-in is disabled on this server, so there are no sessions');
     }
     const current = await currentSession(req);
-    if (!current) throw new AppError(401, 'Not signed in');
+    if (!current) throw await notSignedIn(req);
     return current;
   };
 
@@ -193,7 +221,8 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
     const provider = providerOf(req, res);
     if (!provider) return;
     if (!provider.isConfigured()) {
-      res.status(500).json({ error: `${provider.label} sign-in is not configured` });
+      // a browser follows this link, so send it to a page that says why
+      signInFailed(res, 'not_configured');
       return;
     }
     const handshake: Handshake = {
@@ -223,7 +252,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
     res.setHeader('Set-Cookie', clear);
 
     if (!provider.isConfigured()) {
-      plain(res, 500, `${provider.label} sign-in is not configured.`);
+      signInFailed(res, 'not_configured');
       return;
     }
 
@@ -238,7 +267,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       typeof state !== 'string' ||
       !sameState(state, handshake.state)
     ) {
-      plain(res, 400, 'This sign-in has expired or was started in another browser. Sign in again.');
+      signInFailed(res, 'expired_handshake');
       return;
     }
 
@@ -269,11 +298,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
           { provider: provider.id, subject: profile.subject, username: profile.username },
           'Sign-in refused by the allowlist',
         );
-        plain(
-          res,
-          403,
-          `Access denied: ${provider.label} account "${profile.username}" is not on the Studio allowlist.`,
-        );
+        signInFailed(res, 'not_allowed', { handle: profile.username, next: handshake.next });
         return;
       }
 
@@ -294,11 +319,16 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       res.redirect(safeRedirectPath(handshake.next));
     } catch (e) {
       if (e instanceof SignInError) {
-        plain(res, e.reason === 'failed' ? 500 : 400, e.message);
+        if (e.reason !== 'cancelled') {
+          logger.warn({ err: e, provider: provider.id }, 'Sign-in did not complete');
+        }
+        signInFailed(res, e.reason === 'cancelled' ? 'cancelled' : 'provider_failed', {
+          next: handshake.next,
+        });
         return;
       }
       logger.error({ err: e, provider: provider.id }, 'Sign-in callback failed');
-      plain(res, 500, `${provider.label} sign-in failed. Please try again.`);
+      signInFailed(res, 'provider_failed', { next: handshake.next });
     }
   });
 
@@ -330,10 +360,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       return;
     }
     const current = await currentSession(req);
-    if (!current) {
-      res.status(401).json({ error: 'Not signed in' });
-      return;
-    }
+    if (!current) throw await notSignedIn(req);
     const { session, account } = current;
     const identity = account.identities.find((i) => i.id === session.identityId);
     const providerLabel = (identity && getProvider(identity.provider)?.label) ?? null;
@@ -375,6 +402,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
         user_agent: r.userAgent,
         created_at: r.createdAt.toISOString(),
         expires_at: r.expiresAt.toISOString(),
+        last_seen_at: r.lastSeenAt ? r.lastSeenAt.toISOString() : null,
         current: r.id === session.id,
       })),
     });

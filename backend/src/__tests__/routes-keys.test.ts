@@ -24,6 +24,8 @@ const record = (over: Partial<ApiKeyRecord> = {}): ApiKeyRecord => ({
   isActive: true,
   createdAt: new Date('2026-10-02T10:00:00Z'),
   expiresAt: null,
+  prefix: 'sluby_abcdef',
+  lastUsedAt: null,
   ...over,
 });
 
@@ -33,10 +35,17 @@ describe('key routes', () => {
   beforeEach(() => {
     deps = {
       createApiKey: vi.fn(async (data) =>
-        record({ id: 'key-1', name: data.name, scopes: data.scopes, rateLimit: data.rateLimit }),
+        record({
+          id: 'key-1',
+          name: data.name,
+          scopes: data.scopes,
+          rateLimit: data.rateLimit,
+          prefix: data.prefix,
+        }),
       ),
       listApiKeys: vi.fn().mockResolvedValue({ data: [], hasMore: false, nextCursor: null }),
       deleteApiKey: vi.fn().mockResolvedValue(true),
+      renameApiKey: vi.fn(async (id, _owner, name) => record({ id, name })),
       rotateApiKey: vi.fn(),
     };
   });
@@ -58,12 +67,15 @@ describe('key routes', () => {
       is_active: true,
       created_at: '2026-10-02T10:00:00.000Z',
       expires_at: null,
+      prefix: res.body.key.slice(0, 12),
+      last_used_at: null,
       key: expect.stringMatching(/^sluby_/),
     });
-    // only the hash is stored
+    // only the hash and the first 12 characters are stored
     expect(deps.createApiKey).toHaveBeenCalledWith(
       {
         keyHash: hashApiKey(res.body.key),
+        prefix: res.body.key.slice(0, 12),
         name: 'ci',
         scopes: ['read'],
         rateLimit: 60,
@@ -109,11 +121,19 @@ describe('key routes', () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/already has 2 API keys/);
     expect(vi.mocked(deps.createApiKey).mock.calls[0][1]).toBe(2);
+    // the listing tells a form the same limits
+    const list = await request(limited).get('/');
+    expect(list.body.limits).toEqual({ max_keys: 2, max_rate_limit: 500 });
   });
 
   it('lists keys with their expiry', async () => {
     vi.mocked(deps.listApiKeys).mockResolvedValue({
-      data: [record({ expiresAt: new Date('2026-10-03T10:00:00Z') })],
+      data: [
+        record({
+          expiresAt: new Date('2026-10-03T10:00:00Z'),
+          lastUsedAt: new Date('2026-10-02T11:00:00Z'),
+        }),
+      ],
       hasMore: false,
       nextCursor: null,
     });
@@ -121,6 +141,7 @@ describe('key routes', () => {
     expect(deps.listApiKeys).toHaveBeenCalledWith('github:alice', { limit: 1000 });
     expect(res.body.has_more).toBe(false);
     expect(res.body.next_cursor).toBeNull();
+    expect(res.body.limits).toEqual({ max_keys: 100, max_rate_limit: 10000 });
     expect(res.body.data[0]).toEqual({
       id: 'key-2',
       name: 'ci',
@@ -129,6 +150,8 @@ describe('key routes', () => {
       is_active: true,
       created_at: '2026-10-02T10:00:00.000Z',
       expires_at: '2026-10-03T10:00:00.000Z',
+      prefix: 'sluby_abcdef',
+      last_used_at: '2026-10-02T11:00:00.000Z',
     });
   });
 
@@ -153,6 +176,7 @@ describe('key routes', () => {
         previous_key_expires_at: '2026-10-02T13:00:00.000Z',
       });
       expect(replacement.keyHash).toBe(hashApiKey(res.body.key));
+      expect(replacement.prefix).toBe(res.body.key.slice(0, 12));
       vi.useRealTimers();
     });
 
@@ -188,8 +212,33 @@ describe('key routes', () => {
       });
       const res = await request(app()).post('/key-2/rotate').send({});
       expect(res.status).toBe(409);
-      expect(res.body.error).toBe('API key was already rotated; rotate its replacement instead');
+      expect(res.body.error).toBe('This key was already rotated. Rotate its replacement instead.');
     });
+  });
+
+  describe('rename', () => {
+    it('renames a key of the caller, trimming the name', async () => {
+      const res = await request(app()).patch('/key-2').send({ name: ' deploy bot ' });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ id: 'key-2', name: 'deploy bot' });
+      expect(deps.renameApiKey).toHaveBeenCalledWith('key-2', 'github:alice', 'deploy bot');
+    });
+
+    it('answers 404 for a key the caller cannot rename', async () => {
+      vi.mocked(deps.renameApiKey).mockResolvedValue(null);
+      const res = await request(app()).patch('/key-9').send({ name: 'x' });
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('API key not found');
+    });
+
+    it.each([{}, { name: '' }, { name: 'x'.repeat(101) }, { name: 'x', scopes: ['read'] }])(
+      'rejects %j',
+      async (body) => {
+        const res = await request(app()).patch('/key-2').send(body);
+        expect(res.status).toBe(400);
+        expect(deps.renameApiKey).not.toHaveBeenCalled();
+      },
+    );
   });
 
   it('revokes only within the account', async () => {
