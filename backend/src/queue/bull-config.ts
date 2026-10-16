@@ -2,6 +2,7 @@ import { Queue, type ConnectionOptions } from 'bullmq';
 import { env } from '../config/env.js';
 import type { StorageRecords } from '../storage/artifact-records.js';
 import { RECONCILE_JOB_OPTIONS } from '../reconcile/enqueue.js';
+import { WEBHOOK_QUEUE, webhookJobOptions, type WebhookJobData } from '../webhooks/delivery.js';
 
 /**
  * Parse the REDIS_URL into an ioredis-compatible connection object.
@@ -160,6 +161,15 @@ export const deletionQueue = new Queue<DeletionJobData>('deletion', {
 });
 
 /**
+ * Queue for webhook deliveries, one job per event and endpoint. Retries use
+ * the worker's custom backoff (10 s, 1 min, 5 min), see webhooks/delivery.ts.
+ */
+export const webhookQueue = new Queue<WebhookJobData>(WEBHOOK_QUEUE, {
+  connection: redisConnection,
+  defaultJobOptions: webhookJobOptions,
+});
+
+/**
  * Gracefully close all queue connections.
  * Call during server shutdown.
  */
@@ -170,5 +180,6 @@ export async function closeQueues(): Promise<void> {
     finalizeQueue.close(),
     reconcileQueue.close(),
     deletionQueue.close(),
+    webhookQueue.close(),
   ]);
 }

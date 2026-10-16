@@ -1,10 +1,12 @@
 /**
  * Redis-backed test support. Point SLUBY_TEST_REDIS_URL at a server you do
- * not mind tests writing to (e.g. redis://localhost:56380). Each suite uses a
- * random key prefix and obliterates its queues afterwards.
+ * not mind tests writing to (e.g. redis://localhost:56380). Each test file
+ * uses its own key prefix and removes its keys afterwards, so the server can
+ * be shared.
  *
- * Without the variable the suites skip, and under CI a missing value is an
- * error, as with the postgres tests.
+ * Without the variable the suites skip with a notice (printed once by
+ * global-setup.ts); under CI a missing value is an error, as with the
+ * postgres tests.
  */
 import { randomBytes } from 'node:crypto';
 import type { ConnectionOptions } from 'bullmq';
@@ -18,7 +20,12 @@ if (!hasTestRedis && process.env.CI) {
 
 export function testRedisConnection(): ConnectionOptions {
   const url = new URL(TEST_REDIS_URL);
-  return { host: url.hostname, port: parseInt(url.port, 10) || 6379 };
+  return {
+    host: url.hostname,
+    port: parseInt(url.port, 10) || 6379,
+    password: url.password || undefined,
+    db: url.pathname ? parseInt(url.pathname.slice(1), 10) || 0 : 0,
+  };
 }
 
 /** A key prefix no other run shares, so suites never see each other's jobs. */

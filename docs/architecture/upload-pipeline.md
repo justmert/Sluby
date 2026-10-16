@@ -11,7 +11,7 @@ sequenceDiagram
   participant T as backend: tus server
   participant DB as PostgreSQL
   participant Q as Redis (BullMQ)
-  participant W as Webhook endpoints
+  participant W as Webhook queue
 
   C->>T: POST /api/v1/uploads (Upload-Length, Upload-Metadata)
   T->>T: authenticate (cookie, AUTH_DISABLED or Bearer key with upload scope)
@@ -72,7 +72,7 @@ sequenceDiagram
   participant FW as finalize worker
   participant DB as PostgreSQL
   participant SIA as Sia (indexer and hosts)
-  participant W as Webhook endpoints
+  participant W as Webhook queue
 
   Q->>TW: transcode job
   TW->>DB: asset status processing
@@ -206,7 +206,7 @@ It then loads the master playlist, the variant playlists and the thumbnails into
 
 ## Webhooks and processing logs
 
-The pipeline emits six events, each delivered only to the webhook endpoints of the account that owns the asset (`backend/src/webhooks/dispatcher.ts`):
+The pipeline emits six events, each delivered only to the webhook endpoints of the account that owns the asset (`backend/src/webhooks/dispatcher.ts` queues them, `backend/src/webhooks/delivery.ts` sends them):
 
 | Event                | Sent when                                        | `data` fields                                                                                                                                 |
 | -------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -217,6 +217,6 @@ The pipeline emits six events, each delivered only to the webhook endpoints of t
 | `asset.ready`        | finalize completed                               | `video_asset_id`, `manifest_object_id`, `thumbnail_object_ids`, `duration_ms`, `resolution`, `segment_count`, `total_storage_bytes`, `status` |
 | `asset.errored`      | a stage failed its last attempt                  | `video_asset_id`, `stage`, `error`                                                                                                            |
 
-A delivery is a `POST` with the JSON body `{ "event", "timestamp", "data" }`, an `X-Sluby-Event` header, and an `X-Sluby-Signature` header holding the hex HMAC-SHA256 of the exact body under the endpoint's secret. The request times out after 10 seconds. A non-2xx answer or a network error is retried up to 3 more times, after 10 seconds, 1 minute and 5 minutes, with the same body. Those retries are timers inside the backend process, so a restart drops any that are pending. Every attempt is stored in `webhook_deliveries` with the status code and the first 1000 characters of the response. A failed delivery never fails the pipeline step that sent it.
+Emitting an event only queues it: the dispatcher builds the body once and adds one job per subscribed endpoint to the `webhooks` BullMQ queue, holding the endpoint id, the event and that exact body (ids are left to BullMQ, so a repeated event is never dropped as a duplicate). The `webhooks` worker, which runs in the backend process like the pipeline workers with concurrency 4, delivers each job as a `POST` with the JSON body `{ "event", "timestamp", "data" }`, an `X-Sluby-Event` header, and an `X-Sluby-Signature` header holding the hex HMAC-SHA256 of the exact body under the endpoint's secret. The request times out after 10 seconds. A non-2xx answer or a network error fails the job, and BullMQ retries it up to 3 more times, after 10 seconds, 1 minute and 5 minutes (a custom backoff on the worker), always with the same body. The jobs live in Redis, so a delivery or retry that is pending when the backend stops is sent once it runs again. An attempt that was in flight when the process died is picked up as a stalled job, about a minute later with BullMQ's default lock and stall settings, and sent again without counting as a retry, so a receiver can get the same body twice. Before every attempt the worker reads the endpoint again: once it is deleted or deactivated, the delivery is dropped without a request or a record. The secret is read at that point too and is never stored in Redis. Every attempt is stored in `webhook_deliveries` with the status code, the first 1000 characters of the response and the number of earlier attempts. A failed delivery, or one that cannot be queued, never fails the pipeline step that sent it.
 
 Each worker also appends `{ timestamp, stage, message }` entries to `processing_jobs.logs`, tagged `transcode`, `upload` or `finalize`. `GET /api/v1/assets/:id/processing` (SDK: `assets.processing`) returns the job status, the current stage (taken from the latest log entry, or `completed` and `failed` for finished jobs), the percentage, the error message and the full log.
