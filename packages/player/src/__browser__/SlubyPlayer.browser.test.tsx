@@ -85,9 +85,14 @@ describe('SlubyPlayer with real hls.js', () => {
         interval: 50,
       });
       expect(video().getAttribute('aria-label')).toBe('Fixture clip');
+      const el = video().querySelector('track')!;
+      expect(el.default).toBe(true);
       const track = video().textTracks[0];
       expect(track.kind).toBe('captions');
       expect(track.language).toBe('en');
+      // whether a default track starts on is the browser's caption preference
+      // (headless webkit on linux leaves it off), so turn it on as a viewer would
+      track.mode = 'showing';
       await vi.waitFor(() => expect(track.cues?.length).toBe(1), { timeout: 5_000 });
       expect((track.cues![0] as VTTCue).text).toBe('Hello from a caption');
     } finally {
