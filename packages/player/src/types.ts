@@ -68,14 +68,14 @@ export interface SlubyPlayerProps {
    * the API. With `src`, `assetId` and a `client` that has a Sia session, the
    * player streams direct from Sia using the public share map for `src`, so
    * no API key is needed. A new `src` for the same video (a re-signed URL)
-   * continues from the current position.
+   * keeps playing without a reload; later requests use its signatures.
    */
   src?: string;
   /**
    * A signed `src` stops working at its `expires`. Given this, the player
    * calls it shortly before then (and when a load fails after it) with the
-   * current `src`, and continues from the same position with the URL it
-   * returns, such as one freshly signed by your server. Without it, playback
+   * current `src`, and keeps playing on the URL it returns, such as one
+   * freshly signed by your server, without a reload. Without it, playback
    * of a signed `src` fails at the expiry.
    */
   refreshSrc?: (src: string) => string | Promise<string>;
