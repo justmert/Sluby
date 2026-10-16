@@ -1,4 +1,4 @@
-// useVideo against a real hls.js instance and a real <video> in Chromium. The
+// useVideo against a real hls.js instance and a real <video> in each browser. The
 // host component creates hls.js in its own effect, after the hook's effects
 // ran with an empty ref, which is how SlubyPlayer uses it too: the hook has to
 // pick the instance up from the media element's loadstart/loadedmetadata.

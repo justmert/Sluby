@@ -34,6 +34,7 @@ const upload = client.uploads.upload(file, {
 // upload.pause(); upload.resume(); upload.abort();
 const videoAssetId = await upload.assetId;
 await upload;
+// abort() after this point does nothing: a finished upload is never deleted
 
 // 2. Wait for processing to finish.
 const asset = await client.assets.waitForReady(videoAssetId);
@@ -58,9 +59,9 @@ allow credentialed CORS for your origin on the API.
 ## API
 
 - `client.uploads`: `upload()` (resumable TUS; returns an awaitable handle with
-  `pause()` / `resume()` / `abort()` / `isPaused` plus an `assetId` promise),
-  `getStatus()`, `cancel()`.
-- `client.assets`: `list()` (with `search`, `sort`, `order` and cursor paging), `get()`, `update()`, `delete()`, `waitForReady()`, `processing()` (the processing job with its stage, progress and log), `retry()` for a failed asset.
+  `pause()` / `resume()` / `abort()` / `isPaused` plus `assetId` and `uploadId` promises),
+  `getStatus(uploadId)`, `cancel(uploadId)`.
+- `client.assets`: `list()` (with `search`, `sort`, `order`, and paging by `page` or by passing each page's `nextCursor` back as `cursor`), `get()`, `update()`, `delete()`, `waitForReady()`, `processing()` (the processing job with its stage, progress and log), `retry()` for a failed asset.
 - `client.playback`: `getUrl()` and `getSignedUrl()`, both returning an absolute
   URL (`playbackUrl` / `signedUrl`) resolved against the delivery base, plus the
   raw server path (`playbackPath` / `signedPath`). `streamUrl(id)` returns the
@@ -70,13 +71,34 @@ allow credentialed CORS for your origin on the API.
 - `client.resolveDeliveryUrl(path)`: turn a server-relative delivery path into an
   absolute URL.
 
-Errors are typed: `AuthenticationError` (401/403), `NotFoundError` (404),
-`RateLimitError` (429, with `retryAfter`), `TimeoutError`, and the base
-`SlubyError` (with `statusCode` and `responseBody`).
+Errors are typed, and every one is a `SlubyError` (with `statusCode`, `responseBody` and, when there is one, the underlying error as `cause`): `ValidationError` (400/422), `AuthenticationError` (401), `PermissionError` (403, such as a key without the needed scope), `NotFoundError` (404/410), `ConflictError` (409, such as playback of an asset that is still processing), `RateLimitError` (429, with `retryAfter`), `TimeoutError`, `AbortError` (a cancelled call or upload; its `name` is `'AbortError'`) and `ProcessingFailedError` (from `waitForReady`, with the failed `asset`). Upload failures are mapped the same way. A request that never got a response rejects with the platform's own `fetch` error (a `TypeError`).
+
+### Uploads
+
+Each `upload()` creates a new asset. In the browser, an unfinished upload of the same file with the same title, description, tier and key, interrupted on an earlier page load, is resumed instead; pass `resume: false` to always start over. A finished upload is never resumed. `abort()` cancels an unfinished upload and discards its asset; once the upload has finished it does nothing, so cleanup code can always call it. In the browser `upload()` takes a `File` or `Blob`; in Node a `Buffer`, `Uint8Array` or `Blob` (such as one from `fs.openAsBlob`), but not a stream.
+
+### Cancelling and timeouts
+
+Every request method takes `{ signal }` (an `AbortSignal`), and `upload()` takes `signal` in its options. `waitForReady(id, { signal })` stops polling when it fires, which is what a React effect's cleanup should do. `timeoutMs` in the client config bounds every API request, body included, and rejects with a `TimeoutError`; it is unset by default.
+
+## Direct from Sia in a bundled app
+
+`client.sia` loads `@siafoundation/sia-storage`, a WebAssembly package, on first use. Vite production builds work as they are, but `vite dev` needs the package left out of dependency pre-bundling (or its `siaStorage()` Vite plugin), or the WASM file cannot be found and the player falls back to the gateway with a warning:
+
+```js
+// vite.config.js
+export default defineConfig({
+  optimizeDeps: { exclude: ['@siafoundation/sia-storage'] },
+});
+```
+
+Webpack needs `experiments: { asyncWebAssembly: true, topLevelAwait: true }`. With Rollup or esbuild, copy `node_modules/@siafoundation/sia-storage/wasm/sia_storage_wasm_bg.wasm` into the output directory. See the sia-storage README for Next.js and other setups.
+
+`client.sia` caches resolved objects (up to `SiaSession.MAX_CACHED_OBJECTS`, least recently used dropped first); call `client.sia.dispose()` to free them and the WASM SDK when the page no longer plays video. A share map fetched for a signed playback URL ends when that URL's signature does, so a page playing past it needs a newly signed URL (the player's `refreshSrc`).
 
 ## TypeScript and CommonJS
 
-The package ships ESM and CommonJS builds with matching type declarations. One case needs `skipLibCheck: true`: a CommonJS TypeScript project using `moduleResolution: node16` or `nodenext`. The types of `@siafoundation/sia-storage`, which this SDK builds on, are declared as ESM for its CommonJS entry, so TypeScript reports TS1479 inside that package's declarations. ESM projects and bundler resolution are not affected.
+The package ships ESM and CommonJS builds with matching type declarations. They need neither `@types/node` nor `skipLibCheck`: they type-check with `skipLibCheck: false` under bundler, `node16` ESM and `node16` CommonJS resolution with only the `es2022` and `dom` libs. The package supports Node 20.16+ and 22.3+ (see `engines`).
 
 ## Pairs with
 

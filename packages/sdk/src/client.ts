@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { AssetManager } from './assets.js';
-import { errorFromResponse } from './errors.js';
+import { AbortError, TimeoutError, errorFromResponse } from './errors.js';
 import { PlaybackManager } from './playback.js';
 import { SiaSession } from './sia-session.js';
 import type { SlubyConfig } from './types.js';
@@ -72,6 +72,12 @@ export class SlubyClient {
     if (!config.baseUrl) {
       throw new Error('SlubyClient requires a non-empty baseUrl.');
     }
+    if (
+      config.timeoutMs !== undefined &&
+      !(Number.isFinite(config.timeoutMs) && config.timeoutMs > 0)
+    ) {
+      throw new Error('SlubyClient timeoutMs must be a positive number of milliseconds.');
+    }
 
     // Normalise the base URLs: remove trailing slashes to simplify path
     // concatenation. The delivery base defaults to the API base.
@@ -131,8 +137,10 @@ export class SlubyClient {
    * - Automatically prepends the base URL.
    * - Injects the `Authorization: Bearer <apiKey>` header when an API key is
    *   configured; otherwise the request rides on the session cookie.
-   * - Inspects the response status and throws typed errors for common
-   *   failure modes (401/403, 404, 429, 5xx), see `errorFromResponse`.
+   * - Inspects the response status and throws typed errors (see
+   *   `errorFromStatus`).
+   * - Reads the whole body before resolving, so `init.signal` and
+   *   `SlubyConfig.timeoutMs` cover the body as well as the headers.
    */
   private async _fetch(path: string, init?: RequestInit): Promise<Response> {
     const url = `${this._config.baseUrl}${path}`;
@@ -147,16 +155,11 @@ export class SlubyClient {
       headers.set('Accept', 'application/json');
     }
 
-    const response = await fetch(url, {
+    return this._send(path, url, {
       ...init,
       headers,
       ...(this._config.credentials ? { credentials: this._config.credentials } : {}),
     });
-
-    if (response.ok) {
-      return response;
-    }
-    throw await errorFromResponse(response);
   }
 
   /**
@@ -165,11 +168,60 @@ export class SlubyClient {
    * a page with no key must be able to fetch from any origin.
    */
   private async _fetchPublic(url: string): Promise<Response> {
-    const response = await fetch(url, {
+    return this._send(url, url, {
       headers: { Accept: 'application/json' },
       credentials: 'omit',
     });
-    if (response.ok) return response;
-    throw await errorFromResponse(response);
   }
+
+  private async _send(label: string, url: string, init: RequestInit): Promise<Response> {
+    const callerSignal = init.signal ?? undefined;
+    if (callerSignal?.aborted) throw abortError(callerSignal);
+
+    // one signal for fetch that fires on the caller's signal or the timeout,
+    // whichever comes first, so the rejection can say which it was
+    const controller = new AbortController();
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onCallerAbort = () => controller.abort(callerSignal?.reason);
+    callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
+    const timeoutMs = this._config.timeoutMs;
+    if (timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+    }
+
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      if (!response.ok) throw await errorFromResponse(response);
+      // buffer the body under the same signal and timeout; every API response
+      // is a small JSON document
+      const body = NULL_BODY_STATUSES.has(response.status) ? null : await response.text();
+      return new Response(body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    } catch (err) {
+      if (timedOut) {
+        throw new TimeoutError(`Request to ${label} timed out after ${timeoutMs} ms.`);
+      }
+      if (callerSignal?.aborted) throw abortError(callerSignal);
+      // transport failures stay the platform's own error (a TypeError from
+      // fetch), so callers can tell them from API errors
+      throw err;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      callerSignal?.removeEventListener('abort', onCallerAbort);
+    }
+  }
+}
+
+// statuses whose Response must be built with a null body
+const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
+
+function abortError(signal: AbortSignal): AbortError {
+  return new AbortError('The request was aborted.', { cause: signal.reason });
 }

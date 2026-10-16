@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { SlubyClient } from './client.js';
+import { AuthenticationError } from './errors.js';
 import { startTusContractServer, type TusContractServer } from './__tests__/tus-contract-server.js';
 
 const API_KEY = 'sluby_integration_key';
@@ -119,9 +120,13 @@ describe('uploads.upload against a real tus server', () => {
       onError: (e) => errors.push(e),
     });
 
-    await expect(upload).rejects.toThrow(/response code: 401/);
-    await expect(upload.assetId).rejects.toThrow(/response code: 401/);
-    expect(errors).toHaveLength(1);
+    const err = await upload.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AuthenticationError);
+    expect((err as AuthenticationError).statusCode).toBe(401);
+    expect((err as AuthenticationError).message).toBe('Invalid API key');
+    expect((err as AuthenticationError).cause).toBeInstanceOf(Error);
+    await expect(upload.assetId).rejects.toBe(err);
+    expect(errors).toEqual([err]);
     // a 4xx is final: tus-js-client does not burn its retries on it
     expect(methods()).toEqual(['POST']);
     expect(server.created).toHaveLength(0);
@@ -232,16 +237,48 @@ describe('uploads.upload against a real tus server', () => {
     expect(server.requests).toEqual([]);
   });
 
-  it('surfaces the Node input restriction: only Buffer reaches tus-js-client in Node', async () => {
-    const errors: Error[] = [];
-    const upload = client.uploads.upload(new Blob([randomBytes(1024)]), {
+  it('uploads a Blob in Node (as fs.openAsBlob returns) chunk by chunk', async () => {
+    const bytes = randomBytes(300 * 1024);
+    const upload = client.uploads.upload(new Blob([bytes], { type: 'video/mp4' }), {
       title: 'blob in node',
-      onError: (e) => errors.push(e),
+      chunkSize: 64 * 1024,
     });
+    await upload;
 
-    await expect(upload).rejects.toThrow(/Buffer or Readable/);
-    await expect(upload.assetId).rejects.toThrow(/Buffer or Readable/);
-    expect(errors).toHaveLength(1);
-    expect(server.requests).toEqual([]);
+    const [created] = server.created;
+    expect(created.metadata.filetype).toBe('video/mp4');
+    expect((await server.readUpload(created.uploadId)).equals(bytes)).toBe(true);
+    expect(server.requests.filter((r) => r.method === 'PATCH')).toHaveLength(5);
+  });
+
+  it('uploads a plain Uint8Array in Node', async () => {
+    const bytes = new Uint8Array(randomBytes(100 * 1024));
+    const upload = client.uploads.upload(bytes, { title: 'bytes', chunkSize: 64 * 1024 });
+    await upload;
+
+    const [created] = server.created;
+    expect(new Uint8Array(await server.readUpload(created.uploadId))).toEqual(bytes);
+  });
+
+  it('abort after the upload finished sends no DELETE and keeps the upload', async () => {
+    const upload = client.uploads.upload(randomBytes(4096), { title: 'keep me' });
+    await upload;
+    const [created] = server.created;
+
+    await upload.abort();
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(methods()).not.toContain('DELETE');
+    expect(server.finished).toEqual([created.uploadId]);
+    expect((await server.getUpload(created.uploadId)).offset).toBe(4096);
+    await expect(upload).resolves.toBeUndefined();
+  });
+
+  it('hands out the upload id the server named the upload with', async () => {
+    const upload = client.uploads.upload(randomBytes(2048), { title: 'ids' });
+    const uploadId = await upload.uploadId;
+    await upload;
+
+    expect(uploadId).toBe(server.created[0].uploadId);
   });
 });

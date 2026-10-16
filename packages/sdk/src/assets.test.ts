@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AssetManager } from './assets.js';
-import { TimeoutError } from './errors.js';
+import { AbortError, ProcessingFailedError, SlubyError, TimeoutError } from './errors.js';
 import type { FetchFn } from './uploads.js';
 
 // ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ describe('AssetManager.list()', () => {
     const manager = new AssetManager(mockFetch);
     const result = await manager.list();
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets', { signal: undefined });
     expect(result.data).toHaveLength(1);
     expect(result.data[0]).toEqual(EXPECTED_MAPPED_ASSET);
     expect(result.total).toBe(1);
@@ -134,6 +134,49 @@ describe('AssetManager.list()', () => {
     const calledPath = mockFetch.mock.calls[0][0] as string;
     expect(calledPath).toBe('/api/v1/assets?search=big+buck&sort=title&order=asc');
   });
+
+  it('pages by cursor: sends cursor and returns nextCursor and hasMore', async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        makeJsonResponse({
+          data: [SAMPLE_RAW_ASSET],
+          total: 2,
+          page: 1,
+          limit: 1,
+          next_cursor: 'c2',
+          has_more: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeJsonResponse({
+          data: [SAMPLE_RAW_ASSET],
+          total: 2,
+          page: 1,
+          limit: 1,
+          next_cursor: null,
+          has_more: false,
+        }),
+      );
+    const manager = new AssetManager(mockFetch);
+
+    const first = await manager.list({ limit: 1 });
+    expect(first.nextCursor).toBe('c2');
+    expect(first.hasMore).toBe(true);
+
+    const second = await manager.list({ limit: 1, cursor: first.nextCursor! });
+    expect(mockFetch.mock.calls[1][0]).toBe('/api/v1/assets?limit=1&cursor=c2');
+    expect(second.nextCursor).toBeNull();
+    expect(second.hasMore).toBe(false);
+  });
+
+  it('passes the caller signal to the request', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ data: [], total: 0, page: 1, limit: 20 }));
+    const controller = new AbortController();
+
+    await new AssetManager(mockFetch).list({ signal: controller.signal });
+
+    expect(mockFetch.mock.calls[0][1]).toEqual({ signal: controller.signal });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -147,7 +190,7 @@ describe('AssetManager.get()', () => {
     const manager = new AssetManager(mockFetch);
     const result = await manager.get('asset_1');
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset_1');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset_1', { signal: undefined });
     expect(result).toEqual(EXPECTED_MAPPED_ASSET);
   });
 
@@ -157,7 +200,9 @@ describe('AssetManager.get()', () => {
     const manager = new AssetManager(mockFetch);
     await manager.get('asset/with/slashes');
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset%2Fwith%2Fslashes');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset%2Fwith%2Fslashes', {
+      signal: undefined,
+    });
   });
 
   it('should handle missing thumbnail_object_ids (defaults to empty array)', async () => {
@@ -268,7 +313,9 @@ describe('AssetManager.processing()', () => {
 
     const job = await new AssetManager(mockFetch).processing('asset_1');
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset_1/processing');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset_1/processing', {
+      signal: undefined,
+    });
     expect(job).toEqual({
       id: 'job_1',
       status: 'failed',
@@ -290,7 +337,10 @@ describe('AssetManager.retry()', () => {
 
     const result = await new AssetManager(mockFetch).retry('asset_1');
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset_1/retry', { method: 'POST' });
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset_1/retry', {
+      method: 'POST',
+      signal: undefined,
+    });
     expect(result).toEqual({ stage: 'upload' });
   });
 });
@@ -310,14 +360,17 @@ describe('AssetManager.waitForReady()', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('should throw Error when asset enters failed status', async () => {
+  it('rejects with a ProcessingFailedError carrying the asset when it fails', async () => {
     mockFetch.mockResolvedValueOnce(makeJsonResponse({ ...SAMPLE_RAW_ASSET, status: 'failed' }));
 
     const manager = new AssetManager(mockFetch);
 
-    await expect(
-      manager.waitForReady('asset_1', { pollInterval: 100, timeout: 1000 }),
-    ).rejects.toThrow('Video asset asset_1 entered "failed" status during processing.');
+    const err = await manager
+      .waitForReady('asset_1', { pollInterval: 100, timeout: 1000 })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProcessingFailedError);
+    expect(err).toBeInstanceOf(SlubyError);
+    expect((err as ProcessingFailedError).asset).toMatchObject({ id: 'asset_1', status: 'failed' });
   });
 
   it('should poll and return when asset becomes ready', async () => {
@@ -381,5 +434,50 @@ describe('AssetManager.waitForReady()', () => {
 
     expect(result.status).toBe('ready');
     expect(mockFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('reads the asset once even with timeout 0', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ ...SAMPLE_RAW_ASSET, status: 'ready' }));
+
+    const result = await new AssetManager(mockFetch).waitForReady('asset_1', { timeout: 0 });
+
+    expect(result.status).toBe('ready');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops polling and rejects with AbortError when the signal fires', async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(makeJsonResponse({ ...SAMPLE_RAW_ASSET, status: 'processing' })),
+    );
+    const controller = new AbortController();
+
+    const waiting = new AssetManager(mockFetch).waitForReady('asset_1', {
+      pollInterval: 10_000,
+      timeout: 60_000,
+      signal: controller.signal,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    controller.abort('unmounted');
+
+    const err = await waiting.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AbortError);
+    expect((err as AbortError).name).toBe('AbortError');
+    expect((err as AbortError).cause).toBe('unmounted');
+    // one read, then the sleep was cut short instead of polling on
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][1]).toEqual({ signal: controller.signal });
+  });
+});
+
+describe('asset mapping', () => {
+  it('keeps a null duration and resolution as null', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeJsonResponse({ ...SAMPLE_RAW_ASSET, duration_ms: null, resolution: null }),
+    );
+
+    const asset = await new AssetManager(mockFetch).get('asset_1');
+
+    expect(asset.durationMs).toBeNull();
+    expect(asset.resolution).toBeNull();
   });
 });

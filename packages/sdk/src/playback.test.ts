@@ -43,7 +43,7 @@ describe('PlaybackManager.getUrl()', () => {
     const manager = new PlaybackManager(mockFetch, resolve);
     const result = await manager.getUrl('abc');
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/abc');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/abc', { signal: undefined });
     expect(result).toEqual({
       playbackUrl: 'https://delivery.test/v1/objects/abc?type=manifest',
       playbackPath: '/v1/objects/abc?type=manifest',
@@ -86,7 +86,9 @@ describe('PlaybackManager.getUrl()', () => {
     const manager = new PlaybackManager(mockFetch, resolve);
     await manager.getUrl('id/with/slashes');
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/id%2Fwith%2Fslashes');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/id%2Fwith%2Fslashes', {
+      signal: undefined,
+    });
   });
 });
 
@@ -106,7 +108,7 @@ describe('PlaybackManager.getSignedUrl()', () => {
     const manager = new PlaybackManager(mockFetch, resolve);
     const result = await manager.getSignedUrl('abc');
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/abc/signed');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/abc/signed', { signal: undefined });
     expect(result).toEqual({
       signedUrl: 'https://delivery.test/v1/objects/abc?type=manifest&expires=1&sig=xyz',
       signedPath: '/v1/objects/abc?type=manifest&expires=1&sig=xyz',
@@ -135,17 +137,18 @@ describe('PlaybackManager.getSignedUrl()', () => {
     const manager = new PlaybackManager(mockFetch, resolve);
     await manager.getSignedUrl('abc', {});
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/abc/signed');
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/abc/signed', { signal: undefined });
   });
 
-  it('should handle expiresIn of 0', async () => {
-    mockFetch.mockResolvedValueOnce(makeJsonResponse({ signed_url: '/u', expires_at: 'e' }));
-
+  it('refuses an expiresIn that is not a positive whole number of seconds', async () => {
+    // the backend reads 0 (or garbage) as "use the default", which would hand
+    // back an hour-long url for a caller that asked for none
     const manager = new PlaybackManager(mockFetch, resolve);
-    await manager.getSignedUrl('abc', { expiresIn: 0 });
 
-    const calledPath = mockFetch.mock.calls[0][0] as string;
-    expect(calledPath).toBe('/api/v1/playback/abc/signed?expires_in=0');
+    for (const expiresIn of [0, -5, 1.5, Number.NaN]) {
+      await expect(manager.getSignedUrl('abc', { expiresIn })).rejects.toThrow(RangeError);
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('should encode the video asset ID in the signed URL path', async () => {

@@ -112,7 +112,7 @@ export default function PlayerPage() {
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">{a.title}</span>
                       <span className="text-xs text-muted-foreground">
-                        {formatDuration(a.durationMs)}
+                        {formatDuration(a.durationMs ?? 0)}
                       </span>
                     </span>
                   </button>

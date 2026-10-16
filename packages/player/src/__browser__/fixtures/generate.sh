@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # regenerates the hls fixture the browser tests play. it uses the same muxing
-# as the backend transcoder (backend/src/transcode/ffmpeg-runner.ts): fmp4
+# as the backend transcoder (backend/src/transcode/ffmpeg-args.ts): fmp4
 # segments in one data.m4s per rendition, addressed with EXT-X-BYTERANGE and
 # an EXT-X-MAP init range, h.264 + aac. it is shorter, smaller, and cut into
 # 1s segments so a three second clip still has several byte ranges.

@@ -5,11 +5,19 @@
 // manifest-rewriter.ts does), and byte ranges are answered with 206.
 //
 // Side endpoints under /__fixture/ let a test read the catalog, inspect which
-// object requests reached the gateway, inject failures, and fetch raw object
-// bytes for the fake Sia session (which stands in for the Sia network, so it
-// must not show up as a gateway request).
+// object requests reached the gateway, inject failures, sign urls, and fetch
+// raw object bytes for the fake Sia session (which stands in for the Sia
+// network, so it must not show up as a gateway request).
+//
+// The public share map is gated like the backend's GET /v1/share/:id: the
+// gated id (GATED_SHARE_ID) answers only with a valid, unexpired `expires` and
+// `sig` over the master object, and its map never outlives that signature.
+//
+// The suite runs in several browsers at once against this one server, so the
+// logs and faults are kept per browser, told apart by the User-Agent header
+// every request from a browser carries.
 
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -63,6 +71,41 @@ interface Fault {
 interface StoredObject {
   bytes: Buffer;
   contentType: string;
+}
+
+interface BrowserState {
+  requests: GatewayRequest[];
+  shareRequests: ShareRequest[];
+  apiRequests: ApiRequest[];
+  faults: Map<string, Fault>;
+}
+
+/** The share id that is gated, like a private asset or a signed playback id. */
+export const GATED_SHARE_ID = 'pb_signedsignedsigned';
+
+// the fixture's stand-in for the backend's signing secret
+const SIGNING_SECRET = 'fixture-signing-secret';
+
+/** The signature the backend puts on a url for an object: HMAC over `{id}:{expires}`. */
+function signObject(objectId: string, expires: number): string {
+  return createHmac('sha256', SIGNING_SECRET).update(`${objectId}:${expires}`).digest('hex');
+}
+
+function verifyObject(
+  objectId: string,
+  expires: string | null,
+  sig: string | null,
+): { ok: true; expires: number } | { ok: false; reason: string } {
+  if (!expires || !sig) return { ok: false, reason: 'missing' };
+  const at = Number(expires);
+  if (!Number.isInteger(at)) return { ok: false, reason: 'malformed' };
+  if (at <= Math.floor(Date.now() / 1000)) return { ok: false, reason: 'expired' };
+  const want = Buffer.from(signObject(objectId, at), 'hex');
+  const got = Buffer.from(sig, 'hex');
+  if (got.length !== want.length || !timingSafeEqual(got, want)) {
+    return { ok: false, reason: 'invalid' };
+  }
+  return { ok: true, expires: at };
 }
 
 function objectId(bytes: Buffer, name: string): string {
@@ -135,8 +178,8 @@ function parseRange(header: string, size: number): { start: number; end: number 
   return { start, end };
 }
 
-function sendJson(res: ServerResponse, body: unknown): void {
-  res.statusCode = 200;
+function sendJson(res: ServerResponse, body: unknown, status = 200): void {
+  res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Cache-Control', 'no-store');
   res.end(JSON.stringify(body));
@@ -154,16 +197,26 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 export function hlsFixtureGateway(fixtureDir: string): Plugin {
   const { catalog, objects } = loadFixture(fixtureDir);
-  let requests: GatewayRequest[] = [];
-  let shareRequests: ShareRequest[] = [];
-  let apiRequests: ApiRequest[] = [];
-  let faults = new Map<string, Fault>();
+  const browsers = new Map<string, BrowserState>();
+  const fresh = (): BrowserState => ({
+    requests: [],
+    shareRequests: [],
+    apiRequests: [],
+    faults: new Map(),
+  });
 
   return {
     name: 'sluby-hls-fixture-gateway',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = new URL(req.url ?? '/', 'http://fixture.local');
+        const agent = req.headers['user-agent'] ?? '';
+        let state = browsers.get(agent);
+        if (!state) {
+          state = fresh();
+          browsers.set(agent, state);
+        }
+        const { requests, shareRequests, apiRequests, faults } = state;
 
         const objectMatch = /^\/v1\/objects\/([0-9a-f]+)$/.exec(url.pathname);
         if (objectMatch) {
@@ -234,14 +287,31 @@ export function hlsFixtureGateway(fixtureDir: string): Plugin {
         // sia:// url the fake sia network (fake-sia-storage.ts) resolves
         const shareMatch = /^\/v1\/share\/([^/]+)$/.exec(url.pathname);
         if (shareMatch) {
+          const id = decodeURIComponent(shareMatch[1]);
+          const expires = url.searchParams.get('expires');
+          const sig = url.searchParams.get('sig');
           shareRequests.push({
-            id: decodeURIComponent(shareMatch[1]),
-            expires: url.searchParams.get('expires'),
-            sig: url.searchParams.get('sig'),
+            id,
+            expires,
+            sig,
             authorization: req.headers.authorization !== undefined,
             cookie: req.headers.cookie !== undefined,
           });
-          const expiresAt = new Date(Date.now() + 3600_000).toISOString();
+          let expiresAtMs = Date.now() + 3600_000;
+          if (id === GATED_SHARE_ID) {
+            const check = verifyObject(catalog.masterId, expires, sig);
+            if (!check.ok) {
+              sendJson(
+                res,
+                { error: 'This share map requires a valid signed URL', reason: check.reason },
+                403,
+              );
+              return;
+            }
+            // the shares never outlive the signature that unlocked them
+            expiresAtMs = Math.min(expiresAtMs, check.expires * 1000);
+          }
+          const expiresAt = new Date(expiresAtMs).toISOString();
           const shares: Record<string, string> = {};
           for (const id of objects.keys()) {
             shares[id] =
@@ -293,11 +363,21 @@ export function hlsFixtureGateway(fixtureDir: string): Plugin {
         }
 
         if (url.pathname === '/__fixture/reset' && req.method === 'POST') {
-          requests = [];
-          shareRequests = [];
-          apiRequests = [];
-          faults = new Map();
+          browsers.set(agent, fresh());
           sendJson(res, { ok: true });
+          return;
+        }
+
+        // a signed master url for the gated id, as a backend would mint it
+        if (url.pathname === '/__fixture/sign') {
+          const expiresIn = Number(url.searchParams.get('expires_in') ?? '3600');
+          const at = Math.floor(Date.now() / 1000) + expiresIn;
+          const query = `expires=${at}&sig=${signObject(catalog.masterId, at)}`;
+          sendJson(res, {
+            stream: `/v1/stream/${GATED_SHARE_ID}/master.m3u8?${query}`,
+            object: `/v1/objects/${catalog.masterId}?type=manifest&${query}`,
+            expires: at,
+          });
           return;
         }
 

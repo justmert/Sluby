@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Breaking
+
+- A 403 rejects with the new `PermissionError` instead of `AuthenticationError`, which now means 401 only. Migration: catch `PermissionError` where you handled a missing scope or a refused signed URL as an `AuthenticationError`.
+- 400 and 422 reject with `ValidationError`, 409 with `ConflictError` and 410 with `NotFoundError` (its `statusCode` is 410) instead of a bare `SlubyError`. All are still `SlubyError`s, so `instanceof SlubyError` checks keep working.
+- Upload failures reject with a `SlubyError` (the typed class for the HTTP status, with the tus error as `cause`) instead of tus-js-client's `DetailedError`, and `abort()` rejects with the new `AbortError` instead of a plain `Error('Upload aborted')`. Migration: read `statusCode` and `message` from the error; the tus error is on `cause`.
+- `assets.waitForReady()` rejects with the new `ProcessingFailedError`, which carries the failed `asset`, instead of a plain `Error` whose message said the asset failed. It also reads the asset at least once, even with `timeout: 0`.
+- `SiaSession.connect()` resolves to nothing instead of the WASM `Sdk`, and `resolveObjectId()` resolves to an opaque `SiaObject` instead of sia-storage's `PinnedObject`, so the published types no longer import `@siafoundation/sia-storage`. Migration: pass the `SiaObject` to `download()` as before; code that used the `Sdk` directly should create its own with sia-storage.
+- `SiaSession` keys resolved objects by asset and object only, so the same object resolved through two share maps is one cached handle, and a session built directly (not through `SlubyClient`) without `transport.resolveDeliveryUrl` rejects a relative `src` with an error that says so instead of failing on `new URL`.
+- `publicShareMapUrl(id, src)` and the session ask for the id a `/v1/stream/{id}/master.m3u8` URL names (the one its signature was issued for), not the `assetId` argument; for `/v1/objects/{id}` URLs `assetId` is still used.
+- The unused `WebhookEndpoint` and `ApiKey` types are removed; no method returned them. Migration: define the shape you need locally.
+- `upload()` takes `Blob | Uint8Array` (`UploadInput`) instead of `File | Blob | Buffer`, so the published types no longer need `@types/node`. A `File` is a `Blob` and a `Buffer` is a `Uint8Array`, so existing calls compile unchanged.
+- Corrected types: `VideoAsset.durationMs` and `resolution` and `PlaybackInfo.durationMs` and `resolution` can be `null`, `UploadSession.videoAssetId` can be `null` and its `status` is the `UploadSessionStatus` union, and `assets.retry()` resolves `{ stage: RetryStage }` (`'transcode' | 'upload-segments'`). Migration: handle `null` where these fields are read; code that switched on a string `status` may need the union's cases.
+- `playback.getSignedUrl()` throws a `RangeError` for an `expiresIn` that is not a positive whole number; the backend read `0` or a fraction as "use the default".
+- `engines` requires Node 20.16+ or 22.3+, the versions with `process.getBuiltinModule`, which `webhooks.verifySignature()` needs.
+
 ### Added
 
 - `webhooks.verifyRequest(rawBody, headers, secret, { toleranceSeconds })` and `webhooks.verifyRequestAsync(...)` verify the new `X-Sluby-Signature-V1` header, the hex HMAC-SHA256 of `<X-Sluby-Timestamp>.<raw body>`, and refuse a timestamp more than `toleranceSeconds` (default 300) from now, so a captured request cannot be replayed. `headers` is a Fetch `Headers` or Node's `req.headers`.
@@ -15,6 +30,14 @@
 - `assets.list()` takes `search`, `sort` (`created_at`, `title`, `duration`, `size`) and `order`.
 - Cookie sessions: `apiKey` is optional and `credentials` is passed to `fetch`, so a same-origin app signed in to the Studio can use the client without a key.
 - `LICENSE` and `NOTICE` ship in the package.
+- Upload handles have an `uploadId` promise, the id `uploads.getStatus()` and `uploads.cancel()` take (the last segment of the tus upload URL).
+- `upload()` takes `resume: false` to never resume a previous upload, and `signal` to abort it.
+- Every request method takes `{ signal }` (an `AbortSignal`), `waitForReady()` takes `signal` and stops polling when it fires, and `SlubyConfig.timeoutMs` bounds every API request, body included, with a `TimeoutError`.
+- Cursor paging: `assets.list()` takes `cursor`, and pages have `nextCursor` and `hasMore`.
+- `PermissionError`, `ConflictError`, `ValidationError`, `AbortError` and `ProcessingFailedError`, and `SlubyError` takes a `cause`.
+- `SiaSession.dispose()` frees every resolved object and the WASM SDK; the session reconnects on next use. Resolved objects are capped at `SiaSession.MAX_CACHED_OBJECTS` (64), least recently used freed first.
+- `upload()` accepts a `Blob` in Node (as `fs.openAsBlob` returns, read chunk by chunk) and a plain `Uint8Array` everywhere.
+- Types: `RequestOptions`, `RetryStage`, `UploadSessionStatus`, `UploadInput`, `SiaObject` and `WebhookEventName`.
 
 ### Changed
 
@@ -24,6 +47,15 @@
 
 ### Fixed
 
+- Uploading the same file again in a browser created no asset: tus-js-client resumed the finished first upload from localStorage, reported success without sending anything, and `assetId` resolved to the old asset (even a deleted one) with the old title. Finished uploads are now forgotten, the stored fingerprint includes the key and the metadata, and an upload the server has in full (or no longer has) is never resumed.
+- `upload.abort()` after the upload finished sent a tus DELETE, and the backend discarded the asset. It now does nothing once the upload has finished; `pause()` likewise.
+- A failed previous-upload lookup (broken localStorage) left the handle pending forever; it now rejects the handle and calls `onError`.
+- Pausing before the upload started and then resuming skipped the resume of a previous upload.
+- `webhooks.verifySignatureAsync()` rejected an uppercase hex signature that `verifySignature()` accepted.
+- The ESM build's `require` fallback in `verifySignature()`, which bundlers turn into a throw, is gone; it uses `process.getBuiltinModule` only.
+- A 2xx response whose body is not JSON rejects with a `SlubyError` carrying the text instead of a bare `SyntaxError`.
+- `SiaSession` shares one share map request between concurrent resolves, rejects a map without a valid `expires_at` instead of refetching it on every call, no longer refetches on every resolve a map that is inside the refresh margin but capped at a signed URL's expiry, and only re-mints the map after a failed resolve when the map is near or past its expiry.
+- `SiaSession.resolveObjectId()` rejects instead of throwing synchronously for a bad `src`, and rejects with a `NotFoundError` when the map has no share URL for the object.
 - `webhooks.verifySignature()` works from the ESM build. It used `require`, which ESM does not have, so it threw on Node; it now loads `node:crypto` through `process.getBuiltinModule`.
 - `upload.abort()` now rejects the upload handle (it used to stay pending forever), and aborting before the upload starts no longer uploads the file anyway.
 - `RateLimitError.retryAfter` reads a `Retry-After` given as an HTTP date instead of returning `NaN`.

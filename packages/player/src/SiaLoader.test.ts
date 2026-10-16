@@ -229,7 +229,34 @@ describe('SiaLoader', () => {
     await vi.waitFor(() => expect(onError).toHaveBeenCalled());
     const [error] = onError.mock.calls[0];
     expect(error.text).toContain('host unreachable');
+    // a status hls.js retries (it never retries 0 while online, nor any 4xx)
+    expect(error.code).toBe(502);
     expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('keeps a 4xx from the session, which retrying cannot fix', async () => {
+    const { session } = makeSession({
+      resolveObjectId: vi.fn(async () => {
+        throw Object.assign(new Error('no share URL for object x'), { statusCode: 404 });
+      }),
+    });
+    const loader = newLoader(session);
+    const { cbs, onError } = callbacks();
+
+    loader.load(ctx({ url: 'https://cache.test/v1/objects/x' }), config, cbs);
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(onError.mock.calls[0][0].code).toBe(404);
+  });
+
+  it('reports an address with no object id as a bad request', () => {
+    const { session } = makeSession();
+    const loader = newLoader(session);
+    const { cbs, onError } = callbacks();
+
+    loader.load(ctx({ url: 'https://cache.test/not-an-object' }), config, cbs);
+
+    expect(onError.mock.calls[0][0].code).toBe(400);
   });
 
   it('abort() fires onAbort and suppresses a late success', async () => {

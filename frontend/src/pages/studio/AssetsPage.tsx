@@ -131,7 +131,7 @@ function useLibraryParams() {
 
 function AssetMeta({ asset }: { asset: VideoAsset }) {
   const parts = [
-    asset.durationMs > 0 ? formatDuration(asset.durationMs) : null,
+    asset.durationMs ? formatDuration(asset.durationMs) : null,
     asset.resolution || null,
     asset.totalStorageBytes > 0 ? formatBytes(asset.totalStorageBytes) : null,
   ].filter(Boolean);
@@ -526,7 +526,7 @@ export default function AssetsPage() {
                     <AssetStatusBadge status={asset.status} />
                   </TableCell>
                   <TableCell className="hidden tabular-nums md:table-cell">
-                    {asset.durationMs > 0 ? formatDuration(asset.durationMs) : '-'}
+                    {asset.durationMs ? formatDuration(asset.durationMs) : '-'}
                   </TableCell>
                   <TableCell className="hidden tabular-nums md:table-cell">
                     {asset.totalStorageBytes > 0 ? formatBytes(asset.totalStorageBytes) : '-'}

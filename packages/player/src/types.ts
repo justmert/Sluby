@@ -1,3 +1,8 @@
+import type { CSSProperties } from 'react';
+import type { SiaPlaybackSession } from './sia-types.js';
+
+export type { SiaPlaybackSession, SiaShareSource } from './sia-types.js';
+
 export interface QualityLevel {
   index: number;
   width: number;
@@ -10,43 +15,17 @@ export interface QualityLevel {
 export type PlayerState = 'idle' | 'loading' | 'ready' | 'buffering' | 'error';
 
 /**
- * Per-playback capability map: a short-lived sia:// share URL per object of an
- * asset, plus which object is the HLS master.
+ * The part of a `SlubyClient` the player uses when it is given `src`: only the
+ * viewer session. Any object with an optional `sia` fits, so a keyless page
+ * can pass just `{ sia }`.
  */
-export interface SiaShareMap {
-  masterObjectId: string;
-  /** object id (hex) -> sia:// share URL */
-  shares: Record<string, string>;
-  expiresAt: string;
-}
-
-/**
- * Where the session gets an asset's share map. With `src` (the gateway
- * playback URL being played, signed or not) it is the public
- * `GET /v1/share/:id` next to that URL, with no credentials; without it, the
- * authenticated `GET /api/v1/playback/:id/share`.
- */
-export interface SiaShareSource {
-  src?: string;
-}
-
-/**
- * The `client.sia` viewer session the player drives for direct-from-Sia
- * playback. Structural (no hard dependency on `@sluby/sdk` or the WASM SDK):
- * resolved objects are opaque handles the loader passes straight back to
- * `download`. `source` is optional, so a session written against the older
- * two-argument shape still fits; it then always uses the authenticated route.
- */
-export interface SiaPlaybackSession {
-  prepare(assetId: string, source?: SiaShareSource): Promise<void>;
-  resolveObjectId(assetId: string, objectId: string, source?: SiaShareSource): Promise<unknown>;
-  download(object: unknown, options?: { offset?: number; length?: number }): ReadableStream;
+export interface SiaPlaybackClient {
   /**
-   * The asset's HLS master object id. Needed to play a
-   * `/v1/stream/{id}/master.m3u8` URL, which names the asset rather than an
-   * object; `/v1/objects/{id}` URLs work without it.
+   * Present when a viewer identity is configured. When available (and hls.js is
+   * used), the player streams bytes directly from Sia via a custom loader,
+   * with the backend out of the byte path. Absent for gateway-only clients.
    */
-  masterObjectId?(assetId: string, source?: SiaShareSource): Promise<string>;
+  sia?: SiaPlaybackSession;
 }
 
 /**
@@ -54,18 +33,18 @@ export interface SiaPlaybackSession {
  * it so it can resolve an absolute delivery URL from an asset id on its own,
  * without a hard dependency on `@sluby/sdk`.
  */
-export interface PlaybackResolver {
-  resolveDeliveryUrl(pathOrUrl: string): string;
+export interface PlaybackResolver extends SiaPlaybackClient {
   playback: {
-    getUrl(assetId: string): Promise<{ playbackUrl: string; posterUrl: string | null }>;
-    getSignedUrl(assetId: string, options?: { expiresIn?: number }): Promise<{ signedUrl: string }>;
+    getUrl(assetId: string): Promise<{
+      playbackUrl: string;
+      posterUrl: string | null;
+      accessTier?: 'public' | 'private';
+    }>;
+    getSignedUrl(
+      assetId: string,
+      options?: { expiresIn?: number },
+    ): Promise<{ signedUrl: string; expiresAt?: string }>;
   };
-  /**
-   * Present when a viewer identity is configured. When available (and hls.js is
-   * used), the player streams bytes directly from Sia via a custom loader,
-   * with the backend out of the byte path. Absent for gateway-only clients.
-   */
-  sia?: SiaPlaybackSession;
 }
 
 export interface SlubyPlayerProps {
@@ -75,20 +54,36 @@ export interface SlubyPlayerProps {
    * this, or `client` + `assetId` to have the player resolve the URL through
    * the API. With `src`, `assetId` and a `client` that has a Sia session, the
    * player streams direct from Sia using the public share map for `src`, so
-   * no API key is needed.
+   * no API key is needed. A new `src` for the same video (a re-signed URL)
+   * continues from the current position.
    */
   src?: string;
   /**
+   * A signed `src` stops working at its `expires`. Given this, the player
+   * calls it shortly before then (and when a load fails after it) with the
+   * current `src`, and continues from the same position with the URL it
+   * returns, such as one freshly signed by your server. Without it, playback
+   * of a signed `src` fails at the expiry.
+   */
+  refreshSrc?: (src: string) => string | Promise<string>;
+  /**
    * A `SlubyClient` (or compatible resolver). With `assetId` and no `src` it
    * resolves the playback URL through the API; with `src` only its `sia`
-   * session is used.
+   * session is used, so `{ sia }` alone is enough. Pass a stable object
+   * (created once, not on every render): a different client resolves and
+   * loads the video again.
    */
-  client?: PlaybackResolver;
+  client?: PlaybackResolver | SiaPlaybackClient;
   /** Asset id (or `pb_...` playback id) of the video: resolved via `client`, or paired with `src` for direct-from-Sia playback. */
   assetId?: string;
-  /** Resolve a signed (private/gated) URL instead of the public one. */
+  /**
+   * Resolve a signed (private/gated) URL instead of the public one. A private
+   * asset is played signed even without it. Before a signed URL expires the
+   * player fetches a new one and continues from the same position. Ignored
+   * with `src`.
+   */
   signed?: boolean;
-  /** Lifetime in seconds for the signed URL when `signed` is set. */
+  /** Lifetime in seconds of each signed URL the player fetches. Ignored with `src`. */
   expiresIn?: number;
 
   poster?: string;
@@ -98,7 +93,7 @@ export interface SlubyPlayerProps {
   width?: number | string;
   height?: number | string;
   className?: string;
-  style?: React.CSSProperties;
+  style?: CSSProperties;
 
   /** Render the built-in loading spinner / error overlay. Default: true. */
   overlay?: boolean;
@@ -111,6 +106,7 @@ export interface SlubyPlayerProps {
   onPlay?: () => void;
   onPause?: () => void;
   onEnd?: () => void;
+  /** A terminal error. `cause` holds the underlying error when there is one (an SDK `SlubyError`, an hls.js error). */
   onError?: (error: Error) => void;
   /** The rendition now playing, on load and on every switch. */
   onQualityChange?: (level: QualityLevel) => void;
@@ -126,9 +122,12 @@ export interface SlubyPlayerProps {
 }
 
 export interface UseVideoReturn {
+  /** Start playback. A rejection (such as an autoplay block) is ignored and `isPlaying` stays false. */
   play: () => void;
   pause: () => void;
+  /** Seek to a time in seconds, clamped to 0 and, once known, the duration. */
   seek: (time: number) => void;
+  /** Pin a rendition by its `index`, or pass -1 (or any index out of range) for adaptive. */
   setQuality: (levelIndex: number) => void;
   qualities: QualityLevel[];
   currentQuality: QualityLevel | null;

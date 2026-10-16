@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type Hls from 'hls.js';
+import type { SlubyPlayerHandle } from '../SlubyPlayer.js';
 import { useVideo } from './useVideo.js';
 
 /** A minimal hls.js stand-in with its own event bus. */
@@ -65,5 +66,67 @@ describe('useVideo', () => {
       video.dispatchEvent(new Event('loadstart'));
     });
     expect(result.current.qualities).toHaveLength(2);
+  });
+
+  it('clears the levels when the hls instance goes away', () => {
+    const video = document.createElement('video');
+    const { hls, emit } = fakeHls([{ width: 640, height: 360, bitrate: 800_000 }]);
+    const videoRef = { current: video };
+    const hlsRef: { current: Hls | null } = { current: hls };
+    const { result } = renderHook(() => useVideo(videoRef, hlsRef));
+    act(() => emit('parsed'));
+    act(() => emit('switched', { level: 0 }));
+    expect(result.current.qualities).toHaveLength(1);
+
+    // the player destroyed it (a give-up), which empties the element
+    hlsRef.current = null;
+    act(() => {
+      video.dispatchEvent(new Event('emptied'));
+    });
+
+    expect(result.current.qualities).toEqual([]);
+    expect(result.current.currentQuality).toBeNull();
+  });
+
+  it('follows a video element that appears after the first render', () => {
+    const videoRef: { current: HTMLVideoElement | null } = { current: null };
+    const hlsRef: { current: Hls | null } = { current: null };
+    const { result, rerender } = renderHook(() => useVideo(videoRef, hlsRef));
+
+    const video = document.createElement('video');
+    videoRef.current = video;
+    rerender();
+    Object.defineProperty(video, 'duration', { value: 42, configurable: true });
+    act(() => {
+      video.dispatchEvent(new Event('durationchange'));
+    });
+
+    expect(result.current.duration).toBe(42);
+  });
+
+  it('takes a SlubyPlayer handle ref and reads the current element and instance from it', () => {
+    const video = document.createElement('video');
+    let current: Hls | null = null;
+    const handle: SlubyPlayerHandle = {
+      getVideoElement: () => video,
+      getHlsInstance: () => current,
+      getQualities: () => [],
+      setQuality: () => {},
+      isAutoQuality: () => true,
+    };
+    const playerRef = { current: handle };
+    const { result } = renderHook(() => useVideo(playerRef));
+
+    // the player builds a new instance per load; the hook must not keep a stale one
+    const { hls, emit } = fakeHls([{ width: 1280, height: 720, bitrate: 3_000_000 }]);
+    current = hls;
+    act(() => {
+      video.dispatchEvent(new Event('loadstart'));
+    });
+    act(() => emit('parsed'));
+    expect(result.current.qualities).toHaveLength(1);
+
+    act(() => result.current.setQuality(0));
+    expect((hls as unknown as { currentLevel: number }).currentLevel).toBe(0);
   });
 });

@@ -50,7 +50,7 @@ function signedV1(
  * Utilities for verifying incoming webhook signatures and parsing event
  * payloads.
  *
- * This manager is intentionally stateless -- it does not require API
+ * This manager is intentionally stateless: it does not require API
  * credentials and can be used in serverless handlers or middleware
  * without instantiating the full SDK client.
  */
@@ -109,7 +109,8 @@ export class WebhookManager {
    * `verifySignatureAsync`, which runs on Web Crypto.
    *
    * @param payload   - The raw request body string.
-   * @param signature - The hex-encoded HMAC signature from the header.
+   * @param signature - The hex-encoded HMAC signature from the header, in
+   *                    either case.
    * @param secret    - The webhook secret configured when creating the
    *                    endpoint.
    * @returns `true` if the signature is valid.
@@ -118,8 +119,8 @@ export class WebhookManager {
     const nodeCrypto = loadNodeCrypto();
     if (!nodeCrypto) {
       throw new Error(
-        'Synchronous signature verification needs Node.js. ' +
-          'Use verifySignatureAsync() in browser or edge environments.',
+        'Synchronous signature verification needs Node.js 20.16+ or 22.3+ ' +
+          '(process.getBuiltinModule). Use verifySignatureAsync() in browser or edge environments.',
       );
     }
     const expected = nodeCrypto.createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
@@ -152,7 +153,8 @@ export class WebhookManager {
     const sig = await globalThis.crypto.subtle.sign('HMAC', key, encoder.encode(payload));
 
     const expected = this._bufferToHex(new Uint8Array(sig));
-    return this._constantTimeEqual(expected, signature);
+    // hex is case-insensitive, and verifySignature accepts either case too
+    return this._constantTimeEqual(expected, signature.toLowerCase());
   }
 
   // -----------------------------------------------------------------------
@@ -221,20 +223,14 @@ export class WebhookManager {
 }
 
 /**
- * node:crypto when running on Node, from either module format: the ESM build
- * has no `require`, so prefer process.getBuiltinModule (Node 20.16+) and fall
- * back to `require` for older Node in CommonJS.
+ * node:crypto when running on Node, from either module format. The ESM build
+ * has no `require` (and bundlers rewrite a guarded one into a throw), so this
+ * uses process.getBuiltinModule, which every Node the package supports has
+ * (20.16+ and 22.3+, see `engines`).
  */
 function loadNodeCrypto(): typeof import('node:crypto') | undefined {
   const proc = globalThis.process as
     (NodeJS.Process & { getBuiltinModule?: (id: string) => unknown }) | undefined;
-  if (!proc?.versions?.node) return undefined;
-  if (typeof proc.getBuiltinModule === 'function') {
-    return proc.getBuiltinModule('node:crypto') as typeof import('node:crypto');
-  }
-  if (typeof require === 'function') {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('node:crypto') as typeof import('node:crypto');
-  }
-  return undefined;
+  if (!proc?.versions?.node || typeof proc.getBuiltinModule !== 'function') return undefined;
+  return proc.getBuiltinModule('node:crypto') as typeof import('node:crypto');
 }

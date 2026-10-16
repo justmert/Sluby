@@ -1,4 +1,4 @@
-// Keyless direct-from-Sia playback in a real Chromium, with the real SDK: a
+// Keyless direct-from-Sia playback in real browsers, with the real SDK: a
 // SlubyClient with no API key, its real SiaSession fetching the public share
 // map for the playback url, SlubyPlayer (and plain hls.js with the
 // @sluby/player/hls loader) playing through MSE. Only the Sia network is fake
@@ -8,17 +8,19 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { createRef } from 'react';
 import Hls from 'hls.js';
-import { SlubyClient } from '@sluby/sdk';
+import { PermissionError, SlubyClient } from '@sluby/sdk';
 import { SlubyPlayer, type SlubyPlayerHandle } from '../SlubyPlayer.js';
 import { createSiaLoader } from '../hls.js';
 import { fakeSiaLog, resetFakeSia } from './fake-sia-storage.js';
 import {
+  GATED_SHARE_ID,
   apiRequests,
   gatewayRequests,
   getCatalog,
   mount,
   resetGateway,
   shareRequests,
+  signedUrls,
   type FixtureCatalog,
   type Mounted,
 } from './harness.js';
@@ -176,5 +178,117 @@ describe('keyless direct-from-Sia with the real SDK', () => {
     await expectKeylessSiaPlayback(src);
     // prepare fetched the map once and the loader reused it
     expect(await shareRequests()).toHaveLength(1);
+  });
+});
+
+describe('gated share maps: signatures and expiry', () => {
+  it('plays a signed url for gated content from Sia, with the signature on the share map', async () => {
+    const client = keylessClient();
+    const { stream, expires } = await signedUrls(3600);
+    const ref = createRef<SlubyPlayerHandle>();
+    const deliveries: Array<'sia' | 'gateway'> = [];
+    mounted = mount(
+      <SlubyPlayer
+        ref={ref}
+        src={stream}
+        client={client}
+        assetId={GATED_SHARE_ID}
+        muted
+        autoPlay
+        onDeliveryChange={(d) => deliveries.push(d)}
+      />,
+    );
+
+    await vi.waitFor(
+      () => expect(ref.current!.getVideoElement()!.currentTime).toBeGreaterThan(0.5),
+      { timeout: 15_000, interval: 50 },
+    );
+    expect(deliveries).toEqual(['sia']);
+    expect(await gatewayRequests()).toEqual([]);
+    const shares = await shareRequests();
+    expect(shares).toHaveLength(1);
+    expect(shares[0]).toMatchObject({ id: GATED_SHARE_ID, expires: String(expires) });
+  });
+
+  it('refuses the map for a bad or expired signature, so the session cannot open gated content', async () => {
+    const client = keylessClient();
+    const { stream } = await signedUrls(3600);
+    const forged = stream.replace(/sig=[0-9a-f]+/, `sig=${'0'.repeat(64)}`);
+
+    const refused = await client.sia!.prepare(GATED_SHARE_ID, { src: forged }).catch((e) => e);
+    expect(refused).toBeInstanceOf(PermissionError);
+
+    const unsigned = stream.split('?')[0];
+    await expect(client.sia!.prepare(GATED_SHARE_ID, { src: unsigned })).rejects.toBeInstanceOf(
+      PermissionError,
+    );
+
+    const lapsed = await signedUrls(-10);
+    const expired = await client
+      .sia!.getShareMap(GATED_SHARE_ID, { src: lapsed.stream })
+      .catch((e) => e);
+    expect(expired).toBeInstanceOf(PermissionError);
+    expect((expired as PermissionError).responseBody).toContain('expired');
+  });
+
+  it('caps the map at the signature and keeps playing past it with a src from refreshSrc', async () => {
+    const client = keylessClient();
+    const first = await signedUrls(3);
+    const renewed: string[] = [];
+    const refreshSrc = vi.fn(async () => {
+      const next = await signedUrls(3600);
+      renewed.push(next.stream);
+      return next.stream;
+    });
+    const ref = createRef<SlubyPlayerHandle>();
+    const deliveries: Array<'sia' | 'gateway'> = [];
+    const errors: Error[] = [];
+    mounted = mount(
+      <SlubyPlayer
+        ref={ref}
+        src={first.stream}
+        refreshSrc={refreshSrc}
+        client={client}
+        assetId={GATED_SHARE_ID}
+        muted
+        autoPlay
+        onDeliveryChange={(d) => deliveries.push(d)}
+        onError={(e) => errors.push(e)}
+      />,
+    );
+
+    // the clip is about 3 s, so loop it to have playback that outlasts the signature
+    await vi.waitFor(() => expect(ref.current?.getVideoElement()).toBeTruthy());
+    ref.current!.getVideoElement()!.loop = true;
+
+    // renewed before the first signature runs out
+    await vi.waitFor(() => expect(refreshSrc).toHaveBeenCalledTimes(1), {
+      timeout: 5_000,
+      interval: 50,
+    });
+    expect(Date.now()).toBeLessThan(first.expires * 1000);
+
+    // and still playing from Sia after it did
+    await vi.waitFor(() => expect(Date.now()).toBeGreaterThan(first.expires * 1000 + 500), {
+      timeout: 6_000,
+      interval: 100,
+    });
+    const v = ref.current!.getVideoElement()!;
+    const at = v.currentTime;
+    await vi.waitFor(
+      () => {
+        expect(v.paused).toBe(false);
+        expect(v.currentTime).not.toBe(at);
+      },
+      { timeout: 10_000, interval: 50 },
+    );
+
+    expect(errors).toEqual([]);
+    expect(deliveries.every((d) => d === 'sia')).toBe(true);
+    expect(refreshSrc).toHaveBeenCalledWith(first.stream);
+    const sigs = (await shareRequests()).map((r) => r.sig);
+    expect(new Set(sigs).size).toBe(2);
+    expect(sigs).toContain(new URL(renewed[0]).searchParams.get('sig'));
+    expect(await gatewayRequests()).toEqual([]);
   });
 });

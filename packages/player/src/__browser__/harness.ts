@@ -53,6 +53,22 @@ export async function objectBytes(id: string): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
 }
 
+/** The share id the fixture gates, like a private asset or a signed playback id. */
+export const GATED_SHARE_ID = 'pb_signedsignedsigned';
+
+/** Master urls for the gated id, signed by the fixture the way a backend signs them. */
+export async function signedUrls(
+  expiresIn = 3600,
+): Promise<{ stream: string; object: string; expires: number }> {
+  const res = await fetch(`/__fixture/sign?expires_in=${expiresIn}`);
+  const body = (await res.json()) as { stream: string; object: string; expires: number };
+  return {
+    stream: `${location.origin}${body.stream}`,
+    object: `${location.origin}${body.object}`,
+    expires: body.expires,
+  };
+}
+
 export function objectUrl(id: string): string {
   return `${location.origin}/v1/objects/${id}`;
 }
