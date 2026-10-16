@@ -17,8 +17,9 @@ export interface PlaybackRouteDeps {
     id: string;
     manifestObjectId: string | null;
     thumbnailObjectIds: string[];
-    durationMs: number;
-    resolution: string;
+    /** null until processing has measured it */
+    durationMs: number | null;
+    resolution: string | null;
     accessTier: string;
     status: string;
   } | null>;
@@ -79,7 +80,8 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
     const posterUrl =
       asset.thumbnailObjectIds.length > 0 ? `/v1/objects/${asset.thumbnailObjectIds[0]}` : null;
 
-    playbackInitiationTotal.inc({ mode: 'public' });
+    // the unsigned url of a private asset is still a handout, but not a public one
+    playbackInitiationTotal.inc({ mode: asset.accessTier === 'private' ? 'private' : 'public' });
     res.json({
       playback_url: playbackUrl,
       poster_url: posterUrl,

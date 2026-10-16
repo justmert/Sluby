@@ -31,11 +31,11 @@ Keys can also be managed through the API (`POST /api/v1/keys`, `POST /api/v1/key
 
 Each key carries one or more scopes, and every endpoint requires exactly one:
 
-| Scope    | Allows                                                                                                                                       |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `upload` | Uploading videos over tus at `/api/v1/uploads` and cancelling an upload.                                                                     |
-| `read`   | Listing and reading assets, renditions, processing state and Sia storage details, playback URLs, upload status, webhooks, stats and metrics. |
-| `manage` | Editing, deleting and retrying assets, playback IDs, API keys, creating and deleting webhooks, and reconciliation (see below).               |
+| Scope    | Allows                                                                                                                                                      |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload` | Uploading videos over tus at `/api/v1/uploads` and cancelling an upload.                                                                                    |
+| `read`   | Listing and reading assets, renditions, processing state and Sia storage details, playback URLs, upload status, webhooks, stats, system status and metrics. |
+| `manage` | Editing, deleting and retrying assets, playback IDs, API keys, creating and deleting webhooks, and reconciliation (see below).                              |
 
 Scopes are checked independently: `manage` does not include `read`, so a key that should do both needs both. A key without the required scope gets `403` with `Requires '<scope>' scope`. Each operation in the reference shows its scope as `x-required-scope`.
 
@@ -43,7 +43,15 @@ Scopes are checked independently: `manage` does not include `read`, so a key tha
 
 Every resource belongs to the account that created it, and a request only reaches its own account's assets, keys, webhooks and playback IDs. An ID from another account answers `404`, the same as one that does not exist. The exception is a key with the platform address (`0x` followed by 64 zeros), which acts across all accounts (see [tenancy](/architecture/auth-and-tenancy#tenancy)).
 
-The reconciliation report (`GET /api/v1/reconciliation`) is the one place that covers every account, since a run compares the whole database with the shared indexer. Its counts and status are the same for every caller, but its object IDs are scoped: an ordinary account gets `"scope": "account"`, with `missing_ids` and `account_missing_count` limited to its own assets and no `orphaned_ids`, because an orphaned object belongs to no asset. Only a key with the platform address gets `"scope": "deployment"` and the full lists. `POST /api/v1/reconciliation/run` queues a run only when none is already waiting or running, and says which happened in `enqueued` and `already_pending`. See [deletion and reconciliation](/architecture/deletion-and-reconciliation#what-each-caller-sees) for the details.
+The platform key also lists, reads and changes the resources of every account, keys included, through the same endpoints.
+
+Deployment-wide operator data is for the platform key alone:
+
+- `GET /api/v1/system/status` answers every caller, but an ordinary account gets `"scope": "account"`: a health summary (whether the database, Redis and the indexer answer, and the size of the host pool), without the indexer account, the indexer URL, probe error text, uptime, the delivery cache or the last reconciliation. The platform key gets `"scope": "deployment"` and all of it.
+- `GET /api/v1/metrics` counts the whole process, every account together, so it answers `403` to any other key.
+- `GET /api/v1/reconciliation` gives an ordinary account `"scope": "account"`: the run's times, a `status` about its own assets (`drift` when objects of its assets are missing, `failed` when the run itself failed), and `missing_count` and `missing_ids` for its own assets only. The platform key gets `"scope": "deployment"` with the deployment-wide counts, the error text of a failed run, and the full `missing_ids` and `orphaned_ids`. `POST /api/v1/reconciliation/run` scans the whole deployment, so only the platform key may start one; it queues a run only when none is already waiting or running, and says which happened in `enqueued` and `already_pending`. See [deletion and reconciliation](/architecture/deletion-and-reconciliation#what-each-caller-sees) for the details.
+
+A platform key is one created by `npm run db:seed-key --workspace=backend`, whose address defaults to the platform address. The `BOOTSTRAP_API_KEY` belongs to its own `platform` account, which is an ordinary account in this respect. A Studio session is never the platform identity, so the Studio shows the health summary.
 
 ## Pagination
 
@@ -62,28 +70,43 @@ The reconciliation report (`GET /api/v1/reconciliation`) is the one place that c
 
 To fetch the next page, pass `next_cursor` back as `cursor`, and stop when `has_more` is `false`. Cursors stay correct when videos are added or deleted between requests. `total` is the number of assets that match the filters.
 
-Cursor paging only works with the default order (`sort=created_at`, `order=desc`). With any other order `next_cursor` is `null`, a `cursor` is rejected with `400`, and you page with `page` (1-based) instead. A cursor the server cannot read is ignored, and the request is answered as if it had none.
+Cursor paging only works with the default order (`sort=created_at`, `order=desc`). With any other order `next_cursor` is `null`, a `cursor` is rejected with `400`, and you page with `page` (1-based, up to 1000000) instead. Send either `cursor` or `page`, not both; on a page fetched with a cursor, `page` is `null`. A cursor the server cannot read is a `400`, so a client never starts over at the first page by mistake.
 
-Other lists (`GET /api/v1/keys`, `GET /api/v1/webhooks`, playback IDs) return `{ "data": [...] }` without paging.
+Every query parameter may be given once. A repeated parameter, a `limit` outside 1 to 100, a `page` that is not a whole number and similar mistakes answer `400` instead of being replaced by a default.
+
+`GET /api/v1/keys` pages the same way, newest first: `limit` (1 to 1000, default 1000) and `cursor`, with `has_more` and `next_cursor` in the answer. With the default limit one page holds every key of any ordinary account. `GET /api/v1/webhooks` and the playback IDs of an asset return `{ "data": [...] }` without paging.
+
+## Uploads
+
+Uploads use the [tus](https://tus.io) protocol at `POST /api/v1/uploads`, as `@sluby/sdk` does. The creation answers `201` with the upload's URL in `Location`, built from `PUBLIC_URL`: `<PUBLIC_URL>/api/v1/uploads/<upload id>`. The upload ID, the last segment of that URL, is also the ID of the two REST operations on an upload:
+
+- `GET /api/v1/uploads/{id}` (scope `read`) returns its `status` (`uploading`, `completed`, `cancelled` or `failed`), `progress_percent`, `file_size`, `uploaded_bytes` and `video_asset_id`.
+- `DELETE /api/v1/uploads/{id}` (scope `upload`) cancels an upload that is still in progress: the partial file and the asset it created are removed, as with a tus `DELETE`. An upload that has finished is the source its asset is processed and retried from, so it cannot be cancelled (`409`, or `400` for a tus `DELETE`); delete the asset instead, which needs `manage`.
+
+The creation metadata is checked like an asset edit: `accessTier` (or `access_tier`) must be `public` or `private`, `title` at most 200 characters and `description` at most 5000, neither with control characters, and an empty file (`Upload-Length: 0`) is refused. Each mistake answers `400` and creates nothing. An upload left unfinished for 24 hours expires: its file is removed, its session marked `failed`, and the asset it created is deleted.
 
 ## Errors
 
-Errors are JSON with an `error` message:
+Errors are JSON with an `error` message. A `400` from a body or query that failed validation also lists every problem in `details`:
 
 ```json
-{ "error": "Requires 'manage' scope" }
+{
+  "error": "title: title must be at most 200 characters",
+  "details": [{ "field": "title", "message": "title must be at most 200 characters" }]
+}
 ```
 
-| Status | Meaning                                                                                                                                   |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `400`  | Invalid input, such as an unknown filter value, a bad request body or an ID that is not a valid identifier (`Invalid identifier format`). |
-| `401`  | The `Authorization` header is missing, or the key is unknown, deactivated or expired.                                                     |
-| `403`  | The key lacks the scope the endpoint requires.                                                                                            |
-| `404`  | The resource does not exist or belongs to another account. Unknown routes also return `404`.                                              |
-| `429`  | Rate limit exceeded (see below).                                                                                                          |
-| `500`  | Server error. The details go to the backend log.                                                                                          |
+| Status | Meaning                                                                                                                                                               |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | Invalid input, such as an unknown filter value, a repeated query parameter, a bad request body or an ID that is not a valid identifier (`Invalid identifier format`). |
+| `401`  | The `Authorization` header is missing, or the key is unknown, deactivated or expired.                                                                                 |
+| `403`  | The key lacks the scope the endpoint requires, or the endpoint is for the platform identity only.                                                                     |
+| `404`  | The resource does not exist or belongs to another account. Unknown routes also return `404`, with or without a key.                                                   |
+| `409`  | The request conflicts with the resource's state, such as playing an asset that is not ready or cancelling a finished upload.                                          |
+| `429`  | Rate limit exceeded (see below).                                                                                                                                      |
+| `500`  | Server error. The details go to the backend log.                                                                                                                      |
 
-Some errors carry a `message` with more detail. When `NODE_ENV` is not `production`, errors raised inside a route handler also include `message` and `stack` to help while developing, so a production server never returns a stack trace.
+When `NODE_ENV` is not `production`, errors raised inside a route handler also include `message` and `stack` to help while developing, so a production server never returns a stack trace. Each operation in the reference lists the status codes it can answer, and the backend's tests check every answer against that list.
 
 ## Rate limits
 
@@ -95,7 +118,7 @@ Each API key has its own limit in requests per minute, set when the key is creat
 | `X-RateLimit-Remaining` | Requests left in the current window. |
 | `X-RateLimit-Reset`     | Seconds until the window resets.     |
 
-Over the limit, the server answers `429` with a `Retry-After` header in seconds and a body like `{ "error": "Rate limit exceeded", "retryAfter": 37 }`. `@sluby/sdk` raises this as a `RateLimitError` with `retryAfter` set.
+Over the limit, the server answers `429` with a `Retry-After` header in seconds and a body like `{ "error": "Rate limit exceeded", "retry_after": 37 }`. The body also still carries the older `retryAfter` spelling, which goes away in the next release. `@sluby/sdk` raises this as a `RateLimitError` with `retryAfter` set from the header.
 
 The limit applies to the endpoints under `/api/v1` that need a key. The OpenAPI document, the reference page, sign-in, tus upload traffic and the delivery routes under `/v1` are not counted. Counters live in the backend process's memory, so they reset when the backend restarts.
 

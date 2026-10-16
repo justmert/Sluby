@@ -19,6 +19,7 @@ vi.mock('../config/env.js', () => ({
     SESSION_SECRET: 's'.repeat(40),
     UPLOAD_DIR: `${dirs.root}/uploads`,
     MAX_UPLOAD_SIZE: 1024 * 1024,
+    PUBLIC_URL: 'http://studio.test',
   },
 }));
 
@@ -63,6 +64,7 @@ function makeDeps(world: Omit<World, 'deps'>): TusServerDeps {
       s.filePath = filePath;
     }),
     cancelUpload: vi.fn(async () => {}),
+    abandonUpload: vi.fn(async () => {}),
     enqueueTranscoding: vi.fn(async () => {}),
     markAssetFailed: vi.fn(async (id) => {
       world.failedAssets.add(id);

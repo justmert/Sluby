@@ -276,7 +276,10 @@ describe('SessionManager', () => {
         writeFileSync(`${filePath}.json`, '{}');
         vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ filePath }));
 
-        await expect(manager.cancel('session-1')).resolves.toBe(true);
+        await expect(manager.cancel('session-1')).resolves.toEqual({
+          status: 'cancelled',
+          videoAssetId: 'asset-1',
+        });
 
         expect(existsSync(filePath)).toBe(false);
         expect(existsSync(`${filePath}.json`)).toBe(false);
@@ -288,9 +291,9 @@ describe('SessionManager', () => {
         writeFileSync(`${filePath}.json`, '{}');
         vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ filePath }));
 
-        await expect(manager.cancel('session-1', undefined, { removeFiles: false })).resolves.toBe(
-          true,
-        );
+        await expect(
+          manager.cancel('session-1', undefined, { removeFiles: false }),
+        ).resolves.toEqual({ status: 'cancelled', videoAssetId: 'asset-1' });
 
         expect(deps.updateSession).toHaveBeenCalledWith('session-1', { status: 'cancelled' });
         expect(existsSync(filePath)).toBe(true);
@@ -304,7 +307,10 @@ describe('SessionManager', () => {
         writeFileSync(path.join(filePath, 'inner'), 'x');
         vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ filePath }));
 
-        await expect(manager.cancel('session-1')).resolves.toBe(true);
+        await expect(manager.cancel('session-1')).resolves.toEqual({
+          status: 'cancelled',
+          videoAssetId: 'asset-1',
+        });
 
         expect(deps.updateSession).toHaveBeenCalledWith('session-1', { status: 'cancelled' });
         expect(logger.error).toHaveBeenCalledWith(
@@ -317,7 +323,10 @@ describe('SessionManager', () => {
     it('does not touch the disk when the session has no file path', async () => {
       vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ filePath: null }));
 
-      await expect(manager.cancel('session-1')).resolves.toBe(true);
+      await expect(manager.cancel('session-1')).resolves.toEqual({
+        status: 'cancelled',
+        videoAssetId: 'asset-1',
+      });
 
       expect(logger.error).not.toHaveBeenCalled();
       expect(logger.info).not.toHaveBeenCalledWith(expect.anything(), 'Removed source upload');
@@ -330,9 +339,30 @@ describe('SessionManager', () => {
 
       const result = await manager.cancel('session-1', '0xattacker');
 
-      expect(result).toBe(false);
+      expect(result).toEqual({ status: 'not_found' });
       expect(deps.updateSession).not.toHaveBeenCalled();
     });
+
+    it('scopes an empty owner to that owner rather than to every session', async () => {
+      vi.mocked(deps.getSession).mockResolvedValue(
+        createMockSession({ metadata: { apiKeyId: 'key-1', creatorAddress: '0xowner' } }),
+      );
+      expect(await manager.cancel('session-1', '')).toEqual({ status: 'not_found' });
+      expect(await manager.getStatus('session-1', '')).toBeNull();
+      expect(deps.updateSession).not.toHaveBeenCalled();
+    });
+
+    it.each(['completed', 'cancelled', 'failed'] as const)(
+      'refuses a %s session and leaves its file alone',
+      async (status) => {
+        vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ status }));
+
+        const result = await manager.cancel('session-1');
+
+        expect(result).toEqual({ status: 'not_uploading', sessionStatus: status });
+        expect(deps.updateSession).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('complete', () => {

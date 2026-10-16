@@ -27,7 +27,7 @@ const EMPTY_BY_STATUS = (): Record<AssetStatus, number> =>
  */
 export async function getAssetStats(owner?: string): Promise<AssetStats> {
   const scope: SQL[] = [isNull(videoAssets.deletedAt)];
-  if (owner) scope.push(eq(videoAssets.creatorAddress, owner));
+  if (owner !== undefined) scope.push(eq(videoAssets.creatorAddress, owner));
   const where = and(...scope);
 
   const [statusRows, objectRows] = await Promise.all([

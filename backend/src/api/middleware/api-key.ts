@@ -3,6 +3,7 @@ import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
 import { resolveSession, type FindActiveSession } from '../auth/session.js';
 import { hashApiKey } from '../auth/api-key.js';
+import { isPlatformIdentity } from '../ownership.js';
 
 export interface ApiKeyInfo {
   id: string;
@@ -123,6 +124,24 @@ export interface ScopedMiddleware {
   /** The scope this guard requires. Read by the OpenAPI drift test so the
    *  spec's `x-required-scope` cannot silently disagree with the code. */
   requiredScope?: string;
+  /** Set when only the platform identity may pass, see requirePlatform. */
+  requiredIdentity?: 'platform';
+}
+
+/**
+ * Only the platform identity passes: deployment-wide operator data and
+ * actions, which an ordinary tenant must not see or start.
+ */
+export function requirePlatform(): ScopedMiddleware {
+  const middleware: ScopedMiddleware = (req: Request, res: Response, next: NextFunction) => {
+    if (!isPlatformIdentity(req.apiKey?.creatorAddress)) {
+      res.status(403).json({ error: 'Only the platform identity may use this endpoint' });
+      return;
+    }
+    next();
+  };
+  middleware.requiredIdentity = 'platform';
+  return middleware;
 }
 
 /**

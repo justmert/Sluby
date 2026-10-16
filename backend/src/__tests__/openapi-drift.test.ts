@@ -1,8 +1,38 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pino from 'pino';
 import { createApiRouter, type ApiRouterDeps } from '../api/router.js';
-import { deliveryRouter } from '../delivery/aggregator.js';
 import { listRoutes, canonicalPath } from '../api/list-routes.js';
 import { openapiDocument } from '../api/openapi.js';
+
+// the whole app as index.ts builds it, so routes on the app itself (/health,
+// the prometheus /metrics) and the delivery gateway are compared too. The tus
+// file store creates its directory, so keep that out of the tree.
+const uploadDir = mkdtempSync(path.join(os.tmpdir(), 'sluby-drift-'));
+process.env.UPLOAD_DIR = uploadDir;
+const { createApp } = await import('../app.js');
+afterAll(() => rmSync(uploadDir, { recursive: true, force: true }));
+
+const unusedQueue = {
+  add: async () => undefined,
+  getJobCounts: async () => ({}),
+};
+const { app } = createApp({
+  logger: pino({ level: 'silent' }),
+  version: 'drift',
+  startedAt: new Date(),
+  queues: {
+    transcode: unusedQueue,
+    uploadSegments: unusedQueue,
+    finalize: unusedQueue,
+    deletion: unusedQueue,
+  },
+  pingRedis: async () => {},
+  webhookDispatcher: { dispatch: async () => {} },
+  triggerReconciliation: async () => ({ enqueued: false }),
+});
 
 // Stub deps: the drift test only introspects the router structure, never
 // invokes a handler, so every dependency can be a no-op.
@@ -13,8 +43,7 @@ const stub = new Proxy(() => stub, {
 
 /** METHOD + canonical path for every route actually mounted. */
 function mountedRouteKeys(): Set<string> {
-  const api = createApiRouter(stub);
-  const routes = [...listRoutes(api, '/api/v1'), ...listRoutes(deliveryRouter)];
+  const routes = listRoutes((app as unknown as { _router: unknown })._router);
   return new Set(routes.map((r) => `${r.method} ${r.path}`));
 }
 
@@ -82,9 +111,9 @@ describe('OpenAPI drift guard', () => {
         ([p]) => canonicalPath(p) === route.path,
       )?.[1] as Record<string, { 'x-required-scope'?: string }> | undefined;
       const op = pathItem?.[route.method.toLowerCase()];
-      if (!op) continue;
+      expect(op, `${route.method} ${route.path} is not documented`).toBeDefined();
 
-      const documented = op['x-required-scope'];
+      const documented = op!['x-required-scope'];
       const enforced = route.requiredScope;
       if (documented !== enforced) {
         mismatches.push(
@@ -97,6 +126,42 @@ describe('OpenAPI drift guard', () => {
       mismatches,
       `openapi x-required-scope disagrees with requireScope():\n${mismatches.join('\n')}`,
     ).toEqual([]);
+  });
+
+  it('marks exactly the platform-only routes with x-required-identity', () => {
+    const routes = listRoutes(createApiRouter(stub), '/api/v1');
+    const mismatches: string[] = [];
+    for (const route of routes) {
+      const pathItem = Object.entries(openapiDocument.paths).find(
+        ([p]) => canonicalPath(p) === route.path,
+      )?.[1] as Record<string, { 'x-required-identity'?: string }> | undefined;
+      const op = pathItem?.[route.method.toLowerCase()];
+      expect(op, `${route.method} ${route.path} is not documented`).toBeDefined();
+      if (op!['x-required-identity'] !== route.requiredIdentity) {
+        mismatches.push(
+          `${route.method} ${route.path}: spec says ${op!['x-required-identity'] ?? '(none)'}, ` +
+            `code enforces ${route.requiredIdentity ?? '(none)'}`,
+        );
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  it('gives every JSON response a schema', () => {
+    const missing: string[] = [];
+    for (const [p, item] of Object.entries(openapiDocument.paths)) {
+      for (const [method, op] of Object.entries(item)) {
+        if (!HTTP_METHODS.includes(method)) continue;
+        const responses = (
+          op as { responses: Record<string, { content?: Record<string, { schema?: unknown }> }> }
+        ).responses;
+        for (const [status, response] of Object.entries(responses)) {
+          const json = response.content?.['application/json'];
+          if (json && !json.schema) missing.push(`${method.toUpperCase()} ${p} ${status}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
   });
 
   it('has no phantom paths (every documented route exists)', () => {

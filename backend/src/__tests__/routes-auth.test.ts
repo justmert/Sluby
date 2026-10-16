@@ -445,7 +445,10 @@ describe('GET /auth/me', () => {
     const res = await request(app()).get('/api/v1/auth/me').set('Cookie', `other=1; ${cookie}`);
     expect(res.status).toBe(200);
     expect(res.body.login).toBe('octocat');
-    expect(res.body.expiresAt).toBeGreaterThan(Date.now() / 1000 + 3500);
+    expect(res.body.auth_disabled).toBe(false);
+    expect(Date.parse(res.body.expires_at)).toBeGreaterThan(Date.now() + 3500_000);
+    // the old unix-seconds field stays one more release
+    expect(res.body.expiresAt).toBe(Math.floor(Date.parse(res.body.expires_at) / 1000));
   });
 
   it('answers 401 for a session signed with another secret', async () => {
@@ -476,7 +479,12 @@ describe('GET /auth/me', () => {
     env.AUTH_DISABLED = true;
     const res = await request(app()).get('/api/v1/auth/me');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ login: 'dev', authDisabled: true });
+    expect(res.body).toEqual({
+      login: 'dev',
+      auth_disabled: true,
+      expires_at: null,
+      authDisabled: true,
+    });
   });
 });
 
@@ -608,6 +616,6 @@ describe('unknown auth routes', () => {
   it('fall through to the json 404', async () => {
     const res = await request(app()).get('/api/v1/auth/github/nope');
     expect(res.status).toBe(404);
-    expect(res.body.error).toBe('Not Found');
+    expect(res.body.error).toBe('Route GET /api/v1/auth/github/nope not found');
   });
 });

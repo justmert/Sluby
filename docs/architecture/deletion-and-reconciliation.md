@@ -92,7 +92,7 @@ flowchart TB
 
 How a run works:
 
-- **When.** A repeatable job every `RECONCILE_INTERVAL_MS` (one hour by default, off with `RECONCILE_ENABLED=false`), and on demand with `POST /api/v1/reconciliation/run` (scope `manage`). Only one run is ever pending, see [one run at a time](#one-run-at-a-time).
+- **When.** A repeatable job every `RECONCILE_INTERVAL_MS` (one hour by default, off with `RECONCILE_ENABLED=false`), and on demand with `POST /api/v1/reconciliation/run` (scope `manage`, platform identity only, since a run scans the whole deployment). Only one run is ever pending, see [one run at a time](#one-run-at-a-time).
 - **The database side** is every object id in `artifacts` plus the ids stored on `video_assets`, for every asset of every owner, including soft-deleted ones whose objects have not been unpinned yet.
 - **The indexer side.** The SDK has no call that lists all objects, so the worker replays the indexer's object event feed (`objectEvents`) page by page (`RECONCILE_PAGE_SIZE`, 500 by default), keeps the latest event per object id, and treats every id whose latest event is not a deletion as pinned. It stops on a short page, or if the cursor stops advancing.
 - **The result.** Ids in both are in sync. Ids only the indexer has are orphans: storage the account pays for that no asset references. Ids only the database has are missing: an object the database expects but the indexer does not report, which is the worrying case. The run is stored in `reconciliation_runs` with counts and the full id lists, with status `ok` when there is no drift and `drift` otherwise.
@@ -102,24 +102,22 @@ How a run works:
 
 ### What each caller sees
 
-A run covers every tenant's objects, but the object ids in it are not shared between tenants. The counts, the status, the timestamps and a failed run's error message cover the whole deployment and are returned to every caller with `manage`, like the host counts in the system status. The id lists depend on who asks:
+A run covers every tenant's objects, but only the platform identity sees the whole of it. The deployment-wide counts, orphans and a failed run's error message describe other tenants and the operator's setup, so a tenant gets only what concerns its own assets:
 
-- **A tenant** (any identity whose owner address is not the platform address, which includes every Studio session) gets `scope: "account"`. `missing_ids` holds only the missing ids that belong to its own assets, found through the same sources the run reads (`artifacts` plus the ids on `video_assets`, soft-deleted assets included, matched on `creator_address`), and `account_missing_count` is their number. `orphaned_ids` is left out: an orphan is referenced by no asset, so it belongs to no tenant, and the tenant only gets `orphan_count`.
-- **The platform identity** (an API key with the platform address, see [tenancy](./auth-and-tenancy#tenancy)) gets `scope: "deployment"` with the full `missing_ids` and `orphaned_ids`.
+- **A tenant** (any identity whose owner address is not the platform address, which includes every Studio session) gets `scope: "account"`: the run's id and times, `missing_ids` with only the missing ids that belong to its own assets (found through the same sources the run reads: `artifacts` plus the ids on `video_assets`, soft-deleted assets included, matched on `creator_address`), `missing_count` as their number, and a `status` about its own assets: `failed` when the run could not complete, `drift` when some of its objects are missing, `ok` otherwise. No deployment counts, no orphans (an orphan is referenced by no asset, so it belongs to no tenant) and no error text.
+- **The platform identity** (an API key with the platform address, as `npm run db:seed-key` mints by default, see [tenancy](./auth-and-tenancy#tenancy)) gets `scope: "deployment"` with the deployment-wide counts, the error message, and the full `missing_ids` and `orphaned_ids`.
 
 The ownership of a missing id is looked up when the report is read, not when the run was made, so an asset deleted since the run no longer contributes its ids to anyone's list.
 
 ```json
 {
   "id": "6f1c...",
-  "status": "drift",
-  "db_object_count": 1200,
-  "indexer_object_count": 1199,
-  "in_sync_count": 1196,
-  "orphan_count": 3,
-  "missing_count": 4,
+  "started_at": "2026-10-06T10:00:00.000Z",
+  "finished_at": "2026-10-06T10:00:04.000Z",
+  "created_at": "2026-10-06T10:00:04.000Z",
   "scope": "account",
-  "account_missing_count": 1,
+  "status": "drift",
+  "missing_count": 1,
   "missing_ids": ["8a2f..."]
 }
 ```

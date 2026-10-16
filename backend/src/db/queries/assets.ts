@@ -41,13 +41,14 @@ export async function getVideoAssetById(
   // Soft-deleted assets are invisible to every read: once deletion starts the
   // asset no longer exists as far as the API and the delivery gateway care.
   return db.query.videoAssets.findFirst({
-    where: owner
-      ? and(
-          eq(videoAssets.id, id),
-          eq(videoAssets.creatorAddress, owner),
-          isNull(videoAssets.deletedAt),
-        )
-      : and(eq(videoAssets.id, id), isNull(videoAssets.deletedAt)),
+    where:
+      owner !== undefined
+        ? and(
+            eq(videoAssets.id, id),
+            eq(videoAssets.creatorAddress, owner),
+            isNull(videoAssets.deletedAt),
+          )
+        : and(eq(videoAssets.id, id), isNull(videoAssets.deletedAt)),
   });
 }
 
@@ -89,7 +90,9 @@ export function assetListQuery(opts: AssetListOptions) {
   const filters: SQL[] = [isNull(videoAssets.deletedAt)];
   if (status) filters.push(eq(videoAssets.status, status));
   if (accessTier) filters.push(eq(videoAssets.accessTier, accessTier));
-  if (creatorAddress) filters.push(eq(videoAssets.creatorAddress, creatorAddress));
+  if (creatorAddress !== undefined) {
+    filters.push(eq(videoAssets.creatorAddress, creatorAddress));
+  }
   const term = search?.trim();
   if (term) {
     const pattern = likeContains(term);
@@ -170,7 +173,8 @@ export async function listVideoAssets(opts?: AssetListOptions): Promise<{
 }
 
 /**
- * Update a video asset with partial data.
+ * Update a video asset with partial data. For the pipeline workers, which
+ * act on any asset; API edits go through {@link updateAssetMetadata}.
  */
 export async function updateVideoAsset(
   id: string,
@@ -199,10 +203,30 @@ export async function updateVideoAsset(
       updatedAt: new Date(),
     })
     .where(
-      owner
+      owner !== undefined
         ? and(eq(videoAssets.id, id), eq(videoAssets.creatorAddress, owner))
         : eq(videoAssets.id, id),
     )
+    .returning();
+  return updated;
+}
+
+/**
+ * The API's metadata edit. Unlike {@link updateVideoAsset}, which the
+ * pipeline workers use, an asset that is being deleted does not match: every
+ * read already hides it, so a write must not succeed on it either.
+ */
+export async function updateAssetMetadata(
+  id: string,
+  data: Partial<Pick<VideoAsset, 'title' | 'description' | 'accessTier'>>,
+  owner?: string,
+): Promise<VideoAsset | undefined> {
+  const scope = [eq(videoAssets.id, id), isNull(videoAssets.deletedAt)];
+  if (owner !== undefined) scope.push(eq(videoAssets.creatorAddress, owner));
+  const [updated] = await db
+    .update(videoAssets)
+    .set({ ...data, updatedAt: new Date() })
+    .where(and(...scope))
     .returning();
   return updated;
 }
@@ -220,7 +244,7 @@ export async function deleteVideoAsset(
   const [deleted] = await db
     .delete(videoAssets)
     .where(
-      owner
+      owner !== undefined
         ? and(eq(videoAssets.id, id), eq(videoAssets.creatorAddress, owner))
         : eq(videoAssets.id, id),
     )
@@ -238,13 +262,14 @@ export async function softDeleteVideoAsset(
   id: string,
   owner?: string,
 ): Promise<VideoAsset | undefined> {
-  const scope = owner
-    ? and(
-        eq(videoAssets.id, id),
-        eq(videoAssets.creatorAddress, owner),
-        isNull(videoAssets.deletedAt),
-      )
-    : and(eq(videoAssets.id, id), isNull(videoAssets.deletedAt));
+  const scope =
+    owner !== undefined
+      ? and(
+          eq(videoAssets.id, id),
+          eq(videoAssets.creatorAddress, owner),
+          isNull(videoAssets.deletedAt),
+        )
+      : and(eq(videoAssets.id, id), isNull(videoAssets.deletedAt));
 
   const [updated] = await db
     .update(videoAssets)

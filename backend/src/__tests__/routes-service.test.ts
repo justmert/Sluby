@@ -9,6 +9,7 @@ import { openapiDocument } from '../api/openapi.js';
 import { setMetricSources, uploadSuccessTotal } from '../metrics/collector.js';
 import { generateApiKey } from '../api/auth/api-key.js';
 import { createTestApp } from './helpers/express-helpers.js';
+import { PLATFORM_ADDRESS } from '../api/ownership.js';
 
 const silent = pino({ level: 'silent' });
 
@@ -84,21 +85,25 @@ describe('api router public and guarded routes', () => {
   // only the key lookup is reachable from these routes; any other dependency
   // being touched would throw and fail the test
   const { key, hash } = generateApiKey();
+  const tenant = generateApiKey();
+  const reader = (id: string, creatorAddress: string) => ({
+    id,
+    name: 'reader',
+    scopes: ['read'],
+    rateLimit: 100,
+    creatorAddress,
+    isActive: true,
+    expiresAt: null,
+  });
   const deps = new Proxy(
     {
       findActiveSession: async () => undefined,
       findApiKeyByHash: async (h: string) =>
         h === hash
-          ? {
-              id: 'k1',
-              name: 'reader',
-              scopes: ['read'],
-              rateLimit: 100,
-              creatorAddress: 'acct',
-              isActive: true,
-              expiresAt: null,
-            }
-          : null,
+          ? reader('k1', PLATFORM_ADDRESS)
+          : h === tenant.hash
+            ? reader('k2', 'acct')
+            : null,
     },
     {
       get(target, prop) {
@@ -132,7 +137,20 @@ describe('api router public and guarded routes', () => {
     expect(res.body).toEqual({ error: 'Not signed in' });
   });
 
-  it('guards the json metrics behind a key with read scope', async () => {
+  it('answers 404 for an unknown path without asking for a key', async () => {
+    const res = await request(app()).get('/api/v1/nope');
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Route GET /api/v1/nope not found' });
+  });
+
+  it('keeps the json metrics, which count every tenant, from an ordinary key', async () => {
+    const res = await request(app())
+      .get('/api/v1/metrics')
+      .set('Authorization', `Bearer ${tenant.key}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('guards the json metrics behind a platform key with read scope', async () => {
     const anon = await request(app()).get('/api/v1/metrics');
     expect(anon.status).toBe(401);
     expect(anon.body).toEqual({ error: 'Missing or invalid Authorization header' });

@@ -60,7 +60,7 @@ GITHUB_CLIENT_SECRET=...
 GITHUB_ALLOWED_USERS=your-login,a-colleague
 ```
 
-`GITHUB_ALLOWED_USERS` is a comma-separated list of GitHub logins. Leave it empty and any GitHub account can sign in; each one gets its own isolated library, and the backend logs a warning at startup.
+`GITHUB_ALLOWED_USERS` is a comma-separated list of GitHub logins. Leave it empty and any GitHub account can sign in; each one gets its own isolated library, and the backend logs a warning at startup. Sluby has no per-account quotas (only `MAX_UPLOAD_SIZE` per file), so an open Studio lets anyone with a GitHub account fill your disk, keep the transcoder busy and spend your Sia storage. Keep the list set unless you mean to run an open service with limits of your own in front of it.
 
 ## 3. Connect to a Sia indexer
 
@@ -167,6 +167,6 @@ docker compose up -d --build
 docker compose exec postgres pg_dump -U sluby sluby | gzip > sluby-$(date +%F).sql.gz
 ```
 
-**Health.** `GET /health` is a liveness check. The Studio dashboard and `GET /api/v1/system/status` report PostgreSQL, Redis, the indexer account and host counts. The backend serves Prometheus metrics at `GET /metrics` on port 3000. The web proxy does not expose that path, so scrape it from a container on the Compose network.
+**Health.** `GET /health` is a liveness check. `GET /api/v1/system/status` reports PostgreSQL, Redis, the indexer account and host counts to a platform key (minted by `npm run db:seed-key --workspace=backend`); other callers, the Studio included, get a health summary without the account, error details or caches. The backend serves Prometheus metrics at `GET /metrics` on port 3000. The web proxy does not expose that path, so scrape it from a container on the Compose network.
 
 **Volumes.** Every piece of state is in a named volume: `pgdata`, `redis-data`, `uploads`, `transcode-output`, `nginx-cache`, and in production `caddy-data` (certificates) and `caddy-config`. `docker compose down` keeps them; `docker compose down -v` deletes them.

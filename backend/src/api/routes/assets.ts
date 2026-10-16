@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import { z } from 'zod';
 import { requireScope } from '../middleware/api-key.js';
 import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
@@ -8,8 +9,46 @@ import {
   type AssetSortField,
   type SortOrder,
 } from '../asset-sort.js';
+import { decodeCursor } from '../pagination.js';
+import {
+  accessTierSchema,
+  descriptionSchema,
+  integerParam,
+  parseOrThrow,
+  stringParam,
+  titleSchema,
+} from '../validation.js';
 
-const ASSET_STATUSES = ['created', 'uploading', 'processing', 'ready', 'failed'];
+const ASSET_STATUSES = ['created', 'uploading', 'processing', 'ready', 'failed'] as const;
+const MAX_PAGE = 1_000_000;
+
+// repeated parameters arrive as arrays and are refused; unknown ones are ignored
+const listQuerySchema = z.object({
+  page: integerParam('page', 1, MAX_PAGE).optional(),
+  limit: integerParam('limit', 1, 100).optional(),
+  cursor: stringParam('cursor').optional(),
+  status: z
+    .enum(ASSET_STATUSES, { message: `status must be one of: ${ASSET_STATUSES.join(', ')}` })
+    .optional(),
+  access_tier: accessTierSchema.optional(),
+  search: stringParam('search')
+    .max(200, { message: 'search must be at most 200 characters' })
+    .optional(),
+  sort: z
+    .enum(ASSET_SORT_FIELDS, {
+      message: `sort must be one of: ${ASSET_SORT_FIELDS.join(', ')}`,
+    })
+    .optional(),
+  order: z.enum(['asc', 'desc'], { message: 'order must be asc or desc' }).optional(),
+});
+
+const patchBodySchema = z
+  .object({
+    title: titleSchema.optional(),
+    description: descriptionSchema.optional(),
+    access_tier: accessTierSchema.optional(),
+  })
+  .strict();
 
 export interface ProcessingJobRecord {
   id: string;
@@ -49,7 +88,7 @@ export interface AssetRouteDeps {
     data: {
       title?: string;
       description?: string;
-      accessTier?: string;
+      accessTier?: 'public' | 'private';
     },
     owner?: string,
   ) => Promise<VideoAssetRecord | null>;
@@ -81,8 +120,9 @@ interface VideoAssetRecord {
   description: string;
   manifestObjectId: string | null;
   thumbnailObjectIds: string[];
-  durationMs: number;
-  resolution: string;
+  /** null until processing has measured it */
+  durationMs: number | null;
+  resolution: string | null;
   status: string;
   accessTier: string;
   creatorAddress: string;
@@ -92,9 +132,6 @@ interface VideoAssetRecord {
   updatedAt: Date;
 }
 
-/** Mirrors the `access_tier` enum in the database schema. */
-const VALID_ACCESS_TIERS = ['public', 'private'];
-
 export function createAssetRoutes(deps: AssetRouteDeps): Router {
   const router = Router();
 
@@ -103,42 +140,33 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
    * List video assets with pagination and filtering.
    */
   router.get('/', requireScope('read'), async (req: Request, res: Response) => {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
-    const cursor = (req.query.cursor as string | undefined) || undefined;
-    const status = (req.query.status as string | undefined) || undefined;
-    const accessTier = (req.query.access_tier as string | undefined) || undefined;
-    const search = ((req.query.search as string | undefined) ?? '').trim() || undefined;
-    const sort = ((req.query.sort as string | undefined) || 'created_at') as AssetSortField;
-    const order = ((req.query.order as string | undefined) || 'desc') as SortOrder;
+    const q = parseOrThrow(listQuerySchema, req.query);
+    const sort = q.sort ?? 'created_at';
+    const order = q.order ?? 'desc';
+    const search = q.search?.trim() || undefined;
 
-    // reject bad values up front; passed through, an unknown enum value would
-    // surface as a database error instead of a clear 400
-    if (status && !ASSET_STATUSES.includes(status)) {
-      throw new AppError(400, `status must be one of: ${ASSET_STATUSES.join(', ')}`);
+    if (q.cursor !== undefined && q.page !== undefined) {
+      throw new AppError(400, 'Use either cursor or page, not both');
     }
-    if (accessTier && accessTier !== 'public' && accessTier !== 'private') {
-      throw new AppError(400, 'access_tier must be public or private');
-    }
-    if (!ASSET_SORT_FIELDS.includes(sort)) {
-      throw new AppError(400, `sort must be one of: ${ASSET_SORT_FIELDS.join(', ')}`);
-    }
-    if (order !== 'asc' && order !== 'desc') {
-      throw new AppError(400, 'order must be asc or desc');
-    }
-    if (search && search.length > 200) {
-      throw new AppError(400, 'search must be at most 200 characters');
-    }
-    if (cursor && !isDefaultAssetOrder(sort, order)) {
-      throw new AppError(400, 'cursor paging only supports the default order; use page instead');
+    if (q.cursor !== undefined) {
+      if (!isDefaultAssetOrder(sort, order)) {
+        throw new AppError(400, 'cursor paging only supports the default order; use page instead');
+      }
+      // a corrupted cursor must not quietly start over at page one, or a
+      // client paging forward would loop over the same rows
+      if (!decodeCursor(q.cursor)) {
+        throw new AppError(400, 'cursor is not valid; start again without it');
+      }
     }
 
+    const page = q.page ?? 1;
+    const limit = q.limit ?? 20;
     const result = await deps.listAssets({
       page,
       limit,
-      cursor,
-      status,
-      accessTier,
+      cursor: q.cursor,
+      status: q.status,
+      accessTier: q.access_tier,
       search,
       sort,
       order,
@@ -148,7 +176,8 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
     res.json({
       data: result.data.map(formatAsset),
       total: result.total,
-      page,
+      // a cursor page has no page number
+      page: q.cursor !== undefined ? null : page,
       limit,
       // Cursor pagination: pass `next_cursor` back as `?cursor=` to page
       // forward. `page`/`limit`/`total` remain for offset-style callers.
@@ -181,18 +210,11 @@ export function createAssetRoutes(deps: AssetRouteDeps): Router {
    * Update video asset metadata.
    */
   router.patch('/:id', requireScope('manage'), async (req: Request, res: Response) => {
-    const { title, description, access_tier } = req.body;
-
-    if (access_tier !== undefined && !VALID_ACCESS_TIERS.includes(access_tier)) {
-      throw new AppError(
-        400,
-        `Invalid access_tier '${access_tier}'. Must be one of: ${VALID_ACCESS_TIERS.join(', ')}`,
-      );
-    }
+    const body = parseOrThrow(patchBodySchema, req.body ?? {});
 
     const updated = await deps.updateAsset(
       String(req.params.id),
-      { title, description, accessTier: access_tier },
+      { title: body.title, description: body.description, accessTier: body.access_tier },
       ownerFilter(req.apiKey!.creatorAddress),
     );
 

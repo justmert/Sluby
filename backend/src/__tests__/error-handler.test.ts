@@ -1,5 +1,5 @@
 import 'express-async-errors';
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import express, { type Request, type Response } from 'express';
 import request from 'supertest';
 import { DrizzleQueryError } from 'drizzle-orm';
@@ -101,18 +101,59 @@ describe('error handler', () => {
     expect(res.body).toEqual({ error: 'Internal Server Error' });
   });
 
-  it('logs the error with the request and the status it answered', async () => {
+  it('logs a client error at warn, with the request and the status it answered', async () => {
     const { log, lines } = capturingLogger();
     await request(appThrowing(new AppError(422, 'bad'), log)).get('/boom?x=1');
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({
-      level: 50,
-      msg: 'Unhandled error',
+      level: 40,
+      msg: 'Request rejected',
       method: 'GET',
       url: '/boom?x=1',
       statusCode: 422,
     });
     expect((lines[0].err as { message: string }).message).toBe('bad');
+  });
+
+  it('logs a server error at error', async () => {
+    const { log, lines } = capturingLogger();
+    await request(appThrowing(new Error('kaboom'), log)).get('/boom');
+    expect(lines[0]).toMatchObject({ level: 50, msg: 'Request failed', statusCode: 500 });
+  });
+
+  it('sends the details of an AppError', async () => {
+    const details = [{ field: 'title', message: 'title must not be empty' }];
+    const res = await request(appThrowing(new AppError(400, 'bad title', details))).get('/boom');
+    expect(res.status).toBe(400);
+    expect(res.body.details).toEqual(details);
+  });
+
+  it.each([
+    ['23502', 'A required value is missing'],
+    ['22001', 'A value is too long'],
+    ['22003', 'A number is out of range'],
+    ['22021', 'A text value contains a byte sequence that is not valid text'],
+  ])('maps the client-caused postgres error %s to a 400', async (code, message) => {
+    const pg = Object.assign(new Error('postgres says no'), { code });
+    const err = new DrizzleQueryError('insert into t values ($1)', ['x'], pg);
+    const res = await request(appThrowing(err)).get('/boom');
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: message });
+  });
+
+  it('hands an error after the response started to express instead of answering again', () => {
+    const handler = createErrorHandler(pino({ level: 'silent' }));
+    const status = vi.fn();
+    const next = vi.fn();
+    const err = new Error('stream broke');
+    handler(
+      err,
+      { method: 'GET', url: '/v1/objects/x' } as Request,
+      { headersSent: true, status } as unknown as Response,
+      next,
+    );
+    expect(next).toHaveBeenCalledWith(err);
+    expect(status).not.toHaveBeenCalled();
   });
 });
 
@@ -120,6 +161,6 @@ describe('not found handler', () => {
   it('answers JSON naming the method and path', async () => {
     const res = await request(appThrowing(new Error('unused'))).post('/nowhere?q=1');
     expect(res.status).toBe(404);
-    expect(res.body).toEqual({ error: 'Not Found', message: 'Route POST /nowhere not found' });
+    expect(res.body).toEqual({ error: 'Route POST /nowhere not found' });
   });
 });

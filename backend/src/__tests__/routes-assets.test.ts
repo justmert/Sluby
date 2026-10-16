@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createAssetRoutes, processingStage, type AssetRouteDeps } from '../api/routes/assets.js';
 import { createTestApp, withApiKey } from './helpers/express-helpers.js';
+import { encodeCursor } from '../api/pagination.js';
 
 // Mock logger
 vi.mock('../config/logger.js', () => ({
@@ -115,16 +116,21 @@ describe('asset routes', () => {
       expect(deps.listAssets).not.toHaveBeenCalled();
     });
 
-    it('should clamp page to minimum 1', async () => {
-      await request(createApp()).get('/?page=-5');
+    it.each(['page=-5', 'page=0', 'limit=200', 'limit=0', 'limit=-5', 'search=a&search=b'])(
+      'answers 400 instead of guessing for %s',
+      async (query) => {
+        const res = await request(createApp()).get(`/?${query}`);
+        expect(res.status).toBe(400);
+        expect(res.body.details).toEqual(expect.any(Array));
+        expect(deps.listAssets).not.toHaveBeenCalled();
+      },
+    );
 
-      expect(deps.listAssets).toHaveBeenCalledWith(expect.objectContaining({ page: 1 }));
-    });
-
-    it('should clamp limit between 1 and 100', async () => {
-      await request(createApp()).get('/?limit=200');
-
-      expect(deps.listAssets).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
+    it('passes page and limit through when they are in range', async () => {
+      await request(createApp()).get('/?page=3&limit=100');
+      expect(deps.listAssets).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 3, limit: 100 }),
+      );
     });
 
     it('should format asset fields as snake_case in response', async () => {
@@ -160,11 +166,13 @@ describe('asset routes', () => {
     it('should pass the cursor query param through to listAssets', async () => {
       vi.mocked(deps.listAssets).mockResolvedValue({ data: [], total: 0 });
 
-      await request(createApp()).get('/?cursor=abc123&limit=10');
+      const cursor = encodeCursor({
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        id: '00000000-0000-4000-8000-000000000001',
+      });
+      await request(createApp()).get(`/?cursor=${cursor}&limit=10`);
 
-      expect(deps.listAssets).toHaveBeenCalledWith(
-        expect.objectContaining({ cursor: 'abc123', limit: 10 }),
-      );
+      expect(deps.listAssets).toHaveBeenCalledWith(expect.objectContaining({ cursor, limit: 10 }));
     });
 
     it('should surface next_cursor and has_more from the dep result', async () => {

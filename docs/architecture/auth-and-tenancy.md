@@ -47,7 +47,7 @@ The signature only proves the cookie came from this server. On every request the
 
 Ended sessions are deleted 30 days after they expire or are revoked, when the same login next signs in. Changing `SESSION_SECRET` ends every session at once, and also invalidates every signed playback URL, since both are signed with it.
 
-With `GITHUB_ALLOWED_USERS` empty, any GitHub account can sign in and gets its own empty library; the backend logs a warning at startup.
+With `GITHUB_ALLOWED_USERS` empty, any GitHub account can sign in and gets its own empty library; the backend logs a warning at startup. There are no per-account limits on how many videos an account uploads, how much it stores on Sia or how many transcodes it queues, only `MAX_UPLOAD_SIZE` per file, so an open Studio needs limits of its own (or an allowlist) before it faces the internet.
 
 `AUTH_DISABLED=true` makes every request act as `github:dev` with all scopes and no sign-in. It exists for the local quickstart; with `NODE_ENV=production` the backend refuses to start.
 
@@ -62,7 +62,7 @@ Each identity carries an owner address:
 | API key                           | the key's `creator_address`, inherited from whoever created it |
 | API key with the platform address | `0x` followed by 64 zeros                                      |
 
-Assets, API keys and webhook endpoints store the owner's address. Every route that touches them by id passes `ownerFilter(caller)` (`backend/src/api/ownership.ts`) into the query, so the lookup only matches rows of the caller's owner, and a miss answers 404, the same as a missing row, so ids of other tenants cannot be probed. The platform address is the one exception: `ownerFilter` returns no filter for it, so a platform key can act across all tenants. An empty address is not treated as platform; it matches nothing.
+Assets, API keys and webhook endpoints store the owner's address. Routes that touch them by id, and the asset and key listings, pass `ownerFilter(caller)` (`backend/src/api/ownership.ts`) into the query, so the lookup only matches rows of the caller's owner, and a miss answers 404, the same as a missing row, so ids of other tenants cannot be probed. The platform address is the one exception: `ownerFilter` returns no filter for it, so a platform key can list and act across all tenants. An empty address is not treated as platform; it matches nothing.
 
 Ownership is also enforced where data enters and leaves:
 
@@ -73,5 +73,5 @@ Ownership is also enforced where data enters and leaves:
 Some things are deliberately not per tenant:
 
 - **The delivery gateway** (`/v1/objects`, `/v1/stream`, `/v1/share`) has no identity at all. Public objects, and public assets' share maps, are served to anyone with the id, and private ones to anyone with a valid signature.
-- **Reconciliation** is global: a run covers every tenant's objects, and any identity with `manage` can read the latest run and trigger one (only one run is ever pending). The counts and status are deployment-wide, but the object ids are scoped: a tenant gets only the missing ids of its own assets and no orphaned ids, and only the platform identity gets the full lists (see [what each caller sees](./deletion-and-reconciliation#what-each-caller-sees)).
-- **System status** (`GET /api/v1/system/status`, scope `read`) reports the shared indexer account, hosts and caches. `GET /api/v1/stats` is owner-scoped.
+- **Reconciliation** is global: a run covers every tenant's objects, and only the platform identity can trigger one (only one run is ever pending). Any identity with `manage` can read the latest run, but a tenant gets only the drift of its own assets, and only the platform identity gets the deployment-wide counts and the full id lists (see [what each caller sees](./deletion-and-reconciliation#what-each-caller-sees)).
+- **System status** (`GET /api/v1/system/status`, scope `read`) gives a tenant a health summary: whether the database, Redis and the indexer answer, and the host pool. The shared indexer account, the indexer URL, probe errors, uptime, the delivery cache and the last reconciliation go to the platform identity only, as does `GET /api/v1/metrics`, which counts every tenant together. `GET /api/v1/stats` is owner-scoped.

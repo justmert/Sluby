@@ -4,9 +4,10 @@ import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
 
 export interface UploadRouteDeps {
-  // `owner` is the caller's creatorAddress (undefined for a platform key).
-  // Scoping the lookup by it stops one tenant reading or cancelling another
-  // tenant's upload session by guessing its id (the id rides in the upload URL).
+  // `id` is the tus upload id, the last segment of the Location a tus
+  // creation answers with. `owner` is the caller's creatorAddress (undefined
+  // for a platform key); scoping by it stops one tenant reading or cancelling
+  // another tenant's upload.
   getUploadStatus: (
     id: string,
     owner?: string,
@@ -18,7 +19,11 @@ export interface UploadRouteDeps {
     uploadedBytes: number;
     videoAssetId: string | null;
   } | null>;
-  cancelUpload: (id: string, owner?: string) => Promise<boolean>;
+  /** Cancel an upload still in progress and discard the asset it created. */
+  cancelUpload: (
+    id: string,
+    owner?: string,
+  ) => Promise<'cancelled' | 'not_found' | 'not_uploading'>;
 }
 
 export function createUploadRoutes(deps: UploadRouteDeps): Router {
@@ -56,16 +61,24 @@ export function createUploadRoutes(deps: UploadRouteDeps): Router {
 
   /**
    * DELETE /api/v1/uploads/:id
-   * Cancel an upload session.
+   * Cancel an upload in progress, like a tus DELETE: the partial file and
+   * the asset it created go. A finished upload is the source of its asset
+   * and cannot be cancelled; delete the asset instead.
    */
   router.delete('/:id', requireScope('upload'), async (req: Request, res: Response) => {
-    const cancelled = await deps.cancelUpload(
+    const outcome = await deps.cancelUpload(
       String(req.params.id),
       ownerFilter(req.apiKey!.creatorAddress),
     );
 
-    if (!cancelled) {
+    if (outcome === 'not_found') {
       throw new AppError(404, 'Upload session not found');
+    }
+    if (outcome === 'not_uploading') {
+      throw new AppError(
+        409,
+        'The upload is no longer in progress; delete its asset instead of cancelling it',
+      );
     }
 
     res.json({ success: true });
