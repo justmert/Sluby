@@ -82,21 +82,13 @@ Polling needs nothing but outbound HTTP, so it suits scripts, CLIs and servers t
 
 ### Webhooks
 
-Webhook endpoints are registered with the REST API (the SDK has no method for it) or in the Studio, with a key that has the `manage` scope:
+Webhook endpoints are registered with `sluby.webhookEndpoints` (the REST `POST /api/v1/webhooks`) or in the Studio, with a key that has the `manage` scope:
 
 ```ts
-const created = await fetch('https://video.example.com/api/v1/webhooks', {
-  method: 'POST',
-  headers: {
-    Authorization: `Bearer ${process.env.SLUBY_API_KEY}`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    url: 'https://app.example.com/hooks/sluby',
-    events: ['asset.ready', 'asset.errored'],
-  }),
+const { id, secret } = await sluby.webhookEndpoints.create({
+  url: 'https://app.example.com/hooks/sluby',
+  events: ['asset.ready', 'asset.errored'],
 });
-const { id, secret } = await created.json();
 ```
 
 The response contains the endpoint's `secret` once; store it. The endpoint receives the events of every asset owned by the key's account, whichever key uploaded it. Verify every delivery against the raw body before trusting it:

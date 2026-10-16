@@ -183,6 +183,14 @@ docker compose exec postgres pg_dump -U sluby sluby | gzip > sluby-$(date +%F).s
 
 **Limits.** The web container limits each client address on delivery and sign-in, and the backend limits unauthenticated API calls per address and every key per minute. The defaults are generous; the [configuration reference](./configuration#rate-limits) lists the knobs.
 
+**More than one backend.** Run one backend container. A second replica against the same PostgreSQL and Redis starts and shares the queues, but some state stays in each process, see [one backend process](../architecture/#components) for the details:
+
+- a slab prune on one replica can remove the slabs of an upload in flight on another;
+- making an asset private, deleting it or revoking its signed URLs takes up to 60 seconds to reach the other replicas;
+- each replica allows the full API rate limits, so the effective limit is that many times higher;
+- uploads and the pipeline stages read files on `UPLOAD_DIR` and `TRANSCODE_OUTPUT_DIR`, so replicas need the same volumes, which Compose only gives replicas on one host;
+- `/metrics` and the Studio's storage views describe only the replica that answered.
+
 **Stopping.** On `docker compose stop`, `down` or an upgrade the backend stops taking requests and jobs, finishes what is running for up to 25 seconds, closes its connections and exits with code 0, logging `Graceful shutdown complete`. Compose waits 30 seconds (`stop_grace_period`) before killing it. A transcode or Sia upload still running after 25 seconds is cut off and runs again from the start once the backend is back.
 
 **Logs.** Each container keeps at most five 10 MB log files (Docker's `json-file` driver).

@@ -31,13 +31,17 @@ export async function getWebhookEndpointById(id: string): Promise<WebhookEndpoin
 }
 
 /**
- * List an account's webhook endpoints.
+ * List an account's webhook endpoints. `creatorAddress` undefined lists every
+ * account's (the platform identity, see ownerFilter).
  */
 export async function listWebhookEndpointsByOwner(
-  creatorAddress: string,
+  creatorAddress: string | undefined,
   opts?: { includeInactive?: boolean },
 ): Promise<WebhookEndpoint[]> {
-  const conditions = [eq(webhookEndpoints.creatorAddress, creatorAddress)];
+  const conditions = [];
+  if (creatorAddress !== undefined) {
+    conditions.push(eq(webhookEndpoints.creatorAddress, creatorAddress));
+  }
   if (!opts?.includeInactive) {
     conditions.push(eq(webhookEndpoints.isActive, true));
   }
@@ -75,9 +79,11 @@ export async function getWebhookEndpointForOwner(
   creatorAddress: string | undefined,
 ): Promise<WebhookEndpoint | undefined> {
   return db.query.webhookEndpoints.findFirst({
-    where: creatorAddress
-      ? and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.creatorAddress, creatorAddress))
-      : eq(webhookEndpoints.id, id),
+    // an empty string scopes to '' like everywhere else, only undefined widens
+    where:
+      creatorAddress !== undefined
+        ? and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.creatorAddress, creatorAddress))
+        : eq(webhookEndpoints.id, id),
   });
 }
 
@@ -112,15 +118,20 @@ export async function deactivateWebhookEndpoint(id: string): Promise<WebhookEndp
  * Permanently delete a webhook endpoint and all its delivery records.
  *
  * `creatorAddress` constrains the delete to the owning account so one caller
- * cannot remove another's webhook by guessing its UUID.
+ * cannot remove another's webhook by guessing its UUID; undefined is the
+ * platform identity (see ownerFilter).
  */
 export async function deleteWebhookEndpoint(
   id: string,
-  creatorAddress: string,
+  creatorAddress: string | undefined,
 ): Promise<WebhookEndpoint | undefined> {
   const [deleted] = await db
     .delete(webhookEndpoints)
-    .where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.creatorAddress, creatorAddress)))
+    .where(
+      creatorAddress !== undefined
+        ? and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.creatorAddress, creatorAddress))
+        : eq(webhookEndpoints.id, id),
+    )
     .returning();
   return deleted;
 }

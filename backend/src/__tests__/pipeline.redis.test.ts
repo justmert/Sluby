@@ -200,6 +200,7 @@ describe.skipIf(!hasTestDatabase || !hasTestRedis)(
         },
         workerOptions: { lockDuration: 1_500, stalledInterval: 300 },
         failureWriteDelaysMs: [20, 20],
+        uploadLeaseRenewMs: 100,
       });
     });
 
@@ -364,6 +365,62 @@ describe.skipIf(!hasTestDatabase || !hasTestRedis)(
       await waitFor(async () => !existsSync(ff.outputDirs[0]));
       expect(fake.pinnedIds()).toEqual(await artifactIds(a.id));
       expect(events.filter(([e]) => e === 'asset.ready')).toHaveLength(1);
+    });
+
+    it('runs one Sia upload at a time when the upload stage loses its lock', async () => {
+      const a = await uploadedAsset();
+      const first = gate();
+      fake.before('add', async () => {
+        if (fake.calls.add === 1) await first.opened;
+      });
+      await start(a);
+      await waitFor(async () => fake.calls.add === 1);
+      // what a host that froze for longer than the lock leaves behind: the
+      // lock expired while the first execution is still uploading
+      const uploadJobId = `upload-${a.id}`;
+      const client = await queues.uploadSegments.client;
+      await client.del(`${prefix}:upload-segments:${uploadJobId}:lock`);
+      await waitFor(
+        async () => ((await queues.uploadSegments.getJob(uploadJobId))?.attemptsStarted ?? 0) >= 2,
+      );
+
+      // the second execution waits for the first instead of uploading too
+      await new Promise((r) => setTimeout(r, 1_000));
+      expect(fake.calls.add).toBe(1);
+
+      first.open();
+      await settledAs(a.id, 'ready');
+      // one execution's three packed uploads, nothing pinned twice
+      expect(fake.calls.finalize).toBe(3);
+      expect(fake.pinnedIds()).toEqual(await artifactIds(a.id));
+      expect(fake.calls.pinObject).toBe(fake.pinnedIds().length);
+      expect(events.filter(([e]) => e === 'asset.ready')).toHaveLength(1);
+    });
+
+    it('lets a redelivered upload go ahead once the first execution is gone', async () => {
+      const a = await uploadedAsset();
+      const first = gate();
+      fake.before('add', async () => {
+        if (fake.calls.add !== 1) return;
+        await first.opened;
+        throw new Error('no more hosts available');
+      });
+      await start(a);
+      await waitFor(async () => fake.calls.add === 1);
+      const uploadJobId = `upload-${a.id}`;
+      const client = await queues.uploadSegments.client;
+      await client.del(`${prefix}:upload-segments:${uploadJobId}:lock`);
+      await waitFor(
+        async () => ((await queues.uploadSegments.getJob(uploadJobId))?.attemptsStarted ?? 0) >= 2,
+      );
+      expect(fake.calls.add).toBe(1);
+
+      // the first execution fails and lets go; the waiting one uploads
+      first.open();
+      await settledAs(a.id, 'ready');
+      expect(fake.calls.add).toBeGreaterThan(1);
+      expect(fake.pinnedIds()).toEqual(await artifactIds(a.id));
+      expect(await pendingIds()).toEqual([]);
     });
 
     it('uploads again after a failed hand-off and keeps only the objects it uses', async () => {

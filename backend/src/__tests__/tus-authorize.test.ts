@@ -29,6 +29,7 @@ function deps(): TusServerDeps {
     callers: accounts.callerDeps,
     createUploadSession: vi.fn(),
     updateUploadProgress: vi.fn(),
+    markUploading: vi.fn(),
     completeUpload: vi.fn(),
     cancelUpload: vi.fn().mockResolvedValue(undefined),
     abandonUpload: vi.fn(),

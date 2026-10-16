@@ -31,6 +31,11 @@ export interface TusServerDeps {
     accessTier: 'public' | 'private';
   }) => Promise<{ id: string; videoAssetId?: string }>;
   updateUploadProgress: (uploadId: string, uploadedBytes: number) => Promise<void>;
+  /**
+   * Bytes of the upload started arriving: move its asset from created to
+   * uploading. Called on every write, so it must be a no-op after the first.
+   */
+  markUploading: (uploadId: string) => Promise<void>;
   completeUpload: (uploadId: string, filePath: string, sha256: string) => Promise<void>;
   cancelUpload: (uploadId: string) => Promise<void>;
   /**
@@ -100,6 +105,7 @@ export function createTusServer(deps: TusServerDeps): Server {
       directory: env.UPLOAD_DIR,
       expirationPeriodInMilliseconds: UPLOAD_EXPIRY_MS,
       log: logger,
+      onBytes: (id) => deps.markUploading(id),
     }),
     maxSize: env.MAX_UPLOAD_SIZE,
     // tus sets its own cors headers, including on the preflights the api

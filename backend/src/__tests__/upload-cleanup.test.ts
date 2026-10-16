@@ -30,7 +30,7 @@ import {
   removeSessionSource,
   sweepFinishedSources,
 } from '../upload/source-files.js';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { SessionManager } from '../upload/session-manager.js';
 import { buildRetryAsset } from '../queue/retry.js';
 import { logger } from '../config/logger.js';
@@ -68,6 +68,7 @@ function makeDeps(world: Omit<World, 'deps'>): TusServerDeps {
       return { id, videoAssetId };
     }),
     updateUploadProgress: vi.fn(async () => {}),
+    markUploading: vi.fn(async () => {}),
     completeUpload: vi.fn(async (sessionId, filePath) => {
       const s = world.sessions.get(sessionId)!;
       s.status = 'completed';
@@ -141,6 +142,38 @@ describe('tus upload files', () => {
       expect.objectContaining({ filePath: `${uploadDir}/${id}` }),
     );
     expect(onDisk(id)).toEqual({ data: true, sidecar: true });
+  });
+
+  it('reports the first bytes of each write before they are stored', async () => {
+    const server = createTusServer(w.deps);
+    const { id, location } = await create(server, 10);
+    expect(w.deps.markUploading).not.toHaveBeenCalled();
+    let sizeWhenMarked = -1;
+    vi.mocked(w.deps.markUploading).mockImplementation(async () => {
+      sizeWhenMarked = (await readFile(path.join(uploadDir, id))).length;
+    });
+
+    await patch(server, location, 'hello');
+
+    expect(w.deps.markUploading).toHaveBeenCalledTimes(1);
+    expect(w.deps.markUploading).toHaveBeenCalledWith(id);
+    expect(sizeWhenMarked).toBe(0);
+    expect((await readFile(path.join(uploadDir, id), 'utf8')).startsWith('hello')).toBe(true);
+  });
+
+  it('stores the bytes when recording their arrival fails', async () => {
+    vi.mocked(w.deps.markUploading).mockRejectedValue(new Error('database down'));
+    const server = createTusServer(w.deps);
+    const { id, location } = await create(server, 5);
+
+    await patch(server, location, 'hello');
+
+    expect(await readFile(path.join(uploadDir, id), 'utf8')).toBe('hello');
+    expect(w.deps.completeUpload).toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ uploadId: id }),
+      'Could not record that upload bytes arrived',
+    );
   });
 
   it('removes the data and the sidecar when the uploader terminates the upload', async () => {

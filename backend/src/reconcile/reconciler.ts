@@ -43,9 +43,18 @@ export interface ReconciliationSummary {
   errorMessage?: string;
 }
 
+/** A pending_objects row, as reconciliation reads it. */
+export interface PendingObjectState {
+  objectId: string;
+  state: 'uploading' | 'release';
+  updatedAt: Date;
+}
+
 export interface ReconcileDeps {
   /** All Sia object ids the DB believes it has stored. */
   getDbObjectIds: () => Promise<Iterable<string>>;
+  /** The pipeline's pending_objects: pinned but not recorded yet, or waiting to be unpinned. */
+  getPendingObjects: () => Promise<PendingObjectState[]>;
   /**
    * Bring the saved copy of the indexer's inventory up to date. Changes after
    * `settledBefore` are still in flight and are read again next run.
@@ -93,15 +102,33 @@ export async function runReconciliation(deps: ReconcileDeps): Promise<Reconcilia
   }
 }
 
+/**
+ * The pending ids that are not orphans. An uploading object belongs to a run
+ * that can still record it, however long the upload takes, and the gc sweep
+ * releases it once that run cannot. A release row is the gc sweep's to unpin,
+ * which it does within minutes; one still pinned past the grace window means
+ * its unpin keeps failing, and is reported as an orphan so someone looks.
+ */
+function pipelineOwned(pending: PendingObjectState[], settledBefore: Date): Set<string> {
+  const owned = new Set<string>();
+  for (const p of pending) {
+    if (p.state === 'uploading' || p.updatedAt > settledBefore) owned.add(p.objectId);
+  }
+  return owned;
+}
+
 async function reconcileOnce(deps: ReconcileDeps, startedAt: Date): Promise<ReconciliationSummary> {
   const settledBefore = new Date(startedAt.getTime() - (deps.graceMs ?? RECONCILE_GRACE_MS));
 
   // the database first: whatever is recorded or forgotten while the indexer
-  // is read then shows up as a recent indexer change, not as drift
+  // is read then shows up as a recent indexer change, not as drift. pending
+  // before artifacts, since finalize moves ids from the one to the other and
+  // reading them the other way round could miss an id in both
+  const pending = await deps.getPendingObjects();
   const dbIds = new Set(await deps.getDbObjectIds());
   await deps.syncIndexer(settledBefore);
   const indexer = await deps.getIndexerInventory();
-  const diff = diffInventory(dbIds, indexer, settledBefore);
+  const diff = diffInventory(dbIds, indexer, settledBefore, pipelineOwned(pending, settledBefore));
 
   let pinned = 0;
   for (const state of indexer.values()) if (!state.deleted) pinned++;

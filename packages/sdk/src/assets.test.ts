@@ -481,3 +481,67 @@ describe('asset mapping', () => {
     expect(asset.resolution).toBeNull();
   });
 });
+
+describe('AssetManager.renditions()', () => {
+  it("gets the asset's renditions and maps them", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeJsonResponse({
+        data: [
+          {
+            name: '720p',
+            width: 1280,
+            height: 720,
+            video_bitrate_kbps: 2800,
+            segment_count: 4,
+            byte_size: 1234,
+            data_object_id: 'data_1',
+            playlist_object_id: 'pl_1',
+          },
+        ],
+      }),
+    );
+
+    const rows = await new AssetManager(mockFetch).renditions('asset/1');
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/assets/asset%2F1/renditions', {
+      signal: undefined,
+    });
+    expect(rows).toEqual([
+      {
+        name: '720p',
+        width: 1280,
+        height: 720,
+        videoBitrateKbps: 2800,
+        segmentCount: 4,
+        byteSize: 1234,
+        dataObjectId: 'data_1',
+        playlistObjectId: 'pl_1',
+      },
+    ]);
+  });
+});
+
+describe('AssetManager.stats()', () => {
+  it('gets the library totals and maps them, filling statuses the server left out', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeJsonResponse({
+        total: 3,
+        by_status: { ready: 2, failed: 1 },
+        stored_bytes: 900,
+        ready_duration_ms: 60000,
+        object_count: 12,
+      }),
+    );
+
+    const stats = await new AssetManager(mockFetch).stats();
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/stats', { signal: undefined });
+    expect(stats).toEqual({
+      total: 3,
+      byStatus: { created: 0, uploading: 0, processing: 0, ready: 2, failed: 1 },
+      storedBytes: 900,
+      readyDurationMs: 60000,
+      objectCount: 12,
+    });
+  });
+});

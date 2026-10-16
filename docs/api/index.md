@@ -27,7 +27,7 @@ In the Studio, open **Settings** and find the **API keys** card. Click **Create 
 
 The same card rotates and revokes keys. Rotating issues a new secret with the same name, scopes and limit. The old secret stops working immediately or after a grace period of up to 7 days, which gives running clients time to switch. A key can be rotated once; to rotate again, rotate its replacement.
 
-Keys can also be managed through the API (`POST /api/v1/keys`, `POST /api/v1/keys/{id}/rotate`, `DELETE /api/v1/keys/{id}`) with a key that has the `manage` scope. To get a first key without signing in to the Studio, set `BOOTSTRAP_API_KEY` to a `sluby_...` value of your choice before starting the backend. It is stored with all three scopes and a limit of 1000 requests per minute (see [Configuration](/guide/configuration)).
+Keys can also be managed through the API (`GET /api/v1/keys`, `POST /api/v1/keys`, `POST /api/v1/keys/{id}/rotate`, `DELETE /api/v1/keys/{id}`) with a key that has the `manage` scope, or with `client.keys` in `@sluby/sdk`. To get a first key without signing in to the Studio, set `BOOTSTRAP_API_KEY` to a `sluby_...` value of your choice before starting the backend. It is stored with all three scopes and a limit of 1000 requests per minute (see [Configuration](/guide/configuration)).
 
 ### Scopes
 
@@ -155,7 +155,7 @@ const event = webhooks.parseEvent(req.body);
 
 A receiver answers with any `2xx` status; anything else, a redirect included, counts as a failure and is retried. Only the status line counts: the response body is never read.
 
-`POST /api/v1/webhooks/{id}/test` sends a signed `webhook.test` event (with `data.webhook_id`) right away and answers how the receiver responded (`delivered`, `status_code`, `error`). `GET /api/v1/webhooks/{id}/deliveries` lists the latest attempts with their event, status code and, for a failure, why. Both need `manage`, like listing endpoints, because receiver URLs often carry credentials.
+`POST /api/v1/webhooks/{id}/test` sends a signed `webhook.test` event (with `data.webhook_id`) right away and answers how the receiver responded (`delivered`, `status_code`, `error`). `GET /api/v1/webhooks/{id}/deliveries` lists the latest attempts with their event, status code and, for a failure, why. Both need `manage`, like listing endpoints, because receiver URLs often carry credentials. In `@sluby/sdk`, `client.webhookEndpoints` wraps these routes: `list`, `create`, `delete`, `test` and `deliveries`.
 
 ## Rate limits
 

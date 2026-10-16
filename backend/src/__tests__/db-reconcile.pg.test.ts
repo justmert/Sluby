@@ -142,6 +142,7 @@ describe.skipIf(!hasTestDatabase)('reconciliation inventory and runs (postgres)'
       const { syncObjectFeed } = await import('../reconcile/collect-inventory.js');
       return runReconciliation({
         getDbObjectIds: () => recon.getAllTrackedObjectIds(),
+        getPendingObjects: () => recon.listPendingObjectStates(),
         syncIndexer: async (settledBefore) => {
           await syncObjectFeed(fetchPage, recon.indexerFeedStore, { feed: 'stub', settledBefore });
         },
@@ -180,6 +181,42 @@ describe.skipIf(!hasTestDatabase)('reconciliation inventory and runs (postgres)'
         select status from reconciliation_runs order by finished_at desc limit 1
       `;
       expect(latest.status).toBe('ok');
+    });
+
+    it('knows the objects of an upload longer than the grace window, and flags a release the gc never managed', async () => {
+      const now = new Date();
+      const ago = (ms: number) => new Date(now.getTime() - ms);
+      const hour = 60 * 60 * 1000;
+      const [{ id: asset }] = await tdb.sql<{ id: string }[]>`
+        insert into video_assets (title, creator_address, status) values ('v', 'alice', 'processing')
+        returning id
+      `;
+      const pending = async (objectId: string, state: string, updatedAt: Date) => {
+        await tdb.sql`
+          insert into pending_objects (object_id, video_asset_id, run_key, state, created_at, updated_at)
+          values (${objectId}, ${asset}, 'run-1', ${state}, ${ago(3 * hour)}, ${updatedAt})
+        `;
+      };
+      // a two hour upload: pinned long ago, finalize has not recorded them yet
+      await pending('uploading-pinned', 'uploading', ago(3 * hour));
+      // written just before its pin, which has not happened
+      await pending('uploading-unpinned', 'uploading', ago(3 * hour));
+      // marked for release a minute ago, the gc sweep has not run yet
+      await pending('release-new', 'release', ago(60_000));
+      // marked for release two hours ago and still pinned: the gc keeps failing
+      await pending('release-old', 'release', ago(2 * hour));
+      const events: Event[] = [
+        { id: 'uploading-pinned', deleted: false, updatedAt: ago(2 * hour) },
+        { id: 'release-new', deleted: false, updatedAt: ago(2 * hour) },
+        { id: 'release-old', deleted: false, updatedAt: ago(2 * hour) },
+        { id: 'stray', deleted: false, updatedAt: ago(2 * hour) },
+      ];
+
+      const summary = await run(stubIndexer(events), now);
+
+      expect(summary.orphanedIds).toEqual(['release-old', 'stray']);
+      expect(summary.missingIds).toEqual([]);
+      expect(summary).toMatchObject({ status: 'drift', inFlightCount: 2, dbObjectCount: 0 });
     });
 
     it('records a failed run when the indexer’s cursor stalls', async () => {

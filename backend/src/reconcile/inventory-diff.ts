@@ -29,7 +29,8 @@ export interface InventoryDiff {
   /**
    * Object ids left out of both lists because the indexer changed them after
    * `settledBefore`: pinned by an upload whose finalize has not recorded them
-   * yet, or unpinned by a deletion that has not forgotten them yet.
+   * yet, or unpinned by a deletion that has not forgotten them yet. Pinned
+   * ids in `pending` count here too, however old their pin.
    */
   inFlight: string[];
 }
@@ -47,6 +48,8 @@ export function diffInventory(
   dbObjectIds: Iterable<string>,
   indexer: ReadonlyMap<string, IndexerObjectState>,
   settledBefore: Date,
+  /** Ids the pipeline still owns: never orphans, and never missing since they may not be pinned yet. */
+  pending: ReadonlySet<string> = new Set(),
 ): InventoryDiff {
   const db = new Set(dbObjectIds);
   const recent = (s: IndexerObjectState) => s.eventAt > settledBefore;
@@ -64,7 +67,7 @@ export function diffInventory(
   const orphanedInIndexer: string[] = [];
   for (const [id, state] of indexer) {
     if (state.deleted || db.has(id)) continue;
-    if (recent(state)) inFlight.push(id);
+    if (recent(state) || pending.has(id)) inFlight.push(id);
     else orphanedInIndexer.push(id);
   }
 
