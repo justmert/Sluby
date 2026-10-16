@@ -51,7 +51,7 @@ FROM sia-native-unsupported AS sia-native-riscv64
 # never pull the rust toolchain
 FROM sia-native-${TARGETARCH:-unset}${SIA_STORAGE_NATIVE:+-custom} AS sia-native
 
-FROM node:24-trixie-slim AS build
+FROM node:25-trixie-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
@@ -67,7 +67,7 @@ COPY backend/tsconfig.json backend/tsconfig.build.json backend/
 COPY backend/src backend/src
 RUN npm run build --workspace=backend
 
-FROM node:24-trixie-slim AS deps
+FROM node:25-trixie-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
@@ -78,7 +78,7 @@ COPY examples/quickstart/package.json examples/quickstart/
 COPY examples/vanilla/package.json examples/vanilla/
 RUN npm ci --workspace=backend --include-workspace-root=false --omit=dev
 
-FROM node:24-trixie-slim
+FROM node:25-trixie-slim
 # ca-certificates: node bundles its own roots, but the sia-storage native
 # client verifies tls against the system store
 RUN apt-get update \
