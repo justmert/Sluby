@@ -119,6 +119,14 @@ export const videoAssets = pgTable(
     segmentCount: integer('segment_count').notNull().default(0),
     totalStorageBytes: bigint('total_storage_bytes', { mode: 'number' }).notNull().default(0),
     siaObjectIds: jsonb('sia_object_ids').$type<string[]>().default([]),
+    // part of every signed url of the asset; raising it (on a tier change or
+    // a revoke) makes every url signed before stop working
+    signingGeneration: integer('signing_generation').notNull().default(0),
+    // urls signed before generations existed (with the session secret
+    // itself) are honoured until this time, set by migration 0014 for the
+    // assets that existed then and cleared by the first raise of the
+    // generation; null means none are
+    legacySignaturesUntil: timestamp('legacy_signatures_until', { withTimezone: true }),
     // Soft-delete marker. When set, the asset is hidden from every API read
     // and a background worker unpins its Sia objects, then removes the row.
     // A non-null value means "deletion in progress"; the row is gone once the

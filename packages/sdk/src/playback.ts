@@ -70,9 +70,11 @@ export class PlaybackManager {
    *
    * @param videoAssetId - Asset identifier.
    * @param options.expiresIn - Lifetime of the signed URL in seconds.
-   *   Defaults to the server-side default (typically 3600). The manifest and
-   *   every playlist and segment it lists stop working at `expiresAt`, so a
-   *   player has to fetch a new URL before then to keep playing.
+   *   Defaults to the server-side default (3600); the server keeps it between
+   *   60 and 21600 (six hours). The manifest and every playlist and segment it
+   *   lists stop working at `expiresAt`, or earlier when the asset's tier
+   *   changes or its signed URLs are revoked, so a player has to fetch a new
+   *   URL before then to keep playing.
    * @param options.signal - Cancels the request.
    */
   async getSignedUrl(
@@ -99,10 +101,13 @@ export class PlaybackManager {
     const body = await readJson(res);
 
     const signedPath = body.signed_url as string;
+    // servers before 0.2 sent no poster
+    const posterPath = (body.poster_url as string | null | undefined) ?? null;
 
     return {
       signedUrl: this._resolveDeliveryUrl(signedPath),
       signedPath,
+      posterUrl: posterPath ? this._resolveDeliveryUrl(posterPath) : null,
       expiresAt: body.expires_at as string,
     };
   }

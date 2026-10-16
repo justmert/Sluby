@@ -154,8 +154,9 @@ async function loadAsset(
   if (sign) {
     const signedInfo = await client.playback.getSignedUrl(assetId, { expiresIn });
     url = signedInfo.signedUrl;
-    // an unsigned poster of gated content would be refused too
-    posterUrl = null;
+    // the unsigned poster of gated content would be refused, so use the one
+    // signed with the manifest (servers before 0.2 send none)
+    posterUrl = signedInfo.posterUrl ?? null;
     const parsed = signedInfo.expiresAt ? Date.parse(signedInfo.expiresAt) : NaN;
     expiresAtMs = Number.isFinite(parsed) ? parsed : expiresFromUrl(url);
   }

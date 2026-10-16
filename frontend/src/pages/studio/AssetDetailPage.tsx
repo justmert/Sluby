@@ -106,7 +106,8 @@ function EditDialog({
           <DialogHeader>
             <DialogTitle>Edit asset</DialogTitle>
             <DialogDescription>
-              Changes apply to the API and every player at once.
+              Changes apply to the API at once and to every player within a minute. Viewers playing
+              direct from Sia keep the links they already have until those expire.
             </DialogDescription>
           </DialogHeader>
           <FieldGroup>

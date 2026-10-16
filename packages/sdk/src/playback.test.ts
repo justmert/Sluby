@@ -112,8 +112,37 @@ describe('PlaybackManager.getSignedUrl()', () => {
     expect(result).toEqual({
       signedUrl: 'https://delivery.test/v1/objects/abc?type=manifest&expires=1&sig=xyz',
       signedPath: '/v1/objects/abc?type=manifest&expires=1&sig=xyz',
+      posterUrl: null,
       expiresAt: '2025-06-01T00:00:00Z',
     });
+  });
+
+  it('maps the signed poster, resolved like the manifest', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeJsonResponse({
+        signed_url: 'https://api.test/v1/objects/abc?type=manifest&expires=1&sig=xyz',
+        poster_url: 'https://api.test/v1/objects/t1?type=poster&expires=1&sig=p',
+        expires_at: '2025-06-01T00:00:00Z',
+      }),
+    );
+
+    const result = await new PlaybackManager(mockFetch, resolve).getSignedUrl('abc');
+
+    expect(result.posterUrl).toBe('https://api.test/v1/objects/t1?type=poster&expires=1&sig=p');
+  });
+
+  it('keeps a relative signed poster on the delivery base', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeJsonResponse({
+        signed_url: '/v1/objects/abc?expires=1&sig=xyz',
+        poster_url: '/v1/objects/t1?expires=1&sig=p',
+        expires_at: '2025-06-01T00:00:00Z',
+      }),
+    );
+
+    const result = await new PlaybackManager(mockFetch, resolve).getSignedUrl('abc');
+
+    expect(result.posterUrl).toBe('https://delivery.test/v1/objects/t1?expires=1&sig=p');
   });
 
   it('should include expires_in query param when provided', async () => {

@@ -374,6 +374,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
           ],
           ['GET', `/api/v1/playback/${id}`, '/api/v1/playback/{id}'],
           ['GET', `/api/v1/playback/${id}/signed`, '/api/v1/playback/{id}/signed'],
+          ['POST', `/api/v1/playback/${id}/signed/revoke`, '/api/v1/playback/{id}/signed/revoke'],
           ['GET', `/api/v1/playback/${id}/share`, '/api/v1/playback/{id}/share'],
         ];
         for (const [method, url, template, body] of routes) {
@@ -498,6 +499,22 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       check('GET', '/api/v1/playback/{id}/signed', signed);
       expect(signed.status).toBe(200);
       expect(signed.body.signed_url.startsWith(`${PUBLIC_URL}/v1/objects/`)).toBe(true);
+      expect(signed.body.poster_url).toMatch(
+        new RegExp(`^${PUBLIC_URL}/v1/objects/${'a2'.repeat(32)}\\?type=poster&expires=\\d+&sig=`),
+      );
+
+      const tooLong = await call('GET', `/api/v1/playback/${assetA.id}/signed?expires_in=1e9`, 'a');
+      check('GET', '/api/v1/playback/{id}/signed', tooLong);
+      expect(tooLong.status).toBe(400);
+
+      // a read key mints but may not revoke
+      const readOnly = await call('POST', `/api/v1/playback/${assetA.id}/signed/revoke`, 'aRead');
+      check('POST', '/api/v1/playback/{id}/signed/revoke', readOnly);
+      expect(readOnly.status).toBe(403);
+      const revoked = await call('POST', `/api/v1/playback/${assetA.id}/signed/revoke`, 'a');
+      check('POST', '/api/v1/playback/{id}/signed/revoke', revoked);
+      expect(revoked.status).toBe(200);
+      expect(revoked.body).toEqual({ success: true, signing_generation: 1 });
 
       const notReady = await call('GET', `/api/v1/playback/${assetAFailed.id}`, 'a');
       check('GET', '/api/v1/playback/{id}', notReady);

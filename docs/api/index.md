@@ -87,6 +87,14 @@ Uploads use the [tus](https://tus.io) protocol at `POST /api/v1/uploads`, as `@s
 
 The creation metadata is checked like an asset edit: `accessTier` (or `access_tier`) must be `public` or `private`, `title` at most 200 characters and `description` at most 5000, neither with control characters, and an empty file (`Upload-Length: 0`) is refused. Each mistake answers `400` and creates nothing. An upload left unfinished for 24 hours expires: its file is removed, its session marked `failed`, and the asset it created is deleted.
 
+## Signed playback URLs
+
+`GET /api/v1/playback/{id}/signed` (scope `read`) mints a URL for a private asset's master manifest, with `expires` and `sig` in its query, and `poster_url`, the first thumbnail signed the same way (or null). `expires_in` is in seconds, defaults to 3600 and is kept between 60 and 21600 (six hours): a larger or smaller whole number is brought to that bound, and anything that is not a whole number is a `400`. `expires_at` in the answer says what was minted. A URL never works for longer than six hours.
+
+A signature is bound to the asset's signing generation, which goes up when the asset's tier changes and on `POST /api/v1/playback/{id}/signed/revoke` (scope `manage`). Either makes every URL signed for the asset so far, and every playlist and segment URL signed from one, answer `403` from then on; new URLs can be minted straight away. Revoking does not touch sia:// share maps already handed out for direct-from-Sia playback, which run until their own expiry (at most an hour for a private asset).
+
+The gateway serves a public asset to anyone. After `PATCH` makes it private, or `DELETE` removes it, the backend refuses at once, and copies the shipped nginx keeps are refused within 60 seconds, when they are next revalidated (see [Playback](../architecture/playback#how-long-an-access-change-takes)). A `signed` playback ID only gates its own `/v1/stream` entry: on a public asset, the objects stay public under their own IDs, so it does not make the video private.
+
 ## Errors
 
 Errors are JSON with an `error` message. A `400` from a body or query that failed validation also lists every problem in `details`:

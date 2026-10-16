@@ -19,6 +19,7 @@
 
 ### Added
 
+- `playback.getSignedUrl()` returns `posterUrl`, the asset's first thumbnail signed like the manifest (null when it has none, or from a backend before this change), so a private asset can show a poster. The backend keeps `expiresIn` between 60 and 21600 seconds, and a signed URL stops working early when the asset's tier changes or its signed URLs are revoked (`POST /api/v1/playback/{id}/signed/revoke`).
 - `webhooks.verifyRequest(rawBody, headers, secret, { toleranceSeconds })` and `webhooks.verifyRequestAsync(...)` verify the new `X-Sluby-Signature-V1` header, the hex HMAC-SHA256 of `<X-Sluby-Timestamp>.<raw body>`, and refuse a timestamp more than `toleranceSeconds` (default 300) from now, so a captured request cannot be replayed. `headers` is a Fetch `Headers` or Node's `req.headers`.
 - `webhooks.parseEvent()` returns the event's `id` (also on `WebhookEvent.id`), which stays the same on every retry of the event, so a receiver can drop one it already handled. Events from backends before this change have no `id`.
 - `playback.streamUrl(idOrPlaybackId)` returns the absolute public master URL (`/v1/stream/{id}/master.m3u8`) on the delivery base without a request.

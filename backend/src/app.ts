@@ -15,7 +15,7 @@ import { SessionManager } from './upload/session-manager.js';
 import { buildSignedObjectQuery } from './delivery/signed-url.js';
 import { createAssetShareUrls } from './delivery/share-urls.js';
 import { deliveryRouter } from './delivery/aggregator.js';
-import { getObjectAccessTier, invalidateObjectAccessTier } from './delivery/access-control.js';
+import { invalidateAssetAccess } from './delivery/access-control.js';
 import { setMetricSources } from './metrics/collector.js';
 import {
   createHealthHandler,
@@ -42,9 +42,9 @@ import {
   updateVideoAsset,
   updateAssetMetadata,
   softDeleteVideoAsset,
-  getAssetObjectIds,
   claimFailedAssetForRetry,
   releaseRetryClaim,
+  raiseSigningGeneration,
 } from './db/queries/assets.js';
 import {
   createProcessingJob,
@@ -195,7 +195,13 @@ export function buildSessionManager(): SessionManager {
  */
 export function buildAssetDeleter(ctx: AppContext) {
   return buildDeleteAsset({
-    softDelete: (id, owner) => softDeleteVideoAsset(id, owner),
+    softDelete: async (id, owner) => {
+      const row = await softDeleteVideoAsset(id, owner);
+      // the gateway stops serving its objects now, not when the cached state
+      // of the asset runs out
+      if (row) invalidateAssetAccess(id);
+      return row;
+    },
     enqueue: async (videoAssetId) => {
       await ctx.queues.deletion.add(
         'delete',
@@ -517,12 +523,10 @@ export function buildApiDeps(
       if (!updated) return null;
 
       // A tier change must take effect on the delivery path at once: drop the
-      // cached tier for every object of this asset so the gateway re-resolves
-      // (otherwise a just-privatized asset is served unsigned for up to 60s).
-      if (data.accessTier !== undefined) {
-        const objectIds = await getAssetObjectIds(id);
-        for (const objectId of objectIds) invalidateObjectAccessTier(objectId);
-      }
+      // asset's cached state so the gateway reads the new tier and signing
+      // generation (otherwise a just-privatized asset is served unsigned for
+      // up to a minute by this process).
+      if (data.accessTier !== undefined) invalidateAssetAccess(id);
 
       return toAssetRecord(updated);
     },
@@ -597,6 +601,7 @@ export function buildApiDeps(
         resolution: asset.resolution || null,
         accessTier: asset.accessTier,
         status: asset.status,
+        signingGeneration: asset.signingGeneration,
       };
     },
 
@@ -698,20 +703,35 @@ export function buildApiDeps(
 
     triggerRun: () => ctx.triggerReconciliation(),
 
-    generateSignedUrl: async (manifestObjectId, expiresIn) => {
-      // A real capability URL: HMAC over (objectId, expiry) that the delivery
-      // gateway verifies before serving a private object's bytes.
+    generateSignedUrl: async (asset, expiresIn) => {
+      // A real capability URL: HMAC over (objectId, expiry, the asset's
+      // signing generation) that the delivery gateway verifies before serving
+      // a private object's bytes.
       const expiresAtSec = Math.floor(Date.now() / 1000) + expiresIn;
-      const query = buildSignedObjectQuery(manifestObjectId, expiresAtSec, env.SESSION_SECRET);
       const base = env.PUBLIC_URL.replace(/\/$/, '');
-      const signedUrl = `${base}/v1/objects/${encodeURIComponent(manifestObjectId)}?type=manifest&${query}`;
-      return { signedUrl, expiresAt: new Date(expiresAtSec * 1000).toISOString() };
+      const signedObjectUrl = (objectId: string, type: string) =>
+        `${base}/v1/objects/${encodeURIComponent(objectId)}?type=${type}&${buildSignedObjectQuery(
+          objectId,
+          expiresAtSec,
+          asset.signingGeneration,
+          env.SESSION_SECRET,
+        )}`;
+      return {
+        signedUrl: signedObjectUrl(asset.manifestObjectId, 'manifest'),
+        posterUrl: asset.posterObjectId ? signedObjectUrl(asset.posterObjectId, 'poster') : null,
+        expiresAt: new Date(expiresAtSec * 1000).toISOString(),
+      };
+    },
+
+    revokeSignedUrls: async (assetId, owner) => {
+      const generation = await raiseSigningGeneration(assetId, owner);
+      if (generation === undefined) return null;
+      invalidateAssetAccess(assetId);
+      return { signingGeneration: generation };
     },
 
     createShareUrls: (assetId, masterObjectId, expiresIn, notAfterSec) =>
       createAssetShareUrls(assetId, masterObjectId, expiresIn, notAfterSec),
-
-    resolveObjectTier: (objectId) => getObjectAccessTier(objectId),
 
     // ── WebhookRouteDeps ──
     createWebhook: async (data) => {

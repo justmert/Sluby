@@ -1,10 +1,10 @@
 import { Router, type Request, type Response } from 'express';
-import { getCachedObject, getCacheStats } from '../storage/blob-manager.js';
-import { downloadObject, getObject } from '../storage/sia-client.js';
+import { getSmallObject, peekCachedObject, getCacheStats } from '../storage/blob-manager.js';
+import { openObject, isIndexerNotFound, type ObjectHandle } from '../storage/sia-client.js';
 import { contentTypeForHint } from './content-type.js';
-import { getObjectAccessTier } from './access-control.js';
-import { verifyObjectAccess, signManifestObjectUrls } from './signed-url.js';
-import { shareExpiryBounds } from './share-expiry.js';
+import { resolveObjectAccess, isObjectId, type ObjectAccess } from './access-control.js';
+import { verifyObjectAccess, signManifestObjectUrls, type SigningState } from './signed-url.js';
+import { ShareMintError, shareExpiryBounds } from './share-expiry.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { playbackInitiationTotal, recordDelivery } from '../metrics/collector.js';
@@ -14,37 +14,96 @@ export const deliveryRouter = Router();
 /**
  * Streaming gateway for Sia objects.
  *
- * Two distinct paths, chosen by request shape:
+ * Every request first settles access from the owning asset (access-control.ts):
+ * a public asset's objects are open, a private asset's need a signed url, and
+ * the objects of an asset being deleted, or of no asset, are not served. Then
+ * the bytes, by request shape:
  *
- *  1. **Range request** (`Range: bytes=N-M` header present)
- *     → range-passthrough. Fetch ONLY the requested bytes from Sia via
- *       `downloadObject(id, {offset, length})`. Sia internally fetches
- *       only the slabs overlapping the byte range. Respond `206 Partial
- *       Content`. NO caching of partial bytes (each segment range is
- *       essentially unique). NO buffering of the full object in memory.
- *       This is how every modern streaming proxy (nginx, Cloudflare,
- *       Fastly) handles range traffic.
+ *  1. **Range request** (`Range: bytes=N-M`, `bytes=N-`, `bytes=-N`): one
+ *     indexer lookup, then only the slabs the window overlaps are fetched
+ *     from the hosts and streamed to the client as they arrive. Answered 206.
+ *     HLS players send a range for every segment of the single-file
+ *     renditions, so this is the media path.
  *
- *  2. **Full GET** (no Range header)
- *     → cache-and-serve. Used by tiny files (manifests, thumbnails,
- *       playlists). Use the in-memory LRU; first miss pulls the whole
- *       object from Sia. Bounded by `CACHE_MAX_SIZE_MB`.
+ *  2. **Whole object** (no usable Range): an object of up to 8 MB (manifests,
+ *     playlists, thumbnails) is read once into the in-memory LRU and served
+ *     from it; a larger one is streamed from Sia, uncached. Either way no
+ *     request holds more than a small object, or a few chunks of a large one,
+ *     in memory.
  *
- * Why this is the right architecture for Sia video:
- *  - HLS players ALWAYS send `Range:` for EXT-X-BYTERANGE segments.
- *  - Manifests/thumbnails are small (KBs) and benefit from RAM cache.
- *  - For a 2 GB video where a viewer watches 1 minute, we transfer
- *    only ~1 minute of bytes from Sia, not 2 GB.
- *  - First frame plays after one slab fetch (~1-2s), not after a full
- *    file download (~30s+).
+ *  3. **HEAD** is the whole-object path without a body: a large object only
+ *     costs the indexer lookup for its size.
+ *
+ * Caching. Public responses carry a strong ETag (the object id; objects never
+ * change) and `Cache-Control: public, no-cache`, so a browser or CDN must ask
+ * again before reusing a copy. Small public bodies also carry
+ * `X-Accel-Expires`, which lets the shipped nginx keep them for
+ * SHARED_CACHE_SECONDS; after that it revalidates, and this gateway answers
+ * 304 only after checking access again. So an asset made private, revoked or
+ * deleted stops being served within that window. Private responses are
+ * `no-store` and errors are never cacheable.
  */
+
+// how long the shipped nginx may serve a small public object before asking
+// again; the bound on how long an access change takes to reach every viewer
+export const SHARED_CACHE_SECONDS = 60;
 
 const COMMON_CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
   'Access-Control-Allow-Headers': 'Range, Content-Type',
-  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
+  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, ETag',
 } as const;
+
+const PRIVATE_CACHE = { 'Cache-Control': 'no-store' } as const;
+
+/** Headers for a public response: always revalidated, stored by nginx only when `shared`. */
+function publicCache(etag: string, shared: boolean): Record<string, string> {
+  return {
+    'Cache-Control': 'public, no-cache',
+    ETag: etag,
+    ...(shared ? { 'X-Accel-Expires': String(SHARED_CACHE_SECONDS) } : {}),
+  };
+}
+
+const etagFor = (id: string) => `"${id}"`;
+
+/** Whether an If-None-Match or If-Range value names `etag`. */
+function namesEtag(header: string | undefined, etag: string): boolean {
+  if (!header) return false;
+  if (header.trim() === '*') return true;
+  return header.split(',').some((t) => t.trim().replace(/^W\//, '') === etag);
+}
+
+/** A json error that no cache may keep. */
+function fail(res: Response, status: number, body: Record<string, unknown>): void {
+  if (res.headersSent) {
+    res.destroy();
+    return;
+  }
+  res
+    .status(status)
+    .set({ ...PRIVATE_CACHE, ...COMMON_CORS })
+    .json(body);
+}
+
+/** The database could not answer, so neither serving nor refusing is known to be right. */
+function unavailable(res: Response, err: unknown, ctx: Record<string, unknown>): void {
+  logger.error({ ...ctx, err }, 'Delivery could not read the database');
+  fail(res, 503, { error: 'Delivery is unavailable right now; try again' });
+}
+
+/** A failure from the indexer or the hosts while reading an object. */
+function upstreamFailure(res: Response, err: unknown, objectId: string): void {
+  if (isIndexerNotFound(err)) {
+    // tracked but no longer on the indexer, e.g. unpinned moments ago
+    logger.debug({ objectId }, 'Object not on the indexer');
+    fail(res, 404, { error: 'Object not found', objectId });
+    return;
+  }
+  logger.warn({ objectId, err }, 'Could not read object from Sia');
+  fail(res, 502, { error: 'The Sia network did not answer; try again', objectId });
+}
 
 export function isManifestContent(data: Uint8Array): boolean {
   return data.length > 7 && data[0] === 0x23 && data[1] === 0x45;
@@ -160,130 +219,210 @@ export function parseRange(
 }
 
 /**
- * Range-passthrough: fetch only the requested bytes from Sia.
- *
- * Steps:
- *  1. Look up object metadata (`getObject` is a single indexd HTTP call,
- *     no host fetch) to learn totalSize.
- *  2. Parse the Range header against totalSize.
- *  3. Call `downloadObject(id, {offset, length})` — Sia fetches only
- *     the overlapping slabs (40 MiB of data each with the default 10 data shards). Decoded bytes return.
- *  4. Respond `206 Partial Content` with proper Content-Range.
- *
- * No caching of partial bytes. The cache layer is bypassed entirely
- * for ranged reads.
+ * Stream `length` bytes to the client as they arrive from Sia, honouring the
+ * client's backpressure. Waits for the first chunk before sending the status,
+ * so a download that fails at once is still answered with an error status. A
+ * stream that ends short or runs long is cut off, so the client sees a broken
+ * response rather than wrong bytes, and a client that goes away cancels the
+ * download.
+ */
+async function streamBody(
+  res: Response,
+  stream: ReadableStream<Uint8Array>,
+  length: number,
+  status: number,
+  headers: Record<string, string>,
+  objectId: string,
+): Promise<number> {
+  const reader = stream.getReader();
+  let next = await reader.read();
+
+  res.status(status).set(headers);
+  let gone = false;
+  const onClose = () => {
+    gone = true;
+    reader.cancel().catch(() => {});
+  };
+  res.on('close', onClose);
+
+  let sent = 0;
+  try {
+    while (!next.done) {
+      const chunk = next.value;
+      if (sent + chunk.length > length) throw new Error('object stream ran past its length');
+      sent += chunk.length;
+      if (!res.write(chunk)) {
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            res.off('drain', done);
+            res.off('close', done);
+            resolve();
+          };
+          res.on('drain', done);
+          res.on('close', done);
+        });
+      }
+      if (gone) return sent;
+      next = await reader.read();
+    }
+    if (gone) return sent;
+    if (sent !== length) throw new Error(`object stream ended at ${sent} of ${length} bytes`);
+    res.end();
+    return sent;
+  } catch (err) {
+    if (!gone) {
+      logger.warn({ objectId, err, sent, length }, 'Object stream broke off');
+      reader.cancel().catch(() => {});
+      res.destroy(err as Error);
+    }
+    return sent;
+  } finally {
+    res.off('close', onClose);
+  }
+}
+
+interface Grant {
+  isPrivate: boolean;
+  /** applied to a manifest body before sending, to sign its child urls */
+  signManifest?: (text: string) => string;
+}
+
+/** The manifest signer for a verified capability. */
+function manifestSigner(expiresAtSec: number, signing: SigningState) {
+  return (text: string) =>
+    signManifestObjectUrls(text, expiresAtSec, signing.generation, env.SESSION_SECRET);
+}
+
+/**
+ * Serve the whole object (or, for HEAD, its headers). Small objects come from
+ * the in-memory cache; large ones stream from Sia without being kept.
+ */
+async function serveWhole(
+  req: Request,
+  res: Response,
+  objectId: string,
+  grant: Grant,
+  handle?: ObjectHandle,
+): Promise<void> {
+  const hint = req.query.type as string | undefined;
+  const hinted = contentTypeForHint(hint);
+  const head = req.method === 'HEAD';
+  const result = await getSmallObject(objectId, handle ? { open: async () => handle } : undefined);
+
+  if (result.kind === 'large') {
+    const { size } = result.handle;
+    const headers = {
+      'Content-Type': hinted ?? 'application/octet-stream',
+      'Content-Length': String(size),
+      'Accept-Ranges': 'bytes',
+      ...(grant.isPrivate ? PRIVATE_CACHE : publicCache(etagFor(objectId), false)),
+      'X-Cache-Status': 'BYPASS',
+      ...COMMON_CORS,
+    };
+    if (head) {
+      res.status(200).set(headers).end();
+      return;
+    }
+    const sent = await streamBody(res, result.handle.read(), size, 200, headers, objectId);
+    recordDelivery('object', sent);
+    return;
+  }
+
+  const { data, status } = result;
+  const manifest = hinted === 'application/vnd.apple.mpegurl' || isManifestContent(data);
+  const body =
+    manifest && grant.signManifest
+      ? Buffer.from(grant.signManifest(new TextDecoder().decode(data)))
+      : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  res.status(200).set({
+    'Content-Type': manifest
+      ? 'application/vnd.apple.mpegurl'
+      : (hinted ?? detectBinaryContentType(data)),
+    'Content-Length': String(body.length),
+    'Accept-Ranges': 'bytes',
+    ...(grant.isPrivate ? PRIVATE_CACHE : publicCache(etagFor(objectId), true)),
+    'X-Cache-Status': status,
+    ...COMMON_CORS,
+  });
+  if (head) {
+    res.end();
+    return;
+  }
+  res.end(body);
+  recordDelivery(manifest ? 'manifest' : 'object', body.length);
+}
+
+/**
+ * Serve one byte range. One indexer lookup gives the size and the handle the
+ * download uses; an object already in the memory cache needs neither.
  */
 async function serveRange(
   req: Request,
   res: Response,
   objectId: string,
   rangeHeader: string,
-  isPrivate = false,
+  grant: Grant,
 ): Promise<void> {
   const hint = req.query.type as string | undefined;
+  const etag = etagFor(objectId);
+  const cache = grant.isPrivate ? PRIVATE_CACHE : publicCache(etag, false);
 
-  // Cheap metadata-only lookup for size.
-  const obj = await getObject(objectId);
-  const totalSize = Number(obj.size());
+  const cached = peekCachedObject(objectId);
+  let handle: ObjectHandle | undefined;
+  const totalSize = cached ? cached.length : (handle = await openObject(objectId)).size;
 
-  const parsed = parseRange(rangeHeader, totalSize);
+  // a range that is invalid, multi-part, or conditional on another version is
+  // ignored, which means the whole object
+  const ifRange = req.headers['if-range'];
+  const parsed =
+    typeof ifRange === 'string' && !namesEtag(ifRange, etag)
+      ? null
+      : parseRange(rangeHeader, totalSize);
   if (parsed === null) {
-    // Malformed header — fall back to full GET behaviour.
-    return serveFull(res, objectId, hint, { isPrivate });
+    await serveWhole(req, res, objectId, grant, handle);
+    return;
   }
   if (parsed === 'unsatisfiable') {
     res
       .status(416)
-      .set({
-        'Content-Range': `bytes */${totalSize}`,
-        ...COMMON_CORS,
-      })
+      .set({ 'Content-Range': `bytes */${totalSize}`, ...cache, ...COMMON_CORS })
       .end();
     return;
   }
 
-  logger.info(
-    { objectId, offset: parsed.start, length: parsed.chunkLength, totalSize },
-    'Range-passthrough fetch from Sia',
-  );
-
-  const bytes = await downloadObject(objectId, {
-    offset: parsed.start,
-    length: parsed.chunkLength,
-  });
-
-  res.status(206).set({
-    // Ranged reads are almost always fMP4 media; honour an explicit hint
-    // otherwise fall back to video/mp4.
+  const headers = {
+    // ranged reads are almost always fMP4 media; honour an explicit hint
     'Content-Type': contentTypeForHint(hint) ?? 'video/mp4',
-    'Content-Length': bytes.length.toString(),
+    'Content-Length': String(parsed.chunkLength),
     'Content-Range': `bytes ${parsed.start}-${parsed.end}/${totalSize}`,
     'Accept-Ranges': 'bytes',
-    // Private bytes must never be retained by a shared cache (nginx, CDN,
-    // browser proxy); public media stays cacheable for a day.
-    'Cache-Control': isPrivate ? 'no-store' : 'public, max-age=86400',
-    // Ranged reads deliberately bypass the object cache.
-    'X-Cache-Status': 'BYPASS',
+    ...cache,
+    'X-Cache-Status': cached ? 'HIT' : 'BYPASS',
     ...COMMON_CORS,
-  });
-  res.send(Buffer.from(bytes));
-  recordDelivery('media', bytes.length);
-}
+  };
 
-/**
- * Full GET: serve via the LRU cache. Intended for small objects only
- * (manifests, thumbnails). For large binary objects, players should
- * always send Range — if they don't, this still works but holds the
- * full file in RAM until LRU eviction.
- */
-interface ServeFullOpts {
-  /** Private objects are marked no-store and never cached by a shared proxy. */
-  isPrivate?: boolean;
-  /** Applied to a manifest body before sending, e.g. to sign child URLs. */
-  signManifest?: (text: string) => string;
-}
-
-async function serveFull(
-  res: Response,
-  objectId: string,
-  hint?: string,
-  opts: ServeFullOpts = {},
-): Promise<void> {
-  const { data, status } = await getCachedObject(objectId, {
-    isManifest: false,
-  });
-  const hinted = contentTypeForHint(hint);
-  const { isPrivate = false, signManifest } = opts;
-
-  if (hinted === 'application/vnd.apple.mpegurl' || isManifestContent(data)) {
-    // For a private manifest, sign every child object URL so a single signed
-    // link authorizes the whole graph. The body changes per request, so it is
-    // never cached by a shared proxy.
-    const text = signManifest ? signManifest(new TextDecoder().decode(data)) : null;
-    const body = text !== null ? Buffer.from(text) : Buffer.from(data);
-    res.set({
-      'Content-Type': 'application/vnd.apple.mpegurl',
-      'Content-Length': body.length.toString(),
-      'Cache-Control': isPrivate ? 'no-store' : 'public, max-age=60',
-      'Accept-Ranges': 'bytes',
-      'X-Cache-Status': status,
-      ...COMMON_CORS,
-    });
-    res.send(body);
-    recordDelivery('manifest', body.length);
+  if (cached) {
+    res
+      .status(206)
+      .set(headers)
+      .end(Buffer.from(cached.buffer, cached.byteOffset + parsed.start, parsed.chunkLength));
+    recordDelivery('media', parsed.chunkLength);
     return;
   }
 
-  res.set({
-    'Content-Type': hinted ?? detectBinaryContentType(data),
-    'Content-Length': data.length.toString(),
-    'Cache-Control': isPrivate ? 'no-store' : 'public, max-age=86400',
-    'Accept-Ranges': 'bytes',
-    'X-Cache-Status': status,
-    ...COMMON_CORS,
-  });
-  res.send(Buffer.from(data));
-  recordDelivery('object', data.length);
+  logger.debug(
+    { objectId, offset: parsed.start, length: parsed.chunkLength, totalSize },
+    'Range-passthrough fetch from Sia',
+  );
+  const sent = await streamBody(
+    res,
+    handle!.read({ offset: parsed.start, length: parsed.chunkLength }),
+    parsed.chunkLength,
+    206,
+    headers,
+    objectId,
+  );
+  recordDelivery('media', sent);
 }
 
 /**
@@ -305,153 +444,202 @@ deliveryRouter.use((req: Request, res: Response, next) => {
 });
 
 /**
- * GET /v1/objects/:objectId
+ * GET (and HEAD) /v1/objects/:objectId
  */
 deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) => {
   const objectId = String(req.params.objectId);
-  const rangeHeader = req.headers.range as string | undefined;
-  const hint = req.query.type as string | undefined;
+  if (!isObjectId(objectId)) {
+    fail(res, 400, { error: 'Not a Sia object id (64 lowercase hex characters)', objectId });
+    return;
+  }
 
+  let access: ObjectAccess;
   try {
-    // Objects belonging to a private asset require a valid, unexpired signed
-    // URL. Public objects stay open so plain hls.js playback works.
-    const tier = await getObjectAccessTier(objectId);
+    access = await resolveObjectAccess(objectId);
+  } catch (err) {
+    unavailable(res, err, { objectId });
+    return;
+  }
 
-    // The owning asset is being deleted: stop serving its bytes immediately,
-    // even though the objects may not be unpinned from Sia yet.
-    if (tier === 'gone') {
-      res.status(404).set(COMMON_CORS).json({ error: 'Object not found', objectId });
+  // no asset claims it, or its asset is being deleted (its objects may not be
+  // unpinned yet): not served either way
+  if (access.kind === 'unknown' || access.kind === 'gone') {
+    logger.debug({ objectId, access: access.kind }, 'Refused object without a live asset');
+    fail(res, 404, { error: 'Object not found', objectId });
+    return;
+  }
+
+  const grant: Grant = { isPrivate: access.kind === 'private' };
+  if (access.kind === 'private') {
+    const check = verifyObjectAccess(
+      objectId,
+      req.query.expires as string | undefined,
+      req.query.sig as string | undefined,
+      access.signing,
+      env.SESSION_SECRET,
+      Math.floor(Date.now() / 1000),
+    );
+    if (!check.ok) {
+      logger.debug({ objectId, reason: check.reason }, 'Rejected private object request');
+      fail(res, 403, { error: 'This object requires a valid signed URL', reason: check.reason });
       return;
     }
+    // a manifest's children are signed until the capability the caller proved ends
+    grant.signManifest = manifestSigner(check.expiresAtSec, access.signing);
+  } else if (namesEtag(req.headers['if-none-match'], etagFor(objectId))) {
+    // still public: the copy the client (or nginx) holds may be used again
+    res
+      .status(304)
+      .set({ ...publicCache(etagFor(objectId), true), ...COMMON_CORS })
+      .end();
+    return;
+  }
 
-    const isPrivate = tier === 'private';
-    let signManifest: ((text: string) => string) | undefined;
-
-    if (isPrivate) {
-      const check = verifyObjectAccess(
-        objectId,
-        req.query.expires as string | undefined,
-        req.query.sig as string | undefined,
-        env.SESSION_SECRET,
-        Math.floor(Date.now() / 1000),
-      );
-      if (!check.ok) {
-        logger.warn({ objectId, reason: check.reason }, 'Rejected private object request');
-        res.status(403).set(COMMON_CORS).json({
-          error: 'This object requires a valid signed URL',
-          reason: check.reason,
-        });
-        return;
-      }
-      // The caller proved a valid capability at this expiry. When this object
-      // is a manifest, re-use that same expiry to sign its child object URLs
-      // so the variants and media segments are reachable too.
-      const expiresAtSec = Number(req.query.expires);
-      signManifest = (text: string) =>
-        signManifestObjectUrls(text, expiresAtSec, env.SESSION_SECRET);
-    }
-
-    if (rangeHeader) {
-      await serveRange(req, res, objectId, rangeHeader, isPrivate);
+  const rangeHeader = req.headers.range;
+  try {
+    if (rangeHeader && req.method !== 'HEAD') {
+      await serveRange(req, res, objectId, rangeHeader, grant);
     } else {
-      await serveFull(res, objectId, hint, { isPrivate, signManifest });
+      await serveWhole(req, res, objectId, grant);
     }
   } catch (err) {
-    logger.error({ objectId, err }, 'Failed to serve object');
-    if (!res.headersSent) {
-      res.status(404).json({ error: 'Object not found', objectId });
-    }
+    upstreamFailure(res, err, objectId);
   }
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface ResolvedEntry {
+  asset: {
+    id: string;
+    manifestObjectId: string | null;
+    accessTier: string;
+    status: string;
+    signingGeneration: number;
+    legacySignaturesUntil: Date | null;
+  };
+  policy: string;
+}
+
 /**
- * GET /v1/stream/:videoAssetId/master.m3u8
+ * The asset behind a /v1/stream or /v1/share path segment (an asset UUID or
+ * a pb_ playback id) and the policy of the handle used, or null when there is
+ * no such live asset. Throws when the database cannot be read.
+ */
+async function resolveEntry(param: string): Promise<ResolvedEntry | null> {
+  const { getPlaybackIdByPublicId } = await import('../db/queries/playback-ids.js');
+  const { isPlaybackId } = await import('../api/playback-id.js');
+  const { getVideoAssetById } = await import('../db/queries/assets.js');
+
+  let assetId = param;
+  let policy = 'public';
+  if (isPlaybackId(param)) {
+    const pb = await getPlaybackIdByPublicId(param);
+    if (!pb) return null;
+    assetId = pb.videoAssetId;
+    policy = pb.policy;
+  } else if (!UUID_RE.test(param)) {
+    return null;
+  }
+  const asset = await getVideoAssetById(assetId);
+  return asset ? { asset, policy } : null;
+}
+
+function signingStateOf(asset: ResolvedEntry['asset']): SigningState {
+  return {
+    generation: asset.signingGeneration,
+    legacyUntilSec:
+      asset.legacySignaturesUntil === null
+        ? null
+        : Math.floor(asset.legacySignaturesUntil.getTime() / 1000),
+  };
+}
+
+/**
+ * GET (and HEAD) /v1/stream/:videoAssetId/master.m3u8
  *
- * Convenience: look up the master manifest by video asset UUID and
- * serve it. Always uses the cache path (manifests are tiny).
+ * The master manifest by asset UUID or pb_ playback id. The entry point is
+ * gated by the asset's tier and by the handle used: a private asset, or a
+ * signed playback id even on a public asset, needs the `expires` and `sig` of
+ * the asset's signed master url, and its child urls are then signed too. A
+ * signed handle gates only this entry; the objects themselves follow the
+ * asset's tier, so a public embed of the same asset keeps working.
  */
 deliveryRouter.get('/v1/stream/:videoAssetId/master.m3u8', async (req: Request, res: Response) => {
   const param = String(req.params.videoAssetId);
+  let entry: ResolvedEntry | null;
   try {
-    // Accept either an internal asset UUID or a public pb_... playback id.
-    // A playback id also carries a policy ('public' | 'signed'); a signed
-    // policy requires a signed URL even when the asset tier is public.
-    const { getPlaybackIdByPublicId } = await import('../db/queries/playback-ids.js');
-    const { isPlaybackId } = await import('../api/playback-id.js');
+    entry = await resolveEntry(param);
+  } catch (err) {
+    unavailable(res, err, { param });
+    return;
+  }
+  const manifestObjectId = entry?.asset.manifestObjectId;
+  if (!entry || !manifestObjectId) {
+    fail(res, 404, { error: 'Video asset not found or not ready' });
+    return;
+  }
+  const { asset, policy } = entry;
 
-    let assetId = param;
-    let policy = 'public';
-    if (isPlaybackId(param)) {
-      const pb = await getPlaybackIdByPublicId(param);
-      if (!pb) {
-        res.status(404).json({ error: 'Video asset not found or not ready' });
-        return;
-      }
-      assetId = pb.videoAssetId;
-      policy = pb.policy;
-    }
+  const requiresSigning = asset.accessTier === 'private' || policy === 'signed';
+  let signManifest: ((text: string) => string) | undefined;
+  const etag = etagFor(manifestObjectId);
 
-    const { getVideoAssetById } = await import('../db/queries/assets.js');
-    const asset = await getVideoAssetById(assetId);
-    if (!asset?.manifestObjectId) {
-      res.status(404).json({ error: 'Video asset not found or not ready' });
+  if (requiresSigning) {
+    const signing = signingStateOf(asset);
+    const check = verifyObjectAccess(
+      manifestObjectId,
+      req.query.expires as string | undefined,
+      req.query.sig as string | undefined,
+      signing,
+      env.SESSION_SECRET,
+      Math.floor(Date.now() / 1000),
+    );
+    if (!check.ok) {
+      logger.debug({ param, reason: check.reason }, 'Rejected unsigned stream request');
+      fail(res, 403, { error: 'This stream requires a valid signed URL', reason: check.reason });
       return;
     }
+    signManifest = manifestSigner(check.expiresAtSec, signing);
+  } else if (namesEtag(req.headers['if-none-match'], etag)) {
+    res
+      .status(304)
+      .set({ ...publicCache(etag, true), ...COMMON_CORS })
+      .end();
+    return;
+  }
 
-    // Gate the entry point: a private asset, or a signed-policy playback id,
-    // must present a valid signed URL over the master manifest object. This is
-    // the same capability the object gateway checks, so /v1/stream cannot be
-    // used to hand out a private manifest unsigned.
-    const requiresSigning = asset.accessTier === 'private' || policy === 'signed';
-    let signManifest: ((text: string) => string) | undefined;
-
-    if (requiresSigning) {
-      const check = verifyObjectAccess(
-        asset.manifestObjectId,
-        req.query.expires as string | undefined,
-        req.query.sig as string | undefined,
-        env.SESSION_SECRET,
-        Math.floor(Date.now() / 1000),
-      );
-      if (!check.ok) {
-        logger.warn({ param, reason: check.reason }, 'Rejected unsigned stream request');
-        res.status(403).set(COMMON_CORS).json({
-          error: 'This stream requires a valid signed URL',
-          reason: check.reason,
-        });
-        return;
-      }
-      const expiresAtSec = Number(req.query.expires);
-      signManifest = (text: string) =>
-        signManifestObjectUrls(text, expiresAtSec, env.SESSION_SECRET);
+  try {
+    const result = await getSmallObject(manifestObjectId, { isManifest: true });
+    if (result.kind !== 'cached') {
+      throw new Error(`master manifest ${manifestObjectId} is ${result.handle.size} bytes`);
     }
-
-    const { data, status } = await getCachedObject(asset.manifestObjectId, {
-      isManifest: true,
-    });
+    const { data, status } = result;
     const body = signManifest
       ? Buffer.from(signManifest(new TextDecoder().decode(data)))
-      : Buffer.from(data);
-    res.set({
+      : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    res.status(200).set({
       'Content-Type': 'application/vnd.apple.mpegurl',
-      'Content-Length': body.length.toString(),
-      // A signed manifest is per-request and must never be cached by a shared
-      // proxy; a public one is fine to cache briefly.
-      'Cache-Control': requiresSigning ? 'no-store' : 'public, max-age=60',
+      'Content-Length': String(body.length),
+      // a signed manifest is per request; a public one is the object's bytes
+      ...(requiresSigning ? PRIVATE_CACHE : publicCache(etag, true)),
       'X-Cache-Status': status,
       ...COMMON_CORS,
     });
-    res.send(body);
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
+    res.end(body);
     recordDelivery('manifest', body.length);
   } catch (err) {
-    logger.error({ param, err }, 'Failed to serve manifest');
-    res.status(500).json({ error: 'Failed to serve manifest' });
+    upstreamFailure(res, err, manifestObjectId);
   }
 });
 
-// a public share map may sit in a browser or proxy cache this long at most,
-// and never so long that a cached copy is handed out after the shares lapse
-const PUBLIC_SHARE_MAX_AGE_SEC = 60;
+// a public share map may sit in nginx this long at most, and never so long
+// that a cached copy is handed out after the shares lapse
+const PUBLIC_SHARE_MAX_AGE_SEC = SHARED_CACHE_SECONDS;
 // lifetime a cached copy must still have left when served: the sdk refreshes a
 // map 60s before it expires, plus slack for a second cache in front
 const PUBLIC_SHARE_CACHE_MARGIN_SEC = 120;
@@ -460,105 +648,95 @@ const PUBLIC_SHARE_CACHE_MARGIN_SEC = 120;
  * GET /v1/share/:id
  *
  * The sia:// share map for an asset or pb_ playback id, without credentials,
- * so a public page can play direct from Sia. Gated exactly like the gateway:
- * a public asset needs nothing, a private asset or a signed handle needs the
- * same `expires` and `sig` as its signed master url, and the shares never
- * outlive that signature. Minting goes through the per-asset cache in
- * share-urls.ts, whose gridded expiries bound indexer calls per asset no
- * matter how often or with which `expires_in` this is called.
+ * so a public page can play direct from Sia. Gated exactly like /v1/stream: a
+ * private asset or a signed handle needs the same `expires` and `sig` as its
+ * signed master url, and the shares never outlive that signature; a public
+ * asset reached by its UUID or a public handle needs nothing. Minting goes
+ * through the per-asset cache in share-urls.ts, whose gridded expiries bound
+ * indexer calls per asset no matter how often or with which `expires_in` this
+ * is called.
  */
 deliveryRouter.get('/v1/share/:id', async (req: Request, res: Response) => {
   const param = String(req.params.id);
+  let entry: ResolvedEntry | null;
   try {
-    const { getPlaybackIdByPublicId } = await import('../db/queries/playback-ids.js');
-    const { isPlaybackId } = await import('../api/playback-id.js');
-    const { getVideoAssetById } = await import('../db/queries/assets.js');
+    entry = await resolveEntry(param);
+  } catch (err) {
+    unavailable(res, err, { param });
+    return;
+  }
+  const manifestObjectId = entry?.asset.manifestObjectId;
+  if (!entry || !manifestObjectId || entry.asset.status !== 'ready') {
+    fail(res, 404, { error: 'Video asset not found or not ready' });
+    return;
+  }
+  const { asset, policy } = entry;
 
-    let assetId = param;
-    let policy = 'public';
-    if (isPlaybackId(param)) {
-      const pb = await getPlaybackIdByPublicId(param);
-      if (!pb) {
-        res.status(404).set(COMMON_CORS).json({ error: 'Video asset not found or not ready' });
-        return;
-      }
-      assetId = pb.videoAssetId;
-      policy = pb.policy;
-    }
-
-    const asset = await getVideoAssetById(assetId);
-    if (!asset?.manifestObjectId || asset.status !== 'ready') {
-      res.status(404).set(COMMON_CORS).json({ error: 'Video asset not found or not ready' });
-      return;
-    }
-
-    // the object tier also catches a public asset that has a signed handle:
-    // its objects are gated at /v1/objects, and a share map skips that gate,
-    // so handing it out unsigned under the asset id would open the asset
-    const tier = await getObjectAccessTier(asset.manifestObjectId);
-    if (tier === 'gone') {
-      res.status(404).set(COMMON_CORS).json({ error: 'Video asset not found or not ready' });
-      return;
-    }
-    const gated = asset.accessTier === 'private' || policy === 'signed' || tier === 'private';
-
-    let signatureExpiresSec: number | undefined;
-    if (gated) {
-      const check = verifyObjectAccess(
-        asset.manifestObjectId,
-        req.query.expires as string | undefined,
-        req.query.sig as string | undefined,
-        env.SESSION_SECRET,
-        Math.floor(Date.now() / 1000),
-      );
-      if (!check.ok) {
-        logger.warn({ param, reason: check.reason }, 'Rejected unsigned share map request');
-        res.status(403).set(COMMON_CORS).json({
-          error: 'This share map requires a valid signed URL',
-          reason: check.reason,
-        });
-        return;
-      }
-      signatureExpiresSec = Number(req.query.expires);
-    }
-
-    const { createAssetShareUrls } = await import('./share-urls.js');
-    const nowSec = Math.floor(Date.now() / 1000);
-    const { expiresIn, notAfterSec } = shareExpiryBounds(
-      req.query.expires_in,
-      gated,
-      nowSec,
-      signatureExpiresSec,
+  const gated = asset.accessTier === 'private' || policy === 'signed';
+  let signatureExpiresSec: number | undefined;
+  if (gated) {
+    const check = verifyObjectAccess(
+      manifestObjectId,
+      req.query.expires as string | undefined,
+      req.query.sig as string | undefined,
+      signingStateOf(asset),
+      env.SESSION_SECRET,
+      Math.floor(Date.now() / 1000),
     );
-
-    let result: Awaited<ReturnType<typeof createAssetShareUrls>>;
-    try {
-      result = await createAssetShareUrls(asset.id, asset.manifestObjectId, expiresIn, notAfterSec);
-    } catch (err) {
-      logger.warn({ assetId: asset.id, err }, 'Could not mint share urls');
-      res.status(502).set(COMMON_CORS).json({
-        error: 'The Sia indexer did not answer while minting share URLs; try again',
+    if (!check.ok) {
+      logger.debug({ param, reason: check.reason }, 'Rejected unsigned share map request');
+      fail(res, 403, {
+        error: 'This share map requires a valid signed URL',
+        reason: check.reason,
       });
       return;
     }
-
-    let cacheControl = 'private, no-store';
-    if (!gated) {
-      const remaining = Math.floor(Date.parse(result.expiresAt) / 1000) - nowSec;
-      const maxAge = Math.min(PUBLIC_SHARE_MAX_AGE_SEC, remaining - PUBLIC_SHARE_CACHE_MARGIN_SEC);
-      cacheControl = maxAge > 0 ? `public, max-age=${maxAge}` : 'no-store';
-    }
-
-    playbackInitiationTotal.inc({ mode: 'sia' });
-    res.set({ 'Cache-Control': cacheControl, ...COMMON_CORS }).json({
-      master_object_id: result.masterObjectId,
-      shares: result.shares,
-      expires_at: result.expiresAt,
-    });
-  } catch (err) {
-    logger.error({ param, err }, 'Failed to serve share map');
-    res.status(500).set(COMMON_CORS).json({ error: 'Failed to serve share map' });
+    signatureExpiresSec = check.expiresAtSec;
   }
+
+  const { createAssetShareUrls } = await import('./share-urls.js');
+  const nowSec = Math.floor(Date.now() / 1000);
+  const { expiresIn, notAfterSec } = shareExpiryBounds(
+    req.query.expires_in,
+    gated,
+    nowSec,
+    signatureExpiresSec,
+  );
+
+  let result: Awaited<ReturnType<typeof createAssetShareUrls>>;
+  try {
+    result = await createAssetShareUrls(asset.id, manifestObjectId, expiresIn, notAfterSec);
+  } catch (err) {
+    if (err instanceof ShareMintError && err.source === 'database') {
+      unavailable(res, err, { assetId: asset.id });
+      return;
+    }
+    logger.warn({ assetId: asset.id, err }, 'Could not mint share urls');
+    fail(res, 502, {
+      error: 'The Sia indexer did not answer while minting share URLs; try again',
+    });
+    return;
+  }
+
+  // a public map may be kept by nginx briefly; browsers and other caches must
+  // ask again, so a cached map never outlives an access change by more than
+  // the shared window
+  let cache: Record<string, string> = { 'Cache-Control': 'private, no-store' };
+  if (!gated) {
+    const remaining = Math.floor(Date.parse(result.expiresAt) / 1000) - nowSec;
+    const maxAge = Math.min(PUBLIC_SHARE_MAX_AGE_SEC, remaining - PUBLIC_SHARE_CACHE_MARGIN_SEC);
+    cache =
+      maxAge > 0
+        ? { 'Cache-Control': 'public, no-cache', 'X-Accel-Expires': String(maxAge) }
+        : { 'Cache-Control': 'no-store' };
+  }
+
+  playbackInitiationTotal.inc({ mode: 'sia' });
+  res.set({ ...cache, ...COMMON_CORS }).json({
+    master_object_id: result.masterObjectId,
+    shares: result.shares,
+    expires_at: result.expiresAt,
+  });
 });
 
 /**

@@ -1,7 +1,7 @@
 import { LRUCache } from 'lru-cache';
 import { getAssetObjectIds } from '../db/queries/assets.js';
 import { shareObjectUrl } from '../storage/sia-client.js';
-import { shareExpirySec } from './share-expiry.js';
+import { ShareMintError, shareExpirySec } from './share-expiry.js';
 
 /**
  * Per-playback capability map for direct-from-Sia delivery: a short-lived
@@ -51,11 +51,15 @@ export async function createAssetShareUrls(
   if (pending) return pending;
 
   const mint = (async () => {
-    const objectIds = await getAssetObjectIds(assetId);
+    const objectIds = await getAssetObjectIds(assetId).catch((err: unknown) => {
+      throw new ShareMintError('database', err);
+    });
     const validUntil = new Date(validUntilSec * 1000);
     const entries = await Promise.all(
       objectIds.map(async (oid) => [oid, await shareObjectUrl(oid, validUntil)] as const),
-    );
+    ).catch((err: unknown) => {
+      throw new ShareMintError('indexer', err);
+    });
     const result: AssetShareUrls = {
       masterObjectId,
       shares: Object.fromEntries(entries),

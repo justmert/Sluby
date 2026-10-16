@@ -916,7 +916,29 @@ describe('SlubyPlayer', () => {
       warn.mockRestore();
     });
 
-    it('plays a private asset signed even without the signed prop, and without its unsigned poster', async () => {
+    it('plays a private asset signed even without the signed prop, with the signed poster', async () => {
+      const getUrl = vi.fn().mockResolvedValue({
+        playbackUrl: 'https://g/v1/objects/m',
+        posterUrl: 'https://g/v1/objects/thumb',
+        accessTier: 'private',
+      });
+      const getSignedUrl = vi.fn().mockResolvedValue({
+        signedUrl: 'https://g/v1/objects/m?expires=4000000000&sig=s',
+        posterUrl: 'https://g/v1/objects/thumb?expires=4000000000&sig=p',
+        expiresAt: new Date(4_000_000_000_000).toISOString(),
+      });
+      const { container } = render(
+        <SlubyPlayer client={apiClient(getUrl, {}, getSignedUrl)} assetId="p1" />,
+      );
+
+      await waitFor(() =>
+        expect(container.querySelector('video')!.getAttribute('poster')).toBe(
+          'https://g/v1/objects/thumb?expires=4000000000&sig=p',
+        ),
+      );
+    });
+
+    it('plays a private asset signed without its unsigned poster when the server signs none', async () => {
       const getUrl = vi.fn().mockResolvedValue({
         playbackUrl: 'https://g/v1/objects/m',
         posterUrl: 'https://g/v1/objects/thumb',

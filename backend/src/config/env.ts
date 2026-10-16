@@ -98,9 +98,10 @@ export const envSchema = z.object({
   TRANSCODE_MAX_RENDITION: z.enum(RENDITION_NAMES).default(DEFAULT_MAX_RENDITION),
 
   /** Size bound of the gateway's in-memory object cache, in megabytes. It
-   *  holds whole objects fetched without a Range header (manifests,
-   *  thumbnails). */
-  CACHE_MAX_SIZE_MB: z.coerce.number().int().positive().default(10240),
+   *  holds whole objects of up to 8 MB fetched without a Range header
+   *  (manifests, playlists, thumbnails) and counts against the backend
+   *  container's memory; larger objects are streamed and never held. */
+  CACHE_MAX_SIZE_MB: z.coerce.number().int().positive().default(256),
 
   /** Whether the background reconciliation worker runs on a schedule.
    *  Set to 'false' to disable the periodic sweep (on-demand runs via the

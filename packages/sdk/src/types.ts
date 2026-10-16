@@ -93,6 +93,11 @@ export interface SignedPlaybackInfo {
   signedUrl: string;
   /** The raw server-relative signed path, before delivery-base resolution. */
   signedPath: string;
+  /**
+   * The asset's first thumbnail, signed the same way and until the same time,
+   * so a private asset can show a poster. Null when the asset has none.
+   */
+  posterUrl: string | null;
   /** ISO-8601 timestamp at which the signed URL stops working. */
   expiresAt: string;
 }
