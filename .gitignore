@@ -57,6 +57,7 @@ reference-app/
 *.md
 !README.md
 !CONTRIBUTING.md
+!packages/*/CHANGELOG.md
 !backend/vendor/README.md
 !docs/**/*.md
 sia/
@@ -66,3 +67,7 @@ resources/
 
 # claude code agent worktrees
 .claude/worktrees/
+
+# license texts copied into the packages at pack time
+packages/*/LICENSE
+packages/*/NOTICE

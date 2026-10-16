@@ -34,8 +34,7 @@ export function createErrorHandler(log: Logger): ErrorRequestHandler {
     // request, not a server fault, so map it to 400 with a clean message
     // instead of leaking a 500 and the driver error. Applies uniformly to
     // every id route.
-    const pgCode = (err as unknown as { code?: string }).code;
-    if (pgCode === '22P02') {
+    if (postgresCode(err) === '22P02') {
       res.status(400).json({ error: 'Invalid identifier format' });
       return;
     }
@@ -61,4 +60,15 @@ export function createErrorHandler(log: Logger): ErrorRequestHandler {
       ...(isProduction ? {} : { message: err.message, stack: err.stack }),
     });
   };
+}
+
+/**
+ * The SQLSTATE of a Postgres error. drizzle wraps driver errors in a
+ * DrizzleQueryError whose `cause` is the original, so look there too.
+ */
+export function postgresCode(err: unknown): string | undefined {
+  const own = (err as { code?: unknown } | null)?.code;
+  if (typeof own === 'string') return own;
+  const cause = (err as { cause?: { code?: unknown } } | null)?.cause?.code;
+  return typeof cause === 'string' ? cause : undefined;
 }

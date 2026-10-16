@@ -82,7 +82,9 @@ describe.skipIf(!hasTestDatabase)('asset queries (postgres)', () => {
     });
 
     it('rejects a malformed id with the postgres error the error handler maps to 400', async () => {
-      await expect(q.getVideoAssetById('not-a-uuid')).rejects.toMatchObject({ code: '22P02' });
+      await expect(q.getVideoAssetById('not-a-uuid')).rejects.toMatchObject({
+        cause: { code: '22P02' },
+      });
     });
 
     it('stores bigint sizes and durations beyond 32 bits as numbers', async () => {

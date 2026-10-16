@@ -58,7 +58,9 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
 
     it('refuses a second key with the same hash', async () => {
       await newKey({ rawKey: 'sluby_dup' });
-      await expect(newKey({ rawKey: 'sluby_dup' })).rejects.toMatchObject({ code: '23505' });
+      await expect(newKey({ rawKey: 'sluby_dup' })).rejects.toMatchObject({
+        cause: { code: '23505' },
+      });
     });
   });
 
@@ -217,7 +219,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       const b = await newKey();
       await expect(
         q.rotateApiKey(a.apiKey.id, 'alice', b.apiKey.keyHash, new Date()),
-      ).rejects.toMatchObject({ code: '23505' });
+      ).rejects.toMatchObject({ cause: { code: '23505' } });
       expect(await q.validateApiKey(a.rawKey)).toBeDefined();
       const [{ n }] = await tdb.sql`select count(*)::int as n from api_keys`;
       expect(n).toBe(2);

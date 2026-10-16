@@ -188,7 +188,7 @@ describe.skipIf(!hasTestDatabase)('pipeline record queries (postgres)', () => {
     it('fails for an asset that does not exist', async () => {
       await expect(
         storage.persistStorageRecords('00000000-0000-4000-8000-000000000000', twoRungRecords()),
-      ).rejects.toMatchObject({ code: '23503' });
+      ).rejects.toMatchObject({ cause: { code: '23503' } });
     });
   });
 

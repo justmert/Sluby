@@ -9,15 +9,23 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "sideEffects": false,
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE"
   ],
   "keywords": [
     "sluby",
@@ -30,15 +38,16 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/justmert/sluby.git",
+    "url": "git+https://github.com/justmert/Sluby.git",
     "directory": "packages/sdk"
   },
-  "homepage": "https://github.com/justmert/sluby/tree/main/packages/sdk#readme",
+  "homepage": "https://github.com/justmert/Sluby/tree/main/packages/sdk#readme",
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "build": "tsup",
+    "prepack": "npm run build && node -e \"for (const f of ['LICENSE', 'NOTICE']) require('fs').copyFileSync('../../' + f, f)\"",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -56,5 +65,8 @@
     "tsup": "^8.5.1",
     "typescript": "^5.7.0",
     "vitest": "^5.0.3"
+  },
+  "bugs": {
+    "url": "https://github.com/justmert/Sluby/issues"
   }
 }

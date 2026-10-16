@@ -1,6 +1,6 @@
 # @sluby/player
 
-Production-ready React player for [Sluby](https://github.com/justmert/sluby),
+Production-ready React player for [Sluby](https://github.com/justmert/Sluby),
 decentralized video on Sia. Wraps [hls.js](https://github.com/video-dev/hls.js)
 with adaptive quality, bounded automatic error recovery, loading / error states,
 and Safari native HLS fallback. Segments are fetched directly from Sia-backed
@@ -20,7 +20,7 @@ Point it at a manifest URL:
 ```tsx
 import { SlubyPlayer } from '@sluby/player';
 
-<SlubyPlayer src="https://cache.sluby.app/v1/objects/abc?type=manifest" controls />;
+<SlubyPlayer src="https://video.example.com/v1/objects/abc?type=manifest" controls />;
 ```
 
 Or hand it a `SlubyClient` and an asset id, and it resolves the delivery URL
@@ -30,7 +30,7 @@ itself:
 import { SlubyClient } from '@sluby/sdk';
 import { SlubyPlayer } from '@sluby/player';
 
-const client = new SlubyClient({ apiKey: 'sluby_...', baseUrl: 'https://api.sluby.app' });
+const client = new SlubyClient({ apiKey: 'sluby_...', baseUrl: 'https://video.example.com' });
 
 <SlubyPlayer client={client} assetId="…" />;
 // Private content: <SlubyPlayer client={client} assetId="…" signed expiresIn={3600} />

@@ -202,3 +202,22 @@ jobs:
 
       - name: Build docs
         run: npm run docs:build
+
+  packages:
+    name: Packages pack cleanly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # packs @sluby/sdk and @sluby/player like npm publish does and runs attw
+      # and publint on the tarballs
+      - name: Check packages
+        run: npm run check:packages

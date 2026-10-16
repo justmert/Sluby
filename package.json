@@ -24,18 +24,21 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit -p backend/tsconfig.json && tsc --noEmit -p packages/sdk/tsconfig.json && tsc --noEmit -p packages/player/tsconfig.json && tsc --noEmit -p frontend/tsconfig.json",
     "docs:dev": "npm --prefix docs run dev",
-    "docs:build": "npm --prefix docs run build"
+    "docs:build": "npm --prefix docs run build",
+    "check:packages": "npm run build:sdk && npm run build:player && node scripts/check-packages.mjs"
   },
   "engines": {
     "node": ">=22.12.0"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@eslint/js": "^10.0.1",
     "esbuild": "^0.28.2",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
     "prettier": "^3.8.1",
+    "publint": "^0.3.25",
     "typescript-eslint": "^8.56.0"
   },
   "overrides": {
