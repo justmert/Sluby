@@ -46,7 +46,7 @@ const viewer = new SlubyClient({
 // Private content: <SlubyPlayer src={signedUrlFromYourServer} client={viewer} assetId={id} />
 ```
 
-A signed `src` stops working at its `expires`, and so does the share map fetched for it. Pass `refreshSrc` (it gets the current `src` and returns a newly signed one, for example from your server) and the player renews it shortly before then and continues from the same position. A new `src` prop for the same video also continues where playback was. With `src`, `client` only needs its `sia` session, so `{ sia: viewer.sia }` works too.
+A signed `src` stops working at its `expires`, and so does the share map fetched for it. Pass `refreshSrc` (it gets the current `src` and returns a newly signed one, for example from your server) and the player renews it shortly before then without reloading the video: it reads the renewed playlists and sends its later requests to the newly signed URLs. A new `src` prop for the same video does the same. With `src`, `client` only needs its `sia` session, so `{ sia: viewer.sia }` works too.
 
 In a Vite or webpack app, the WASM package behind the viewer session needs a small bundler setting; see "Direct from Sia in a bundled app" in the `@sluby/sdk` README. Without it the player plays from the gateway and logs a warning.
 

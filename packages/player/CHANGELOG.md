@@ -16,9 +16,10 @@
 
 - A private asset played through `client` + `assetId` shows the poster the backend signs with the playback URL (`posterUrl` from `playback.getSignedUrl`); before, signed playback never had one. A backend before this change signs none, and the player then shows no poster as before.
 - `useVideo(playerRef)`: pass a `<SlubyPlayer>` ref and the hook follows the player's `<video>` and every hls.js instance it builds. The README's pattern of copying the handle's element into refs never updated.
-- `refreshSrc`: called shortly before a signed `src` expires (and when a load fails after it), it returns a newly signed `src`, and playback continues from the same position.
-- Signed URLs the player fetches itself are renewed before they expire, and playback continues from the same position.
-- Retry, a renewed URL and a newly signed `src` for the same video continue from the position playback had reached instead of 0.
+- `refreshSrc`: called shortly before a signed `src` expires (and when a load fails after it), it returns a newly signed `src`, and playback carries on without a reload.
+- Signed URLs the player fetches itself are renewed before they expire, without a reload.
+- A renewed URL, or a newly signed `src` prop for the same video, keeps the same hls.js instance and buffer: the player reads the renewed playlists and sends hls.js's later requests to the newly signed URLs, so nothing is fetched twice and the video does not seek. On Sia delivery it fetches the share map for the new `src`. Native HLS (Safari without MediaSource) still reloads at the position.
+- Retry continues from the position playback had reached instead of 0.
 - `onError`'s error carries the underlying error (an SDK `SlubyError`, an hls.js error) as `cause`.
 - The loading overlay has `role="status"` with a hidden label and the error overlay `role="alert"`.
 - A warning when `signed` or `expiresIn` is set together with `src`, which ignores them, and an error that says what is missing when a client without `playback` is asked to play an `assetId` without `src`.
