@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // packs each published package the way `npm publish` would and checks the
-// tarball: the license texts are in it, and attw and publint find no problems
-// with its exports and type declarations. run from the repo root after building:
+// tarball: the license texts are in it, attw and publint find no problems with
+// its exports and type declarations, and the sdk works when installed. run from the repo root after building:
 //
 //   npm run check:packages
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -48,6 +48,47 @@ try {
         console.error(`  ${tool} reported problems for ${packed.name}`);
         failed = true;
       }
+    }
+  }
+
+  // load the packed sdk the way an app would, from both module formats, and
+  // run code that differs between the builds (webhook signing needs
+  // node:crypto, which the esm build cannot get through require)
+  const consumer = path.join(out, 'consumer');
+  mkdirSync(consumer);
+  writeFileSync(path.join(consumer, 'package.json'), '{"private":true}');
+  const sdkTarball = readdirSync(out).find((f) => f.startsWith('sluby-sdk-'));
+  execFileSync('npm', ['install', '--no-audit', '--no-fund', path.join(out, sdkTarball)], {
+    cwd: consumer,
+    stdio: ['ignore', 'ignore', 'inherit'],
+  });
+  const body = `
+    const secret = 'whsec_check';
+    const payload = '{"event":"asset.ready"}';
+    const sig = createHmac('sha256', secret).update(payload).digest('hex');
+    const hooks = new SlubyClient({ apiKey: 'sluby_check', baseUrl: 'http://localhost' }).webhooks;
+    if (hooks.verifySignature(payload, sig, secret) !== true) throw new Error('valid signature rejected');
+    if (hooks.verifySignature(payload, 'f'.repeat(64), secret) !== false) throw new Error('bad signature accepted');
+  `;
+  for (const [format, file, code] of [
+    [
+      'esm',
+      'check.mjs',
+      `import { SlubyClient } from '@sluby/sdk';\nimport { createHmac } from 'node:crypto';\n${body}`,
+    ],
+    [
+      'cjs',
+      'check.cjs',
+      `const { SlubyClient } = require('@sluby/sdk');\nconst { createHmac } = require('node:crypto');\n${body}`,
+    ],
+  ]) {
+    writeFileSync(path.join(consumer, file), code);
+    try {
+      execFileSync('node', [file], { cwd: consumer, stdio: 'inherit' });
+      console.log(`@sluby/sdk loads and verifies webhook signatures from ${format}`);
+    } catch {
+      console.error(`  @sluby/sdk failed the ${format} smoke check`);
+      failed = true;
     }
   }
 } finally {

@@ -177,7 +177,7 @@ It then loads the master playlist, the variant playlists and the thumbnails into
 | `upload-segments` | `upload-{assetId}`    | 3        | exponential from 30 s | 4                     |
 | `finalize`        | `finalize-{assetId}`  | 3        | exponential from 10 s | 4                     |
 
-- **Deterministic job ids.** Each stage enqueues the next one under a job id derived from the asset id. BullMQ ignores an add whose job id already exists, so a stage that runs twice (after a stall, say) does not enqueue its successor twice: the media is not uploaded and pinned a second time, and `asset.ready` is not sent twice.
+- **Deterministic job ids.** Each stage enqueues the next one under a job id derived from the asset id. BullMQ ignores an add whose job id already exists, so a stage that runs twice (after a stall, say) does not enqueue its successor twice: the media is not uploaded and pinned a second time, and `asset.ready` is not sent twice. BullMQ also keeps failed jobs, so a manual retry starts a new run: its jobs carry a run id (`upload-{assetId}-retry-{time}`, `finalize-{assetId}-retry-{time}`) that the failed attempt's jobs cannot shadow.
 - **Inner retries.** The first Sia upload, which carries all the media, is retried up to 5 times inside the job, waiting 2, 4, 8 and 16 seconds, before the job itself fails.
 - **Unpin on failure.** If anything fails after the first upload, the uploader unpins every object it pinned in that attempt before rethrowing, so the BullMQ retry starts clean. Unpin failures during this cleanup are logged, not raised.
 - **Deleted while processing.** If the asset was deleted while it was being processed, finalize finds no asset, unpins every object it was handed, and stops without writing anything.

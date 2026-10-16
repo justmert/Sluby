@@ -104,8 +104,9 @@ describe('buildRetryAsset', () => {
             path.join(w.outputRoot, 'a1', 'thumb_25.jpg'),
             path.join(w.outputRoot, 'a1', 'thumb_75.jpg'),
           ],
+          runId: 'retry-1700000000000',
         },
-        jobId: 'retry-upload-a1-1700000000000',
+        jobId: 'upload-a1-retry-1700000000000',
       },
     ]);
     expect(w.transcodeQueue).toEqual([]);
@@ -131,8 +132,13 @@ describe('buildRetryAsset', () => {
     expect(result).toEqual({ stage: 'transcode' });
     expect(w.transcodeQueue).toEqual([
       {
-        data: { videoAssetId: 'a1', uploadSessionId: 'up-a1', filePath: source },
-        jobId: 'retry-transcode-a1-1700000000000',
+        data: {
+          videoAssetId: 'a1',
+          uploadSessionId: 'up-a1',
+          filePath: source,
+          runId: 'retry-1700000000000',
+        },
+        jobId: 'transcode-a1-retry-1700000000000',
       },
     ]);
     expect(w.uploadQueue).toEqual([]);

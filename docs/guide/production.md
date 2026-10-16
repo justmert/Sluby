@@ -169,4 +169,4 @@ docker compose exec postgres pg_dump -U sluby sluby | gzip > sluby-$(date +%F).s
 
 **Health.** `GET /health` is a liveness check. The Studio dashboard and `GET /api/v1/system/status` report PostgreSQL, Redis, the indexer account and host counts. The backend serves Prometheus metrics at `GET /metrics` on port 3000. The web proxy does not expose that path, so scrape it from a container on the Compose network.
 
-**Volumes.** Every piece of state is in a named volume: `pgdata`, `redis-data`, `uploads`, `transcode-output`, `cache`, `nginx-cache`, and in production `caddy-data` (certificates) and `caddy-config`. `docker compose down` keeps them; `docker compose down -v` deletes them.
+**Volumes.** Every piece of state is in a named volume: `pgdata`, `redis-data`, `uploads`, `transcode-output`, `nginx-cache`, and in production `caddy-data` (certificates) and `caddy-config`. `docker compose down` keeps them; `docker compose down -v` deletes them.

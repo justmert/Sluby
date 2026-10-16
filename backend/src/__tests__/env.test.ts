@@ -21,9 +21,7 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(10 * 1024 * 1024 * 1024),
-  CACHE_DIR: z.string().default('./cache'),
   CACHE_MAX_SIZE_MB: z.coerce.number().int().positive().default(10240),
-  API_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(100),
 });
 
 describe('config/env schema validation', () => {
@@ -45,9 +43,7 @@ describe('config/env schema validation', () => {
         expect(result.data.UPLOAD_DIR).toBe('./uploads');
         expect(result.data.TRANSCODE_OUTPUT_DIR).toBe('./transcode-output');
         expect(result.data.MAX_UPLOAD_SIZE).toBe(10 * 1024 * 1024 * 1024);
-        expect(result.data.CACHE_DIR).toBe('./cache');
         expect(result.data.CACHE_MAX_SIZE_MB).toBe(10240);
-        expect(result.data.API_RATE_LIMIT_PER_MIN).toBe(100);
       }
     });
 
