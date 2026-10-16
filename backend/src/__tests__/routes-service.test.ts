@@ -49,12 +49,27 @@ describe('GET /metrics (prometheus)', () => {
     expect(res.text).toContain('# TYPE sluby_upload_success_total counter');
     expect(res.text).toMatch(/^sluby_upload_success_total [1-9]\d*$/m);
     expect(res.text).toMatch(/^sluby_processing_queue_depth 7$/m);
-    expect(res.text).toMatch(/^sluby_cache_hit_ratio 0\.25$/m);
+    expect(res.text).toMatch(/^sluby_cache_hits_total 1$/m);
+    expect(res.text).toMatch(/^sluby_cache_misses_total 3$/m);
+    expect(res.text).toMatch(/^sluby_redis_up 1$/m);
     // default node process metrics are registered too
     expect(res.text).toContain('process_cpu_user_seconds_total');
   });
 
-  it('answers 500 and logs when a live source fails during the scrape', async () => {
+  it('still answers when the queue depth source fails, with redis_up 0', async () => {
+    setMetricSources({
+      queueDepth: async () => {
+        throw new Error('redis is down');
+      },
+      cacheCounts: () => ({ hits: 0, misses: 0 }),
+    });
+
+    const res = await request(serviceApp()).get('/metrics');
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/^sluby_redis_up 0$/m);
+  });
+
+  it('answers 500 and logs when collecting a metric fails', async () => {
     const lines: Array<Record<string, unknown>> = [];
     const log = pino(
       { level: 'info' },
@@ -66,10 +81,10 @@ describe('GET /metrics (prometheus)', () => {
       }),
     );
     setMetricSources({
-      queueDepth: async () => {
-        throw new Error('redis is down');
+      queueDepth: async () => 0,
+      cacheCounts: () => {
+        throw new Error('cache stats unavailable');
       },
-      cacheCounts: () => ({ hits: 0, misses: 0 }),
     });
 
     const res = await request(serviceApp(log)).get('/metrics');
@@ -77,7 +92,7 @@ describe('GET /metrics (prometheus)', () => {
     expect(res.body).toEqual({ error: 'Failed to collect metrics' });
     expect(lines).toHaveLength(1);
     expect(lines[0].msg).toBe('Failed to collect metrics');
-    expect((lines[0].err as { message: string }).message).toBe('redis is down');
+    expect((lines[0].err as { message: string }).message).toBe('cache stats unavailable');
   });
 });
 

@@ -112,8 +112,8 @@ export const envSchema = z.object({
     .positive()
     .default(60 * 60 * 1000),
 
-  /** Page size when replaying the indexer's object change feed during
-   *  reconciliation. */
+  /** Page size when reading the indexer's object change feed during
+   *  reconciliation; the indexer's maximum, 500, applies above it. */
   RECONCILE_PAGE_SIZE: z.coerce.number().int().positive().default(500),
 
   /** Whether the deletion garbage-collector sweep runs. It re-drives assets

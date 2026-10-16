@@ -44,12 +44,61 @@ export function setMetricSources(sources: {
   cacheCountsSource = sources.cacheCounts;
 }
 
+/**
+ * How long a scrape waits for the queue depth. ioredis holds commands while
+ * it is disconnected instead of failing them, so without a bound a scrape
+ * during a Redis outage never answers, process metrics included.
+ */
+export const QUEUE_DEPTH_TIMEOUT_MS = 2000;
+
+let depthRead: Promise<number | null> | null = null;
+
+/** The queue depth, or null when Redis did not answer in time or failed. */
+function readQueueDepth(): Promise<number | null> {
+  const source = queueDepthSource;
+  if (!source) return Promise.resolve(null);
+  // the depth and redis_up gauges are collected in the same scrape; one read
+  // serves both
+  depthRead ??= new Promise<number | null>((resolve) => {
+    const timer = setTimeout(() => resolve(null), QUEUE_DEPTH_TIMEOUT_MS);
+    // through then() so a source that throws synchronously counts as failed too
+    Promise.resolve()
+      .then(source)
+      .then(
+        (depth) => {
+          clearTimeout(timer);
+          resolve(depth);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve(null);
+        },
+      );
+  }).finally(() => {
+    depthRead = null;
+  });
+  return depthRead;
+}
+
 export const processingQueueDepth = new Gauge({
   name: 'sluby_processing_queue_depth',
-  help: 'Jobs waiting or running across the transcode, upload and finalize queues',
+  help: 'Jobs waiting or running across the transcode, upload and finalize queues (NaN while Redis does not answer)',
   registers: [registry],
   async collect() {
-    if (queueDepthSource) this.set(await queueDepthSource());
+    if (!queueDepthSource) return;
+    const depth = await readQueueDepth();
+    // NaN rather than a stale or zero depth: the value is unknown
+    this.set(depth ?? NaN);
+  },
+});
+
+export const redisUp = new Gauge({
+  name: 'sluby_redis_up',
+  help: 'Whether Redis answered the queue depth read of this scrape within the timeout (1) or not (0)',
+  registers: [registry],
+  async collect() {
+    if (!queueDepthSource) return;
+    this.set((await readQueueDepth()) === null ? 0 : 1);
   },
 });
 
@@ -82,22 +131,38 @@ export function recordDelivery(kind: 'manifest' | 'media' | 'object', bytes: num
 }
 
 // Cache metrics
-export const cacheHitRatio = new Gauge({
-  name: 'sluby_cache_hit_ratio',
-  help: 'Gateway cache hits over all cache lookups since start (0 before any lookup)',
+// counters rather than a ratio, so a dashboard can take the hit rate over any
+// window. they count lookups in the whole-object cache (manifests, thumbnails
+// and other reads without a Range header); ranged media reads go to Sia
+// without it and show up only in sluby_segment_requests_total.
+export const cacheHitsTotal = new Counter({
+  name: 'sluby_cache_hits_total',
+  help: 'Gateway whole-object cache lookups served from memory',
   registers: [registry],
   collect() {
     if (!cacheCountsSource) return;
-    const { hits, misses } = cacheCountsSource();
-    this.set(hits + misses > 0 ? hits / (hits + misses) : 0);
+    this.reset();
+    this.inc(cacheCountsSource().hits);
+  },
+});
+
+export const cacheMissesTotal = new Counter({
+  name: 'sluby_cache_misses_total',
+  help: 'Gateway whole-object cache lookups that fetched the object from Sia',
+  registers: [registry],
+  collect() {
+    if (!cacheCountsSource) return;
+    this.reset();
+    this.inc(cacheCountsSource().misses);
   },
 });
 
 // Sia storage metrics
+// a packed upload of a long video takes minutes, so the buckets reach 30 min
 export const siaUploadDurationSeconds = new Histogram({
   name: 'sluby_sia_upload_duration_seconds',
   help: 'Time to upload an object to Sia',
-  buckets: [0.5, 1, 2, 5, 10, 30, 60],
+  buckets: [1, 5, 15, 30, 60, 120, 300, 600, 900, 1200, 1800],
   registers: [registry],
 });
 

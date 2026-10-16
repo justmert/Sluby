@@ -11,7 +11,7 @@ import {
   index,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 // ──────────────────────────────────────────
 // Enums
@@ -69,22 +69,32 @@ export const reconcileStatusEnum = pgEnum('reconcile_status', ['ok', 'drift', 'f
  * Created when a client initiates an upload, updated as chunks arrive,
  * and finalized when the full file has been received and verified.
  */
-export const uploadSessions = pgTable('upload_sessions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  videoAssetId: uuid('video_asset_id').references(() => videoAssets.id, {
-    onDelete: 'set null',
-  }),
-  uploadUrl: text('upload_url').notNull(),
-  filePath: text('file_path').notNull(),
-  fileSize: bigint('file_size', { mode: 'number' }).notNull(),
-  uploadedBytes: bigint('uploaded_bytes', { mode: 'number' }).notNull().default(0),
-  sha256Hash: text('sha256_hash'),
-  status: uploadStatusEnum('status').notNull().default('uploading'),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  expiresAt: timestamp('expires_at', { withTimezone: true }),
-});
+export const uploadSessions = pgTable(
+  'upload_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    videoAssetId: uuid('video_asset_id').references(() => videoAssets.id, {
+      onDelete: 'set null',
+    }),
+    uploadUrl: text('upload_url').notNull(),
+    filePath: text('file_path').notNull(),
+    fileSize: bigint('file_size', { mode: 'number' }).notNull(),
+    uploadedBytes: bigint('uploaded_bytes', { mode: 'number' }).notNull().default(0),
+    sha256Hash: text('sha256_hash'),
+    status: uploadStatusEnum('status').notNull().default('uploading'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+  },
+  (t) => [
+    // deletion looks sessions up by asset, and the foreign key's set null on
+    // a hard delete would otherwise scan the table
+    index('upload_sessions_video_asset_id_idx').on(t.videoAssetId),
+    // the hourly source sweep matches files on disk to sessions by path
+    index('upload_sessions_file_path_idx').on(t.filePath),
+  ],
+);
 
 /**
  * video_assets stores local metadata for each video.
@@ -112,15 +122,22 @@ export const videoAssets = pgTable(
     // A non-null value means "deletion in progress"; the row is gone once the
     // objects are unpinned.
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // millisecond precision, the precision of a js date and so of a listing
+    // cursor, which lets the listing order and page on the plain column
+    createdAt: timestamp('created_at', { withTimezone: true, precision: 3 }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     // Every by-id API lookup is now owner-scoped, and listing filters on it.
     index('video_assets_creator_address_idx').on(t.creatorAddress),
     index('video_assets_status_idx').on(t.status),
-    // Matches the listing's stable sort key (createdAt desc, id desc).
+    // the platform listing's sort key (created_at desc, id desc), read backwards
     index('video_assets_created_at_id_idx').on(t.createdAt, t.id),
+    // a tenant's listing, read backwards too, so a page reads only the rows it
+    // returns
+    index('video_assets_owner_listing_idx')
+      .on(t.creatorAddress, t.createdAt, t.id)
+      .where(sql`${t.deletedAt} is null`),
     // Lets the deletion GC sweep find rows stuck mid-deletion cheaply.
     index('video_assets_deleted_at_idx').on(t.deletedAt),
   ],
@@ -189,7 +206,11 @@ export const renditions = pgTable(
  * artifacts is the authoritative mapping between every stored Sia Object
  * ID and its parent asset, rendition (when applicable), and role. This is
  * what lets the platform reconcile against the indexer, render a per-asset
- * storage breakdown, and unpin precisely on delete.
+ * storage breakdown, and unpin precisely on delete. Every id in an asset's
+ * manifest_object_id, thumbnail_object_ids and sia_object_ids has a row here
+ * too: finalize writes these rows before the columns (every finalize job made
+ * since this table exists carries them), and migration 0009 backfilled the
+ * assets stored before it.
  */
 export const artifacts = pgTable(
   'artifacts',
@@ -201,7 +222,10 @@ export const artifacts = pgTable(
     renditionId: uuid('rendition_id').references(() => renditions.id, {
       onDelete: 'cascade',
     }),
-    role: artifactRoleEnum('role').notNull(),
+    // null only for ids carried over from sia_object_ids of assets stored
+    // before this table existed: a playlist or a data file, which the asset
+    // row cannot tell apart
+    role: artifactRoleEnum('role'),
     objectId: text('object_id').notNull(),
     byteSize: bigint('byte_size', { mode: 'number' }).notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -239,23 +263,57 @@ export const playbackIds = pgTable(
  * reconciliation_runs records each pass of the background worker that
  * compares PostgreSQL's tracked object ids against the indexer's pinned
  * inventory. Orphaned/missing ids are captured for operator review; the
- * worker never deletes automatically.
+ * worker never deletes automatically. Only the latest runs are kept
+ * (RECONCILE_RUNS_KEPT), since each carries its full id lists.
  */
-export const reconciliationRuns = pgTable('reconciliation_runs', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
-  finishedAt: timestamp('finished_at', { withTimezone: true }).notNull(),
-  status: reconcileStatusEnum('status').notNull(),
-  dbObjectCount: integer('db_object_count').notNull().default(0),
-  indexerObjectCount: integer('indexer_object_count').notNull().default(0),
-  inSyncCount: integer('in_sync_count').notNull().default(0),
-  orphanCount: integer('orphan_count').notNull().default(0),
-  missingCount: integer('missing_count').notNull().default(0),
-  orphanedIds: jsonb('orphaned_ids').$type<string[]>().notNull().default([]),
-  missingIds: jsonb('missing_ids').$type<string[]>().notNull().default([]),
-  /** Populated when status is 'failed' so outages are visible, not just logged. */
-  errorMessage: text('error_message'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+export const reconciliationRuns = pgTable(
+  'reconciliation_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }).notNull(),
+    status: reconcileStatusEnum('status').notNull(),
+    dbObjectCount: integer('db_object_count').notNull().default(0),
+    indexerObjectCount: integer('indexer_object_count').notNull().default(0),
+    inSyncCount: integer('in_sync_count').notNull().default(0),
+    orphanCount: integer('orphan_count').notNull().default(0),
+    missingCount: integer('missing_count').notNull().default(0),
+    orphanedIds: jsonb('orphaned_ids').$type<string[]>().notNull().default([]),
+    missingIds: jsonb('missing_ids').$type<string[]>().notNull().default([]),
+    /** Populated when status is 'failed' so outages are visible, not just logged. */
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  // the latest run is read by finish time, and retention drops the oldest
+  (t) => [index('reconciliation_runs_finished_at_idx').on(t.finishedAt)],
+);
+
+/**
+ * indexer_objects is reconciliation's copy of the indexer's object inventory:
+ * the latest event the indexer's object feed reported for each object id.
+ * Each run reads only the events after reconcile_feed's cursor and applies
+ * them here, instead of replaying the whole feed. Deleted objects are kept for
+ * the grace window only, to tell a deletion in progress from a missing object.
+ */
+export const indexerObjects = pgTable('indexer_objects', {
+  objectId: text('object_id').primaryKey(),
+  deleted: boolean('deleted').notNull(),
+  /** The indexer's updatedAt for the event, at the millisecond precision the SDK gives. */
+  eventAt: timestamp('event_at', { withTimezone: true, precision: 3 }).notNull(),
+});
+
+/**
+ * reconcile_feed is the one row naming the indexer feed indexer_objects was
+ * built from and how far it has been read. A run against another feed
+ * (another indexer url or account) starts the copy over.
+ */
+export const reconcileFeed = pgTable('reconcile_feed', {
+  /** The indexer url and account key the inventory belongs to. */
+  feed: text('feed').primaryKey(),
+  /** Where the next run resumes the feed; null reads it from the start. */
+  cursorId: text('cursor_id'),
+  cursorAfter: timestamp('cursor_after', { withTimezone: true, precision: 3 }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 /**
@@ -281,7 +339,11 @@ export const apiKeys = pgTable(
       onDelete: 'set null',
     }),
   },
-  (t) => [index('api_keys_creator_address_idx').on(t.creatorAddress)],
+  (t) => [
+    index('api_keys_creator_address_idx').on(t.creatorAddress),
+    // deleting a key clears this link on the key it replaced
+    index('api_keys_replaced_by_id_idx').on(t.replacedById),
+  ],
 );
 
 /**
@@ -332,19 +394,26 @@ export const webhookEndpoints = pgTable(
  * webhook_deliveries logs every webhook delivery attempt.
  * Used for debugging, retries, and auditing.
  */
-export const webhookDeliveries = pgTable('webhook_deliveries', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  webhookEndpointId: uuid('webhook_endpoint_id')
-    .notNull()
-    .references(() => webhookEndpoints.id, { onDelete: 'cascade' }),
-  eventType: text('event_type').notNull(),
-  payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
-  statusCode: integer('status_code'),
-  responseBody: text('response_body'),
-  deliveredAt: timestamp('delivered_at', { withTimezone: true }),
-  retryCount: integer('retry_count').notNull().default(0),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const webhookDeliveries = pgTable(
+  'webhook_deliveries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    webhookEndpointId: uuid('webhook_endpoint_id')
+      .notNull()
+      .references(() => webhookEndpoints.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    statusCode: integer('status_code'),
+    responseBody: text('response_body'),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    retryCount: integer('retry_count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // deleting an endpoint cascades here, and its deliveries list newest first
+    index('webhook_deliveries_endpoint_created_at_idx').on(t.webhookEndpointId, t.createdAt),
+  ],
+);
 
 // ──────────────────────────────────────────
 // Relations

@@ -287,8 +287,9 @@ describe.skipIf(!hasTestDatabase)('asset queries (postgres)', () => {
       it('stays exact with sub-millisecond timestamps the cursor cannot carry', async () => {
         const made = [];
         for (let i = 0; i < 6; i++) made.push(await asset({ title: `t${i}` }));
-        // postgres keeps microseconds; js dates (and so cursors) keep only
-        // milliseconds. put several rows inside the same millisecond.
+        // js dates (and so cursors) keep only milliseconds; the column rounds
+        // whatever it is written with to that, so these land on shared
+        // milliseconds and the cursor still walks them exactly
         const micros = ['000100', '000900', '000500', '999999', '123456', '000001'];
         for (let i = 0; i < made.length; i++) {
           await tdb.sql`
@@ -299,7 +300,7 @@ describe.skipIf(!hasTestDatabase)('asset queries (postgres)', () => {
         }
         const expected = await tdb.sql<{ id: string }[]>`
           select id from video_assets
-          order by date_trunc('milliseconds', created_at) desc, id desc
+          order by created_at desc, id desc
         `;
         const { seen } = await walk(1);
         expect(seen).toEqual(expected.map((r) => r.id));
@@ -508,8 +509,51 @@ describe.skipIf(!hasTestDatabase)('asset queries (postgres)', () => {
         jobs: 0,
         playback: 0,
       });
-      // the upload session outlives the asset with its link cleared
-      expect((await uploads.getUploadSessionById(session.id))?.videoAssetId).toBeNull();
+      // the upload session stays, so the source sweep can still find its file,
+      // but without its link or the tus metadata (title, owner, key)
+      expect(await uploads.getUploadSessionById(session.id)).toMatchObject({
+        videoAssetId: null,
+        filePath: '/tmp/x',
+        metadata: {},
+      });
+    });
+
+    it('clears the metadata of the deleted asset’s upload sessions only', async () => {
+      const gone = await asset({ creatorAddress: 'alice' });
+      const kept = await asset({ creatorAddress: 'alice' });
+      const meta = { title: 'Holiday', creatorAddress: 'alice', apiKeyId: 'k1' };
+      const s1 = await uploads.createUploadSession({
+        uploadUrl: 'http://x/u1',
+        filePath: '/tmp/1',
+        fileSize: 1,
+        videoAssetId: gone.id,
+        metadata: meta,
+      });
+      const s2 = await uploads.createUploadSession({
+        uploadUrl: 'http://x/u2',
+        filePath: '/tmp/2',
+        fileSize: 1,
+        videoAssetId: kept.id,
+        metadata: meta,
+      });
+
+      await q.deleteVideoAsset(gone.id);
+
+      expect((await uploads.getUploadSessionById(s1.id))?.metadata).toEqual({});
+      expect((await uploads.getUploadSessionById(s2.id))?.metadata).toEqual(meta);
+    });
+
+    it('leaves the sessions alone when the owner-scoped delete matches nothing', async () => {
+      const a = await asset({ creatorAddress: 'alice' });
+      const s = await uploads.createUploadSession({
+        uploadUrl: 'http://x/u',
+        filePath: '/tmp/x',
+        fileSize: 1,
+        videoAssetId: a.id,
+        metadata: { title: 'mine' },
+      });
+      expect(await q.deleteVideoAsset(a.id, 'bob')).toBeUndefined();
+      expect((await uploads.getUploadSessionById(s.id))?.metadata).toEqual({ title: 'mine' });
     });
   });
 });

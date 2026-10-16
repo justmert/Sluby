@@ -135,7 +135,7 @@ export interface AuthRouteDeps {
 }
 
 // ended sessions stay listed nowhere, but keep their rows a while for audit
-const ENDED_SESSION_RETENTION_MS = 30 * 24 * 3600 * 1000;
+export const ENDED_SESSION_RETENTION_MS = 30 * 24 * 3600 * 1000;
 
 export function createAuthRoutes(deps: AuthRouteDeps): Router {
   const router = Router();

@@ -13,7 +13,13 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import { videoAssets, artifacts, type VideoAsset, type NewVideoAsset } from '../schema.js';
+import {
+  videoAssets,
+  artifacts,
+  uploadSessions,
+  type VideoAsset,
+  type NewVideoAsset,
+} from '../schema.js';
 import { decodeCursor, paginateRows } from '../../api/pagination.js';
 import { collectAssetObjectIds } from '../../deletion/collect.js';
 import { isDefaultAssetOrder, type AssetSortField, type SortOrder } from '../../api/asset-sort.js';
@@ -77,8 +83,9 @@ function likeContains(term: string): string {
  * can be checked without a database.
  *
  * Every order ends in `id` so pages are stable when the sort key ties.
- * Timestamps compare truncated to milliseconds so the JS-side cursor
- * (millisecond precision) and the SQL ordering agree exactly.
+ * created_at is stored at millisecond precision, the precision of the cursor,
+ * so the newest-first order and the keyset compare the plain column and an
+ * index serves them.
  */
 export function assetListQuery(opts: AssetListOptions) {
   const { status, accessTier, creatorAddress, search, cursor } = opts;
@@ -107,12 +114,12 @@ export function assetListQuery(opts: AssetListOptions) {
   const cursorKey = cursor && isDefaultAssetOrder(sort, order) ? decodeCursor(cursor) : null;
   if (cursorKey) {
     dataConditions.push(
-      sql`(date_trunc('milliseconds', ${videoAssets.createdAt}), ${videoAssets.id}) < (${cursorKey.createdAt.toISOString()}::timestamptz, ${cursorKey.id}::uuid)`,
+      sql`(${videoAssets.createdAt}, ${videoAssets.id}) < (${cursorKey.createdAt.toISOString()}::timestamptz, ${cursorKey.id}::uuid)`,
     );
   }
 
   const key: Record<AssetSortField, SQL> = {
-    created_at: sql`date_trunc('milliseconds', ${videoAssets.createdAt})`,
+    created_at: sql`${videoAssets.createdAt}`,
     title: sql`lower(${videoAssets.title})`,
     duration: sql`${videoAssets.durationMs}`,
     size: sql`${videoAssets.totalStorageBytes}`,
@@ -236,20 +243,35 @@ export async function updateAssetMetadata(
  * artifacts, jobs, and playback ids). Used by the deletion worker AFTER the
  * asset's Sia objects have been unpinned; API callers use
  * {@link softDeleteVideoAsset} instead.
+ *
+ * Its upload sessions stay (the foreign key clears their link) because the
+ * source sweep finds a leftover file through them, but their tus metadata,
+ * which holds the title and the owner, goes with the asset. The sweep deletes
+ * the session once the file is gone (deleteDetachedUploadSessions).
  */
 export async function deleteVideoAsset(
   id: string,
   owner?: string,
 ): Promise<VideoAsset | undefined> {
-  const [deleted] = await db
-    .delete(videoAssets)
-    .where(
-      owner !== undefined
-        ? and(eq(videoAssets.id, id), eq(videoAssets.creatorAddress, owner))
-        : eq(videoAssets.id, id),
-    )
-    .returning();
-  return deleted;
+  return db.transaction(async (tx) => {
+    const [target] = await tx
+      .select({ id: videoAssets.id })
+      .from(videoAssets)
+      .where(
+        owner !== undefined
+          ? and(eq(videoAssets.id, id), eq(videoAssets.creatorAddress, owner))
+          : eq(videoAssets.id, id),
+      )
+      .for('update');
+    if (!target) return undefined;
+    // while the link still says which sessions were this asset's
+    await tx
+      .update(uploadSessions)
+      .set({ metadata: {} })
+      .where(eq(uploadSessions.videoAssetId, id));
+    const [deleted] = await tx.delete(videoAssets).where(eq(videoAssets.id, id)).returning();
+    return deleted;
+  });
 }
 
 /**

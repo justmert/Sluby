@@ -130,4 +130,18 @@ describe('objectRefs', () => {
       { objectId: 'data-720', role: null, rendition: null },
     ]);
   });
+
+  it('lists backfilled objects with no recorded role after the known ones', () => {
+    expect(
+      objectRefs(asset, [
+        { objectId: 'data-720', role: null, renditionName: null },
+        { objectId: 'thumb', role: 'thumbnail', renditionName: null },
+        { objectId: 'master', role: 'master_manifest', renditionName: null },
+      ]),
+    ).toEqual([
+      { objectId: 'master', role: 'master_manifest', rendition: null },
+      { objectId: 'thumb', role: 'thumbnail', rendition: null },
+      { objectId: 'data-720', role: null, rendition: null },
+    ]);
+  });
 });

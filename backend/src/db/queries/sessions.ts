@@ -68,20 +68,32 @@ export async function revokeAllStudioSessions(login: string): Promise<number> {
   return rows.length;
 }
 
+/** Sessions that expired or were revoked before `olderThan`. */
+const endedBefore = (olderThan: Date) =>
+  or(
+    lt(studioSessions.expiresAt, olderThan),
+    and(isNotNull(studioSessions.revokedAt), lt(studioSessions.revokedAt, olderThan)),
+  );
+
 /**
  * Drop `login`'s sessions that expired or were revoked more than `olderThan`
- * ago. Run at sign-in so the table stays bounded without a separate sweep.
+ * ago. Run at sign-in, so a login's own list stays short.
  */
 export async function pruneStudioSessions(login: string, olderThan: Date): Promise<void> {
   await db
     .delete(studioSessions)
-    .where(
-      and(
-        eq(studioSessions.login, login),
-        or(
-          lt(studioSessions.expiresAt, olderThan),
-          and(isNotNull(studioSessions.revokedAt), lt(studioSessions.revokedAt, olderThan)),
-        ),
-      ),
-    );
+    .where(and(eq(studioSessions.login, login), endedBefore(olderThan)));
+}
+
+/**
+ * Drop every login's sessions that ended before `olderThan`, from the hourly
+ * sweep: a login that never signs in again would otherwise keep its rows.
+ * Returns how many were dropped.
+ */
+export async function pruneEndedStudioSessions(olderThan: Date): Promise<number> {
+  const rows = await db
+    .delete(studioSessions)
+    .where(endedBefore(olderThan))
+    .returning({ id: studioSessions.id });
+  return rows.length;
 }

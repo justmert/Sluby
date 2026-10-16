@@ -391,8 +391,8 @@ export interface ObjectEventPage {
 
 /**
  * Fetch one page of the indexer's object change feed. The SDK exposes no
- * "list all objects" call, so reconciliation replays this cursor feed to
- * reconstruct the current inventory (see reconcile/collect-inventory.ts).
+ * "list all objects" call, so reconciliation reads this cursor feed into its
+ * saved copy of the inventory (see reconcile/collect-inventory.ts).
  */
 export async function listObjectEventsPage(
   cursor: { id: string; after: Date } | null,

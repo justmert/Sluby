@@ -29,7 +29,9 @@ const metrics: PromMetric[] = [
     type: 'counter',
     values: [{ value: 1_000_000, labels: {} }],
   },
-  { name: 'sluby_cache_hit_ratio', type: 'gauge', values: [{ value: 0.5, labels: {} }] },
+  { name: 'sluby_cache_hits_total', type: 'counter', values: [{ value: 3, labels: {} }] },
+  { name: 'sluby_cache_misses_total', type: 'counter', values: [{ value: 1, labels: {} }] },
+  { name: 'sluby_redis_up', type: 'gauge', values: [{ value: 1, labels: {} }] },
   {
     name: 'sluby_playback_initiation_total',
     type: 'counter',
@@ -52,13 +54,30 @@ describe('summarizeMetrics', () => {
     expect(s.uploads).toEqual({ succeeded: 5, failed: 1, bytes: 2048 });
     expect(s.delivery.requests).toEqual({ manifest: 6, media: 40, object: 0 });
     expect(s.playback).toEqual({ public: 0, signed: 1, sia: 4 });
-    expect(s.delivery.cacheHitRatio).toBe(0.5);
+    expect(s.delivery.cacheHitRatio).toBe(0.75);
     expect(s.process.startedAt).toBe(1_790_000_000_000);
   });
 
   it('averages histograms from sum and count, ignoring buckets', () => {
     expect(s.processing).toEqual({ queueDepth: 2, completed: 3, avgSeconds: 30 });
     expect(s.sia).toEqual({ uploads: 0, avgSeconds: null });
+  });
+
+  it('reports the queue depth unknown while Redis does not answer', () => {
+    // the backend sets the depth to NaN, which json carries as null
+    const down = metrics.map((m) =>
+      m.name === 'sluby_redis_up'
+        ? { ...m, values: [{ value: 0, labels: {} }] }
+        : m.name === 'sluby_processing_queue_depth'
+          ? { ...m, values: [{ value: null as unknown as number, labels: {} }] }
+          : m,
+    );
+    expect(summarizeMetrics(down).processing.queueDepth).toBeNull();
+  });
+
+  it('has no hit ratio before any cache lookup', () => {
+    const none = metrics.filter((m) => !m.name.startsWith('sluby_cache_'));
+    expect(summarizeMetrics(none).delivery.cacheHitRatio).toBeNull();
   });
 });
 

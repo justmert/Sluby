@@ -73,18 +73,23 @@ export async function removeAssetSources(
  * failed. Files no upload session records are left alone and only counted:
  * they may be uploads whose session row is still being written, and the
  * expiry sweep removes them if they never complete.
+ *
+ * Then the sessions of deleted assets whose files are gone are forgotten
+ * (`forgetDetached` gets the files still on disk), so their rows do not pile
+ * up; one whose file is still there stays until a later sweep removes it.
  */
 export async function sweepFinishedSources(deps: {
   uploadDir: string;
   states: (paths: string[]) => Promise<Map<string, 'ready' | 'gone' | 'in-use' | 'cancelled'>>;
+  forgetDetached: (stillOnDisk: string[]) => Promise<number>;
   log: Log;
-}): Promise<{ removed: number; unknown: number }> {
+}): Promise<{ removed: number; unknown: number; forgotten: number }> {
   let names: string[];
   try {
     names = await readdir(deps.uploadDir);
   } catch (err) {
     deps.log.error({ err, directory: deps.uploadDir }, 'Could not list the upload directory');
-    return { removed: 0, unknown: 0 };
+    return { removed: 0, unknown: 0, forgotten: 0 };
   }
   // tus writes `<id>` and its `<id>.json` sidecar; the data file stands for both
   const paths = names.filter((n) => !n.endsWith('.json')).map((n) => `${deps.uploadDir}/${n}`);
@@ -93,17 +98,26 @@ export async function sweepFinishedSources(deps: {
     states = await deps.states(paths);
   } catch (err) {
     deps.log.error({ err }, 'Could not look up source uploads to sweep');
-    return { removed: 0, unknown: 0 };
+    return { removed: 0, unknown: 0, forgotten: 0 };
   }
   let removed = 0;
   let unknown = 0;
+  const stillOnDisk: string[] = [];
   for (const p of paths) {
     const state = states.get(p);
     if (state === undefined) unknown++;
-    else if ((state === 'ready' || state === 'gone') && (await removeSourceUpload(p, deps.log))) {
+    if ((state === 'ready' || state === 'gone') && (await removeSourceUpload(p, deps.log))) {
       removed++;
+    } else {
+      stillOnDisk.push(p);
     }
   }
-  deps.log.info({ removed, unknown }, 'Swept source uploads nothing needs');
-  return { removed, unknown };
+  let forgotten = 0;
+  try {
+    forgotten = await deps.forgetDetached(stillOnDisk);
+  } catch (err) {
+    deps.log.error({ err }, 'Could not forget the upload sessions of deleted assets');
+  }
+  deps.log.info({ removed, unknown, forgotten }, 'Swept source uploads nothing needs');
+  return { removed, unknown, forgotten };
 }

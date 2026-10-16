@@ -115,7 +115,10 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
 
     // Serialize as snake_case to match the rest of the API and what the SDK
     // reads. The deps contract stays camelCase for internal callers.
-    playbackInitiationTotal.inc({ mode: 'signed' });
+    // a url minted already expired (a negative expires_in) starts no playback
+    if (Date.parse(signed.expiresAt) > Date.now()) {
+      playbackInitiationTotal.inc({ mode: 'signed' });
+    }
     res.json({ signed_url: signed.signedUrl, expires_at: signed.expiresAt });
   });
 

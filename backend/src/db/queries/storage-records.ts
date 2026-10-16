@@ -62,7 +62,8 @@ export interface RenditionRecord {
 
 export interface ArtifactRecord {
   objectId: string;
-  role: 'master_manifest' | 'variant_playlist' | 'rendition_data' | 'thumbnail';
+  /** null for an object stored before roles were recorded. */
+  role: 'master_manifest' | 'variant_playlist' | 'rendition_data' | 'thumbnail' | null;
   renditionName: string | null;
   byteSize: number;
 }

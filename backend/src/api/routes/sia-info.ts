@@ -25,7 +25,8 @@ export interface SiaInfoAssetRecord {
 
 export interface SiaInfoArtifact {
   objectId: string;
-  role: 'master_manifest' | 'variant_playlist' | 'rendition_data' | 'thumbnail';
+  /** null for an object stored before roles were recorded. */
+  role: 'master_manifest' | 'variant_playlist' | 'rendition_data' | 'thumbnail' | null;
   renditionName: string | null;
 }
 
@@ -102,7 +103,8 @@ async function cachedHosts(deps: SiaInfoRouteDeps): Promise<HostInfo[]> {
 // Assembly
 // ---------------------------------------------------------------------------
 
-const ROLE_ORDER = ['master_manifest', 'variant_playlist', 'rendition_data', 'thumbnail'];
+// objects without a recorded role go last
+const ROLE_ORDER = ['master_manifest', 'variant_playlist', 'rendition_data', 'thumbnail', null];
 
 /**
  * The asset's objects with their roles. The artifacts table is the source of

@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   uploadSessions,
@@ -152,4 +152,25 @@ export async function sourceFileStates(paths: string[]): Promise<Map<string, Sou
     }
   }
   return states;
+}
+
+/**
+ * Delete the upload sessions of hard-deleted assets whose source file is no
+ * longer in UPLOAD_DIR: `onDisk` is every source path the sweep still found
+ * there. A session whose file is still there stays, since it is how the sweep
+ * knows that file can go. Returns how many were deleted.
+ */
+export async function deleteDetachedUploadSessions(onDisk: string[]): Promise<number> {
+  // one jsonb parameter, as the directory can hold more files than postgres
+  // takes bind parameters
+  const rows = await db
+    .delete(uploadSessions)
+    .where(
+      and(
+        isNull(uploadSessions.videoAssetId),
+        sql`${uploadSessions.filePath} not in (select jsonb_array_elements_text(${JSON.stringify(onDisk)}::jsonb))`,
+      ),
+    )
+    .returning({ id: uploadSessions.id });
+  return rows.length;
 }

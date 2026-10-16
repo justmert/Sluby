@@ -82,4 +82,22 @@ describe.skipIf(!hasTestDatabase)('studio session queries (postgres)', () => {
     expect(ids).not.toContain(oldRevoked.id);
     expect(ids).toEqual(expect.arrayContaining([justExpired.id, live.id, otherLogin.id]));
   });
+
+  it('prunes ended sessions of every login, for logins that never sign in again', async () => {
+    const cutoff = new Date(Date.now() - 24 * 3600_000);
+    const longExpired = await newSession('octocat', new Date(Date.now() - 48 * 3600_000));
+    const otherLogin = await newSession('alice', new Date(Date.now() - 48 * 3600_000));
+    const oldRevoked = await newSession('bob');
+    await tdb.sql`update studio_sessions set revoked_at = now() - interval '2 days' where id = ${oldRevoked.id}`;
+    const justExpired = await newSession('carol', new Date(Date.now() - 1000));
+    const recentlyRevoked = await newSession('dave');
+    await q.revokeStudioSession(recentlyRevoked.id, 'dave');
+    const live = await newSession('erin');
+
+    expect(await q.pruneEndedStudioSessions(cutoff)).toBe(3);
+    const ids = (await tdb.sql`select id from studio_sessions`).map((r) => r.id);
+    expect(ids.sort()).toEqual([justExpired.id, recentlyRevoked.id, live.id].sort());
+    expect(ids).not.toContain(longExpired.id);
+    expect(ids).not.toContain(otherLogin.id);
+  });
 });

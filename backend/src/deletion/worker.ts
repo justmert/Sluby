@@ -15,6 +15,7 @@ import { removeAssetSources } from '../upload/source-files.js';
 import { invalidateObjectAccessTier } from '../delivery/access-control.js';
 import { runAssetDeletion } from './deleter.js';
 import { buildDeletionGc } from './service.js';
+import { applySweepSchedule, DELETION_GC_SWEEP } from '../queue/schedules.js';
 
 const logger = pino({ name: 'deletion-worker' });
 
@@ -80,20 +81,14 @@ deletionWorker.on('failed', (job, error) => {
   );
 });
 
-/**
- * Register the repeatable GC sweep. Fixed jobId so restarts reuse the one
- * schedule rather than stacking duplicates.
- */
+/** Make the GC sweep's schedule match the settings, removing it when disabled. */
 export async function scheduleDeletionGc(): Promise<void> {
   if (!env.DELETION_GC_ENABLED) {
+    await applySweepSchedule(deletionQueue, DELETION_GC_SWEEP, null);
     logger.info('Deletion GC disabled (DELETION_GC_ENABLED=false)');
     return;
   }
-  await deletionQueue.add(
-    'gc',
-    { kind: 'gc' },
-    { repeat: { every: env.DELETION_GC_INTERVAL_MS }, jobId: 'deletion-gc-scheduled' },
-  );
+  await applySweepSchedule(deletionQueue, DELETION_GC_SWEEP, env.DELETION_GC_INTERVAL_MS);
   logger.info({ everyMs: env.DELETION_GC_INTERVAL_MS }, 'Deletion GC sweep scheduled');
 }
 

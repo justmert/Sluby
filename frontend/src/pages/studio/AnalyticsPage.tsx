@@ -113,7 +113,7 @@ export default function AnalyticsPage() {
               icon={Cpu}
               label="Processing"
               value={seconds(m.processing.avgSeconds)}
-              hint={`average over ${m.processing.completed} job${m.processing.completed === 1 ? '' : 's'}, ${m.processing.queueDepth} in queue`}
+              hint={`average over ${m.processing.completed} job${m.processing.completed === 1 ? '' : 's'}, ${m.processing.queueDepth === null ? 'queue depth unavailable' : `${m.processing.queueDepth} in queue`}`}
             />
             <Stat
               icon={Clock}
@@ -138,7 +138,11 @@ export default function AnalyticsPage() {
             <Stat
               icon={Gauge}
               label="Cache hit ratio"
-              value={`${Math.round(m.delivery.cacheHitRatio * 100)}%`}
+              value={
+                m.delivery.cacheHitRatio === null
+                  ? 'n/a'
+                  : `${Math.round(m.delivery.cacheHitRatio * 100)}%`
+              }
             />
             <Stat
               icon={Clock}

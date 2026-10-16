@@ -49,6 +49,8 @@ Rate limits are not an environment setting: each API key carries its own request
 | `DELETION_GC_ENABLED`     | `true`     | Re-drive deletions that stopped half way, for example after a crash.                |
 | `DELETION_GC_INTERVAL_MS` | 15 minutes | How often that sweep runs.                                                          |
 
+The schedules live in Redis and are brought in line with these settings at every backend start: a changed interval replaces the schedule, and `false` removes it.
+
 ## Production override
 
 Read by `docker-compose.prod.yml` only.
