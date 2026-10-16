@@ -290,33 +290,50 @@ export async function uploadAndPin(data: Uint8Array): Promise<UploadResult> {
   return { objectId, size: data.length };
 }
 
+/** One item of a packed upload: bytes in memory, or a file the SDK reads from disk. */
+export type PackedSource = Uint8Array | { path: string };
+
 /**
- * Upload N Uint8Arrays in a single packed batch. Each item shares slabs
- * with its neighbours, which is materially cheaper than N independent
- * uploads when the items are small (e.g. HLS playlist + thumbnails).
+ * Upload N items in a single packed batch. Every upload costs at least one
+ * full slab on the wire (all data and parity shards), however little data it
+ * holds, so packing small items together is far cheaper than uploading each
+ * one on its own. Large items simply span more slabs, which the SDK uploads
+ * concurrently.
  */
-export async function uploadAndPinPacked(items: Uint8Array[]): Promise<UploadResult[]> {
+export async function uploadAndPinPacked(items: PackedSource[]): Promise<UploadResult[]> {
   if (items.length === 0) return [];
   const sdk = await getClient();
   const endTimer = siaUploadDurationSeconds.startTimer();
   const opts = erasureOptions();
   const packed = opts ? sdk.uploadPacked(opts) : sdk.uploadPacked();
-  for (const data of items) {
-    await packed.add(bytesToStream(data));
+  for (const item of items) {
+    // files are read in rust rather than streamed chunk by chunk through js
+    if (item instanceof Uint8Array) await packed.add(bytesToStream(item));
+    else await packed.addPath(item.path);
   }
   const objects = await packed.finalize();
   if (objects.length !== items.length) {
     throw new Error(`uploadAndPinPacked expected ${items.length} objects, got ${objects.length}`);
   }
-  // Pin in parallel — each pin is an indexd HTTP call, no host round-trip.
-  await Promise.all(objects.map((obj) => sdk.pinObject(obj)));
+  // pin in parallel: each pin is one indexd http call, no host round trip
+  const pins = await Promise.allSettled(objects.map((obj) => sdk.pinObject(obj)));
+  const failed = pins.find((p): p is PromiseRejectedResult => p.status === 'rejected');
+  if (failed) {
+    // the caller never learns these ids, so unpin them here or they leak
+    await Promise.allSettled(
+      objects
+        .filter((_, i) => pins[i].status === 'fulfilled')
+        .map((obj) => sdk.deleteObject(obj.id())),
+    );
+    throw failed.reason;
+  }
   endTimer();
-  const results = objects.map((obj, i) => ({
+  const results = objects.map((obj) => ({
     objectId: obj.id(),
-    size: items[i].length,
+    size: Number(obj.size()),
   }));
   logger.info(
-    { count: results.length, totalBytes: items.reduce((n, b) => n + b.length, 0) },
+    { count: results.length, totalBytes: results.reduce((n, r) => n + r.size, 0) },
     'Packed batch uploaded + pinned to Sia',
   );
   return results;
