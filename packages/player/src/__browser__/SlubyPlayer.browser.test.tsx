@@ -14,6 +14,7 @@ import {
   objectUrl,
   rangeHeader,
   resetGateway,
+  signedUrls,
   type FixtureCatalog,
   type Mounted,
 } from './harness.js';
@@ -212,63 +213,90 @@ describe('SlubyPlayer with real hls.js', () => {
     expect(events.errors).toHaveLength(1);
   }, 90_000);
 
-  it('keeps playing after every reload that resumes near the start', async () => {
-    // a new url for the same video (a renewed signature) reloads hls.js at the
-    // position reached. webkit can stop the clock for good when play() is
-    // pending during the seek to a position near the start; before
-    // the player waited for that seek, about half of the runs of 16 reloads did
+  // a renewed signature must not rebuild the pipeline: the urls hls.js still
+  // has from the first manifests stop working once their signature runs out,
+  // so loading anything new afterwards (here another rendition) proves the
+  // requests moved onto the renewed urls
+  async function renditionLoadsOnRenewedUrls(
+    ref: React.RefObject<SlubyPlayerHandle | null>,
+    firstExpires: number,
+  ) {
+    const video = ref.current!.getVideoElement()!;
+    const hls = ref.current!.getHlsInstance()!;
+    const reloads: string[] = [];
+    const record = (e: Event) => reloads.push(e.type);
+    for (const name of ['emptied', 'loadstart', 'seeking']) video.addEventListener(name, record);
+
+    await vi.waitFor(() => expect(Date.now()).toBeGreaterThan(firstExpires * 1000 + 250), {
+      timeout: 15_000,
+      interval: 100,
+    });
+    for (const name of ['emptied', 'loadstart', 'seeking']) video.removeEventListener(name, record);
+    expect(reloads).toEqual([]);
+    expect(ref.current!.getHlsInstance()).toBe(hls);
+
+    const before = (await gatewayRequests()).length;
+    const target = hls.currentLevel === 0 ? 1 : 0;
+    const rendition = catalog.renditions[target];
+    ref.current!.setQuality(target);
+    await vi.waitFor(
+      async () => {
+        const after = (await gatewayRequests()).slice(before);
+        expect(after.some((r) => r.id === rendition.dataId && r.status === 206)).toBe(true);
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+    const after = (await gatewayRequests()).slice(before);
+    expect(after.filter((r) => r.status === 403)).toEqual([]);
+    expect(after.every((r) => Number(r.expires) > firstExpires)).toBe(true);
+    expect(ref.current!.getHlsInstance()).toBe(hls);
+  }
+
+  it('moves onto a newly signed src for the same video without reloading it', async () => {
+    const first = await signedUrls(6);
+    const second = await signedUrls(3600);
     const ref = createRef<SlubyPlayerHandle>();
+    const errors: Error[] = [];
     let setSrc: (src: string) => void = () => {};
     function Swapper() {
-      const [src, set] = useState(objectUrl(catalog.masterId));
+      const [src, set] = useState(first.object);
       setSrc = set;
-      return <SlubyPlayer ref={ref} src={src} muted autoPlay controls={false} />;
+      return (
+        <SlubyPlayer ref={ref} src={src} muted controls={false} onError={(e) => errors.push(e)} />
+      );
     }
     mounted = mount(<Swapper />);
-    await vi.waitFor(() => expect(ref.current?.getVideoElement()).toBeTruthy());
-    const video = ref.current!.getVideoElement()!;
+    await vi.waitFor(
+      () =>
+        expect(ref.current?.getVideoElement()?.readyState).toBeGreaterThanOrEqual(
+          HTMLMediaElement.HAVE_FUTURE_DATA,
+        ),
+      { timeout: 15_000, interval: 50 },
+    );
 
-    for (let i = 1; i <= 16; i++) {
-      await vi.waitFor(
-        () => {
-          expect(video.paused).toBe(false);
-          expect(video.readyState).toBeGreaterThanOrEqual(HTMLMediaElement.HAVE_FUTURE_DATA);
-        },
-        { timeout: 15_000, interval: 20 },
-      );
-      video.currentTime = 0.3;
-      await vi.waitFor(() => expect(video.seeking).toBe(false), { timeout: 5_000, interval: 20 });
+    setSrc(second.object);
+    await renditionLoadsOnRenewedUrls(ref, first.expires);
+    expect(errors).toEqual([]);
+  }, 40_000);
 
-      const previous = ref.current!.getHlsInstance();
-      setSrc(`${objectUrl(catalog.masterId)}?reload=${i}`);
-      await vi.waitFor(() => {
-        const hls = ref.current!.getHlsInstance();
-        expect(hls).toBeInstanceOf(Hls);
-        expect(hls).not.toBe(previous);
-      });
-      // near 0.3, plus however far it played before the new url took over
-      const resumeAt = ref.current!.getHlsInstance()!.config.startPosition;
-      expect(resumeAt).toBeGreaterThan(0.2);
+  it('renews a signed src through refreshSrc before it expires, in place', async () => {
+    const first = await signedUrls(6);
+    const refreshSrc = vi.fn(async () => (await signedUrls(3600)).object);
+    const { ref, events, video } = renderPlayer({
+      src: first.object,
+      refreshSrc,
+      autoPlay: false,
+    });
+    await vi.waitFor(
+      () => expect(video().readyState).toBeGreaterThanOrEqual(HTMLMediaElement.HAVE_FUTURE_DATA),
+      { timeout: 15_000, interval: 50 },
+    );
 
-      // the reload lands on the position, then plays on from it
-      await vi.waitFor(
-        () => {
-          expect(video.seeking).toBe(false);
-          expect(video.readyState).toBeGreaterThanOrEqual(HTMLMediaElement.HAVE_FUTURE_DATA);
-          expect(Math.abs(video.currentTime - resumeAt)).toBeLessThan(0.05);
-        },
-        { timeout: 15_000, interval: 20 },
-      );
-      const landed = video.currentTime;
-      await vi.waitFor(
-        () => {
-          expect(video.paused).toBe(false);
-          expect(video.currentTime).not.toBe(landed);
-        },
-        { timeout: 5_000, interval: 20 },
-      );
-    }
-  }, 120_000);
+    await renditionLoadsOnRenewedUrls(ref, first.expires);
+    expect(refreshSrc).toHaveBeenCalledTimes(1);
+    expect(refreshSrc).toHaveBeenCalledWith(first.object);
+    expect(events.errors).toEqual([]);
+  }, 40_000);
 
   it('re-requests a master that 404s on each retry, then reports the error', async () => {
     await injectFault(catalog.masterId, 404);
