@@ -338,13 +338,48 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       expect(await q.validateApiKey('sluby_boot')).toBeUndefined();
     });
 
-    it('inserts a deleted bootstrap key again on the next start', async () => {
+    it('never seeds a deleted bootstrap key again', async () => {
       await seeding.seedBootstrapApiKey(database.db, 'sluby_boot');
       const row = await q.getApiKeyByHash(hashApiKey('sluby_boot'));
       await q.deleteApiKey(row!.id);
 
-      expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_boot')).toBe('created');
-      expect(await q.validateApiKey('sluby_boot')).toBeDefined();
+      expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_boot')).toBe('retired');
+      expect(await q.validateApiKey('sluby_boot')).toBeUndefined();
+    });
+
+    it('keeps a rotated bootstrap key retired after its expired row is deleted', async () => {
+      await seeding.seedBootstrapApiKey(database.db, 'sluby_boot');
+      const row = await q.getApiKeyByHash(hashApiKey('sluby_boot'));
+      await q.rotateApiKey(row!.id, undefined, generateApiKey().hash, new Date());
+      await q.deleteApiKey(row!.id);
+
+      expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_boot')).toBe('retired');
+      expect(await q.validateApiKey('sluby_boot')).toBeUndefined();
+    });
+
+    it('seeds a new bootstrap value after the old one was retired', async () => {
+      await seeding.seedBootstrapApiKey(database.db, 'sluby_boot');
+      await q.deleteApiKey((await q.getApiKeyByHash(hashApiKey('sluby_boot')))!.id);
+      expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_boot_2')).toBe('created');
+      expect(await q.validateApiKey('sluby_boot_2')).toBeDefined();
+    });
+
+    it('seeds once when replicas start together', async () => {
+      const outcomes = await Promise.all(
+        Array.from({ length: 5 }, () => seeding.seedBootstrapApiKey(database.db, 'sluby_boot')),
+      );
+      expect(outcomes.filter((o) => o === 'created')).toHaveLength(1);
+      expect(outcomes.filter((o) => o === 'exists')).toHaveLength(4);
+      const [{ n }] = await tdb.sql`select count(*)::int as n from api_keys`;
+      expect(n).toBe(1);
+    });
+
+    it('treats a bootstrap key from before bootstrap_keys existed as seeded', async () => {
+      await seeding.seedBootstrapApiKey(database.db, 'sluby_boot');
+      await tdb.sql`delete from bootstrap_keys`;
+      expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_boot')).toBe('exists');
+      const [{ n }] = await tdb.sql`select count(*)::int as n from bootstrap_keys`;
+      expect(n).toBe(1);
     });
 
     it('adds the bootstrap key alongside keys that already exist', async () => {

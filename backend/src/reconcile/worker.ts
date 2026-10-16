@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import pino from 'pino';
+import { logger as rootLogger } from '../config/logger.js';
 import { redisConnection, reconcileQueue, type ReconcileJobData } from '../queue/bull-config.js';
 import { env } from '../config/env.js';
 import { runReconciliation } from './reconciler.js';
@@ -19,7 +19,7 @@ import {
 } from '../db/queries/reconciliation.js';
 import { applySweepSchedule, RECONCILE_SWEEP } from '../queue/schedules.js';
 
-const logger = pino({ name: 'reconcile-worker' });
+const logger = rootLogger.child({ name: 'reconcile-worker' });
 
 async function runPass(trigger: ReconcileJobData['trigger']) {
   logger.info({ trigger }, 'Starting reconciliation run');

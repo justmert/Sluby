@@ -358,6 +358,16 @@ export const reconcileFeed = pgTable('reconcile_feed', {
 });
 
 /**
+ * bootstrap_keys remembers every BOOTSTRAP_API_KEY ever seeded, by hash. A
+ * hash listed here is never seeded again, so deleting or rotating away the
+ * bootstrap key sticks across restarts while the variable is still set.
+ */
+export const bootstrapKeys = pgTable('bootstrap_keys', {
+  keyHash: text('key_hash').primaryKey(),
+  seededAt: timestamp('seeded_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
  * api_keys stores hashed developer API keys.
  * The raw key is shown only once at creation time; we store SHA-256
  * hashes for lookup.

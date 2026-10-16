@@ -202,11 +202,11 @@ export const openapiDocument = {
           },
           message: {
             type: 'string',
-            description: 'Outside NODE_ENV=production only: the internal error message.',
+            description: 'Only with EXPOSE_ERROR_STACKS=true: the internal error message.',
           },
           stack: {
             type: 'string',
-            description: 'Outside NODE_ENV=production only: the stack trace.',
+            description: 'Only with EXPOSE_ERROR_STACKS=true: the stack trace.',
           },
         },
         required: ['error'],
@@ -700,7 +700,7 @@ export const openapiDocument = {
           timestamp: { type: 'string', format: 'date-time' },
           metrics: {
             type: 'array',
-            description: 'The prom-client registry as JSON, one entry per metric.',
+            description: 'The metrics registry as JSON, one entry per metric.',
             items: {
               type: 'object',
               required: ['name', 'type', 'values'],
@@ -1964,7 +1964,7 @@ export const openapiDocument = {
           'The platform identity and operators get the whole run, orphaned ids included; any ' +
           'other caller gets only the missing objects of its own assets (see ' +
           'ReconciliationRun). The platform identity is a key with the all-zero address, as ' +
-          '`npm run db:seed-key` mints by default; operators are the accounts in ' +
+          '`npm run db:seed-key -- --platform` mints; operators are the accounts in ' +
           'OPERATOR_USERS, their Studio sessions and their keys.',
         'x-required-scope': 'manage',
         responses: {

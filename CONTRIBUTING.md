@@ -18,7 +18,7 @@ The root is an npm workspace for everything except `docs/`, which stays separate
 
 ## Prerequisites
 
-- Node.js 22.12 or newer and npm
+- Node.js 22.23.2 or a later 22.x, 24.18.1 or a later 24.x, or 26.5.1 or newer (the July 2026 security releases of each line), and npm
 - Docker with Compose v2
 - FFmpeg 5 or newer, only if you run the backend outside Docker. HDR sources and the HDR cases of `ffmpeg.integration.test.ts` need it built with zimg (the `zscale` filter): Debian and Ubuntu packages are, Homebrew's is not, and the test skips those cases locally without it
 - a Sia indexer account (the free tier at [sia.storage](https://sia.storage) is enough) for anything that uploads. Unit tests do not need one.
@@ -49,7 +49,8 @@ docker compose up -d
 Or the backend and Studio from source with PostgreSQL and Redis in Docker, which gives hot reload:
 
 ```sh
-docker compose up -d postgres redis
+# the dev override publishes postgres on 5433 and redis on 6380
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
 
 export DATABASE_URL=postgresql://sluby:sluby@localhost:5433/sluby
 export REDIS_URL=redis://localhost:6380

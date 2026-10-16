@@ -268,7 +268,7 @@ Upload failures are tus-js-client errors (plain `Error`s) that reject the upload
 
 ## Upload from a server
 
-A server is the right place for a key with the `upload` scope. The same SDK runs in Node.js 22.12 or newer (the repository's minimum):
+A server is the right place for a key with the `upload` scope. The same SDK runs in Node.js 20.16 or newer on the 20 line, or 22.3 or newer (its `engines` range):
 
 ```js
 import { readFile } from 'node:fs/promises';

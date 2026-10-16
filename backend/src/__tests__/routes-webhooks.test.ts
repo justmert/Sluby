@@ -335,10 +335,10 @@ describe('webhook routes', () => {
       const res = await request(createApp())
         .post('/')
         .send({ url: 'http://internal.example.com/hook', events: ['asset.ready'] });
-      expect(res.body.message).toBe(
+      expect(res.body.error).toBe(
         'URL refused: internal.example.com resolves to an address webhooks may not reach: private (10.0.0.0/8)',
       );
-      expect(res.body.message).not.toContain('10.1.2.3');
+      expect(JSON.stringify(res.body)).not.toContain('10.1.2.3');
     });
   });
 

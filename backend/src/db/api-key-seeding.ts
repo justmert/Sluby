@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { apiKeys } from './schema.js';
+import { apiKeys, bootstrapKeys } from './schema.js';
 import { generateApiKey, hashApiKey } from '../api/auth/api-key.js';
 
 // the two seeding paths run with different drizzle instances (the app's,
@@ -14,33 +14,51 @@ export const ADMIN_SCOPES = ['upload', 'read', 'manage'];
 export const BOOTSTRAP_CREATOR_ADDRESS = 'platform';
 
 /**
- * Make sure the operator-chosen BOOTSTRAP_API_KEY exists as a full-scope key
- * of the platform account. Idempotent across restarts: a row with the same
- * hash is left alone whatever its state (so a rotated, expired key stays
- * expired), while a deleted one is inserted again on the next start.
+ * Seed the operator-chosen BOOTSTRAP_API_KEY as a full-scope key of the
+ * platform account, once. The first start records its hash in
+ * bootstrap_keys and inserts the key; later starts leave it alone, and once
+ * it has been deleted or rotated away it is never inserted again
+ * ('retired'), so revoking a leaked bootstrap key holds across restarts.
+ * Both inserts skip on conflict, so replicas starting together cannot fail
+ * on each other or seed it twice.
  */
 export async function seedBootstrapApiKey(
   database: Database,
   rawKey: string,
-): Promise<'created' | 'exists'> {
+): Promise<'created' | 'exists' | 'retired'> {
   const keyHash = hashApiKey(rawKey);
 
-  const [existing] = await database
-    .select({ id: apiKeys.id })
-    .from(apiKeys)
-    .where(eq(apiKeys.keyHash, keyHash))
-    .limit(1);
-  if (existing) return 'exists';
+  return database.transaction(async (tx) => {
+    const firstSeed = await tx
+      .insert(bootstrapKeys)
+      .values({ keyHash })
+      .onConflictDoNothing()
+      .returning({ keyHash: bootstrapKeys.keyHash });
 
-  await database.insert(apiKeys).values({
-    keyHash,
-    name: 'bootstrap',
-    scopes: ADMIN_SCOPES,
-    rateLimit: 1000,
-    creatorAddress: BOOTSTRAP_CREATOR_ADDRESS,
-    isActive: true,
+    if (firstSeed.length > 0) {
+      const inserted = await tx
+        .insert(apiKeys)
+        .values({
+          keyHash,
+          name: 'bootstrap',
+          scopes: ADMIN_SCOPES,
+          rateLimit: 1000,
+          creatorAddress: BOOTSTRAP_CREATOR_ADDRESS,
+          isActive: true,
+        })
+        .onConflictDoNothing({ target: apiKeys.keyHash })
+        .returning({ id: apiKeys.id });
+      // a key made before bootstrap_keys existed is already there
+      return inserted.length > 0 ? 'created' : 'exists';
+    }
+
+    const [existing] = await tx
+      .select({ id: apiKeys.id })
+      .from(apiKeys)
+      .where(eq(apiKeys.keyHash, keyHash))
+      .limit(1);
+    return existing ? 'exists' : 'retired';
   });
-  return 'created';
 }
 
 /**

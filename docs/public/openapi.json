@@ -230,11 +230,11 @@
           },
           "message": {
             "type": "string",
-            "description": "Outside NODE_ENV=production only: the internal error message."
+            "description": "Only with EXPOSE_ERROR_STACKS=true: the internal error message."
           },
           "stack": {
             "type": "string",
-            "description": "Outside NODE_ENV=production only: the stack trace."
+            "description": "Only with EXPOSE_ERROR_STACKS=true: the stack trace."
           }
         },
         "required": [
@@ -1203,7 +1203,7 @@
           },
           "metrics": {
             "type": "array",
-            "description": "The prom-client registry as JSON, one entry per metric.",
+            "description": "The metrics registry as JSON, one entry per metric.",
             "items": {
               "type": "object",
               "required": [
@@ -4306,7 +4306,7 @@
           "Reconciliation"
         ],
         "summary": "Latest reconciliation run.",
-        "description": "The platform identity and operators get the whole run, orphaned ids included; any other caller gets only the missing objects of its own assets (see ReconciliationRun). The platform identity is a key with the all-zero address, as `npm run db:seed-key` mints by default; operators are the accounts in OPERATOR_USERS, their Studio sessions and their keys.",
+        "description": "The platform identity and operators get the whole run, orphaned ids included; any other caller gets only the missing objects of its own assets (see ReconciliationRun). The platform identity is a key with the all-zero address, as `npm run db:seed-key -- --platform` mints; operators are the accounts in OPERATOR_USERS, their Studio sessions and their keys.",
         "x-required-scope": "manage",
         "responses": {
           "200": {

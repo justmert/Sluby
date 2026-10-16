@@ -61,14 +61,14 @@ npm run docs:dev
 ### Local development
 
 Run PostgreSQL and Redis from Compose and the backend and Studio from source
-(Node.js 22.12+ and FFmpeg 5+ on the host; HDR sources need an FFmpeg built
+(Node.js 22.23.2+, 24.18.1+ or 26.5.1+ and FFmpeg 5+ on the host; HDR sources need an FFmpeg built
 with zimg, which Homebrew's is not):
 
 ```bash
 npm install
-docker compose up -d postgres redis
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
 
-# the compose databases listen on 5433 and 6380
+# the dev override publishes the databases on 5433 and 6380
 DATABASE_URL=postgresql://sluby:sluby@localhost:5433/sluby \
 REDIS_URL=redis://localhost:6380 \
 PUBLIC_URL=http://localhost:5173 \
@@ -252,6 +252,7 @@ nginx/            web front door: Studio, api proxy and object cache
 deploy/           Caddyfile for the production override
 docker-compose.yml       the stack: postgres, redis, backend, web
 docker-compose.prod.yml  production override: Caddy TLS, required secrets
+docker-compose.dev.yml   publishes postgres and redis for running the backend from source
 docker-compose.sia.yml   optional self-hosted indexd, walletd and miner on Zen
 ```
 

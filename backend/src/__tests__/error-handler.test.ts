@@ -1,5 +1,5 @@
 import 'express-async-errors';
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import express, { type Request, type Response } from 'express';
 import request from 'supertest';
 import { DrizzleQueryError } from 'drizzle-orm';
@@ -19,20 +19,15 @@ function capturingLogger() {
   return { log: pino({ level: 'info' }, stream), lines };
 }
 
-function appThrowing(err: unknown, log = pino({ level: 'silent' })) {
+function appThrowing(err: unknown, log = pino({ level: 'silent' }), exposeStacks = false) {
   const app = express();
   app.get('/boom', async (_req: Request, _res: Response) => {
     throw err;
   });
   app.use(notFoundHandler);
-  app.use(createErrorHandler(log));
+  app.use(createErrorHandler(log, { exposeStacks }));
   return app;
 }
-
-const originalNodeEnv = process.env.NODE_ENV;
-afterEach(() => {
-  process.env.NODE_ENV = originalNodeEnv;
-});
 
 describe('error handler', () => {
   it('answers an AppError with its status and message', async () => {
@@ -88,17 +83,35 @@ describe('error handler', () => {
     expect(res.body).toEqual({ error: 'Invalid identifier format' });
   });
 
-  it('includes the message and stack outside production', async () => {
-    process.env.NODE_ENV = 'test';
-    const res = await request(appThrowing(new Error('kaboom'))).get('/boom');
+  it('includes the message and stack only when stacks are exposed', async () => {
+    const log = pino({ level: 'silent' });
+    const res = await request(appThrowing(new Error('kaboom'), log, true)).get('/boom');
     expect(res.body.message).toBe('kaboom');
     expect(res.body.stack).toContain('Error: kaboom');
   });
 
-  it('leaves the message and stack out in production', async () => {
-    process.env.NODE_ENV = 'production';
-    const res = await request(appThrowing(new Error('kaboom'))).get('/boom');
-    expect(res.body).toEqual({ error: 'Internal Server Error' });
+  it('leaves the message and stack out by default, whatever NODE_ENV is', async () => {
+    const before = process.env.NODE_ENV;
+    try {
+      for (const nodeEnv of ['development', 'test', 'production']) {
+        process.env.NODE_ENV = nodeEnv;
+        const res = await request(appThrowing(new Error('kaboom'))).get('/boom');
+        expect(res.body).toEqual({ error: 'Internal Server Error' });
+        const notFound = await request(appThrowing(new AppError(404, 'gone'))).get('/boom');
+        expect(notFound.body).toEqual({ error: 'gone' });
+      }
+    } finally {
+      process.env.NODE_ENV = before;
+    }
+  });
+
+  it('logs urls without capability query values', async () => {
+    const { log, lines } = capturingLogger();
+    await request(appThrowing(new AppError(403, 'no'), log)).get(
+      '/boom?expires=10&sig=secret-signature&code=oauth-code&limit=5',
+    );
+    expect(lines[0].url).toBe('/boom?expires=10&sig=[redacted]&code=[redacted]&limit=5');
+    expect(JSON.stringify(lines)).not.toContain('secret-signature');
   });
 
   it('logs a client error at warn, with the request and the status it answered', async () => {
@@ -109,7 +122,7 @@ describe('error handler', () => {
       level: 40,
       msg: 'Request rejected',
       method: 'GET',
-      url: '/boom?x=1',
+      url: '/boom?x=[redacted]',
       statusCode: 422,
     });
     expect((lines[0].err as { message: string }).message).toBe('bad');

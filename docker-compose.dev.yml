@@ -1,0 +1,15 @@
+# publishes postgres and redis on localhost, for running the backend from
+# source against the compose databases (CONTRIBUTING.md). the quickstart does
+# not need it.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
+#   DATABASE_URL=postgresql://sluby:sluby@localhost:5433/sluby REDIS_URL=redis://localhost:6380 npm run dev
+
+services:
+  postgres:
+    ports:
+      - '127.0.0.1:5433:5432'
+
+  redis:
+    ports:
+      - '127.0.0.1:6380:6379'

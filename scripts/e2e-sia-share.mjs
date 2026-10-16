@@ -14,7 +14,7 @@
 // "Direct-from-Sia playback" section in the README for the manual browser check.
 //
 // Skips cleanly (exit 0) unless every env var below is set:
-//   SIA_E2E_BACKEND_URL     e.g. http://localhost:4500
+//   SIA_E2E_BACKEND_URL     e.g. http://localhost:8080
 //   SIA_E2E_API_KEY         a read-scoped Sluby API key that owns the asset
 //   SIA_E2E_ASSET_ID        a ready asset's id (or pb_ playback id)
 //   SIA_E2E_INDEXER_URL     e.g. https://sia.storage
@@ -104,7 +104,7 @@ async function main() {
     id: Buffer.from(env.SIA_E2E_VIEWER_APP_ID, 'hex'),
     name: 'Sluby Player e2e',
     description: 'direct-from-Sia e2e check',
-    serviceUrl: 'https://sluby.dev',
+    serviceUrl: 'https://github.com/justmert/Sluby',
   });
   const sdk = await builder.connected(new AppKey(Buffer.from(env.SIA_E2E_VIEWER_APP_KEY, 'hex')));
   if (!sdk) throw new Error('viewer app key is not registered with the indexer');

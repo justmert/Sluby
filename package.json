@@ -28,7 +28,7 @@
     "check:packages": "npm run build:sdk && npm run build:player && node scripts/check-packages.mjs"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": "^22.23.2 || ^24.18.1 || >=26.5.1"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

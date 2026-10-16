@@ -18,7 +18,7 @@ The Dockerfile copies it over the module the SDK loads, and the build fails if t
 
 Before accepting a slab, the SDK checks that its shards give at least a 99.99% chance of recovery, assuming each host stays available with probability 0.75. Few ratios pass that on a pool of a dozen hosts (see the production guide). Raising the assumed availability to 0.90 lets ratios like 2 data + 4 parity through. indexd runs the same check before pinning, so an indexd built with the same change is needed too.
 
-The module has to match the `@siafoundation/sia-storage` version the backend installs (0.1.1, built from the `sia_storage_napi/v0.10.1` tag). For linux x86-64:
+The module has to match the `@siafoundation/sia-storage` version the backend installs (0.1.2, built from the `sia_storage_napi/v0.10.1` tag). For linux x86-64:
 
 ```sh
 git clone --depth 1 --branch sia_storage_napi/v0.10.1 https://github.com/SiaFoundation/sia-sdk-rs

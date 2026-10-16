@@ -5,13 +5,17 @@
 //   docker compose run --rm backend node scripts/connect-indexer.mjs
 //   (or from source: npm run connect-indexer --workspace=backend)
 //
-// the indexer defaults to SIA_INDEXER_URL, then the first argument, then the
-// hosted https://sia.storage. you approve the connection in your indexer
-// account in the browser; no recovery phrase or password is ever asked for.
+// the indexer is the first argument, else SIA_INDEXER_URL, else the hosted
+// https://sia.storage. you approve the connection in your indexer account in
+// the browser; no recovery phrase or password is ever asked for.
 
-import { connectApp } from './sia-connect.mjs';
+import { connectApp, indexerUrlFromArgs } from './sia-connect.mjs';
 
-const indexerUrl = process.env.SIA_INDEXER_URL || process.argv[2] || 'https://sia.storage';
+const indexerUrl = indexerUrlFromArgs(
+  'usage: node scripts/connect-indexer.mjs [indexer url]\n' +
+    '  registers this backend with the indexer and prints SIA_APP_ID and SIA_APP_KEY for .env.\n' +
+    '  the indexer defaults to SIA_INDEXER_URL, then https://sia.storage',
+);
 
 async function main() {
   if (process.env.SIA_APP_KEY) {

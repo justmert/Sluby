@@ -9,8 +9,8 @@
  * assets by guessing a UUID.
  *
  * One deliberate exception: a key seeded with the all-zero address is a
- * platform/superuser identity (see db/seed-api-key.ts, whose `--address`
- * defaults to it) and is allowed to act across tenants. The rule: an
+ * platform/superuser identity (see db/seed-api-key.ts, which mints it with
+ * `--platform`) and is allowed to act across tenants. The rule: an
  * owner-scoped route, listings included, passes the caller through
  * ownerFilter, so that identity lists, reads and changes the resources of
  * every tenant alike.
