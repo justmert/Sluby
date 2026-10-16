@@ -13,7 +13,14 @@ export interface PromMetric {
   values: PromValue[];
 }
 
+/** GET /api/v1/metrics: the registry and when the server read it. */
+export interface MetricsResponse {
+  timestamp: string;
+  metrics: PromMetric[];
+}
+
 export interface MetricsSnapshot {
+  /** The server's clock when it read the registry, in ms. */
   takenAt: number;
   uploads: { succeeded: number; failed: number; bytes: number };
   /** queueDepth is null while the backend cannot read it from Redis. */
@@ -54,7 +61,7 @@ function histogramAvg(metric: PromMetric | undefined): { count: number; avg: num
   return { count, avg: count > 0 ? total / count : null };
 }
 
-export function summarizeMetrics(metrics: PromMetric[], takenAt = Date.now()): MetricsSnapshot {
+export function summarizeMetrics(metrics: PromMetric[], takenAt: number): MetricsSnapshot {
   const requests = find(metrics, 'sluby_segment_requests_total');
   const playback = find(metrics, 'sluby_playback_initiation_total');
   const processing = histogramAvg(find(metrics, 'sluby_processing_duration_seconds'));
@@ -110,4 +117,15 @@ export function ratePerSecond(
   const delta = pick(next) - pick(prev);
   if (delta < 0) return null;
   return delta / ((next.takenAt - prev.takenAt) / 1000);
+}
+
+/**
+ * Summarize a metrics response, timed by the server's own timestamp: the
+ * browser's clock when the answer arrived would add network latency and
+ * background-tab throttling to every rate.
+ */
+export function snapshotFromResponse(body: MetricsResponse): MetricsSnapshot {
+  const takenAt = Date.parse(body.timestamp);
+  if (!Number.isFinite(takenAt)) throw new Error('The metrics response has no valid timestamp');
+  return summarizeMetrics(body.metrics, takenAt);
 }

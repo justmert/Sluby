@@ -1,5 +1,7 @@
 import { Fragment } from 'react';
 import { Link, useLocation } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
+import type { VideoAsset } from '@sluby/sdk';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -11,34 +13,15 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { getBreadcrumbs } from './breadcrumbs';
 import { UserMenu } from './UserMenu';
-
-const SECTION_LABELS: Record<string, string> = {
-  upload: 'Upload',
-  assets: 'Assets',
-  player: 'Player',
-  developer: 'Developer',
-  analytics: 'Analytics',
-  settings: 'Settings',
-};
-
-export function getBreadcrumbs(pathname: string): Array<{ label: string; path?: string }> {
-  const segments = pathname.split('/').filter(Boolean);
-  if (segments[0] !== 'studio') return [];
-  const crumbs: Array<{ label: string; path?: string }> = [{ label: 'Studio', path: '/studio' }];
-  if (segments[1]) {
-    crumbs.push({
-      label: SECTION_LABELS[segments[1]] ?? segments[1],
-      path: `/studio/${segments[1]}`,
-    });
-    if (segments[2] && segments[1] === 'assets') crumbs.push({ label: segments[2] });
-  }
-  return crumbs;
-}
 
 export function TopBar() {
   const { pathname } = useLocation();
-  const crumbs = getBreadcrumbs(pathname);
+  const assetId = /^\/studio\/assets\/([^/]+)\/?$/.exec(pathname)?.[1];
+  // read whatever the asset page loaded; the crumb never fetches on its own
+  const asset = useQuery<VideoAsset>({ queryKey: ['assets', 'one', assetId], enabled: false });
+  const crumbs = getBreadcrumbs(pathname, assetId ? asset.data?.title : undefined);
 
   return (
     <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
@@ -53,7 +36,9 @@ export function TopBar() {
                 {i > 0 && <BreadcrumbSeparator />}
                 <BreadcrumbItem className="min-w-0">
                   {last || !crumb.path ? (
-                    <BreadcrumbPage className="truncate">{crumb.label}</BreadcrumbPage>
+                    <BreadcrumbPage className="truncate" title={crumb.label}>
+                      {crumb.label}
+                    </BreadcrumbPage>
                   ) : (
                     <BreadcrumbLink asChild>
                       <Link to={crumb.path}>{crumb.label}</Link>

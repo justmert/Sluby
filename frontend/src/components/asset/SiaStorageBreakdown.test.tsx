@@ -80,6 +80,6 @@ describe('SiaStorageBreakdown', () => {
 
   it('shortens host keys with the same ellipsis as object ids', () => {
     show(info());
-    expect(screen.getByText('01234567…abcdef')).toBeInTheDocument();
+    expect(screen.getByText('01234567…89abcdef')).toBeInTheDocument();
   });
 });

@@ -28,16 +28,26 @@ export function CopyButton({ value, className, label = 'Copy to clipboard' }: Co
   };
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-sm"
-      className={cn('text-muted-foreground', className)}
-      onClick={copy}
-      aria-label={state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : label}
-      title={state === 'failed' ? 'Copy failed: clipboard unavailable' : label}
-    >
-      {state === 'copied' ? <Check className="text-success" /> : <Copy />}
-    </Button>
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className={cn('text-muted-foreground', className)}
+        onClick={copy}
+        aria-label={label}
+        title={state === 'failed' ? 'Copy failed: clipboard unavailable' : label}
+      >
+        {state === 'copied' ? <Check className="text-success" /> : <Copy />}
+      </Button>
+      {/* a changed label on a focused button is not announced; a live region is */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {state === 'copied'
+          ? 'Copied'
+          : state === 'failed'
+            ? 'Copy failed: clipboard unavailable'
+            : ''}
+      </span>
+    </>
   );
 }

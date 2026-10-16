@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { ExternalLink, Plus, Send, Trash2, Webhook } from 'lucide-react';
+import { ChevronDown, ExternalLink, Plus, Send, Trash2, Webhook } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { CodeBlock } from '@/components/shared/CodeBlock';
@@ -59,10 +59,12 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   useCreateWebhook,
   useDeleteWebhook,
+  useTestWebhook,
+  useWebhookDeliveries,
   useWebhooks,
   type CreatedWebhook,
+  type WebhookRecord,
 } from '@/hooks/useWebhooks';
-import { apiRawFetch } from '@/lib/api-client';
 import { REQUEST_TEMPLATES, type RequestTemplate } from '@/lib/explorer-templates';
 import { formatRelativeTime } from '@/lib/formatters';
 import { buildSnippets } from '@/lib/snippets';
@@ -95,7 +97,8 @@ function Snippets() {
           <Link to="/studio/settings" className="underline underline-offset-4">
             Settings
           </Link>{' '}
-          and export it as <code className="font-mono">SLUBY_API_KEY</code>.
+          and export it as <code className="font-mono">SLUBY_API_KEY</code> on your server. A key
+          never goes into browser code: whoever holds it can act as you.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 lg:grid-cols-[220px_1fr]">
@@ -156,6 +159,8 @@ function CreateWebhookDialog({
     e.preventDefault();
     try {
       const created = await create.mutateAsync({ url: url.trim(), events });
+      // the secret now lives only in the dialog that shows it once
+      create.reset();
       onOpenChange(false);
       setUrl('');
       onCreated(created);
@@ -219,6 +224,100 @@ function CreateWebhookDialog({
   );
 }
 
+function Deliveries({ id }: { id: string }) {
+  const deliveries = useWebhookDeliveries(id, true);
+  const rows = deliveries.data?.data ?? [];
+  if (deliveries.isPending) return <Skeleton className="h-12" />;
+  if (deliveries.isError) {
+    return (
+      <p className="text-xs text-destructive">
+        Could not load deliveries: {deliveries.error.message}
+      </p>
+    );
+  }
+  if (rows.length === 0) {
+    return <p className="text-xs text-muted-foreground">Nothing sent to this endpoint yet.</p>;
+  }
+  return (
+    <ul className="flex flex-col divide-y text-xs" aria-label="Recent deliveries">
+      {rows.map((d) => (
+        <li key={d.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
+          <Badge variant={d.delivered ? 'success' : 'destructive'}>
+            {d.status_code ?? 'no answer'}
+          </Badge>
+          <span className="font-mono">{d.event}</span>
+          {d.attempt > 1 && <span className="text-muted-foreground">attempt {d.attempt}</span>}
+          <span className="ml-auto text-muted-foreground">{formatRelativeTime(d.created_at)}</span>
+          {d.error && <span className="w-full break-words text-destructive">{d.error}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function WebhookRow({ hook: w, onDelete }: { hook: WebhookRecord; onDelete: () => void }) {
+  const test = useTestWebhook();
+  const [open, setOpen] = useState(false);
+
+  const sendTest = async () => {
+    try {
+      const result = await test.mutateAsync(w.id);
+      if (result.delivered) {
+        toast.success(`Test delivered: the receiver answered ${result.status_code}`);
+      } else {
+        toast.error(`Test not delivered: ${result.error ?? 'no reason given'}`);
+      }
+    } catch (err) {
+      toast.error(`Could not send a test: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border p-3">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-sm break-all">{w.url}</p>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {!w.is_active && <Badge variant="warning">Inactive</Badge>}
+            {w.events.map((e) => (
+              <Badge key={e} variant="secondary" className="font-mono">
+                {e}
+              </Badge>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Added {formatRelativeTime(w.created_at)}
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Remove webhook ${w.url}`}
+          onClick={onDelete}
+        >
+          <Trash2 />
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void sendTest()}
+          disabled={test.isPending}
+        >
+          <Send />
+          {test.isPending ? 'Sending...' : 'Send test'}
+        </Button>
+        <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          <ChevronDown className={cn('transition-transform', open && 'rotate-180')} />
+          Deliveries
+        </Button>
+      </div>
+      {open && <Deliveries id={w.id} />}
+    </div>
+  );
+}
+
 function Webhooks() {
   const hooks = useWebhooks();
   const remove = useDeleteWebhook();
@@ -244,8 +343,10 @@ function Webhooks() {
       <CardHeader>
         <CardTitle>Webhooks</CardTitle>
         <CardDescription>
-          Signed with HMAC-SHA256 in <code className="font-mono">X-Sluby-Signature</code>. The
-          Receive webhooks snippet shows how to verify them.
+          Signed with HMAC-SHA256 over the timestamp and body in{' '}
+          <code className="font-mono">X-Sluby-Signature-V1</code>. The Receive webhooks snippet
+          shows how to verify them. Send test posts a signed{' '}
+          <code className="font-mono">webhook.test</code> event.
         </CardDescription>
         <CardAction>
           <Button size="sm" onClick={() => setCreating(true)}>
@@ -270,31 +371,7 @@ function Webhooks() {
             </EmptyHeader>
           </Empty>
         ) : (
-          rows.map((w) => (
-            <div key={w.id} className="flex items-start gap-3 rounded-lg border p-3">
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-mono text-sm">{w.url}</p>
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {w.events.map((e) => (
-                    <Badge key={e} variant="secondary" className="font-mono">
-                      {e}
-                    </Badge>
-                  ))}
-                </div>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  Added {formatRelativeTime(w.created_at)}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Remove webhook ${w.url}`}
-                onClick={() => setDeleting(w.id)}
-              >
-                <Trash2 />
-              </Button>
-            </div>
-          ))
+          rows.map((w) => <WebhookRow key={w.id} hook={w} onDelete={() => setDeleting(w.id)} />)
         )}
       </CardContent>
 
@@ -386,10 +463,13 @@ function ApiExplorer() {
     setError(null);
     const started = performance.now();
     try {
-      // same origin: the session cookie authenticates, exactly as the studio does
-      const res = await apiRawFetch(path, {
+      const payload = method === 'GET' || method === 'DELETE' || !body.trim() ? undefined : body;
+      // exactly the path shown, on this origin: the session cookie
+      // authenticates, as it does for the rest of the studio
+      const res = await fetch(path, {
         method,
-        body: method === 'GET' || method === 'DELETE' || !body.trim() ? undefined : body,
+        body: payload,
+        headers: payload ? { 'Content-Type': 'application/json' } : undefined,
       });
       const text = await res.text();
       let pretty = text;
@@ -416,6 +496,8 @@ function ApiExplorer() {
   };
 
   const unfilled = /\{id\}/.test(path);
+  // a path on this origin only; "//host/..." would be another site
+  const sendable = path.startsWith('/') && !path.startsWith('//');
 
   return (
     <Card>
@@ -471,10 +553,7 @@ function ApiExplorer() {
             onChange={(e) => setPath(e.target.value)}
             className="font-mono text-xs"
           />
-          <Button
-            onClick={() => void send()}
-            disabled={sending || unfilled || !path.startsWith('/')}
-          >
+          <Button onClick={() => void send()} disabled={sending || unfilled || !sendable}>
             <Send />
             Send
           </Button>

@@ -1,61 +1,34 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-
-export type Theme = 'light' | 'dark' | 'system';
-export type ResolvedTheme = 'light' | 'dark';
-
-export const THEME_STORAGE_KEY = 'sluby-theme';
-const DEFAULT_THEME: Theme = 'dark';
-
-interface ThemeContextValue {
-  theme: Theme;
-  resolvedTheme: ResolvedTheme;
-  setTheme: (theme: Theme) => void;
-}
-
-const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { THEME_STORAGE_KEY, ThemeContext, parseTheme, resolveTheme, type Theme } from '@/lib/theme';
 
 const systemQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
 
+function subscribeToSystem(onChange: () => void) {
+  const mq = systemQuery();
+  mq.addEventListener('change', onChange);
+  return () => mq.removeEventListener('change', onChange);
+}
+
 function readStoredTheme(): Theme {
   try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
+    return parseTheme(localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
     // storage can be blocked (private mode); fall back to the default
+    return parseTheme(null);
   }
-  return DEFAULT_THEME;
-}
-
-function resolve(theme: Theme): ResolvedTheme {
-  if (theme !== 'system') return theme;
-  return systemQuery().matches ? 'dark' : 'light';
-}
-
-function apply(resolved: ResolvedTheme) {
-  const root = document.documentElement;
-  root.classList.remove('light', 'dark');
-  root.classList.add(resolved);
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(readStoredTheme);
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolve(theme));
+  // follows the os, including changes after load
+  const systemDark = useSyncExternalStore(subscribeToSystem, () => systemQuery().matches);
+  const resolvedTheme = resolveTheme(theme, systemDark);
 
   useEffect(() => {
-    const next = resolve(theme);
-    setResolvedTheme(next);
-    apply(next);
-    if (theme !== 'system') return;
-    // follow the OS while on "system", including changes after load
-    const mq = systemQuery();
-    const onChange = () => {
-      const changed = mq.matches ? 'dark' : 'light';
-      setResolvedTheme(changed);
-      apply(changed);
-    };
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, [theme]);
+    const root = document.documentElement;
+    root.classList.remove('light', 'dark');
+    root.classList.add(resolvedTheme);
+  }, [resolvedTheme]);
 
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);
@@ -71,10 +44,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-export function useTheme() {
-  const context = useContext(ThemeContext);
-  if (!context) throw new Error('useTheme must be used within a ThemeProvider');
-  return context;
 }

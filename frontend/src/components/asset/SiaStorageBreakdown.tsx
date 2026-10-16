@@ -16,7 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { ObjectRole, SiaStorageInfo } from '@/hooks/asset-detail-queries';
-import { formatBytes } from '@/lib/formatters';
+import { formatBytes, truncateMiddle } from '@/lib/formatters';
 import { EXTERNAL_LINK_PROPS, explorerFor } from '@/lib/sia-explorer';
 
 const ROLE_LABELS: Record<ObjectRole, string> = {
@@ -51,8 +51,7 @@ function countryName(code: string): string {
 }
 
 function shortKey(key: string): string {
-  const raw = key.replace(/^ed25519:/, '');
-  return raw.length > 16 ? `${raw.slice(0, 8)}\u2026${raw.slice(-6)}` : raw;
+  return truncateMiddle(key.replace(/^ed25519:/, ''), 8);
 }
 
 export function SiaStorageBreakdown({

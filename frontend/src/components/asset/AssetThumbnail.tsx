@@ -5,14 +5,15 @@ import { cn } from '@/lib/utils';
 
 interface AssetThumbnailProps {
   thumbnailObjectIds: string[];
-  title: string;
+  /** Only for a thumbnail shown without its title beside it; otherwise it is decorative. */
+  alt?: string;
   className?: string;
 }
 
 // thumbnails stream through the gateway; private assets answer 403 there
 // (a copy cached while public within a minute), so fall back to an icon
 // rather than a broken image
-export function AssetThumbnail({ thumbnailObjectIds, title, className }: AssetThumbnailProps) {
+export function AssetThumbnail({ thumbnailObjectIds, alt = '', className }: AssetThumbnailProps) {
   const [failed, setFailed] = useState(false);
   const id = thumbnailObjectIds[0];
 
@@ -26,7 +27,7 @@ export function AssetThumbnail({ thumbnailObjectIds, title, className }: AssetTh
       {id && !failed ? (
         <img
           src={siaObjectUrl(id)}
-          alt={title}
+          alt={alt}
           loading="lazy"
           className="size-full object-cover"
           onError={() => setFailed(true)}

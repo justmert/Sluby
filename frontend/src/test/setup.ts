@@ -1,13 +1,8 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup, configure } from '@testing-library/react';
+import { cleanup } from '@testing-library/react';
 import { toast } from 'sonner';
-import { afterEach, vi } from 'vitest';
+import { afterEach } from 'vitest';
 import { unmockedRequests } from './unmocked';
-
-// ci runners and loaded dev machines are slow; the defaults (5 s per test,
-// 1 s for findBy and waitFor) turn that into failures that are not bugs
-vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
-configure({ asyncUtilTimeout: 10_000 });
 
 afterEach(() => {
   cleanup();

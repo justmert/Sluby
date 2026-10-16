@@ -149,11 +149,7 @@ export default function PlayerPage() {
                       a.id === selectedId && 'bg-muted',
                     )}
                   >
-                    <AssetThumbnail
-                      thumbnailObjectIds={a.thumbnailObjectIds}
-                      title={a.title}
-                      className="w-16"
-                    />
+                    <AssetThumbnail thumbnailObjectIds={a.thumbnailObjectIds} className="w-16" />
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium" title={a.title}>
                         {a.title}

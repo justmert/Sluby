@@ -187,7 +187,6 @@ function AssetCard({
       <Link to={`/studio/assets/${asset.id}`} className="block">
         <AssetThumbnail
           thumbnailObjectIds={asset.thumbnailObjectIds}
-          title={asset.title}
           className="w-full rounded-none"
         />
       </Link>
@@ -569,7 +568,6 @@ export default function AssetsPage() {
                     >
                       <AssetThumbnail
                         thumbnailObjectIds={asset.thumbnailObjectIds}
-                        title={asset.title}
                         className="w-16"
                       />
                       <span className="min-w-0">

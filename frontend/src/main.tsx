@@ -1,22 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '@/components/theme-provider';
 import { AuthGate } from '@/components/AuthGate';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { App } from '@/App';
+import { queryClient } from '@/lib/query-client';
 import './index.css';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: 1,
-    },
-  },
-});
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
@@ -24,16 +16,16 @@ if (!root) throw new Error('Root element not found');
 createRoot(root).render(
   <StrictMode>
     <ThemeProvider>
-      <TooltipProvider>
-        <AuthGate>
-          <QueryClientProvider client={queryClient}>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <AuthGate>
             <BrowserRouter>
               <App />
             </BrowserRouter>
-          </QueryClientProvider>
-        </AuthGate>
-        <Toaster richColors />
-      </TooltipProvider>
+          </AuthGate>
+          <Toaster richColors />
+        </TooltipProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   </StrictMode>,
 );
