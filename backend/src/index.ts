@@ -19,6 +19,8 @@ import { closeWorkers } from './queue/processors.js';
 
 import { createApiRouter, type ApiRouterDeps } from './api/router.js';
 import { createTusServer, type TusServerDeps } from './upload/tus-server.js';
+import { sweepExpiredUploads, UPLOAD_SWEEP_INTERVAL_MS } from './upload/upload-store.js';
+import { sweepFinishedSources } from './upload/source-files.js';
 import { isTusRequest } from './upload/tus-dispatch.js';
 import { buildSignedObjectQuery } from './delivery/signed-url.js';
 import { createAssetShareUrls } from './delivery/share-urls.js';
@@ -32,6 +34,7 @@ import {
   createUploadSession as dbCreateUploadSession,
   getUploadSessionById,
   updateUploadSession,
+  sourceFileStates,
 } from './db/queries/uploads.js';
 
 import {
@@ -339,6 +342,7 @@ const tusServerDeps: TusServerDeps = {
     const session = await sessionManager.create({
       apiKeyId: data.apiKeyId,
       fileSize: data.fileSize,
+      filePath: data.filePath,
       metadata: data.metadata,
       videoAssetId: videoAsset.id,
       // The upload URL is handed to a browser, so it must be the public
@@ -362,7 +366,8 @@ const tusServerDeps: TusServerDeps = {
   },
 
   cancelUpload: async (uploadId) => {
-    await sessionManager.cancel(uploadId);
+    // only reached from a tus DELETE, whose file store removes the files
+    await sessionManager.cancel(uploadId, undefined, { removeFiles: false });
   },
 
   enqueueTranscoding: async (data) => {
@@ -892,6 +897,21 @@ scheduleDeletionGc().catch((err) => {
   logger.warn({ err }, 'Failed to schedule deletion GC sweep (non-fatal)');
 });
 
+// Sweep incomplete tus uploads past their expiry, now and then every hour.
+// A timer in this process rather than a queue job, because the files live on
+// this process's UPLOAD_DIR.
+const sweepUploads = async () => {
+  await sweepExpiredUploads(tusServer, logger);
+  await sweepFinishedSources({
+    uploadDir: env.UPLOAD_DIR,
+    states: sourceFileStates,
+    log: logger,
+  });
+};
+void sweepUploads();
+const uploadSweepTimer = setInterval(() => void sweepUploads(), UPLOAD_SWEEP_INTERVAL_MS);
+uploadSweepTimer.unref();
+
 const server = app.listen(env.PORT, env.HOST, () => {
   logger.info({ host: env.HOST, port: env.PORT }, 'Sluby backend is running');
   // connecting to the indexer takes a while on a cold start; do it now rather
@@ -912,6 +932,8 @@ const server = app.listen(env.PORT, env.HOST, () => {
 
 async function gracefulShutdown(signal: string): Promise<void> {
   logger.info({ signal }, 'Received shutdown signal, starting graceful shutdown');
+
+  clearInterval(uploadSweepTimer);
 
   // Stop accepting new connections
   server.close(() => {

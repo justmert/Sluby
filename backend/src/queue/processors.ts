@@ -30,6 +30,8 @@ import {
 import { WebhookDispatcher } from '../webhooks/dispatcher.js';
 import { processingDurationSeconds } from '../metrics/collector.js';
 import { findEndpointsForEvent, createWebhookDelivery } from '../db/queries/webhooks.js';
+import { getUploadSessionById } from '../db/queries/uploads.js';
+import { removeSessionSource } from '../upload/source-files.js';
 
 const logger = pino({ name: 'queue-processors' });
 
@@ -523,6 +525,14 @@ export const finalizeWorker = new Worker<FinalizeJobData>(
     } catch (err) {
       logger.warn({ outputDir, err }, 'Failed to clean up transcode output');
     }
+
+    // the asset is ready, so nothing will transcode the source again. a failed
+    // asset never gets here and keeps its source for a retry
+    await removeSessionSource(
+      uploadSessionId,
+      { getUploadSession: getUploadSessionById, log: logger },
+      { videoAssetId },
+    );
 
     logger.info({ videoAssetId, jobId: job.id }, 'Finalize job complete');
   },

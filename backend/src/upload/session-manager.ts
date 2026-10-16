@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { unlink } from 'node:fs/promises';
 import { logger } from '../config/logger.js';
+import { removeSourceUpload } from './source-files.js';
 
 export interface UploadSessionRecord {
   id: string;
@@ -29,6 +29,7 @@ export class SessionManager {
   async create(params: {
     apiKeyId: string;
     fileSize: number;
+    filePath?: string;
     metadata: Record<string, string>;
     videoAssetId?: string;
     uploadBaseUrl?: string;
@@ -41,7 +42,7 @@ export class SessionManager {
       id,
       videoAssetId: params.videoAssetId ?? null,
       uploadUrl,
-      filePath: null,
+      filePath: params.filePath ?? null,
       fileSize: params.fileSize,
       uploadedBytes: 0,
       sha256Hash: null,
@@ -91,19 +92,24 @@ export class SessionManager {
     return { uploadUrl: session.uploadUrl };
   }
 
-  async cancel(sessionId: string, owner?: string): Promise<boolean> {
+  /**
+   * Mark a session cancelled and delete its upload files. `removeFiles: false`
+   * is for a tus DELETE, where the file store deletes them itself right after:
+   * removing them here first would make that DELETE answer 404.
+   */
+  async cancel(
+    sessionId: string,
+    owner?: string,
+    { removeFiles = true }: { removeFiles?: boolean } = {},
+  ): Promise<boolean> {
     const session = await this.deps.getSession(sessionId);
     if (!session || (owner && session.metadata.creatorAddress !== owner)) return false;
 
     await this.deps.updateSession(sessionId, { status: 'cancelled' });
 
-    // Clean up partial file
-    if (session.filePath) {
-      try {
-        await unlink(session.filePath);
-      } catch {
-        // File may not exist
-      }
+    // a cancelled upload is never resumed, so its partial file goes now
+    if (removeFiles && session.filePath) {
+      await removeSourceUpload(session.filePath, logger, { sessionId });
     }
 
     logger.info({ sessionId }, 'Upload session cancelled');

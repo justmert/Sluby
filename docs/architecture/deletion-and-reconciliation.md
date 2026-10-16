@@ -19,6 +19,8 @@ sequenceDiagram
   A->>Q: add delete job (jobId delete-{id})
   A-->>C: 200 success, status deleting
   Q->>D: delete job
+  D->>DB: find the asset's upload sessions
+  D->>D: delete their source files from UPLOAD_DIR
   D->>DB: collect object ids (artifacts and ids on video_assets)
   loop every object
     D->>I: unpin (deleteObject)
@@ -41,7 +43,7 @@ From that moment every API read ignores the asset: lookups by id, listings and t
 
 ### The deletion worker
 
-The `deletion` worker (`backend/src/deletion/worker.ts` and `deleter.ts`, concurrency 2) receives only the asset id and collects the object ids itself on every attempt: the `artifacts` rows plus `manifest_object_id`, `thumbnail_object_ids` and `sia_object_ids` on the asset, deduplicated. For each object it calls the SDK's `deleteObject`, which unpins it from the indexer. One failing object does not stop the others.
+The `deletion` worker (`backend/src/deletion/worker.ts` and `deleter.ts`, concurrency 2) receives only the asset id. It first deletes the asset's source uploads from `UPLOAD_DIR`, found through the `file_path` of its `upload_sessions` rows (cancelled sessions are skipped, since the cancel already removed their files): the source a failed asset kept for a retry, or the partial file of an upload still in flight (which stops that upload, since tus no longer knows it). A file that cannot be removed is logged with its path and does not stop the deletion; a failed session lookup throws, so the job retries while the sessions still point at the files. It then collects the object ids itself on every attempt: the `artifacts` rows plus `manifest_object_id`, `thumbnail_object_ids` and `sia_object_ids` on the asset, deduplicated. For each object it calls the SDK's `deleteObject`, which unpins it from the indexer. One failing object does not stop the others.
 
 Objects that were unpinned are recorded right away: their `artifacts` rows are deleted and they are removed from the id columns on the asset, and they are evicted from the gateway's object and tier caches. Then the worker asks the indexer to prune slabs that no object references any more (`pruneSlabs`); a failure there is only logged. If every object was unpinned, the asset row is deleted, which cascades to `renditions`, `artifacts`, `processing_jobs` and `playback_ids`, and sets `upload_sessions.video_asset_id` to null.
 
@@ -53,7 +55,7 @@ Jobs can still be lost, for example when the process dies mid-deletion or all re
 
 ### What deletion does not touch
 
-- the source file in `UPLOAD_DIR` and the `upload_sessions` row
+- the `upload_sessions` row, which stays with `video_asset_id` set to null
 - `webhook_deliveries` rows, and there is no webhook event for deletion
 - copies in nginx's `proxy_cache`: a manifest or thumbnail fetched before the delete can be served from it until the entry expires (60 seconds for manifests, up to a day for thumbnails); media ranges are never cached there
 - share URLs already handed to a player: Sluby does not track them, and they stay valid until they expire

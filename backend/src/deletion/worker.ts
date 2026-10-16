@@ -9,7 +9,9 @@ import {
   markObjectsUnpinned,
   listAssetsPendingDeletion,
 } from '../db/queries/assets.js';
+import { listUploadFilePaths } from '../db/queries/uploads.js';
 import { evictObjects } from '../storage/blob-manager.js';
+import { removeAssetSources } from '../upload/source-files.js';
 import { invalidateObjectAccessTier } from '../delivery/access-control.js';
 import { runAssetDeletion } from './deleter.js';
 import { buildDeletionGc } from './service.js';
@@ -61,6 +63,8 @@ export const deletionWorker = new Worker<DeletionJobData>(
         removeAsset: async (id) => {
           await deleteVideoAsset(id);
         },
+        removeSources: (id) =>
+          removeAssetSources(id, { listSourcePaths: listUploadFilePaths, log: logger }),
         logger,
       },
       { videoAssetId, objectIds },

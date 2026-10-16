@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 // Mock logger
 vi.mock('../config/logger.js', () => ({
@@ -10,17 +13,12 @@ vi.mock('../config/logger.js', () => ({
   },
 }));
 
-// Mock fs/promises for unlink
-vi.mock('node:fs/promises', () => ({
-  unlink: vi.fn(),
-}));
-
 import {
   SessionManager,
   type SessionManagerDeps,
   type UploadSessionRecord,
 } from '../upload/session-manager.js';
-import { unlink } from 'node:fs/promises';
+import { logger } from '../config/logger.js';
 
 function createMockSession(overrides: Partial<UploadSessionRecord> = {}): UploadSessionRecord {
   return {
@@ -97,6 +95,19 @@ describe('SessionManager', () => {
           sha256Hash: null,
           metadata: expect.objectContaining({ apiKeyId: 'key-1', format: 'mp4' }),
         }),
+      );
+    });
+
+    it('records the upload file path when given one', async () => {
+      await manager.create({
+        apiKeyId: 'key-1',
+        fileSize: 1000,
+        filePath: '/uploads/abc123',
+        metadata: {},
+      });
+
+      expect(deps.insertSession).toHaveBeenCalledWith(
+        expect.objectContaining({ filePath: '/uploads/abc123' }),
       );
     });
 
@@ -250,31 +261,66 @@ describe('SessionManager', () => {
       expect(deps.updateSession).toHaveBeenCalledWith('session-1', { status: 'cancelled' });
     });
 
-    it('should delete the partial file if it exists', async () => {
-      vi.mocked(deps.getSession).mockResolvedValue(
-        createMockSession({ filePath: '/uploads/session-1/video.mp4' }),
-      );
-      vi.mocked(unlink).mockResolvedValue(undefined);
+    describe('with files on disk', () => {
+      let dir: string;
+      beforeEach(() => {
+        dir = mkdtempSync(path.join(tmpdir(), 'sluby-cancel-'));
+      });
+      afterEach(() => {
+        rmSync(dir, { recursive: true, force: true });
+      });
 
-      await manager.cancel('session-1');
+      it('deletes the partial upload and its tus sidecar', async () => {
+        const filePath = path.join(dir, 'abc123');
+        writeFileSync(filePath, 'partial');
+        writeFileSync(`${filePath}.json`, '{}');
+        vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ filePath }));
 
-      expect(unlink).toHaveBeenCalledWith('/uploads/session-1/video.mp4');
+        await expect(manager.cancel('session-1')).resolves.toBe(true);
+
+        expect(existsSync(filePath)).toBe(false);
+        expect(existsSync(`${filePath}.json`)).toBe(false);
+      });
+
+      it('leaves the files to the tus file store when asked to', async () => {
+        const filePath = path.join(dir, 'abc123');
+        writeFileSync(filePath, 'partial');
+        writeFileSync(`${filePath}.json`, '{}');
+        vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ filePath }));
+
+        await expect(manager.cancel('session-1', undefined, { removeFiles: false })).resolves.toBe(
+          true,
+        );
+
+        expect(deps.updateSession).toHaveBeenCalledWith('session-1', { status: 'cancelled' });
+        expect(existsSync(filePath)).toBe(true);
+        expect(existsSync(`${filePath}.json`)).toBe(true);
+      });
+
+      it('logs with the path and still cancels when the file can not be removed', async () => {
+        // a non-empty directory where the upload should be makes rm fail for real
+        const filePath = path.join(dir, 'stuck');
+        mkdirSync(filePath);
+        writeFileSync(path.join(filePath, 'inner'), 'x');
+        vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ filePath }));
+
+        await expect(manager.cancel('session-1')).resolves.toBe(true);
+
+        expect(deps.updateSession).toHaveBeenCalledWith('session-1', { status: 'cancelled' });
+        expect(logger.error).toHaveBeenCalledWith(
+          expect.objectContaining({ path: filePath, err: expect.any(Error) }),
+          'Failed to remove source upload file',
+        );
+      });
     });
 
-    it('should not attempt to delete if filePath is null', async () => {
+    it('does not touch the disk when the session has no file path', async () => {
       vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ filePath: null }));
 
-      await manager.cancel('session-1');
-
-      expect(unlink).not.toHaveBeenCalled();
-    });
-
-    it('should not throw if file deletion fails', async () => {
-      vi.mocked(deps.getSession).mockResolvedValue(createMockSession());
-      vi.mocked(unlink).mockRejectedValue(new Error('ENOENT'));
-
-      // Should not throw
       await expect(manager.cancel('session-1')).resolves.toBe(true);
+
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalledWith(expect.anything(), 'Removed source upload');
     });
 
     it('does not cancel another tenant’s session (owner mismatch)', async () => {
