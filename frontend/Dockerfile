@@ -3,7 +3,7 @@
 # and caches delivery. build from the repo root:
 #   docker build -f frontend/Dockerfile .
 
-FROM node:24-trixie-slim AS build
+FROM node:25-trixie-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
