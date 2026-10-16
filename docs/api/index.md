@@ -151,20 +151,22 @@ A receiver answers with any `2xx` status; anything else, a redirect included, co
 
 ## Rate limits
 
-Each API key has its own limit in requests per minute, set when the key is created. Studio sessions get 1000. Requests are counted in fixed one-minute windows, and every counted response carries:
+Each API key has its own limit in requests per minute, set when the key is created and capped by the server's `API_KEY_RATE_LIMIT_MAX` (10000 by default). Studio sessions get 1000. Requests are counted in fixed one-minute windows, and every counted response carries:
 
 | Header                  | Value                                |
 | ----------------------- | ------------------------------------ |
-| `X-RateLimit-Limit`     | The key's limit per minute.          |
+| `X-RateLimit-Limit`     | The limit per minute.                |
 | `X-RateLimit-Remaining` | Requests left in the current window. |
 | `X-RateLimit-Reset`     | Seconds until the window resets.     |
 
 Over the limit, the server answers `429` with a `Retry-After` header in seconds and a body like `{ "error": "Rate limit exceeded", "retry_after": 37 }`. The body also still carries the older `retryAfter` spelling, which goes away in the next release. `@sluby/sdk` raises this as a `RateLimitError` with `retryAfter` set from the header.
 
-The limit applies to the endpoints under `/api/v1` that need a key. The OpenAPI document, the reference page, sign-in, tus upload traffic and the delivery routes under `/v1` are not counted. Counters live in the backend process's memory, so they reset when the backend restarts.
+Calls under `/api/v1` that carry no valid key or session (the OpenAPI document, the reference page, sign-in, and any call whose authentication fails) are counted per client address instead, 600 a minute by default (`API_IP_RATE_LIMIT`). Calls that authenticate are not counted there. Counters live in the backend process's memory, so they reset when the backend restarts. In front of the backend, the web proxy also limits each client address on the delivery routes under `/v1` and on sign-in; see [configuration](/guide/configuration#web-proxy).
+
+An account can hold at most 100 usable keys by default (`API_KEYS_PER_ACCOUNT_MAX`); creating one more answers `409`.
 
 ## Trying requests
 
 In either reference, open an endpoint, click **Test Request**, paste your key into **Bearer Token** and press **Send**. The reference on your own server calls that server directly. If you are signed in to the Studio in the same browser, those requests also carry your session cookie, and the session takes precedence over the key.
 
-The reference on this site sends requests from your browser to the server set in its server field (`http://localhost:8080` by default). The backend allows any origin unless `CORS_ORIGIN` is set, in which case the docs site's origin must be in that list.
+The reference on this site sends requests from your browser to the server set in its server field (`http://localhost:8080` by default). The backend lets any origin call it with a key, without cookies, so that works once you paste a key. It does not while the server runs with `AUTH_DISABLED=true` (the quickstart default): other origins then get no CORS at all, so use the reference on your own server instead.

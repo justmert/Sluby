@@ -1,4 +1,5 @@
-import type { Request, RequestHandler, Response } from 'express';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { Logger } from 'pino';
 import { getMetrics, registry } from '../metrics/collector.js';
 
@@ -14,6 +15,27 @@ export function createHealthHandler(version: string): RequestHandler {
       timestamp: new Date().toISOString(),
       version,
     });
+  };
+}
+
+/**
+ * Guard for GET /metrics. With a token configured the scraper must send it as
+ * a bearer token; without one the endpoint stays open to whoever reaches the
+ * backend port, which the shipped compose files keep on the internal network.
+ */
+export function requireMetricsToken(token: string | undefined): RequestHandler {
+  if (!token) return (_req, _res, next) => next();
+  const expected = createHash('sha256').update(token).digest();
+  return (req: Request, res: Response, next: NextFunction) => {
+    const header = req.headers.authorization ?? '';
+    const given = header.startsWith('Bearer ') ? header.slice(7) : '';
+    // compare digests so the check takes the same time whatever was sent
+    const actual = createHash('sha256').update(given).digest();
+    if (given !== '' && timingSafeEqual(actual, expected)) {
+      next();
+      return;
+    }
+    res.set('WWW-Authenticate', 'Bearer').status(401).json({ error: 'Metrics token required' });
   };
 }
 

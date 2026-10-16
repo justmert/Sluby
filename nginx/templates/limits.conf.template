@@ -1,0 +1,29 @@
+# rendered when the container starts, by the nginx image's entrypoint, from
+# the WEB_* variables (defaults and checks in nginx/limits.envsh).
+
+# the backend's name is looked up again every 10s, so a recreated backend on
+# a new address is found without restarting this proxy
+resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=off;
+
+# per-client limits on the unauthenticated surfaces: delivery (every request
+# can pull bytes from sia) and sign-in. The key is the client address after
+# realip, and an empty key is not counted, so each limit only touches its own
+# paths. Set at http level so the locations need no copy of the numbers.
+map $uri $delivery_limit_key {
+    ~^/v1/          $binary_remote_addr;
+    default         "";
+}
+map $uri $auth_limit_key {
+    ~^/api/v1/auth/ $binary_remote_addr;
+    default         "";
+}
+
+limit_req_zone $delivery_limit_key zone=delivery_req:10m rate=${WEB_DELIVERY_RATE};
+limit_conn_zone $delivery_limit_key zone=delivery_conn:10m;
+limit_req_zone $auth_limit_key zone=auth_req:10m rate=${WEB_AUTH_RATE};
+limit_conn_zone $auth_limit_key zone=auth_conn:10m;
+
+limit_req zone=delivery_req burst=${WEB_DELIVERY_BURST} nodelay;
+limit_conn delivery_conn ${WEB_DELIVERY_CONN};
+limit_req zone=auth_req burst=${WEB_AUTH_BURST} nodelay;
+limit_conn auth_conn ${WEB_AUTH_CONN};

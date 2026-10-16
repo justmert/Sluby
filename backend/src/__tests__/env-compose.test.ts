@@ -35,6 +35,42 @@ describe('env from docker compose', () => {
     expect(bad.error.issues[0].message).toContain('internal-hooks');
   });
 
+  it('defaults the edge settings when compose passes them empty', () => {
+    const parsed = envSchema.parse(
+      withoutEmpty({
+        ...composeEnv,
+        CORS_ORIGIN: '',
+        TRUST_PROXY: '',
+        API_IP_RATE_LIMIT: '',
+        METRICS_TOKEN: '',
+      }),
+    );
+    expect(parsed.CORS_ORIGIN).toEqual([]);
+    expect(parsed.TRUST_PROXY).toBe('loopback, linklocal, uniquelocal');
+    expect(parsed.API_IP_RATE_LIMIT).toBe(600);
+    expect(parsed.METRICS_TOKEN).toBeUndefined();
+  });
+
+  it('reads CORS_ORIGIN as a list of bare origins', () => {
+    const parsed = envSchema.parse({
+      CORS_ORIGIN: 'https://video.example.com, http://localhost:5173',
+    });
+    expect(parsed.CORS_ORIGIN).toEqual(['https://video.example.com', 'http://localhost:5173']);
+  });
+
+  it.each(['*', 'https://video.example.com/', 'video.example.com', 'https://x.example/studio'])(
+    'refuses %s as a CORS_ORIGIN entry',
+    (value) => {
+      expect(envSchema.safeParse({ CORS_ORIGIN: value }).success).toBe(false);
+    },
+  );
+
+  it('reads TRUST_PROXY as a hop count, a boolean or an address list', () => {
+    expect(envSchema.parse({ TRUST_PROXY: '2' }).TRUST_PROXY).toBe(2);
+    expect(envSchema.parse({ TRUST_PROXY: 'false' }).TRUST_PROXY).toBe(false);
+    expect(envSchema.parse({ TRUST_PROXY: '10.0.0.0/8' }).TRUST_PROXY).toBe('10.0.0.0/8');
+  });
+
   it('keeps real values', () => {
     expect(withoutEmpty({ A: 'x', B: '', C: undefined })).toEqual({ A: 'x' });
   });

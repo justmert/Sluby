@@ -1,19 +1,32 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  copyFileSync,
+  chmodSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
+import http from 'node:http';
 
 /**
- * End-to-end delivery test through the REAL nginx config the project ships
- * (`nginx/nginx.conf` + `nginx/conf.d/sia-aggregator.conf`), run in a
- * container in front of a second "origin" container. This is the test the
- * milestone-2 review asked for: it proves that many byte ranges of ONE object
- * URI come back with their own bytes rather than a wrongly-cached 206, and
- * that whole-object responses are still cached.
+ * End-to-end tests through the REAL nginx config the project ships
+ * (`nginx/nginx.conf`, `nginx/conf.d/sia-aggregator.conf`, the
+ * `nginx/templates` it renders at start and `nginx/limits.envsh`), run in the
+ * same image the web container uses, in front of a second "origin"
+ * container. They cover what the milestone-2 review asked for (many byte
+ * ranges of ONE object URI come back with their own bytes, whole objects are
+ * still cached) and the edge itself: redirects behind a published port,
+ * security headers, compression, 404s, the per-client limits and following a
+ * backend that comes back on a new address.
  *
- * Both nginx instances run in a user-defined Docker network and talk by
+ * Every container runs in a user-defined Docker network and talks by
  * container name, so there is no host-networking dependency (which is flaky on
  * CI runners). The origin is a plain nginx serving static files, which handles
  * Range requests natively, so it is a faithful stand-in for the object gateway.
@@ -25,10 +38,13 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../../..');
-const NGINX_IMAGE = 'nginx:alpine';
+// the web image's base (frontend/Dockerfile)
+const NGINX_IMAGE = 'nginx:1-alpine';
 const NET = 'sluby-itest-net';
 const ORIGIN = 'sluby-itest-origin';
 const PROXY = 'sluby-itest-proxy';
+const LIMITED = 'sluby-itest-limited';
+const SQUATTER = 'sluby-itest-squatter';
 
 function docker(args: string[], opts: { capture?: boolean } = {}): string {
   const out = execFileSync('docker', args, {
@@ -51,8 +67,8 @@ if (!HAS_DOCKER) {
   // Loud, not silent: make it obvious this coverage did not run here.
   console.warn(
     '\n[nginx-delivery.integration] Docker not available: skipping the ' +
-      'through-nginx range test. CI runs Docker so this is enforced there. ' +
-      'Install/start Docker to run it locally.\n',
+      'through-nginx tests. CI runs Docker so this is enforced there. ' +
+      'Install/start Docker to run them locally.\n',
   );
 }
 
@@ -65,19 +81,28 @@ const VARIANT =
   '#EXTM3U\n#EXT-X-MAP:URI="/v1/objects/data",BYTERANGE="16@0"\n' +
   '#EXTINF:1.0,\n#EXT-X-BYTERANGE:16@16\n/v1/objects/data\n#EXT-X-ENDLIST\n';
 
+/** A hashed studio chunk, big and repetitive enough to compress. */
+const CHUNK = 'export const x = "' + 'sluby '.repeat(2000) + '";\n';
+
 /**
  * Minimal nginx that serves the origin files with native Range support. Like
- * the backend's delivery routes, it sends its own CORS headers.
+ * the backend's delivery routes, it sends its own CORS headers; its /api/
+ * routes send a nosniff header of their own and echo the client address the
+ * proxy forwarded, and /v1/objects/slow trickles out so a download stays open.
  */
 const ORIGIN_CONF = `events { worker_connections 128; }
 http {
   server {
     listen 80;
-    location / {
+    location /v1/objects/ {
       root /origin;
       add_header Access-Control-Allow-Origin * always;
       add_header Access-Control-Allow-Credentials true always;
       add_header Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges" always;
+    }
+    location /v1/objects/slow {
+      root /origin;
+      limit_rate 4k;
     }
     # share maps: the backend marks a public map briefly cacheable and a gated
     # one private, no-store
@@ -95,6 +120,23 @@ http {
       add_header Access-Control-Allow-Origin * always;
       add_header Access-Control-Allow-Credentials true always;
     }
+    location = /v1/cache/stats {
+      default_type application/json;
+      return 200 '{"hits":0}';
+    }
+    location /v1/ {
+      default_type application/json;
+      return 404 '{"error":"Not found"}';
+    }
+    location /api/ {
+      default_type text/plain;
+      add_header X-Content-Type-Options nosniff;
+      return 200 "xff=$http_x_forwarded_for real=$http_x_real_ip";
+    }
+    location = /health {
+      default_type application/json;
+      return 200 '{"status":"ok"}';
+    }
   }
 }
 `;
@@ -105,7 +147,7 @@ const SHARE_MAP = JSON.stringify({
   expires_at: '2030-01-01T00:00:00.000Z',
 });
 
-/** Write the origin file tree and the container configs to a temp dir. */
+/** Write the origin file tree, the studio build stand-in and the configs. */
 function writeFixtures(): string {
   const dir = mkdtempSync(join(tmpdir(), 'sluby-nginx-'));
   const objects = join(dir, 'origin', 'v1', 'objects');
@@ -113,25 +155,37 @@ function writeFixtures(): string {
   writeFileSync(join(objects, 'master'), MASTER);
   writeFileSync(join(objects, 'variant'), VARIANT);
   writeFileSync(join(objects, 'data'), DATA);
+  writeFileSync(join(objects, 'slow'), Buffer.alloc(256 * 1024, 1));
   const share = join(dir, 'origin', 'v1', 'share');
   mkdirSync(share, { recursive: true });
   writeFileSync(join(share, 'public'), SHARE_MAP);
   writeFileSync(join(share, 'gated'), SHARE_MAP);
   writeFileSync(join(dir, 'origin.conf'), ORIGIN_CONF);
 
+  // the studio build: the real index.html (so the csp hash is checked against
+  // the real inline script), a favicon and one hashed chunk
+  const html = join(dir, 'html');
+  mkdirSync(join(html, 'assets'), { recursive: true });
+  copyFileSync(join(repoRoot, 'frontend/index.html'), join(html, 'index.html'));
+  writeFileSync(join(html, 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  writeFileSync(join(html, 'assets', 'index-abc123.js'), CHUNK);
+
   // The real proxy config, with its upstream pointed at the origin container.
-  const mainConf = readFileSync(join(repoRoot, 'nginx/nginx.conf'), 'utf8');
-  const siteConf = readFileSync(join(repoRoot, 'nginx/conf.d/sia-aggregator.conf'), 'utf8').replace(
-    'server backend:3000;',
-    `server ${ORIGIN}:80;`,
+  const siteConf = readFileSync(join(repoRoot, 'nginx/conf.d/sia-aggregator.conf'), 'utf8');
+  if (!siteConf.includes('server backend:3000 resolve;')) {
+    throw new Error('the upstream line this test rewrites has changed');
+  }
+  writeFileSync(
+    join(dir, 'proxy.conf'),
+    siteConf.replace('server backend:3000 resolve;', `server ${ORIGIN}:80 resolve;`),
   );
-  writeFileSync(join(dir, 'nginx.conf'), mainConf);
-  writeFileSync(join(dir, 'proxy.conf'), siteConf);
+  copyFileSync(join(repoRoot, 'nginx/limits.envsh'), join(dir, 'limits.envsh'));
+  chmodSync(join(dir, 'limits.envsh'), 0o755);
   return dir;
 }
 
 function cleanup(): void {
-  for (const name of [PROXY, ORIGIN]) {
+  for (const name of [PROXY, LIMITED, ORIGIN, SQUATTER]) {
     try {
       docker(['rm', '-f', name]);
     } catch {
@@ -145,6 +199,80 @@ function cleanup(): void {
   }
 }
 
+function startOrigin(dir: string): void {
+  docker([
+    'run',
+    '-d',
+    '--name',
+    ORIGIN,
+    '--network',
+    NET,
+    '-v',
+    `${dir}/origin.conf:/etc/nginx/nginx.conf:ro`,
+    '-v',
+    `${dir}/origin:/origin:ro`,
+    NGINX_IMAGE,
+  ]);
+}
+
+/** Run the shipped proxy config the way frontend/Dockerfile lays it out. */
+function startProxy(dir: string, name: string, env: Record<string, string> = {}): string {
+  docker([
+    'run',
+    '-d',
+    '--name',
+    name,
+    '--network',
+    NET,
+    '-p',
+    '127.0.0.1:0:80',
+    ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
+    '-v',
+    `${repoRoot}/nginx/nginx.conf:/etc/nginx/nginx.conf:ro`,
+    '-v',
+    `${dir}/proxy.conf:/etc/nginx/conf.d/default.conf:ro`,
+    '-v',
+    `${repoRoot}/nginx/templates:/etc/nginx/templates:ro`,
+    '-v',
+    `${dir}/limits.envsh:/docker-entrypoint.d/14-sluby-limits.envsh:ro`,
+    '-v',
+    `${dir}/html:/usr/share/nginx/html:ro`,
+    NGINX_IMAGE,
+  ]);
+  const hostPort = docker(
+    ['inspect', '--format', '{{(index (index .NetworkSettings.Ports "80/tcp") 0).HostPort}}', name],
+    { capture: true },
+  ).trim();
+  return `http://127.0.0.1:${hostPort}`;
+}
+
+async function waitFor(container: string, url: string, timeoutMs = 25000): Promise<void> {
+  // Per-request timeouts keep a stuck connection from hanging the whole hook.
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    let last: string;
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(2000) });
+      if (r.status === 200) return;
+      last = `status ${r.status}`;
+    } catch (err) {
+      last = String(err);
+    }
+    if (Date.now() > deadline) {
+      let logs: string;
+      try {
+        logs = execFileSync('docker', ['logs', '--tail', '30', container], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }).toString();
+      } catch (err) {
+        logs = String(err);
+      }
+      throw new Error(`${url} did not become ready (${last}); ${container} logs:\n${logs}`);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
+
 async function fetchThroughNginx(
   base: string,
   path: string,
@@ -152,174 +280,387 @@ async function fetchThroughNginx(
 ): Promise<{ status: number; buf: Buffer; headers: Headers }> {
   const r = await fetch(base + path, {
     headers,
+    redirect: 'manual',
     signal: AbortSignal.timeout(4000),
   });
   const buf = Buffer.from(await r.arrayBuffer());
   return { status: r.status, buf, headers: r.headers };
 }
 
-describe.skipIf(!HAS_DOCKER)('HLS delivery through nginx', () => {
+/**
+ * Raw response headers, one entry per header line. fetch joins repeats with
+ * ", ", which hides a header sent twice, and it always decompresses.
+ */
+function rawGet(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; raw: string[]; body: Buffer }> {
+  return new Promise((done, fail) => {
+    const req = http.get(url, { headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () =>
+        done({ status: res.statusCode ?? 0, raw: res.rawHeaders, body: Buffer.concat(chunks) }),
+      );
+    });
+    req.on('error', fail);
+    req.setTimeout(4000, () => req.destroy(new Error('timeout')));
+  });
+}
+
+function headerValues(raw: string[], name: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < raw.length; i += 2) {
+    if (raw[i].toLowerCase() === name.toLowerCase()) out.push(raw[i + 1]);
+  }
+  return out;
+}
+
+describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', () => {
   let base: string;
+  let limited: string;
+  let dir: string;
 
   beforeAll(async () => {
     cleanup();
     docker(['pull', NGINX_IMAGE]);
     docker(['network', 'create', NET]);
 
-    const dir = writeFixtures();
+    dir = writeFixtures();
+    startOrigin(dir);
+    base = startProxy(dir, PROXY);
+    // a second proxy with tight limits, so they can be reached in a test
+    limited = startProxy(dir, LIMITED, {
+      WEB_DELIVERY_RATE: '60r/m',
+      WEB_DELIVERY_BURST: '3',
+      WEB_DELIVERY_CONN: '2',
+      WEB_AUTH_RATE: '60r/m',
+      WEB_AUTH_BURST: '2',
+    });
 
-    // Origin: static nginx, reachable by name on the network.
-    docker([
-      'run',
-      '-d',
-      '--name',
-      ORIGIN,
-      '--network',
-      NET,
-      '-v',
-      `${dir}/origin.conf:/etc/nginx/nginx.conf:ro`,
-      '-v',
-      `${dir}/origin:/origin:ro`,
-      NGINX_IMAGE,
-    ]);
-
-    // Proxy: the real repo config, mounted over the stock default.conf so it
-    // is the only server, with a published port on the host.
-    docker([
-      'run',
-      '-d',
-      '--name',
-      PROXY,
-      '--network',
-      NET,
-      '-p',
-      '127.0.0.1:0:80',
-      '-v',
-      `${dir}/nginx.conf:/etc/nginx/nginx.conf:ro`,
-      '-v',
-      `${dir}/proxy.conf:/etc/nginx/conf.d/default.conf:ro`,
-      NGINX_IMAGE,
-    ]);
-
-    const hostPort = docker(
-      [
-        'inspect',
-        '--format',
-        '{{(index (index .NetworkSettings.Ports "80/tcp") 0).HostPort}}',
-        PROXY,
-      ],
-      { capture: true },
-    ).trim();
-    base = `http://127.0.0.1:${hostPort}`;
-
-    // Wait for the proxy + origin to be ready. Per-request timeouts keep a
-    // stuck connection from hanging the whole hook.
-    const deadline = Date.now() + 25000;
-    for (;;) {
-      try {
-        const r = await fetch(`${base}/v1/objects/master`, {
-          signal: AbortSignal.timeout(2000),
-        });
-        if (r.status === 200) break;
-      } catch {
-        /* not up yet */
-      }
-      if (Date.now() > deadline) throw new Error('nginx did not become ready');
-      await new Promise((r) => setTimeout(r, 300));
-    }
+    await waitFor(PROXY, `${base}/v1/objects/master`);
+    await waitFor(LIMITED, `${limited}/health`);
   }, 120000);
 
   afterAll(() => {
     cleanup();
   });
 
-  it('serves the master and variant manifests', async () => {
-    const master = await fetchThroughNginx(base, '/v1/objects/master?type=manifest');
-    expect(master.status).toBe(200);
-    expect(master.buf.toString()).toContain('/v1/objects/variant');
+  describe('delivery', () => {
+    it('serves the master and variant manifests', async () => {
+      const master = await fetchThroughNginx(base, '/v1/objects/master?type=manifest');
+      expect(master.status).toBe(200);
+      expect(master.buf.toString()).toContain('/v1/objects/variant');
 
-    const variant = await fetchThroughNginx(base, '/v1/objects/variant?type=manifest');
-    expect(variant.status).toBe(200);
-    expect(variant.buf.toString()).toContain('/v1/objects/data');
-  });
+      const variant = await fetchThroughNginx(base, '/v1/objects/variant?type=manifest');
+      expect(variant.status).toBe(200);
+      expect(variant.buf.toString()).toContain('/v1/objects/data');
+    });
 
-  it('returns the correct bytes for the init range and multiple media ranges', async () => {
-    // The whole point: every range of the SAME object URI must return its own
-    // bytes. Under the old range-independent 206 cache key, the 2nd and 3rd
-    // ranges came back as the first range's cached bytes.
-    const ranges: Array<[number, number]> = [
-      [0, 15], // init segment
-      [16, 31], // media range 1
-      [32, 47], // media range 2
-    ];
-    for (const [start, end] of ranges) {
-      const r = await fetchThroughNginx(base, '/v1/objects/data', {
-        Range: `bytes=${start}-${end}`,
+    it('returns the correct bytes for the init range and multiple media ranges', async () => {
+      // The whole point: every range of the SAME object URI must return its own
+      // bytes. Under the old range-independent 206 cache key, the 2nd and 3rd
+      // ranges came back as the first range's cached bytes.
+      const ranges: Array<[number, number]> = [
+        [0, 15], // init segment
+        [16, 31], // media range 1
+        [32, 47], // media range 2
+      ];
+      for (const [start, end] of ranges) {
+        const r = await fetchThroughNginx(base, '/v1/objects/data', {
+          Range: `bytes=${start}-${end}`,
+        });
+        expect(r.status).toBe(206);
+        expect(r.buf.length).toBe(end - start + 1);
+        expect(r.buf[0]).toBe(start);
+        expect(r.buf[r.buf.length - 1]).toBe(end);
+        // Ranged reads bypass the proxy cache.
+        expect(r.headers.get('x-cache-status')).toBe('BYPASS');
+      }
+    });
+
+    it('sends a single Access-Control-Allow-Origin, cached or not', async () => {
+      // fetch joins repeated headers with ", ", and a browser rejects "*, *"
+      const path = '/v1/objects/master?corstest=1';
+      const first = await fetchThroughNginx(base, path, { Origin: 'http://example.test' });
+      const cached = await fetchThroughNginx(base, path, { Origin: 'http://example.test' });
+      const ranged = await fetchThroughNginx(base, '/v1/objects/data', {
+        Origin: 'http://example.test',
+        Range: 'bytes=0-15',
       });
-      expect(r.status).toBe(206);
-      expect(r.buf.length).toBe(end - start + 1);
-      expect(r.buf[0]).toBe(start);
-      expect(r.buf[r.buf.length - 1]).toBe(end);
-      // Ranged reads bypass the proxy cache.
-      expect(r.headers.get('x-cache-status')).toBe('BYPASS');
-    }
+      expect(cached.headers.get('x-cache-status')).toBe('HIT');
+      for (const r of [first, cached, ranged]) {
+        expect(r.headers.get('access-control-allow-origin')).toBe('*');
+        expect(r.headers.get('access-control-allow-credentials')).toBeNull();
+        expect(r.headers.get('access-control-expose-headers')).toBe(
+          'Content-Length, Content-Range, Accept-Ranges',
+        );
+      }
+    });
+
+    it('still caches whole-object responses (MISS then HIT)', async () => {
+      // Use a fresh cache key the readiness probe never warmed, so the first
+      // request is a genuine MISS.
+      const path = '/v1/objects/master?cachetest=1';
+      const first = await fetchThroughNginx(base, path);
+      const second = await fetchThroughNginx(base, path);
+      expect(first.headers.get('x-cache-status')).toBe('MISS');
+      expect(second.headers.get('x-cache-status')).toBe('HIT');
+    });
+
+    it('proxies share maps with one set of cors headers, caching only public ones', async () => {
+      const origin = { Origin: 'http://example.test' };
+      const first = await fetchThroughNginx(base, '/v1/share/public', origin);
+      const second = await fetchThroughNginx(base, '/v1/share/public', origin);
+      expect(first.status).toBe(200);
+      expect(JSON.parse(first.buf.toString()).master_object_id).toBe('master');
+      expect(first.headers.get('x-cache-status')).toBe('MISS');
+      expect(second.headers.get('x-cache-status')).toBe('HIT');
+
+      const gatedFirst = await fetchThroughNginx(base, '/v1/share/gated?expires=1&sig=a', origin);
+      const gatedSecond = await fetchThroughNginx(base, '/v1/share/gated?expires=1&sig=a', origin);
+      expect(gatedFirst.status).toBe(200);
+      expect(gatedSecond.headers.get('x-cache-status')).not.toBe('HIT');
+      expect(gatedSecond.headers.get('cache-control')).toBe('private, no-store');
+
+      for (const r of [first, second, gatedFirst, gatedSecond]) {
+        expect(r.headers.get('access-control-allow-origin')).toBe('*');
+        expect(r.headers.get('access-control-allow-credentials')).toBeNull();
+      }
+
+      const preflight = await fetch(`${base}/v1/share/public`, {
+        method: 'OPTIONS',
+        headers: { ...origin, 'Access-Control-Request-Method': 'GET' },
+        signal: AbortSignal.timeout(4000),
+      });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
+    });
+
+    it('proxies the rest of /v1/ to the backend instead of the studio', async () => {
+      const stats = await fetchThroughNginx(base, '/v1/cache/stats');
+      expect(stats.status).toBe(200);
+      expect(JSON.parse(stats.buf.toString())).toEqual({ hits: 0 });
+      const unknown = await fetchThroughNginx(base, '/v1/nope');
+      expect(unknown.status).toBe(404);
+      expect(unknown.headers.get('content-type')).toMatch(/json/);
+    });
   });
 
-  it('sends a single Access-Control-Allow-Origin, cached or not', async () => {
-    // fetch joins repeated headers with ", ", and a browser rejects "*, *"
-    const path = '/v1/objects/master?corstest=1';
-    const first = await fetchThroughNginx(base, path, { Origin: 'http://example.test' });
-    const cached = await fetchThroughNginx(base, path, { Origin: 'http://example.test' });
-    const ranged = await fetchThroughNginx(base, '/v1/objects/data', {
-      Origin: 'http://example.test',
-      Range: 'bytes=0-15',
+  describe('studio and redirects', () => {
+    it('redirects / to a path, so a published port other than 80 survives', async () => {
+      const r = await fetchThroughNginx(base, '/');
+      expect(r.status).toBe(302);
+      expect(r.headers.get('location')).toBe('/studio');
+      // the same behind an https proxy that forwards to port 80
+      const proxied = await fetchThroughNginx(base, '/', { 'X-Forwarded-Proto': 'https' });
+      expect(proxied.headers.get('location')).toBe('/studio');
     });
-    expect(cached.headers.get('x-cache-status')).toBe('HIT');
-    for (const r of [first, cached, ranged]) {
-      expect(r.headers.get('access-control-allow-origin')).toBe('*');
-      expect(r.headers.get('access-control-allow-credentials')).toBeNull();
-      expect(r.headers.get('access-control-expose-headers')).toBe(
-        'Content-Length, Content-Range, Accept-Ranges',
+
+    it('serves the app on studio routes', async () => {
+      for (const path of ['/studio', '/studio/assets/9a1c', '/studio/settings?tab=keys']) {
+        const r = await fetchThroughNginx(base, path);
+        expect(r.status).toBe(200);
+        expect(r.buf.toString()).toContain('<div id="root">');
+      }
+    });
+
+    it('answers 404 for missing files and unknown paths, not the app', async () => {
+      for (const path of ['/studio/assets/nope.js', '/assets/nope.js', '/metrics', '/nope']) {
+        const r = await fetchThroughNginx(base, path);
+        expect(r.status, path).toBe(404);
+        expect(r.buf.toString(), path).not.toContain('<div id="root">');
+      }
+    });
+
+    it('sends the security headers once each on the app, with a csp that matches the theme script', async () => {
+      const html = readFileSync(join(repoRoot, 'frontend/index.html'), 'utf8');
+      const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+      expect(inline).toHaveLength(1);
+      const hash = createHash('sha256').update(inline[0]).digest('base64');
+
+      for (const path of ['/studio', '/studio/upload']) {
+        const r = await rawGet(base + path);
+        expect(headerValues(r.raw, 'x-content-type-options')).toEqual(['nosniff']);
+        expect(headerValues(r.raw, 'x-frame-options')).toEqual(['DENY']);
+        expect(headerValues(r.raw, 'referrer-policy')).toEqual(['strict-origin-when-cross-origin']);
+        expect(headerValues(r.raw, 'cache-control')).toEqual(['no-cache']);
+        const csp = headerValues(r.raw, 'content-security-policy');
+        expect(csp).toHaveLength(1);
+        expect(csp[0]).toContain(`'sha256-${hash}'`);
+        expect(csp[0]).toContain("frame-ancestors 'none'");
+        expect(csp[0]).toContain("'wasm-unsafe-eval'");
+        expect(headerValues(r.raw, 'server')).toEqual(['nginx']);
+        // tls is the outer proxy's job; plain http must not pin anything
+        expect(headerValues(r.raw, 'strict-transport-security')).toEqual([]);
+      }
+    });
+
+    it('serves hashed chunks with one long cache header, compressed', async () => {
+      const r = await rawGet(`${base}/assets/index-abc123.js`, { 'Accept-Encoding': 'gzip' });
+      expect(r.status).toBe(200);
+      expect(headerValues(r.raw, 'cache-control')).toEqual(['public, max-age=31536000, immutable']);
+      expect(headerValues(r.raw, 'expires')).toEqual([]);
+      expect(headerValues(r.raw, 'x-content-type-options')).toEqual(['nosniff']);
+      expect(headerValues(r.raw, 'content-encoding')).toEqual(['gzip']);
+      expect(gunzipSync(r.body).toString()).toBe(CHUNK);
+    });
+
+    it('keeps one copy of the security headers on proxied api responses', async () => {
+      const r = await rawGet(`${base}/api/v1/whatever`);
+      expect(headerValues(r.raw, 'x-content-type-options')).toEqual(['nosniff']);
+      expect(headerValues(r.raw, 'x-frame-options')).toEqual(['DENY']);
+      expect(headerValues(r.raw, 'content-security-policy')).toEqual([]);
+    });
+
+    it('leaves the delivery responses to their own headers', async () => {
+      const r = await rawGet(`${base}/v1/objects/master?hdr=1`);
+      expect(headerValues(r.raw, 'x-content-type-options')).toEqual([]);
+      expect(headerValues(r.raw, 'x-frame-options')).toEqual([]);
+      expect(headerValues(r.raw, 'access-control-allow-origin')).toEqual(['*']);
+    });
+  });
+
+  describe('client address', () => {
+    it('passes on the client a trusted proxy in front reported, alone', async () => {
+      // the test runner reaches the container from a private docker address,
+      // as caddy does in production
+      const r = await rawGet(`${base}/api/v1/echo`, { 'X-Forwarded-For': '198.51.100.7' });
+      expect(r.body.toString()).toBe('xff=198.51.100.7 real=198.51.100.7');
+      // a client-supplied hop in front of that is dropped
+      const chained = await rawGet(`${base}/api/v1/echo`, {
+        'X-Forwarded-For': '6.6.6.6, 198.51.100.7',
+      });
+      expect(chained.body.toString()).toBe('xff=198.51.100.7 real=198.51.100.7');
+    });
+  });
+
+  describe('per-client limits', () => {
+    it('answers 429 with Retry-After past the delivery burst, per client', async () => {
+      const client = { 'X-Forwarded-For': '203.0.113.1' };
+      const statuses: number[] = [];
+      let last: Awaited<ReturnType<typeof fetchThroughNginx>> | undefined;
+      for (let i = 0; i < 6; i++) {
+        last = await fetchThroughNginx(limited, '/v1/objects/master?limit=1', client);
+        statuses.push(last.status);
+      }
+      // one at the rate plus a burst of three
+      expect(statuses.slice(0, 4)).toEqual([200, 200, 200, 200]);
+      expect(statuses.slice(4)).toEqual([429, 429]);
+      expect(last!.headers.get('retry-after')).toBe('1');
+      expect(last!.headers.get('access-control-allow-origin')).toBe('*');
+      expect(JSON.parse(last!.buf.toString())).toEqual({ error: 'Too many requests' });
+
+      const neighbour = await fetchThroughNginx(limited, '/v1/objects/master?limit=1', {
+        'X-Forwarded-For': '203.0.113.2',
+      });
+      expect(neighbour.status).toBe(200);
+    });
+
+    it('limits sign-in routes, and not the rest of the api or the studio', async () => {
+      const client = { 'X-Forwarded-For': '203.0.113.3' };
+      const auth: number[] = [];
+      for (let i = 0; i < 5; i++) {
+        auth.push((await fetchThroughNginx(limited, '/api/v1/auth/me', client)).status);
+      }
+      expect(auth.slice(0, 3)).toEqual([200, 200, 200]);
+      expect(auth.slice(3)).toEqual([429, 429]);
+
+      for (let i = 0; i < 20; i++) {
+        expect((await fetchThroughNginx(limited, '/api/v1/assets', client)).status).toBe(200);
+        expect((await fetchThroughNginx(limited, '/assets/index-abc123.js', client)).status).toBe(
+          200,
+        );
+        expect((await fetchThroughNginx(limited, '/studio', client)).status).toBe(200);
+      }
+    });
+
+    it('caps open delivery downloads per client', async () => {
+      const client = { 'X-Forwarded-For': '203.0.113.4' };
+      const controller = new AbortController();
+      // distinct cache keys, so the second does not wait on the first's cache lock
+      const open = [0, 1].map((i) =>
+        fetch(`${limited}/v1/objects/slow?open=${i}`, {
+          headers: client,
+          signal: controller.signal,
+        }),
       );
-    }
-  });
-
-  it('still caches whole-object responses (MISS then HIT)', async () => {
-    // Use a fresh cache key the readiness probe never warmed, so the first
-    // request is a genuine MISS.
-    const path = '/v1/objects/master?cachetest=1';
-    const first = await fetchThroughNginx(base, path);
-    const second = await fetchThroughNginx(base, path);
-    expect(first.headers.get('x-cache-status')).toBe('MISS');
-    expect(second.headers.get('x-cache-status')).toBe('HIT');
-  });
-
-  it('proxies share maps with one set of cors headers, caching only public ones', async () => {
-    const origin = { Origin: 'http://example.test' };
-    const first = await fetchThroughNginx(base, '/v1/share/public', origin);
-    const second = await fetchThroughNginx(base, '/v1/share/public', origin);
-    expect(first.status).toBe(200);
-    expect(JSON.parse(first.buf.toString()).master_object_id).toBe('master');
-    expect(first.headers.get('x-cache-status')).toBe('MISS');
-    expect(second.headers.get('x-cache-status')).toBe('HIT');
-
-    const gatedFirst = await fetchThroughNginx(base, '/v1/share/gated?expires=1&sig=a', origin);
-    const gatedSecond = await fetchThroughNginx(base, '/v1/share/gated?expires=1&sig=a', origin);
-    expect(gatedFirst.status).toBe(200);
-    expect(gatedSecond.headers.get('x-cache-status')).not.toBe('HIT');
-    expect(gatedSecond.headers.get('cache-control')).toBe('private, no-store');
-
-    for (const r of [first, second, gatedFirst, gatedSecond]) {
-      expect(r.headers.get('access-control-allow-origin')).toBe('*');
-      expect(r.headers.get('access-control-allow-credentials')).toBeNull();
-    }
-
-    const preflight = await fetch(`${base}/v1/share/public`, {
-      method: 'OPTIONS',
-      headers: { ...origin, 'Access-Control-Request-Method': 'GET' },
-      signal: AbortSignal.timeout(4000),
+      try {
+        const started = await Promise.all(open);
+        expect(started.map((r) => r.status)).toEqual([200, 200]);
+        const third = await fetch(`${limited}/v1/objects/slow?third=1`, {
+          headers: client,
+          signal: AbortSignal.timeout(4000),
+        });
+        expect(third.status).toBe(429);
+      } finally {
+        controller.abort();
+      }
     });
-    expect(preflight.status).toBe(204);
-    expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
+
+    it('does not throttle a page of thumbnails and a playback under the defaults', async () => {
+      const client = { 'X-Forwarded-For': '203.0.113.5' };
+      const page = await Promise.all(
+        Array.from({ length: 60 }, (_, i) =>
+          fetchThroughNginx(base, `/v1/objects/master?thumb=${i}`, client),
+        ),
+      );
+      expect(page.every((r) => r.status === 200)).toBe(true);
+      for (let i = 0; i < 40; i++) {
+        const r = await fetchThroughNginx(base, '/v1/objects/data', {
+          ...client,
+          Range: `bytes=${i % 3}-15`,
+        });
+        expect(r.status).toBe(206);
+      }
+    });
+  });
+
+  describe('backend recreated on a new address', () => {
+    it('follows the new address without a restart', async () => {
+      expect((await fetchThroughNginx(base, '/health')).status).toBe(200);
+      const oldIp = docker(
+        [
+          'inspect',
+          '--format',
+          '{{(index .NetworkSettings.Networks "' + NET + '").IPAddress}}',
+          ORIGIN,
+        ],
+        { capture: true },
+      ).trim();
+
+      docker(['rm', '-f', ORIGIN]);
+      // another container starts first, so the backend cannot get the old
+      // address back even where docker hands out the lowest free one
+      docker(['run', '-d', '--name', SQUATTER, '--network', NET, NGINX_IMAGE, 'sleep', '600']);
+      startOrigin(dir);
+      const newIp = docker(
+        [
+          'inspect',
+          '--format',
+          '{{(index .NetworkSettings.Networks "' + NET + '").IPAddress}}',
+          ORIGIN,
+        ],
+        { capture: true },
+      ).trim();
+      expect(newIp).not.toBe(oldIp);
+
+      // the resolver re-checks the name every 10s
+      const deadline = Date.now() + 30000;
+      let last = '';
+      while (Date.now() < deadline) {
+        try {
+          last = String((await fetchThroughNginx(base, '/health')).status);
+        } catch (err) {
+          last = String((err as Error).cause ?? err);
+        }
+        if (last === '200') break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      expect(
+        last,
+        `proxy logs:\n${docker(['logs', '--tail', '20', PROXY], { capture: true })}`,
+      ).toBe('200');
+    }, 60000);
   });
 });

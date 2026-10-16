@@ -563,6 +563,8 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         { name: 'ok', rate_limit: 0 },
         { name: 'ok', rate_limit: 1.5 },
         { name: 'ok', rate_limit: 100_001 },
+        // over the operator cap (API_KEY_RATE_LIMIT_MAX, 10000 by default)
+        { name: 'ok', rate_limit: 10_001 },
         { name: 'ok', colour: 'red' },
       ];
       for (const body of bad) {
@@ -570,6 +572,20 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         check('POST', '/api/v1/keys', res);
         expect(res.status, JSON.stringify(body)).toBe(400);
       }
+    });
+
+    it('answers 409 once the account holds the most keys allowed', async () => {
+      // 97 plus the three fixture keys of alice is the default cap of 100
+      for (let i = 0; i < 97; i++) {
+        await keys.createApiKey({ name: `k${i}`, scopes: ['read'], creatorAddress: A });
+      }
+      const full = await call('POST', '/api/v1/keys', 'a', { name: 'one too many' });
+      check('POST', '/api/v1/keys', full);
+      expect(full.status).toBe(409);
+      // another account is not held to alice's count
+      const other = await call('POST', '/api/v1/keys', 'b', { name: 'fine' });
+      check('POST', '/api/v1/keys', other);
+      expect(other.status).toBe(201);
     });
 
     it('lists every key of an account with 55 keys, and pages them', async () => {

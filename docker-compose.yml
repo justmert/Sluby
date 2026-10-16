@@ -67,7 +67,6 @@ services:
       UPLOAD_DIR: /app/uploads
       TRANSCODE_OUTPUT_DIR: /app/transcode-output
       LOG_LEVEL: ${LOG_LEVEL:-}
-      CORS_ORIGIN: ${CORS_ORIGIN:-}
       MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-}
       CACHE_MAX_SIZE_MB: ${CACHE_MAX_SIZE_MB:-}
       # sia indexer. defaults to the hosted mainnet indexer; see the
@@ -83,9 +82,9 @@ services:
       # unset means the sdk default of 10 data + 20 parity shards
       SIA_DATA_SHARDS: ${SIA_DATA_SHARDS:-}
       SIA_PARITY_SHARDS: ${SIA_PARITY_SHARDS:-}
-      # studio sign-in. AUTH_DISABLED signs everyone in as a local dev user and
-      # is only safe because this stack listens on localhost; production
-      # refuses to start with it.
+      # studio sign-in. AUTH_DISABLED signs everyone in as a local dev user;
+      # the backend then gives other origins no cors and refuses their writes,
+      # so other web pages cannot use it. production refuses to start with it.
       AUTH_DISABLED: ${AUTH_DISABLED:-false}
       SESSION_SECRET: ${SESSION_SECRET:-}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
@@ -94,6 +93,14 @@ services:
       BOOTSTRAP_API_KEY: ${BOOTSTRAP_API_KEY:-}
       # private networks webhook receivers may be on; empty means public only
       WEBHOOK_ALLOWED_NETWORKS: ${WEBHOOK_ALLOWED_NETWORKS:-}
+      # browser origins, client address and limits; empty takes the backend's
+      # defaults (configuration guide)
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      API_IP_RATE_LIMIT: ${API_IP_RATE_LIMIT:-}
+      API_KEY_RATE_LIMIT_MAX: ${API_KEY_RATE_LIMIT_MAX:-}
+      API_KEYS_PER_ACCOUNT_MAX: ${API_KEYS_PER_ACCOUNT_MAX:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       RECONCILE_ENABLED: ${RECONCILE_ENABLED:-}
       RECONCILE_INTERVAL_MS: ${RECONCILE_INTERVAL_MS:-}
       DELETION_GC_ENABLED: ${DELETION_GC_ENABLED:-}
@@ -118,6 +125,15 @@ services:
         condition: service_healthy
     ports:
       - '127.0.0.1:${WEB_PORT:-8080}:80'
+    environment:
+      # per-client limits on delivery and sign-in; empty takes the defaults
+      # in nginx/limits.envsh
+      WEB_DELIVERY_RATE: ${WEB_DELIVERY_RATE:-}
+      WEB_DELIVERY_BURST: ${WEB_DELIVERY_BURST:-}
+      WEB_DELIVERY_CONN: ${WEB_DELIVERY_CONN:-}
+      WEB_AUTH_RATE: ${WEB_AUTH_RATE:-}
+      WEB_AUTH_BURST: ${WEB_AUTH_BURST:-}
+      WEB_AUTH_CONN: ${WEB_AUTH_CONN:-}
     volumes:
       - nginx-cache:/var/cache/nginx/sia
     restart: unless-stopped

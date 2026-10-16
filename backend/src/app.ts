@@ -1,6 +1,5 @@
 import 'express-async-errors';
 import express, { type Request, type Response, type NextFunction, type Express } from 'express';
-import cors from 'cors';
 import type { Logger } from 'pino';
 import type { Server as TusServer } from '@tus/server';
 import { sql } from 'drizzle-orm';
@@ -8,6 +7,8 @@ import { env } from './config/env.js';
 import { db } from './config/database.js';
 
 import { createApiRouter, type ApiRouterDeps } from './api/router.js';
+import { createApiCors, createCrossOriginWriteGuard } from './api/cors.js';
+import { createIpRateLimiter } from './api/rate-limiter.js';
 import { createTusServer, type TusServerDeps } from './upload/tus-server.js';
 import { isTusRequest } from './upload/tus-dispatch.js';
 import { SessionManager } from './upload/session-manager.js';
@@ -16,7 +17,11 @@ import { createAssetShareUrls } from './delivery/share-urls.js';
 import { deliveryRouter } from './delivery/aggregator.js';
 import { getObjectAccessTier, invalidateObjectAccessTier } from './delivery/access-control.js';
 import { setMetricSources } from './metrics/collector.js';
-import { createHealthHandler, createPrometheusHandler } from './api/service-routes.js';
+import {
+  createHealthHandler,
+  createPrometheusHandler,
+  requireMetricsToken,
+} from './api/service-routes.js';
 import { createErrorHandler, notFoundHandler } from './api/middleware/error-handler.js';
 import { buildDeleteAsset } from './deletion/service.js';
 import { buildRetryAsset } from './queue/retry.js';
@@ -45,11 +50,12 @@ import {
 } from './db/queries/jobs.js';
 import {
   getApiKeyByHash,
+  createApiKeyWithinCap,
   listApiKeys as dbListApiKeys,
   deleteApiKey as dbDeleteApiKey,
   rotateApiKey as dbRotateApiKey,
 } from './db/queries/api-keys.js';
-import { apiKeys as apiKeysTable, type ApiKey, type VideoAsset } from './db/schema.js';
+import type { ApiKey, VideoAsset } from './db/schema.js';
 import {
   createWebhookEndpoint,
   createWebhookDelivery,
@@ -778,19 +784,10 @@ export function buildApiDeps(
     },
 
     // ── ApiRouterDeps (key management) ──
-    createApiKey: async (data) => {
-      // Insert directly since we already have the hash from the router's generateApiKey()
-      const [k] = await db
-        .insert(apiKeysTable)
-        .values({
-          keyHash: data.keyHash,
-          name: data.name,
-          scopes: data.scopes,
-          rateLimit: data.rateLimit,
-          creatorAddress: data.creatorAddress,
-        })
-        .returning();
-      return toKeyRecord(k);
+    createApiKey: async (data, maxKeys) => {
+      // the router already generated the key and hashes it here
+      const created = await createApiKeyWithinCap(data, maxKeys);
+      return created ? toKeyRecord(created) : null;
     },
 
     listApiKeys: async (owner, { limit, cursor }) => {
@@ -837,69 +834,50 @@ export function createApp(ctx: AppContext): {
   const callers = buildCallerDeps(localDevAccount);
 
   const app = express();
+  app.disable('x-powered-by');
 
-  // The shipped stack puts nginx in front of the backend (docker-compose), so
-  // trust exactly one proxy hop. Without this, req.ip is the proxy's address
-  // rather than the client's, which skews request logs.
-  app.set('trust proxy', 1);
+  // req.ip must be the real client for the per-IP limiter. TRUST_PROXY
+  // defaults to the private ranges the compose proxies (nginx, and caddy in
+  // front of it in production) connect from; nginx passes on the client
+  // address it resolved itself.
+  app.set('trust proxy', env.TRUST_PROXY);
 
   // ── Global Middleware ──
-
-  app.use(
-    cors({
-      // When credentials: true, origin cannot be '*'. Use a callback that reflects
-      // the request origin (or restrict to specific domains via CORS_ORIGIN env var).
-      origin: (origin, callback) => {
-        const allowed = process.env.CORS_ORIGIN;
-        if (allowed && allowed !== '*') {
-          // Support comma-separated list of allowed origins
-          const origins = allowed.split(',').map((o) => o.trim());
-          callback(null, origins.includes(origin ?? '') ? origin : false);
-        } else {
-          // Development: allow any origin by reflecting it back
-          callback(null, origin ?? true);
-        }
-      },
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
-      allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'Tus-Resumable',
-        'Upload-Length',
-        'Upload-Offset',
-        'Upload-Metadata',
-        'Upload-Concat',
-        'Upload-Defer-Length',
-        'X-Requested-With',
-        'X-HTTP-Method-Override',
-      ],
-      exposedHeaders: [
-        'Upload-Offset',
-        'Upload-Length',
-        'Upload-Metadata',
-        'Tus-Version',
-        'Tus-Resumable',
-        'Tus-Max-Size',
-        'Tus-Extension',
-        'Location',
-        'X-Request-Id',
-      ],
-      credentials: true,
-    }),
-  );
 
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
 
   // Request logging
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    logger.info({ method: req.method, url: req.url }, 'incoming request');
+    logger.info({ method: req.method, url: req.url, ip: req.ip }, 'incoming request');
     next();
   });
 
   // ── Health Check ──
 
   app.get('/health', createHealthHandler(ctx.version));
+
+  // ── Delivery Routes ──
+
+  // Set db on app for the delivery aggregator's stream endpoint
+  app.set('db', db);
+
+  // The delivery router defines routes with /v1/ prefix in the path, so it
+  // mounts at root. It comes before the api cors because it answers its own:
+  // any origin, never credentials, and Range allowed on preflight.
+  app.use('/', deliveryRouter);
+
+  // ── Metrics (Prometheus format) ──
+
+  app.get('/metrics', requireMetricsToken(env.METRICS_TOKEN), createPrometheusHandler(logger));
+
+  // ── API cors and the per-IP limit ──
+
+  const corsPolicy = { credentialedOrigins: env.CORS_ORIGIN, authDisabled: env.AUTH_DISABLED };
+  app.use('/api', createApiCors(corsPolicy));
+  app.use('/api', createCrossOriginWriteGuard(corsPolicy, env.PUBLIC_URL));
+  const ipLimiter = createIpRateLimiter(env.API_IP_RATE_LIMIT);
+  app.use('/api/v1', ipLimiter.count);
 
   // ── TUS Upload Handler ──
 
@@ -931,6 +909,11 @@ export function createApp(ctx: AppContext): {
   // TUS would shadow the REST upload endpoints entirely.
   app.use('/api/v1/uploads', (req, res, next) => {
     if (isTusRequest(req)) {
+      // tus authenticates inside its own hooks, so an upload request hands
+      // its per-IP hit back once it turns out not to be refused
+      res.on('finish', () => {
+        if (res.statusCode !== 401 && res.statusCode !== 403) ipLimiter.release(req);
+      });
       tusServer.handle(req, res);
     } else {
       next();
@@ -953,21 +936,9 @@ export function createApp(ctx: AppContext): {
     '/api/v1',
     createApiRouter(
       buildApiDeps(ctx, sessionManager, deleteAsset, callers, localDevAccount, receivedBytes),
+      { ipLimiter },
     ),
   );
-
-  // ── Delivery Routes ──
-
-  // Set db on app for the delivery aggregator's stream endpoint
-  app.set('db', db);
-
-  // The delivery router defines routes with /v1/ prefix in the path
-  // so we mount it at root
-  app.use('/', deliveryRouter);
-
-  // ── Metrics (Prometheus format) ──
-
-  app.get('/metrics', createPrometheusHandler(logger));
 
   // ── 404 Handler ──
 

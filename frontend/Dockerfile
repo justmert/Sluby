@@ -29,6 +29,10 @@ RUN npm run build --workspace=sluby-frontend
 FROM nginx:1-alpine
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/conf.d/sia-aggregator.conf /etc/nginx/conf.d/default.conf
+# the per-client limits and the resolver are rendered from WEB_* at start
+COPY nginx/templates /etc/nginx/templates
+COPY --chmod=755 nginx/limits.envsh /docker-entrypoint.d/14-sluby-limits.envsh
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
+# through to the backend, so a proxy that can no longer reach it is unhealthy
 HEALTHCHECK --interval=10s --timeout=3s --retries=6 \
-  CMD wget -q -O /dev/null http://127.0.0.1/studio || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1/health || exit 1

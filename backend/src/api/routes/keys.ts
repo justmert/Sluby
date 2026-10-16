@@ -12,6 +12,7 @@ import {
   RATE_LIMIT_MAX,
   stringParam,
 } from '../validation.js';
+import { env } from '../../config/env.js';
 
 export interface ApiKeyRecord {
   id: string;
@@ -24,13 +25,17 @@ export interface ApiKeyRecord {
 }
 
 export interface KeyRouteDeps {
-  createApiKey: (data: {
-    keyHash: string;
-    name: string;
-    scopes: string[];
-    rateLimit: number;
-    creatorAddress: string;
-  }) => Promise<ApiKeyRecord>;
+  /** Null when the account already holds `maxKeys` usable keys. */
+  createApiKey: (
+    data: {
+      keyHash: string;
+      name: string;
+      scopes: string[];
+      rateLimit: number;
+      creatorAddress: string;
+    },
+    maxKeys: number,
+  ) => Promise<ApiKeyRecord | null>;
   /**
    * One page of active, unexpired keys, newest first (keys inside a rotation
    * grace period included). `owner` undefined lists every account.
@@ -100,7 +105,20 @@ const listQuerySchema = z.object({
   cursor: stringParam('cursor').optional(),
 });
 
-export function createKeyRoutes(deps: KeyRouteDeps): Router {
+export interface KeyLimits {
+  /** The highest rate_limit a new key may ask for. */
+  rateLimitMax: number;
+  /** How many usable keys one account may hold. */
+  keysPerAccountMax: number;
+}
+
+export function createKeyRoutes(
+  deps: KeyRouteDeps,
+  limits: KeyLimits = {
+    rateLimitMax: env.API_KEY_RATE_LIMIT_MAX,
+    keysPerAccountMax: env.API_KEYS_PER_ACCOUNT_MAX,
+  },
+): Router {
   const router = Router();
 
   /**
@@ -112,14 +130,28 @@ export function createKeyRoutes(deps: KeyRouteDeps): Router {
     // a scope listed twice means the same as once
     const scopes = [...new Set(body.scopes ?? ['upload', 'read'])];
 
+    const rateLimit = body.rate_limit ?? 100;
+    if (rateLimit > limits.rateLimitMax) {
+      throw new AppError(400, `rate_limit must be at most ${limits.rateLimitMax}`);
+    }
+
     const { key, hash } = generateApiKey();
-    const created = await deps.createApiKey({
-      keyHash: hash,
-      name: body.name,
-      scopes,
-      rateLimit: body.rate_limit ?? 100,
-      creatorAddress: req.apiKey!.creatorAddress,
-    });
+    const created = await deps.createApiKey(
+      {
+        keyHash: hash,
+        name: body.name,
+        scopes,
+        rateLimit,
+        creatorAddress: req.apiKey!.creatorAddress,
+      },
+      limits.keysPerAccountMax,
+    );
+    if (!created) {
+      throw new AppError(
+        409,
+        `This account already has ${limits.keysPerAccountMax} API keys; delete one first`,
+      );
+    }
 
     // the listing shape plus the secret, which is only ever shown here
     res.status(201).json({ ...formatKey(created), key });

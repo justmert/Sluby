@@ -1,0 +1,39 @@
+#!/bin/sh
+# defaults and checks for the web proxy's per-client limits. The nginx image's
+# entrypoint sources this (as /docker-entrypoint.d/14-sluby-limits.envsh)
+# before it renders /etc/nginx/templates, so compose can pass the variables
+# empty and still get these values.
+
+set -eu
+
+# generous on purpose: one viewer makes a few delivery requests a second and a
+# studio page a burst of thumbnails, and a whole office or school can share
+# one address
+: "${WEB_DELIVERY_RATE:=100r/s}"
+: "${WEB_DELIVERY_BURST:=400}"
+: "${WEB_DELIVERY_CONN:=200}"
+: "${WEB_AUTH_RATE:=10r/s}"
+: "${WEB_AUTH_BURST:=50}"
+: "${WEB_AUTH_CONN:=20}"
+
+sluby_check() {
+    if ! printf '%s' "$2" | grep -Eq "$3"; then
+        echo "$1=$2 is not valid (expected $4)" >&2
+        exit 1
+    fi
+}
+
+sluby_check WEB_DELIVERY_RATE "$WEB_DELIVERY_RATE" '^[1-9][0-9]*r/[sm]$' 'a rate such as 50r/s or 600r/m'
+sluby_check WEB_AUTH_RATE "$WEB_AUTH_RATE" '^[1-9][0-9]*r/[sm]$' 'a rate such as 10r/s or 600r/m'
+sluby_check WEB_DELIVERY_BURST "$WEB_DELIVERY_BURST" '^[0-9]+$' 'a whole number'
+sluby_check WEB_AUTH_BURST "$WEB_AUTH_BURST" '^[0-9]+$' 'a whole number'
+sluby_check WEB_DELIVERY_CONN "$WEB_DELIVERY_CONN" '^[1-9][0-9]*$' 'a positive whole number'
+sluby_check WEB_AUTH_CONN "$WEB_AUTH_CONN" '^[1-9][0-9]*$' 'a positive whole number'
+
+export WEB_DELIVERY_RATE WEB_DELIVERY_BURST WEB_DELIVERY_CONN WEB_AUTH_RATE WEB_AUTH_BURST WEB_AUTH_CONN
+
+# have the next entrypoint step put the container's dns servers in
+# NGINX_LOCAL_RESOLVERS for the resolver line, and substitute only our own
+# variables, so nginx's $variables in the templates are left alone
+export NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+export NGINX_ENVSUBST_FILTER='^(WEB_|NGINX_LOCAL_RESOLVERS$)'

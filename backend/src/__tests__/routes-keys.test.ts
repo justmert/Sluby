@@ -61,13 +61,16 @@ describe('key routes', () => {
       key: expect.stringMatching(/^sluby_/),
     });
     // only the hash is stored
-    expect(deps.createApiKey).toHaveBeenCalledWith({
-      keyHash: hashApiKey(res.body.key),
-      name: 'ci',
-      scopes: ['read'],
-      rateLimit: 60,
-      creatorAddress: 'github:alice',
-    });
+    expect(deps.createApiKey).toHaveBeenCalledWith(
+      {
+        keyHash: hashApiKey(res.body.key),
+        name: 'ci',
+        scopes: ['read'],
+        rateLimit: 60,
+        creatorAddress: 'github:alice',
+      },
+      100,
+    );
   });
 
   it.each([
@@ -81,6 +84,7 @@ describe('key routes', () => {
     [{ name: 'a\u0000b' }, /control characters/],
     [{ name: 'x'.repeat(101) }, /at most 100/],
     [{ name: 'x', owner: 'github:bob' }, /unknown field: owner/],
+    [{ name: 'x', rate_limit: 10001 }, /rate_limit must be at most 10000/],
   ])('rejects %j', async (body, message) => {
     const res = await request(app()).post('/').send(body);
     expect(res.status).toBe(400);
@@ -93,6 +97,18 @@ describe('key routes', () => {
       .send({ name: 'ci', scopes: ['read', 'upload', 'read'] });
     expect(res.status).toBe(201);
     expect(vi.mocked(deps.createApiKey).mock.calls[0][0].scopes).toEqual(['read', 'upload']);
+  });
+
+  it('refuses a key once the account holds the maximum', async () => {
+    vi.mocked(deps.createApiKey).mockResolvedValue(null);
+    const limited = withApiKey(
+      createTestApp(createKeyRoutes(deps, { rateLimitMax: 500, keysPerAccountMax: 2 })),
+      caller,
+    );
+    const res = await request(limited).post('/').send({ name: 'one too many' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/already has 2 API keys/);
+    expect(vi.mocked(deps.createApiKey).mock.calls[0][1]).toBe(2);
   });
 
   it('lists keys with their expiry', async () => {
