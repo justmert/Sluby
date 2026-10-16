@@ -15,6 +15,7 @@ const {
   mockStartLoad,
   mockRecoverMediaError,
   mockIsSupported,
+  mockBaseLoad,
   MockHlsEvents,
   MockHlsErrorTypes,
   hlsInstanceRef,
@@ -29,6 +30,7 @@ const {
     mockStartLoad: vi.fn(),
     mockRecoverMediaError: vi.fn(),
     mockIsSupported: vi.fn().mockReturnValue(true),
+    mockBaseLoad: vi.fn(),
     MockHlsEvents: {
       MANIFEST_PARSED: 'hlsManifestParsed',
       LEVEL_SWITCHED: 'hlsLevelSwitched',
@@ -61,6 +63,14 @@ vi.mock('hls.js', () => {
       hlsInstances.push(this);
     }
     static isSupported = mockIsSupported;
+    // hls.js's own http loader, which the gateway loader sends requests through
+    static DefaultConfig = {
+      loader: class {
+        load(context: { url: string }) {
+          mockBaseLoad(context.url);
+        }
+      },
+    };
     static Events = MockHlsEvents;
     static ErrorTypes = MockHlsErrorTypes;
   }
@@ -82,6 +92,31 @@ function fireHls(event: string, data?: unknown) {
   });
 }
 
+/** The url the current instance's loader sends a request for `url` to. */
+function requestedUrl(url: string): string {
+  const Loader = hlsInstanceRef.current.config.loader;
+  mockBaseLoad.mockClear();
+  new Loader({}).load({ url }, {}, {});
+  return mockBaseLoad.mock.calls[0][0] as string;
+}
+
+/**
+ * fetch against a gateway that signs every object a manifest names with the
+ * query the manifest was asked with, as the real gateway does: the master
+ * lists the playlist `v`, which maps and lists the data file `d`.
+ */
+function signingGateway() {
+  const fetchMock = vi.fn(async (url: string) => {
+    const { pathname, search } = new URL(url);
+    const body = pathname.endsWith('/v')
+      ? `#EXTM3U\n#EXT-X-MAP:URI="https://g/v1/objects/d${search}"\n#EXTINF:6,\nhttps://g/v1/objects/d${search}\n`
+      : `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nhttps://g/v1/objects/v${search}\n`;
+    return { ok: true, status: 200, text: async () => body };
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
 describe('SlubyPlayer', () => {
   beforeEach(() => {
     mockOn.mockClear();
@@ -92,11 +127,15 @@ describe('SlubyPlayer', () => {
     mockStartLoad.mockClear();
     mockRecoverMediaError.mockClear();
     mockIsSupported.mockClear().mockReturnValue(true);
+    mockBaseLoad.mockClear();
     hlsInstanceRef.current = null;
     hlsInstances.length = 0;
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   describe('rendering', () => {
     it('renders a video element with controls and playsInline by default', () => {
@@ -483,13 +522,14 @@ describe('SlubyPlayer', () => {
       expect(typeof hlsInstanceRef.current.config.loader).toBe('function');
     });
 
-    it('uses the gateway (no custom loader) when the client has no viewer session', async () => {
+    it('uses the gateway over http when the client has no viewer session', async () => {
       const client = gatewayClient();
 
       render(<SlubyPlayer client={client} assetId="abc" />);
 
       await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(GATEWAY));
-      expect(hlsInstanceRef.current.config.loader).toBeUndefined();
+      // hls.js's own loader, with nothing renewed yet
+      expect(requestedUrl(GATEWAY)).toBe(GATEWAY);
     });
 
     it('reports which delivery path the load took', async () => {
@@ -527,7 +567,8 @@ describe('SlubyPlayer', () => {
       render(<SlubyPlayer client={client} assetId="abc" />);
 
       await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(GATEWAY));
-      expect(hlsInstanceRef.current.config.loader).toBeUndefined();
+      // hls.js's own http loader, not the sia one
+      expect(requestedUrl('https://g/v1/objects/x')).toBe('https://g/v1/objects/x');
       expect(warn).toHaveBeenCalled();
       warn.mockRestore();
     });
@@ -597,7 +638,8 @@ describe('SlubyPlayer', () => {
 
         await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(SRC));
         expect(sia.prepare).not.toHaveBeenCalled();
-        expect(hlsInstanceRef.current.config.loader).toBeUndefined();
+        // hls.js's own http loader, not the sia one
+        expect(requestedUrl('https://g/v1/objects/x')).toBe('https://g/v1/objects/x');
       });
 
       it('falls back to the gateway when the public share map fails', async () => {
@@ -615,7 +657,8 @@ describe('SlubyPlayer', () => {
         );
 
         await waitFor(() => expect(mockLoadSource).toHaveBeenCalledWith(SRC));
-        expect(hlsInstanceRef.current.config.loader).toBeUndefined();
+        // hls.js's own http loader, not the sia one
+        expect(requestedUrl('https://g/v1/objects/x')).toBe('https://g/v1/objects/x');
         expect(onDeliveryChange).toHaveBeenCalledWith('gateway');
         expect(warn).toHaveBeenCalled();
         warn.mockRestore();
@@ -864,17 +907,64 @@ describe('SlubyPlayer', () => {
       expect(play).not.toHaveBeenCalled();
     });
 
-    it('a newly signed src for the same video continues from the same position', () => {
+    it('a newly signed src for the same video keeps playing, on the new urls', async () => {
+      const fetchMock = signingGateway();
       const first = 'https://g/v1/stream/a1/master.m3u8?expires=4000000000&sig=one';
       const second = 'https://g/v1/stream/a1/master.m3u8?expires=4000003600&sig=two';
-      const { container, rerender } = render(<SlubyPlayer src={first} />);
-      playedTo(container.querySelector('video')!, 12, false);
+      const { rerender } = render(<SlubyPlayer src={first} />);
 
       rerender(<SlubyPlayer src={second} />);
 
-      expect(hlsInstances).toHaveLength(2);
-      expect(mockLoadSource).toHaveBeenLastCalledWith(second);
-      expect(hlsInstances[1].config.startPosition).toBe(12);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([
+        second,
+        'https://g/v1/objects/v?expires=4000003600&sig=two',
+      ]);
+      await waitFor(() =>
+        expect(requestedUrl('https://g/v1/objects/d?expires=4000000000&sig=one')).toBe(
+          'https://g/v1/objects/d?expires=4000003600&sig=two',
+        ),
+      );
+      expect(requestedUrl('https://g/v1/objects/v?expires=4000000000&sig=one')).toBe(
+        'https://g/v1/objects/v?expires=4000003600&sig=two',
+      );
+      expect(requestedUrl(first)).toBe(second);
+      // the same pipeline: no new instance, no reload, no seek
+      expect(hlsInstances).toHaveLength(1);
+      expect(mockLoadSource).toHaveBeenCalledTimes(1);
+      expect(mockDestroy).not.toHaveBeenCalled();
+    });
+
+    it('reports a newly signed src it cannot load the playlists of', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: false, status: 403, text: async () => '' })),
+      );
+      const onError = vi.fn();
+      const first = 'https://g/v1/stream/a1/master.m3u8?expires=4000000000&sig=one';
+      const second = 'https://g/v1/stream/a1/master.m3u8?expires=4000003600&sig=two';
+      const { rerender } = render(<SlubyPlayer src={first} onError={onError} />);
+
+      rerender(<SlubyPlayer src={second} onError={onError} />);
+
+      await waitFor(() => expect(onError).toHaveBeenCalled());
+      expect(onError.mock.calls[0][0].message).toBe(
+        `Could not switch to the new playback URL: could not load ${second} (HTTP 403)`,
+      );
+    });
+
+    it('a newly signed src played from Sia fetches the share map for it, in place', async () => {
+      const sia = viewer();
+      const first = 'https://g/v1/stream/a1/master.m3u8?expires=4000000000&sig=one';
+      const second = 'https://g/v1/stream/a1/master.m3u8?expires=4000003600&sig=two';
+      const { rerender } = render(<SlubyPlayer src={first} client={{ sia }} assetId="a1" />);
+      await waitFor(() => expect(hlsInstances).toHaveLength(1));
+
+      rerender(<SlubyPlayer src={second} client={{ sia }} assetId="a1" />);
+
+      await waitFor(() => expect(sia.prepare).toHaveBeenLastCalledWith('a1', { src: second }));
+      expect(hlsInstances).toHaveLength(1);
+      expect(mockDestroy).not.toHaveBeenCalled();
     });
 
     it('another video starts from the beginning', () => {
@@ -888,15 +978,18 @@ describe('SlubyPlayer', () => {
       expect(hlsInstances[1].config.startPosition).toBe(-1);
     });
 
-    it('renews a signed url before it expires and continues from the same position', async () => {
+    it('renews a signed url before it expires and keeps playing, on the new urls', async () => {
+      signingGateway();
       const getSignedUrl = vi
         .fn()
         .mockResolvedValueOnce({
           signedUrl: 'https://g/v1/objects/m?expires=1&sig=first',
+          posterUrl: 'https://g/v1/objects/p?expires=1&sig=first',
           expiresAt: new Date(Date.now() + 300).toISOString(),
         })
         .mockResolvedValueOnce({
           signedUrl: 'https://g/v1/objects/m?expires=2&sig=second',
+          posterUrl: 'https://g/v1/objects/p?expires=2&sig=second',
           expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
         });
       const { container } = render(
@@ -908,17 +1001,19 @@ describe('SlubyPlayer', () => {
         />,
       );
       await waitFor(() => expect(hlsInstances).toHaveLength(1));
-      playedTo(container.querySelector('video')!, 20, false);
 
       await waitFor(() => expect(getSignedUrl).toHaveBeenCalledTimes(2), { timeout: 2000 });
+      expect(getSignedUrl).toHaveBeenLastCalledWith('a1', { expiresIn: 60 });
       await waitFor(() =>
-        expect(mockLoadSource).toHaveBeenLastCalledWith(
-          'https://g/v1/objects/m?expires=2&sig=second',
+        expect(requestedUrl('https://g/v1/objects/d?expires=1&sig=first')).toBe(
+          'https://g/v1/objects/d?expires=2&sig=second',
         ),
       );
-      expect(getSignedUrl).toHaveBeenLastCalledWith('a1', { expiresIn: 60 });
-      expect(hlsInstances).toHaveLength(2);
-      expect(hlsInstances[1].config.startPosition).toBe(20);
+      expect(container.querySelector('video')!.getAttribute('poster')).toBe(
+        'https://g/v1/objects/p?expires=2&sig=second',
+      );
+      expect(hlsInstances).toHaveLength(1);
+      expect(mockLoadSource).toHaveBeenCalledTimes(1);
     });
 
     it('asks refreshSrc for a new src before a signed src expires', async () => {
@@ -927,11 +1022,13 @@ describe('SlubyPlayer', () => {
       const fresh = 'https://g/v1/stream/a1/master.m3u8?expires=4000000000&sig=two';
       const refreshSrc = vi.fn().mockResolvedValue(fresh);
 
+      signingGateway();
+
       render(<SlubyPlayer src={src} refreshSrc={refreshSrc} />);
 
       await waitFor(() => expect(refreshSrc).toHaveBeenCalledWith(src), { timeout: 3000 });
-      await waitFor(() => expect(mockLoadSource).toHaveBeenLastCalledWith(fresh));
-      expect(hlsInstances).toHaveLength(2);
+      await waitFor(() => expect(requestedUrl(src)).toBe(fresh));
+      expect(hlsInstances).toHaveLength(1);
     });
 
     it('renews instead of retrying the same url when a load fails after the expiry', async () => {
@@ -940,7 +1037,10 @@ describe('SlubyPlayer', () => {
       const refreshSrc = vi.fn().mockResolvedValue(fresh);
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
+      signingGateway();
+
       render(<SlubyPlayer src={expired} refreshSrc={refreshSrc} />);
+      fireHls(MockHlsEvents.MANIFEST_PARSED);
       // the timer may already have asked; a failed load must lead to the new url either way
       fireHls(MockHlsEvents.ERROR, {
         fatal: true,
@@ -948,8 +1048,12 @@ describe('SlubyPlayer', () => {
         details: 'fragLoadError',
       });
 
-      await waitFor(() => expect(mockLoadSource).toHaveBeenLastCalledWith(fresh));
-      expect(mockStartLoad).not.toHaveBeenCalled();
+      // loading resumes in the same instance, its requests on the new urls
+      await waitFor(() => expect(mockStartLoad).toHaveBeenCalledTimes(1));
+      expect(requestedUrl('https://g/v1/objects/d?expires=1000&sig=old')).toBe(
+        'https://g/v1/objects/d?expires=4000000000&sig=new',
+      );
+      expect(hlsInstances).toHaveLength(1);
       warn.mockRestore();
     });
 
