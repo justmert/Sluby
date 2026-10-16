@@ -1,53 +1,35 @@
-# vendor/sia-storage-linux-x64-gnu
+# backend/vendor
 
-Custom-built `sia-storage` NAPI binary for `linux-x64-gnu`. Built from
-[`SiaFoundation/sia-sdk-rs`](https://github.com/SiaFoundation/sia-sdk-rs)
-at tag `sia_storage_napi/v0.7.0` with the Zen-testnet recovery
-probability adjustment so 2-of-6 erasure coding clears the SDK's
-client-side redundancy validator (Zen has too few hosts to satisfy
-the upstream 0.75 default at any sane shard count).
+Optional, custom-built native modules for `@siafoundation/sia-storage`. Nothing here is needed for a normal deployment: the image uses the published module on x86-64 and compiles the same release from source on ARM64.
 
-## What changes
+A custom module is only useful when the SDK itself has to behave differently, for example on the Zen testnet, whose host pool is too small for the SDK's redundancy rules at low shard counts.
 
-In `sia_storage/src/lib.rs`, the only constant changed:
+## Using one
 
-```diff
-- const RECOVERY_PROBABILITY: f64 = 0.75;
-+ const RECOVERY_PROBABILITY: f64 = 0.90;
-```
-
-Same constant indexd uses for its server-side slab health validator;
-both must move together. The mainnet-bound build will revert to 0.75
-once we cut over to a host pool that supports it.
-
-## How it gets used
-
-The default image uses the npm-published binary. Build with
-`--build-arg SIA_STORAGE_NATIVE=sia-storage-linux-x64-gnu/sia-storage.node`
-(docker-compose.server.yml does) and the Dockerfile copies this file over the
-published one; the build fails if the named file is missing. Local Mac
-dev still uses the published `darwin-arm64` package — patching only
-matters when the SDK's own validator would reject our 2-of-6 config
-(it doesn't on macOS dev because we're not actually uploading from
-there in normal flow).
-
-## Rebuild
-
-On a host with Docker:
+Put the file under this directory and name it with the `SIA_STORAGE_NATIVE` build argument, relative to `backend/vendor/`:
 
 ```sh
-git clone https://github.com/SiaFoundation/sia-sdk-rs
-cd sia-sdk-rs && git checkout sia_storage_napi/v0.7.0
-sed -i 's/const RECOVERY_PROBABILITY: f64 = 0.75;/const RECOVERY_PROBABILITY: f64 = 0.90;/' \
-    sia_storage/src/lib.rs
-docker run --rm -v "$PWD:/work" -w /work/sia_storage_napi rust:1-bullseye bash -c '
-  apt-get update -qq && apt-get install -y -qq curl ca-certificates &&
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash - &&
-  apt-get install -y -qq nodejs &&
-  npm install -g @napi-rs/cli@3 &&
-  npm install &&
-  napi build --release --platform --esm -o examples
-'
-cp sia_storage_napi/examples/sia-storage.linux-x64-gnu.node \
-   /path/to/siastream/backend/vendor/sia-storage-linux-x64-gnu/sia-storage.node
+SIA_STORAGE_NATIVE=sia-storage-linux-x64-gnu/sia-storage.node docker compose build backend
 ```
+
+The Dockerfile copies it over the module the SDK loads, and the build fails if the file is missing. Files here are gitignored except this readme.
+
+## Building one for Zen
+
+Before accepting a slab, the SDK checks that its shards give at least a 99.99% chance of recovery, assuming each host stays available with probability 0.75. Few ratios pass that on a pool of a dozen hosts (see the production guide). Raising the assumed availability to 0.90 lets ratios like 2 data + 4 parity through. indexd runs the same check before pinning, so an indexd built with the same change is needed too.
+
+The module has to match the `@siafoundation/sia-storage` version the backend installs (0.1.1, built from the `sia_storage_napi/v0.10.1` tag). For linux x86-64:
+
+```sh
+git clone --depth 1 --branch sia_storage_napi/v0.10.1 https://github.com/SiaFoundation/sia-sdk-rs
+cd sia-sdk-rs
+# in UploadOptions::validate()
+sed -i 's/const RECOVERY_PROBABILITY: f64 = 0.75;/const RECOVERY_PROBABILITY: f64 = 0.90;/' sia_storage/src/lib.rs
+docker run --rm --platform linux/amd64 -v "$PWD:/src" -w /src rust:1-trixie \
+  cargo build --release -p sia_storage_napi
+mkdir -p /path/to/Sluby/backend/vendor/sia-storage-linux-x64-gnu
+cp target/release/libsia_storage_napi.so \
+  /path/to/Sluby/backend/vendor/sia-storage-linux-x64-gnu/sia-storage.node
+```
+
+Build on the same architecture as the server; for ARM64 drop `--platform` on an ARM64 machine and name the directory `sia-storage-linux-arm64-gnu`.

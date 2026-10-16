@@ -20,7 +20,9 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit -p backend/tsconfig.json && tsc --noEmit -p packages/sdk/tsconfig.json && tsc --noEmit -p packages/player/tsconfig.json && tsc --noEmit -p frontend/tsconfig.json"
+    "typecheck": "tsc --noEmit -p backend/tsconfig.json && tsc --noEmit -p packages/sdk/tsconfig.json && tsc --noEmit -p packages/player/tsconfig.json && tsc --noEmit -p frontend/tsconfig.json",
+    "docs:dev": "npm --prefix docs run dev",
+    "docs:build": "npm --prefix docs run build"
   },
   "engines": {
     "node": ">=22.12.0"

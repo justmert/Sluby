@@ -34,6 +34,10 @@ Thumbs.db
 # turborepo cache
 .turbo/
 
+# vitepress
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
 # media & test fixtures
 *.mp4
 *.pdf
@@ -52,6 +56,7 @@ reference-app/
 !README.md
 !CONTRIBUTING.md
 !backend/vendor/README.md
+!docs/**/*.md
 sia/
 
 # internal working artifacts (plans, notes, scratch)

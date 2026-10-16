@@ -32,62 +32,61 @@ proxy cache in front.
 
 ## Quick start
 
-Requirements: Node.js 22.12+, Docker + Docker Compose, FFmpeg 5+ (only needed
-when running the backend outside Docker).
+Requirements: Docker with Compose v2 and a free [sia.storage](https://sia.storage) account.
 
 ```bash
-git clone https://github.com/justmert/sluby.git
-cd sluby
+git clone https://github.com/justmert/Sluby.git
+cd Sluby
 cp .env.example .env
+
+# register the backend with the indexer: approve the printed url in your
+# sia.storage account, then put SIA_APP_ID and SIA_APP_KEY into .env
+docker compose run --rm --no-deps backend node scripts/connect-indexer.mjs
+
 docker compose up -d
 ```
 
-This starts the backend, PostgreSQL, Redis, and an Nginx caching proxy. The
-backend container listens on port 3000 and `docker-compose.yml` publishes it
-as `4500:3000`, so from the host it is `http://localhost:4500`. The Nginx
-proxy is on `http://localhost:80`.
+Open `http://localhost:8080`, upload a video in the Studio and play it. The
+[quickstart guide](./docs/guide/quickstart.md) walks through each step, and
+the [production guide](./docs/guide/production.md) covers TLS, GitHub sign-in
+and connecting to an indexer on mainnet or the Zen testnet.
 
-### Sia onboarding
-
-Before the first upload, the backend needs a `SIA_APP_ID` / `SIA_APP_KEY`
-pair that registers the platform with your `indexd` instance. You produce
-these once through the SDK's connect/register flow: mint a connect
-key on indexd's admin API (`POST /api/apps/connect/keys`), approve the
-connection request, and export the resulting AppKey. Put both values in
-`.env` and restart the backend, which re-attaches to indexd on startup.
+The documentation site lives in `docs/`:
 
 ```bash
-# Optional: run a local indexer + walletd + miner stack for the Zen testnet
-docker compose -f docker-compose.sia.yml up -d
+npm ci --prefix docs
+npm run docs:dev
 ```
 
 ### Local development
 
+Run PostgreSQL and Redis from Compose and the backend and Studio from source
+(Node.js 22.12+ and FFmpeg 5+ on the host):
+
 ```bash
-npm install                 # one install for every workspace
+npm install
+docker compose up -d postgres redis
 
-# Backend (hot reload via tsx watch). PORT=4500 matches the Docker port.
-PORT=4500 npm run dev
+# the compose databases listen on 5433 and 6380
+DATABASE_URL=postgresql://sluby:sluby@localhost:5433/sluby \
+REDIS_URL=redis://localhost:6380 \
+PUBLIC_URL=http://localhost:5173 \
+npm run dev
 
-# Studio (Vite), in another terminal
+# in another terminal
 npm run dev:frontend
 ```
 
-Open the Studio at `http://localhost:5173`. Vite proxies `/api` and `/v1`
-to the backend (`STUDIO_API_PROXY_TARGET`, default `http://localhost:4500`),
-so the Studio and the API share one origin and the sign-in cookie reaches
-every request, including tus uploads.
+Open the Studio at `http://localhost:5173`. Vite proxies `/api` and `/v1` to
+the backend on port 3000 (`STUDIO_API_PROXY_TARGET` overrides it), so the
+Studio and the API share one origin and the sign-in cookie reaches every
+request, including tus uploads.
 
-#### Which backend port?
-
-| How you start it            | Backend URL on the host | Where that comes from                                |
-| --------------------------- | ----------------------- | ---------------------------------------------------- |
-| `docker compose up -d`      | `http://localhost:4500` | the `4500:3000` port mapping in `docker-compose.yml` |
-| `cd backend && npm run dev` | `http://localhost:3000` | the `PORT` default in `backend/src/config/env.ts`    |
-
-The Studio proxy and the SDK snippets below assume `4500`. With a `npm run
-dev` backend on 3000, set `PORT=4500` or start the Studio with
-`STUDIO_API_PROXY_TARGET=http://localhost:3000`.
+| How you start it        | API base URL            |
+| ----------------------- | ----------------------- |
+| `docker compose up -d`  | `http://localhost:8080` |
+| `npm run dev` (backend) | `http://localhost:3000` |
+| `npm run dev:frontend`  | `http://localhost:5173` |
 
 ## Studio
 
@@ -134,9 +133,7 @@ import { SlubyClient } from '@sluby/sdk';
 
 const client = new SlubyClient({
   apiKey: 'sluby_your_api_key',
-  // Docker publishes the backend on 4500. A local `npm run dev` backend
-  // listens on 3000 unless you override PORT.
-  baseUrl: 'http://localhost:4500',
+  baseUrl: 'http://localhost:8080',
 });
 
 const upload = client.uploads.upload(file, {
@@ -161,12 +158,10 @@ pointed at your own server.
 
 ## API reference
 
-The REST API is described by an OpenAPI 3.1 document, served by the backend
-(the URLs below use the Docker port 4500, so swap in 3000 for a local
-`npm run dev` backend):
+The REST API is described by an OpenAPI 3.1 document, served by the backend:
 
-- Spec (JSON): `http://localhost:4500/api/v1/openapi.json`
-- Interactive docs: `http://localhost:4500/api/v1/docs`
+- Spec (JSON): `http://localhost:8080/api/v1/openapi.json`
+- Interactive docs: `http://localhost:8080/api/v1/docs`
 
 Programmatic calls authenticate with a `Bearer` API key; each key carries
 `upload`, `read`, and `manage` scopes. Asset listing uses cursor pagination
@@ -259,15 +254,17 @@ fallback).
 ## Project layout
 
 ```
-backend/       Node.js backend (Express + BullMQ + Drizzle + @siafoundation/sia-storage)
-frontend/      Studio (Vite + React + shadcn/ui)
+backend/          Node.js backend (Express + BullMQ + Drizzle + @siafoundation/sia-storage)
+frontend/         Studio (Vite + React + shadcn/ui)
 packages/sdk/     @sluby/sdk     TypeScript API client
 packages/player/  @sluby/player  SlubyPlayer + hooks
 examples/         quickstart app using the sdk and player
-nginx/         Aggregator/gateway config
-docker-compose.yml      App stack (backend, postgres, redis, nginx)
-docker-compose.sia.yml  Optional local Sia indexer / walletd / miner stack
-docker-compose.prod.yml Production overrides
+docs/             documentation site (VitePress)
+nginx/            web front door: Studio, api proxy and object cache
+deploy/           Caddyfile for the production override
+docker-compose.yml       the stack: postgres, redis, backend, web
+docker-compose.prod.yml  production override: Caddy TLS, required secrets
+docker-compose.sia.yml   optional self-hosted indexd, walletd and miner on Zen
 ```
 
 ## Tests
