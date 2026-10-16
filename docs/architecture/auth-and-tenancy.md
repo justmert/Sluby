@@ -1,6 +1,6 @@
 # Auth and tenancy
 
-Every API request resolves to an identity with a set of scopes and an owner address, the `creator_address`. Scopes decide what kind of action is allowed; the owner address decides whose data the action can touch. Identities come from API keys, Studio sessions, or, for local development only, `AUTH_DISABLED`. People are accounts (`users` rows) that sign in through a provider (GitHub today); everything an account owns carries the address `user:<account id>`.
+Every API request resolves to an identity with a set of scopes, an owner address (the `creator_address`) and whether it is an operator. Scopes decide what kind of action is allowed; the owner address decides whose data the action can touch; the operator role decides whether it sees the deployment's operations data. Identities come from API keys, Studio sessions, or, for local development only, `AUTH_DISABLED`. People are accounts (`users` rows) that sign in through a provider (GitHub today); everything an account owns carries the address `user:<account id>`.
 
 ## Resolving the caller
 
@@ -25,7 +25,7 @@ The REST API and the tus endpoint share this resolution (`resolveCaller` in `bac
 ## API keys
 
 - **Format and storage.** A key is `sluby_` followed by 32 random bytes in base64url. Only its SHA-256 hex digest is stored, in `api_keys.key_hash`; the raw key is returned once, when the key is created or rotated. Every request hashes the bearer token and looks the hash up, then rejects keys that are inactive or past `expires_at`.
-- **Keys follow their account.** A key owned by an account (`user:<id>`) works only while that account passes the allowlist, checked on every request: taking a person off `GITHUB_ALLOWED_USERS` stops their keys at once, and putting them back restores them, since nothing was deleted. Checking at use rather than revoking keys when a change is noticed means the allowlist, an environment setting, needs no event to act on, and an operator's mistake costs nobody their keys. Keys of operator-made owners (the bootstrap key's `platform`, the platform address, `db:seed-key --address ...`) are not subject to the allowlist. Signing out everywhere ends sessions only; keys are revoked on the keys page or with `DELETE /api/v1/keys/:id`.
+- **Keys follow their account.** A key owned by an account (`user:<id>`) works only while that account passes the allowlist, checked on every request: taking a person off `GITHUB_ALLOWED_USERS` stops their keys at once, and putting them back restores them, since nothing was deleted. Checking at use rather than revoking keys when a change is noticed means the allowlist, an environment setting, needs no event to act on, and an operator's mistake costs nobody their keys. Keys of owners made by whoever runs the server (the bootstrap key's `platform`, the platform address, `db:seed-key --address ...`) are not subject to the allowlist. A key also carries its account's [operator role](#operators), decided the same way on every request. Signing out everywhere ends sessions only; keys are revoked on the keys page or with `DELETE /api/v1/keys/:id`.
 - **Scopes.** `read` covers listing and reading assets, upload status, processing status, renditions and Sia details, playback URLs (public, signed and share), listing playback ids, stats and system status. `upload` covers tus uploads and cancelling them. `manage` covers changing, deleting and retrying assets, creating and deleting playback ids, everything about webhooks (listing them too, since receiver URLs often carry credentials), everything under `/api/v1/keys`, and reconciliation. A new key gets `upload` and `read` unless the request names other scopes.
 - **Creating keys.** `POST /api/v1/keys` needs `manage`, and the new key always gets the caller's own `creator_address`, so a key can only mint keys for its own account.
 - **Rotation.** `POST /api/v1/keys/:id/rotate` issues a new key with the same name, scopes and rate limit and sets the old one's `expires_at` to now plus `grace_period_seconds` (0 to 7 days), in one transaction with the old row locked, and records the replacement in the old row's `replaced_by_id`. A key that already has a replacement is refused with 409, during its grace period too, so one key never yields two live replacements: rotate the replacement instead. `DELETE /api/v1/keys/:id` revokes immediately by deleting the row.
@@ -93,6 +93,30 @@ Every other row keeps its owner and stays reachable: a key of `github:alice` kee
 
 The old data names no numeric id, so the claim trusts the login as GitHub reports it at that first sign-in. If the original owner of a login renamed and someone else registered the name before the original owner signed in to the upgraded server, that someone would claim the data, exactly as they would have reached it before the upgrade. After the claim the data belongs to the account, not the name.
 
+## Operators
+
+An operator is an account that sees the deployment's operations data the way the platform identity does, without becoming the platform identity. No Studio sign-in is ever the platform address, so without operators the Studio's indexer account, storage, cache, reconciliation and analytics views are empty for everyone, a single-operator deployment included.
+
+`OPERATOR_USERS` lists them (`backend/src/api/auth/operators.ts`). One setting serves every sign-in provider, so each entry starts with the provider and then has the syntax of that provider's allowlist:
+
+| Entry                | Makes an operator of                                                                                     |
+| -------------------- | -------------------------------------------------------------------------------------------------------- |
+| `github:id:<number>` | The GitHub account with that numeric id, whatever its login is now or later.                             |
+| `github:<login>`     | The account pinned to that login entry in `allowlist_pins`, matched like an allowlist login (see below). |
+| `github:*`           | Every account that signs in with GitHub. Only sensible when the allowlist itself is short.               |
+
+An entry without a provider (`octocat`, `id:583231`, `*`) stops the backend from starting, rather than being guessed: once a second provider exists, a bare handle could name two different people. An entry for a provider this server does not have logs a warning at startup and makes nobody an operator. An empty value means no operators, unlike the sign-in allowlist, where empty means open.
+
+Matching is on stable identities only. An `id:` entry matches the provider's subject. A login entry matches through the pin, never through the login an account has now: the pins are shared with the sign-in allowlist, since both record the same fact (which account held that login when it was first seen), and a listed login nobody has pinned yet is pinned at its account's next sign-in, also when sign-up is open (`*`). After that the entry follows the account through renames and never reaches the next owner of a freed login. An unclaimed `github:<login>` owner from before the upgrade names a login only, so its keys are never operators.
+
+The role is a property of the resolved caller (`operator` in `backend/src/api/auth/caller.ts`), decided on every request like the allowlist:
+
+- **Studio sessions** of a listed account are operators.
+- **API keys** inherit their account's role at use. Taking someone off `OPERATOR_USERS` ends the role of their sessions and keys on the next request, and putting them back restores it. Keys owned by the platform address, the bootstrap `platform` account or a `db:seed-key --address` owner are never operators; the platform address has its own, wider access.
+- **`AUTH_DISABLED`**: the local dev account is an operator, since it is the only user of a local quickstart. Once sign-in is turned on it is not, and it cannot be listed.
+
+Operators get exactly the operations data: the full `GET /api/v1/system/status` (`scope: "deployment"`), `GET /api/v1/metrics`, the whole `GET /api/v1/reconciliation` report, and `POST /api/v1/reconciliation/run`. These are guarded by `requireOperations` and `seesOperations` (`backend/src/api/middleware/api-key.ts`, `backend/src/api/ownership.ts`), which admit the platform identity or an operator, and the reference marks the guarded operations `x-required-identity: operations`. The scope checks still apply: metrics and status need `read`, reconciliation `manage`. Ownership does not change: `ownerFilter` never widens for an operator, so another account's assets, keys, webhooks, uploads and playback IDs answer 404 as for anyone else, and `GET /api/v1/stats` counts the operator's own library. `GET /api/v1/auth/me` reports `operator` so the Studio can show or hide those views.
+
 ## Adding a sign-in provider
 
 A provider is one module implementing `SignInProvider` (`backend/src/api/auth/providers/types.ts`) and one line in `providers/index.ts`:
@@ -100,9 +124,10 @@ A provider is one module implementing `SignInProvider` (`backend/src/api/auth/pr
 - `id` (stored in `user_identities.provider` and used in the routes `/api/v1/auth/<id>/login` and `/callback`) and `label`;
 - `isConfigured()`, `authorizationUrl({ state, callbackUrl })` and `completeSignIn(query, { callbackUrl })`, which returns `{ subject, username, displayName }` with a stable `subject` or throws a `SignInError` with a fixed message;
 - `allowlist()`, an `Allowlist` built from the provider's own setting, with the same `*`, `id:` and pinned-handle rules;
+- `normalizeHandle(handle)`, how its handles compare, which `OPERATOR_USERS` entries of the provider use;
 - optionally `legacyOwnerAddress` and `legacyHandle`, only for a provider whose data older versions stored under a handle (GitHub).
 
-The handshake cookie, accounts, sessions, ownership, the allowlist rules and the Studio's `/auth/me` are shared and name no provider. Linking a second identity to an existing account (signing in with Google to the account made with GitHub) is not built yet; a new provider's first sign-in creates a new account.
+The handshake cookie, accounts, sessions, ownership, the allowlist rules, the operator role and the Studio's `/auth/me` are shared and name no provider. Linking a second identity to an existing account (signing in with Google to the account made with GitHub) is not built yet; a new provider's first sign-in creates a new account.
 
 ## Tenancy
 
@@ -128,5 +153,5 @@ Ownership is also enforced where data enters and leaves:
 Some things are deliberately not per tenant:
 
 - **The delivery gateway** (`/v1/objects`, `/v1/stream`, `/v1/share`) has no identity at all. Public objects, and public assets' share maps, are served to anyone with the id, and private ones to anyone with a valid signature.
-- **Reconciliation** is global: a run covers every tenant's objects, and only the platform identity can trigger one (only one run is ever pending). Any identity with `manage` can read the latest run, but a tenant gets only the drift of its own assets, and only the platform identity gets the deployment-wide counts and the full id lists (see [what each caller sees](./deletion-and-reconciliation#what-each-caller-sees)).
-- **System status** (`GET /api/v1/system/status`, scope `read`) gives a tenant a health summary: whether the database, Redis and the indexer answer, and the host pool. The shared indexer account, the indexer URL, probe errors, uptime, the delivery cache and the last reconciliation go to the platform identity only, as does `GET /api/v1/metrics`, which counts every tenant together. `GET /api/v1/stats` is owner-scoped.
+- **Reconciliation** is global: a run covers every tenant's objects, and only the platform identity or an [operator](#operators) can trigger one (only one run is ever pending). Any identity with `manage` can read the latest run, but a tenant gets only the drift of its own assets, and only the platform identity and operators get the deployment-wide counts and the full id lists (see [what each caller sees](./deletion-and-reconciliation#what-each-caller-sees)).
+- **System status** (`GET /api/v1/system/status`, scope `read`) gives a tenant a health summary: whether the database, Redis and the indexer answer, and the host pool. The shared indexer account, the indexer URL, probe errors, uptime, the delivery cache and the last reconciliation go to the platform identity and operators only, as does `GET /api/v1/metrics`, which counts every tenant together. `GET /api/v1/stats` is owner-scoped.

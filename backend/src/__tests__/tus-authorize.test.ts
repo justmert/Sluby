@@ -8,6 +8,7 @@ vi.mock('../config/env.js', () => ({
     AUTH_DISABLED: false,
     SESSION_SECRET: 's'.repeat(40),
     GITHUB_ALLOWED_USERS: '',
+    OPERATOR_USERS: '',
     UPLOAD_DIR: '/tmp',
   },
 }));

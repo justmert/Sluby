@@ -115,6 +115,8 @@ export const githubProvider: SignInProvider = {
 
   allowlist: () => new Allowlist(env.GITHUB_ALLOWED_USERS, normalizeLogin),
 
+  normalizeHandle: normalizeLogin,
+
   legacyOwnerAddress: (profile) => `${LEGACY_PREFIX}${normalizeLogin(profile.username)}`,
 
   legacyHandle: (address) =>

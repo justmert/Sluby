@@ -14,7 +14,7 @@ import { createKeyRoutes, type KeyRouteDeps } from './routes/keys.js';
 import { createAuthRoutes, type AuthRouteDeps } from './routes/auth.js';
 import {
   createApiKeyMiddleware,
-  requirePlatform,
+  requireOperations,
   requireScope,
   type ApiKeyMiddlewareDeps,
 } from './middleware/api-key.js';
@@ -120,11 +120,11 @@ export function createApiRouter(deps: ApiRouterDeps, options: ApiRouterOptions =
   router.use('/keys', createKeyRoutes(deps));
 
   // Metrics endpoint (JSON format). The registry counts the whole process,
-  // every tenant together, so it is operator data.
+  // every tenant together, so it is operations data.
   router.get(
     '/metrics',
     requireScope('read'),
-    requirePlatform(),
+    requireOperations(),
     async (_req: Request, res: Response) => {
       const metrics = await getMetricsJson();
       res.json(metrics);

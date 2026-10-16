@@ -50,6 +50,8 @@ export interface SignInProvider {
   ): Promise<ProviderProfile>;
   /** Who may sign in with this provider, re-read from configuration on each call. */
   allowlist(): Allowlist;
+  /** A handle as allowlist entries compare it (github: logins are case-insensitive). */
+  normalizeHandle(handle: string): string;
   /**
    * The owner address an older version of Sluby stored for this person, if
    * this provider had one. Its data is claimed by the first account that signs

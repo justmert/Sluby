@@ -57,6 +57,7 @@ beforeEach(() => {
   env.GITHUB_CLIENT_ID = 'client-123';
   env.GITHUB_CLIENT_SECRET = 'secret-456';
   env.GITHUB_ALLOWED_USERS = '';
+  env.OPERATOR_USERS = '';
   env.PUBLIC_URL = 'http://localhost:3000';
   env.SESSION_SECRET = SECRET;
   env.AUTH_DISABLED = false;
@@ -508,6 +509,35 @@ describe('GET /auth/github/callback', () => {
       expect((await signInThroughGithub()).status).toBe(302);
     });
   });
+
+  describe('with operator handles', () => {
+    it('pins an operator login at sign-in even when sign-up is open', async () => {
+      env.GITHUB_ALLOWED_USERS = '*';
+      env.OPERATOR_USERS = 'github:OctoCat';
+      expect((await signInThroughGithub()).status).toBe(302);
+      expect(accounts.pins.get('github\noctocat')).toBe('1');
+    });
+
+    it('never makes the next owner of a pinned operator login an operator', async () => {
+      env.OPERATOR_USERS = 'github:octocat';
+      await signInThroughGithub();
+      github.userReply = { status: 200, body: { login: 'octocat', id: 99 } };
+      const res = await signInThroughGithub();
+      expect(res.status).toBe(302);
+      expect(accounts.pins.get('github\noctocat')).toBe('1');
+      const cookie = `${SESSION_COOKIE_NAME}=${cookieValue(setCookies(res), SESSION_COOKIE_NAME)}`;
+      const me = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
+      expect(me.body.username).toBe('octocat');
+      expect(me.body.operator).toBe(false);
+    });
+
+    it('does not pin anything for an account the sign-in allowlist refuses', async () => {
+      env.GITHUB_ALLOWED_USERS = 'alice';
+      env.OPERATOR_USERS = 'github:octocat';
+      expect((await signInThroughGithub()).status).toBe(403);
+      expect(accounts.pins.size).toBe(0);
+    });
+  });
 });
 
 describe('GET /auth/me', () => {
@@ -528,6 +558,7 @@ describe('GET /auth/me', () => {
       provider: 'github',
       provider_label: 'GitHub',
       auth_disabled: false,
+      operator: false,
       providerLabel: 'GitHub',
     });
     expect(Date.parse(res.body.expires_at)).toBeGreaterThan(Date.now() + 3500_000);
@@ -584,11 +615,54 @@ describe('GET /auth/me', () => {
       provider: 'local',
       provider_label: 'Local',
       auth_disabled: true,
+      operator: true,
       expires_at: null,
       providerLabel: 'Local',
       authDisabled: true,
     });
     expect(accounts.identities[0]).toMatchObject({ provider: 'local', subject: 'dev' });
+  });
+});
+
+describe('GET /auth/me operator', () => {
+  it('reports an operator listed by id, and stops on the next request once unlisted', async () => {
+    const { cookie } = await signedIn('octocat', '7');
+    const me = () => request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
+    env.OPERATOR_USERS = 'github:id:7';
+    expect((await me()).body.operator).toBe(true);
+    env.OPERATOR_USERS = 'github:id:8';
+    const after = await me();
+    expect(after.status).toBe(200);
+    expect(after.body.operator).toBe(false);
+  });
+
+  it('reports an operator listed by a login pinned to the account, through a rename', async () => {
+    const { cookie } = await signedIn('octocat', '7');
+    env.OPERATOR_USERS = 'github:OCTOCAT';
+    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).body.operator).toBe(
+      true,
+    );
+    accounts.identities[0].username = 'octocat-renamed';
+    const renamed = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
+    expect(renamed.body.username).toBe('octocat-renamed');
+    expect(renamed.body.operator).toBe(true);
+  });
+
+  it('does not take a login entry by the current login alone, without the pin', async () => {
+    const { cookie } = await signedIn('octocat', '7');
+    accounts.pins.clear();
+    env.OPERATOR_USERS = 'github:octocat';
+    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).body.operator).toBe(
+      false,
+    );
+  });
+
+  it('ignores entries of another provider', async () => {
+    const { cookie } = await signedIn('octocat', '7');
+    env.OPERATOR_USERS = 'gitlab:id:7,gitlab:octocat';
+    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).body.operator).toBe(
+      false,
+    );
   });
 });
 

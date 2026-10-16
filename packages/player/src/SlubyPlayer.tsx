@@ -18,6 +18,7 @@ import type {
 } from './types.js';
 import type { SiaPlaybackSession, SiaShareSource } from './sia-types.js';
 import { createSiaLoader } from './SiaLoader.js';
+import { renewingLoader, signedUrlsFor, withoutQuery, type SignedUrls } from './renewal.js';
 
 // ---------------------------------------------------------------------------
 // Public imperative handle exposed via ref
@@ -28,8 +29,9 @@ export interface SlubyPlayerHandle {
   getVideoElement: () => HTMLVideoElement | null;
   /**
    * The current hls.js instance, or null when using native playback. The
-   * player builds a new one for every load (a retry, a renewed signed URL),
-   * so read it when needed instead of keeping it.
+   * player builds a new one for every load (another video, a retry), so read
+   * it when needed instead of keeping it. A renewed signed URL for the same
+   * video keeps the instance.
    */
   getHlsInstance: () => Hls | null;
   /** Renditions in the loaded manifest. Empty on native (Safari) playback. */
@@ -54,6 +56,8 @@ interface SiaDelivery {
 
 // one resolved load. A new object means a new load; `key` names the video
 // rather than the url, so a reload of the same video keeps its position.
+// `src`, `poster` and `expiresAtMs` are what the load started with; a renewal
+// replaces them without a new load (see Renewal).
 interface Playback {
   // a given src, or one the player resolved from client + assetId
   kind: 'src' | 'asset';
@@ -65,6 +69,15 @@ interface Playback {
   expiresAtMs?: number;
   // the retry it was made for, so a retry of a plain src still reloads
   attempt: number;
+}
+
+// newly signed urls for a load that keeps playing: what renew or a src prop
+// for the same video brought, in place of the ones the load started with
+interface Renewal {
+  load: Playback;
+  src: string;
+  poster?: string;
+  expiresAtMs?: number;
 }
 
 const DEFAULT_MAX_NETWORK_RETRIES = 3;
@@ -93,10 +106,6 @@ function toQualityLevel(
 function expiresFromUrl(url: string): number | undefined {
   const match = /[?&]expires=(\d+)/.exec(url);
   return match ? Number(match[1]) * 1000 : undefined;
-}
-
-function withoutQuery(url: string): string {
-  return url.split(/[?#]/)[0];
 }
 
 function hasPlayback(client: PlaybackResolver | SiaPlaybackClient): client is PlaybackResolver {
@@ -277,6 +286,13 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
     const opts = useRef({ autoPlay, maxNetworkRetries, maxMediaRetries, refreshSrc });
     const latest = useRef({ client, assetId, signed, expiresIn });
     const playbackRef = useRef<Playback | null>(playback);
+    const [renewal, setRenewal] = useState<Renewal | null>(null);
+    const renewalRef = useRef<Renewal | null>(renewal);
+    // the current url of each object of the load hls.js is playing, which its
+    // loader sends requests to; replaced when the load's urls are renewed
+    const signedUrlsRef = useRef<SignedUrls>(new Map());
+    // the latest adopt call, so an older one finishing later cannot win
+    const adoptSeq = useRef(0);
     useEffect(() => {
       cb.current = {
         onReady,
@@ -292,6 +308,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       opts.current = { autoPlay, maxNetworkRetries, maxMediaRetries, refreshSrc };
       latest.current = { client, assetId, signed, expiresIn };
       playbackRef.current = playback;
+      renewalRef.current = renewal;
     });
 
     // ── State transitions notify the consumer once, on change ──────────────
@@ -333,6 +350,58 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       }
     }, [hasSrc, signed, expiresIn]);
 
+    // ── Renewed urls for the same video ────────────────────────────────────
+
+    // the urls a load is playing now: its renewal's, or the ones it started with
+    const liveOf = useCallback((load: Playback) => {
+      const r = renewalRef.current;
+      return r && r.load === load ? r : load;
+    }, []);
+
+    /**
+     * Move `current` onto the urls of `next`, a newer resolve of the same
+     * video. Rebuilding hls.js for a new signature would throw away the
+     * buffer and seek back to the position, so while hls.js plays the video
+     * the new urls take over in place: the gateway urls hls.js asks for next
+     * are mapped onto the renewed ones, or the Sia share map is fetched for
+     * the renewed src. Native playback, a different video or a change of
+     * delivery path still loads `next`. Resolves to whether it did that.
+     */
+    const adopt = useCallback(
+      async (current: Playback, next: Playback): Promise<boolean> => {
+        const inPlace =
+          hlsRef.current !== null &&
+          next.key === current.key &&
+          Boolean(next.sia) === Boolean(current.sia);
+        if (!inPlace) {
+          setPlayback(next);
+          return true;
+        }
+        const seq = ++adoptSeq.current;
+        const source = current.sia?.source;
+        let urls: SignedUrls | null = null;
+        if (source) await current.sia!.session.prepare(current.sia!.assetId, { src: next.src });
+        else if (!current.sia) urls = await signedUrlsFor(next.src);
+        // a newer load (a prop change, a retry) has replaced this one
+        if (playbackRef.current !== current) return true;
+        // a newer renewal of it has
+        if (seq !== adoptSeq.current) return false;
+        if (urls) signedUrlsRef.current = urls;
+        // the loader reads the share source on every request
+        if (source) source.src = next.src;
+        const renewed: Renewal = {
+          load: current,
+          src: next.src,
+          poster: next.poster ?? liveOf(current).poster,
+          expiresAtMs: next.expiresAtMs,
+        };
+        renewalRef.current = renewed;
+        setRenewal(renewed);
+        return false;
+      },
+      [liveOf],
+    );
+
     // ── Resolve what to play from src, or from client + assetId ────────────
 
     useEffect(() => {
@@ -340,16 +409,32 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
       if (src) {
         const session = client?.sia;
-        if (!session || !assetId || !Hls.isSupported()) {
-          setPlayback((prev) =>
-            prev &&
-            prev.kind === 'src' &&
-            prev.src === src &&
-            !prev.sia &&
-            prev.attempt === retryKey
-              ? prev
-              : srcPlayback(src, retryKey),
-          );
+        const viaSia = Boolean(session && assetId && Hls.isSupported());
+        // a newly signed src for the video already playing, on the same
+        // delivery path, renews the load instead of starting another
+        const prev = playbackRef.current;
+        if (
+          prev &&
+          prev.kind === 'src' &&
+          prev.attempt === retryKey &&
+          prev.key === srcPlayback(src, retryKey).key &&
+          (viaSia ? prev.sia?.session === session && prev.sia?.assetId === assetId : !prev.sia)
+        ) {
+          if (liveOf(prev).src === src) return;
+          if (hlsRef.current) {
+            adopt(prev, srcPlayback(src, retryKey, prev.sia)).catch((err: unknown) => {
+              if (!cancelled) {
+                fail(`Could not switch to the new playback URL: ${asError(err).message}`, err);
+              }
+            });
+            return () => {
+              cancelled = true;
+            };
+          }
+        }
+
+        if (!viaSia) {
+          setPlayback(srcPlayback(src, retryKey));
           return;
         }
 
@@ -357,7 +442,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         // cannot start a stale load first
         setPlayback(null);
         moveTo('loading');
-        void loadSrc(src, session, assetId, retryKey).then((next) => {
+        void loadSrc(src, session, assetId!, retryKey).then((next) => {
           if (!cancelled) setPlayback(next);
         });
         return () => {
@@ -394,7 +479,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       return () => {
         cancelled = true;
       };
-    }, [src, client, assetId, signed, expiresIn, retryKey, fail, moveTo]);
+    }, [src, client, assetId, signed, expiresIn, retryKey, fail, moveTo, adopt, liveOf]);
 
     // ── Renew a signed url before it expires ───────────────────────────────
 
@@ -402,33 +487,40 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
     // given src when the page passed refreshSrc
     const renewable = useCallback(
       (current: Playback) =>
-        current.expiresAtMs !== undefined &&
+        liveOf(current).expiresAtMs !== undefined &&
         (current.kind === 'asset' || opts.current.refreshSrc !== undefined),
-      [],
+      [liveOf],
     );
 
-    const renew = useCallback(async (current: Playback): Promise<void> => {
-      let next: Playback;
-      const { client: resolver, assetId: id, signed: sign, expiresIn: ttl } = latest.current;
-      if (current.kind === 'src') {
-        const fresh = await opts.current.refreshSrc!(current.src);
-        next = await loadSrc(fresh, resolver?.sia, id, current.attempt);
-      } else {
-        if (!resolver || !id || !hasPlayback(resolver)) {
-          throw new Error(
-            'The playback URL expired and the player no longer has a client to renew it.',
-          );
+    // resolves to whether it started a new load rather than renewing this one
+    const renew = useCallback(
+      async (current: Playback): Promise<boolean> => {
+        let next: Playback;
+        const { client: resolver, assetId: id, signed: sign, expiresIn: ttl } = latest.current;
+        if (current.kind === 'src') {
+          const fresh = await opts.current.refreshSrc!(liveOf(current).src);
+          next = srcPlayback(fresh, current.attempt, current.sia);
+        } else {
+          if (!resolver || !id || !hasPlayback(resolver)) {
+            throw new Error(
+              'The playback URL expired and the player no longer has a client to renew it.',
+            );
+          }
+          next = await loadAsset(resolver, id, sign, ttl, current.attempt);
         }
-        next = await loadAsset(resolver, id, sign, ttl, current.attempt);
-      }
-      // a newer load (a prop change, a retry) has replaced this one
-      if (playbackRef.current !== current) return;
-      setPlayback(next);
-    }, []);
+        // a newer load (a prop change, a retry) has replaced this one
+        if (playbackRef.current !== current) return true;
+        return adopt(current, next);
+      },
+      [adopt, liveOf],
+    );
 
+    // read from state, not the ref, so a renewal re-arms the timer
+    const live = playback && renewal?.load === playback ? renewal : playback;
+    const liveExpiresAtMs = live?.expiresAtMs;
     useEffect(() => {
       if (!playback || !renewable(playback)) return;
-      const expiresAtMs = playback.expiresAtMs!;
+      const expiresAtMs = liveExpiresAtMs!;
       const remaining = expiresAtMs - Date.now();
       const delay = remaining - Math.min(REFRESH_LEAD_MS, Math.max(0, remaining) / 2);
       if (delay > MAX_TIMER_MS) return;
@@ -443,7 +535,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         Math.max(0, delay),
       );
       return () => clearTimeout(timer);
-    }, [playback, renew, renewable]);
+    }, [playback, liveExpiresAtMs, renew, renewable, liveOf]);
 
     // ── Imperative handle ──────────────────────────────────────────────────
 
@@ -578,6 +670,9 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       const sia = current.sia;
       if (sia) {
         hlsConfig.loader = createSiaLoader(sia.session, sia.assetId, sia.source);
+      } else {
+        signedUrlsRef.current = new Map();
+        hlsConfig.loader = renewingLoader(signedUrlsRef);
       }
 
       const hls = new Hls(hlsConfig);
@@ -595,6 +690,22 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       // failed manifest load has to be retried with loadSource instead
       let manifestParsed = false;
 
+      // webkit can leave the clock stopped for good (playing, readyState 4,
+      // currentTime frozen) when play() is pending while hls.js seeks, to the
+      // start position of a resumed load or over the gap before the first
+      // buffered frame, so play() waits until the element has settled
+      const settleEvents = ['seeked', 'canplay'] as const;
+      const stopWaitingToPlay = () => {
+        for (const name of settleEvents) video.removeEventListener(name, playWhenSettled);
+      };
+      const playWhenSettled = () => {
+        if (video.seeking || video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+        stopWaitingToPlay();
+        video.play().catch(() => {
+          /* autoplay policy may block */
+        });
+      };
+
       // Tear down after an unrecoverable error, exactly once: cancel any pending
       // reload so its callback cannot fire on a destroyed instance, mark the
       // error terminal, destroy, and report.
@@ -604,6 +715,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         destroyed = true;
         terminalRef.current = true;
         stopTracking();
+        stopWaitingToPlay();
         hls.destroy();
         hlsRef.current = null;
         fail(message, cause);
@@ -619,11 +731,8 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         }
         moveTo('ready');
         cb.current.onReady?.();
-        if (shouldPlay()) {
-          video.play().catch(() => {
-            /* autoplay policy may block */
-          });
-        }
+        if (!shouldPlay()) return;
+        for (const name of settleEvents) video.addEventListener(name, playWhenSettled);
       });
 
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
@@ -643,15 +752,27 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         switch (data.type) {
           case Hls.ErrorTypes.NETWORK_ERROR: {
             // past the signed url's expiry every retry would be refused too,
-            // so get a fresh url (the reload continues at the same position)
+            // so get a fresh url and carry on with it
             const expired =
-              renewable(current) && Date.now() >= current.expiresAtMs! - REFRESH_LEAD_MS;
+              renewable(current) && Date.now() >= liveOf(current).expiresAtMs! - REFRESH_LEAD_MS;
             if (expired) {
               if (renewing) return;
               renewing = true;
               moveTo('buffering');
-              renew(current).catch((err: unknown) =>
-                giveUp(`The playback URL expired and could not be renewed (${data.details}).`, err),
+              renew(current).then(
+                (reloaded) => {
+                  renewing = false;
+                  if (reloaded || destroyed) return;
+                  // the next requests go to the renewed urls
+                  networkRetries = 0;
+                  if (manifestParsed) hls.startLoad();
+                  else hls.loadSource(current.src);
+                },
+                (err: unknown) =>
+                  giveUp(
+                    `The playback URL expired and could not be renewed (${data.details}).`,
+                    err,
+                  ),
               );
               return;
             }
@@ -695,6 +816,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       return () => {
         if (backoffTimer) clearTimeout(backoffTimer);
         stopTracking();
+        stopWaitingToPlay();
         // A give-up already destroyed the instance; do not destroy twice.
         if (!destroyed) {
           destroyed = true;
@@ -702,7 +824,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         }
         hlsRef.current = null;
       };
-    }, [playback, fail, renew, renewable, moveTo]);
+    }, [playback, fail, renew, renewable, moveTo, liveOf]);
 
     // ── Retry (from the overlay button) ────────────────────────────────────
 
@@ -724,7 +846,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       >
         <video
           ref={videoRef}
-          poster={poster ?? playback?.poster}
+          poster={poster ?? live?.poster}
           controls={controls}
           muted={muted}
           width={width}

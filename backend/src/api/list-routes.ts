@@ -15,7 +15,7 @@ export interface RouteInfo {
   path: string;
   /** The scope enforced by this route's `requireScope` guard, if any. */
   requiredScope?: string;
-  /** `platform` when a `requirePlatform` guard restricts the route. */
+  /** `operations` when a `requireOperations` guard restricts the route. */
   requiredIdentity?: string;
 }
 

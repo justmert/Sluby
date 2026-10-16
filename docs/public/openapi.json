@@ -3,7 +3,7 @@
   "info": {
     "title": "Sluby API",
     "version": "1.0.0",
-    "description": "REST API and delivery gateway for Sluby, decentralized video streaming on the Sia network. Programmatic access uses a scoped API key sent as a `Bearer` token; the Studio UI uses a session cookie.\n\nEvery resource belongs to the account (`creator_address`) of the key that made it, and a by-id request for another account’s resource answers 404, as for one that does not exist. A key with the all-zero platform address acts across accounts and alone sees deployment-wide operator data.\n\nErrors are JSON `{ \"error\": \"...\", \"details\": [...] }`; `details` lists the invalid fields of a 400. Every response of a key-checked operation carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`; over the limit the answer is 429 with `Retry-After`. A path no route serves answers 404 whether or not a key is sent.",
+    "description": "REST API and delivery gateway for Sluby, decentralized video streaming on the Sia network. Programmatic access uses a scoped API key sent as a `Bearer` token; the Studio UI uses a session cookie.\n\nEvery resource belongs to the account (`creator_address`) of the key that made it, and a by-id request for another account’s resource answers 404, as for one that does not exist. A key with the all-zero platform address acts across accounts. Deployment-wide operations data is for that key and for operators, the accounts listed in OPERATOR_USERS and their keys, who see the deployment but still only their own account’s resources.\n\nErrors are JSON `{ \"error\": \"...\", \"details\": [...] }`; `details` lists the invalid fields of a 400. Every response of a key-checked operation carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`; over the limit the answer is 429 with `Retry-After`. A path no route serves answers 404 whether or not a key is sent.",
     "license": {
       "name": "Apache 2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
@@ -690,7 +690,7 @@
         }
       },
       "ReconciliationRun": {
-        "description": "The latest run. Its shape depends on `scope`: the platform identity (`deployment`) gets the whole run; any other caller (`account`) gets only the drift of its own assets, because the deployment-wide counts, orphans and failure text describe other accounts and the operator’s setup. Objects the indexer pinned or unpinned within the hour before the run are work in progress and in neither list, so the in-sync count plus the orphan or missing count can be lower than the indexer or database count.",
+        "description": "The latest run. Its shape depends on `scope`: the platform identity and operators (`deployment`) get the whole run; any other caller (`account`) gets only the drift of its own assets, because the deployment-wide counts, orphans and failure text describe other accounts and the operator’s setup. Objects the indexer pinned or unpinned within the hour before the run are work in progress and in neither list, so the in-sync count plus the orphan or missing count can be lower than the indexer or database count.",
         "oneOf": [
           {
             "$ref": "#/components/schemas/ReconciliationRunDeployment"
@@ -954,7 +954,7 @@
         }
       },
       "SystemStatus": {
-        "description": "Live status. Its shape depends on `scope`: the platform identity (`deployment`) gets the full report; any other caller (`account`) gets a health summary without the indexer account, the indexer url, probe error text, process uptime, the delivery cache or the deployment-wide reconciliation result.",
+        "description": "Live status. Its shape depends on `scope`: the platform identity and operators (`deployment`) get the full report; any other caller (`account`) gets a health summary without the indexer account, the indexer url, probe error text, process uptime, the delivery cache or the deployment-wide reconciliation result.",
         "oneOf": [
           {
             "$ref": "#/components/schemas/SystemStatusDeployment"
@@ -1479,6 +1479,7 @@
           "provider",
           "provider_label",
           "auth_disabled",
+          "operator",
           "expires_at"
         ],
         "properties": {
@@ -1511,6 +1512,10 @@
           "auth_disabled": {
             "type": "boolean",
             "description": "True when the server runs with AUTH_DISABLED and this is the local dev account."
+          },
+          "operator": {
+            "type": "boolean",
+            "description": "Whether the account is an operator (OPERATOR_USERS) and sees deployment-wide operations data: the full system status, metrics and the whole reconciliation report. Always true for the local dev account, the one user of an AUTH_DISABLED server."
           },
           "expires_at": {
             "type": [
@@ -2105,7 +2110,7 @@
           "Auth"
         ],
         "summary": "The signed-in account.",
-        "description": "The account id and display name, plus the provider, provider label and handle the browser signed in with, and the session expiry (Unix seconds). With AUTH_DISABLED it is the local dev account (`provider: \"local\"`, `authDisabled: true`).",
+        "description": "The account id and display name, plus the provider, provider label and handle the browser signed in with, whether the account is an operator, and the session expiry. With AUTH_DISABLED it is the local dev account (`provider: \"local\"`, `auth_disabled: true`, `operator: true`).",
         "security": [
           {
             "cookieAuth": []
@@ -4301,7 +4306,7 @@
           "Reconciliation"
         ],
         "summary": "Latest reconciliation run.",
-        "description": "The platform identity gets the whole run, orphaned ids included; any other caller gets only the missing objects of its own assets (see ReconciliationRun). The platform identity is a key with the all-zero address, as `npm run db:seed-key` mints by default.",
+        "description": "The platform identity and operators get the whole run, orphaned ids included; any other caller gets only the missing objects of its own assets (see ReconciliationRun). The platform identity is a key with the all-zero address, as `npm run db:seed-key` mints by default; operators are the accounts in OPERATOR_USERS, their Studio sessions and their keys.",
         "x-required-scope": "manage",
         "responses": {
           "200": {
@@ -4342,9 +4347,9 @@
           "Reconciliation"
         ],
         "summary": "Trigger a reconciliation run.",
-        "description": "A run scans the whole deployment, so only the platform identity may start one. It is queued unless one, manual or scheduled, is already waiting or running, so repeated calls never stack runs.",
+        "description": "A run scans the whole deployment, so only the platform identity or an operator may start one. It is queued unless one, manual or scheduled, is already waiting or running, so repeated calls never stack runs.",
         "x-required-scope": "manage",
-        "x-required-identity": "platform",
+        "x-required-identity": "operations",
         "responses": {
           "202": {
             "description": "Queued, or a run was already pending.",
@@ -4374,7 +4379,7 @@
           "Ops"
         ],
         "summary": "Library totals for the caller's account.",
-        "description": "The platform identity gets the totals of every account.",
+        "description": "The platform identity gets the totals of every account. An operator gets its own, like any other account.",
         "x-required-scope": "read",
         "responses": {
           "200": {
@@ -4405,7 +4410,7 @@
           "Ops"
         ],
         "summary": "Live platform status: database, redis, Sia indexer, reconciliation, cache.",
-        "description": "The platform identity gets the full report; any other caller a health summary (see SystemStatus).",
+        "description": "The platform identity and operators get the full report; any other caller a health summary (see SystemStatus).",
         "x-required-scope": "read",
         "responses": {
           "200": {
@@ -4436,9 +4441,9 @@
           "Ops"
         ],
         "summary": "Platform metrics (prometheus registry as JSON).",
-        "description": "The registry counts the whole process, so only the platform identity may read it.",
+        "description": "The registry counts the whole process, so only the platform identity or an operator may read it.",
         "x-required-scope": "read",
-        "x-required-identity": "platform",
+        "x-required-identity": "operations",
         "responses": {
           "200": {
             "description": "Metrics.",

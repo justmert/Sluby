@@ -2,7 +2,7 @@
 // requests to the fixture gateway, real decode and playback.
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { createRef } from 'react';
+import { createRef, useState } from 'react';
 import Hls from 'hls.js';
 import { SlubyPlayer, type SlubyPlayerHandle } from '../SlubyPlayer.js';
 import type { PlayerState, QualityLevel } from '../types.js';
@@ -14,6 +14,7 @@ import {
   objectUrl,
   rangeHeader,
   resetGateway,
+  signedUrls,
   type FixtureCatalog,
   type Mounted,
 } from './harness.js';
@@ -183,8 +184,13 @@ describe('SlubyPlayer with real hls.js', () => {
     expect(events.states[events.states.length - 1]).toBe('error');
     // giving up tears hls.js down
     expect(ref.current?.getHlsInstance()).toBeNull();
+    // onError runs from the hls.js event; react renders the overlay after it
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-sluby-overlay="error"]')?.textContent).toContain(
+        events.errors[0].message,
+      ),
+    );
     const overlay = container.querySelector('[data-sluby-overlay="error"]');
-    expect(overlay?.textContent).toContain(events.errors[0].message);
 
     const log = await gatewayRequests();
     const failed = log.filter((r) => r.status === 404);
@@ -207,6 +213,91 @@ describe('SlubyPlayer with real hls.js', () => {
     expect(events.errors).toHaveLength(1);
   }, 90_000);
 
+  // a renewed signature must not rebuild the pipeline: the urls hls.js still
+  // has from the first manifests stop working once their signature runs out,
+  // so loading anything new afterwards (here another rendition) proves the
+  // requests moved onto the renewed urls
+  async function renditionLoadsOnRenewedUrls(
+    ref: React.RefObject<SlubyPlayerHandle | null>,
+    firstExpires: number,
+  ) {
+    const video = ref.current!.getVideoElement()!;
+    const hls = ref.current!.getHlsInstance()!;
+    const reloads: string[] = [];
+    const record = (e: Event) => reloads.push(e.type);
+    for (const name of ['emptied', 'loadstart', 'seeking']) video.addEventListener(name, record);
+
+    await vi.waitFor(() => expect(Date.now()).toBeGreaterThan(firstExpires * 1000 + 250), {
+      timeout: 15_000,
+      interval: 100,
+    });
+    for (const name of ['emptied', 'loadstart', 'seeking']) video.removeEventListener(name, record);
+    expect(reloads).toEqual([]);
+    expect(ref.current!.getHlsInstance()).toBe(hls);
+
+    const before = (await gatewayRequests()).length;
+    const target = hls.currentLevel === 0 ? 1 : 0;
+    const rendition = catalog.renditions[target];
+    ref.current!.setQuality(target);
+    await vi.waitFor(
+      async () => {
+        const after = (await gatewayRequests()).slice(before);
+        expect(after.some((r) => r.id === rendition.dataId && r.status === 206)).toBe(true);
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+    const after = (await gatewayRequests()).slice(before);
+    expect(after.filter((r) => r.status === 403)).toEqual([]);
+    expect(after.every((r) => Number(r.expires) > firstExpires)).toBe(true);
+    expect(ref.current!.getHlsInstance()).toBe(hls);
+  }
+
+  it('moves onto a newly signed src for the same video without reloading it', async () => {
+    const first = await signedUrls(6);
+    const second = await signedUrls(3600);
+    const ref = createRef<SlubyPlayerHandle>();
+    const errors: Error[] = [];
+    let setSrc: (src: string) => void = () => {};
+    function Swapper() {
+      const [src, set] = useState(first.object);
+      setSrc = set;
+      return (
+        <SlubyPlayer ref={ref} src={src} muted controls={false} onError={(e) => errors.push(e)} />
+      );
+    }
+    mounted = mount(<Swapper />);
+    await vi.waitFor(
+      () =>
+        expect(ref.current?.getVideoElement()?.readyState).toBeGreaterThanOrEqual(
+          HTMLMediaElement.HAVE_FUTURE_DATA,
+        ),
+      { timeout: 15_000, interval: 50 },
+    );
+
+    setSrc(second.object);
+    await renditionLoadsOnRenewedUrls(ref, first.expires);
+    expect(errors).toEqual([]);
+  }, 40_000);
+
+  it('renews a signed src through refreshSrc before it expires, in place', async () => {
+    const first = await signedUrls(6);
+    const refreshSrc = vi.fn(async () => (await signedUrls(3600)).object);
+    const { ref, events, video } = renderPlayer({
+      src: first.object,
+      refreshSrc,
+      autoPlay: false,
+    });
+    await vi.waitFor(
+      () => expect(video().readyState).toBeGreaterThanOrEqual(HTMLMediaElement.HAVE_FUTURE_DATA),
+      { timeout: 15_000, interval: 50 },
+    );
+
+    await renditionLoadsOnRenewedUrls(ref, first.expires);
+    expect(refreshSrc).toHaveBeenCalledTimes(1);
+    expect(refreshSrc).toHaveBeenCalledWith(first.object);
+    expect(events.errors).toEqual([]);
+  }, 40_000);
+
   it('re-requests a master that 404s on each retry, then reports the error', async () => {
     await injectFault(catalog.masterId, 404);
     const { events, container } = renderPlayer({ maxNetworkRetries: 2 });
@@ -223,6 +314,8 @@ describe('SlubyPlayer with real hls.js', () => {
     expect(log).toHaveLength(3);
     expect(log.every((r) => r.id === catalog.masterId && r.status === 404)).toBe(true);
     expect(events.states[events.states.length - 1]).toBe('error');
-    expect(container.querySelector('[data-sluby-overlay="error"]')).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-sluby-overlay="error"]')).not.toBeNull(),
+    );
   });
 });

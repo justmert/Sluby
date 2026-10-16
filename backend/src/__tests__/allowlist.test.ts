@@ -130,6 +130,7 @@ describe('account and key owner access', () => {
     expect(await resolveKeyOwner(`user:${user}`, deps({ account: a }))).toEqual({
       allowed: true,
       address: `user:${user}`,
+      operator: false,
     });
     env.GITHUB_ALLOWED_USERS = 'bob';
     expect((await resolveKeyOwner(`user:${user}`, deps({ account: a }))).allowed).toBe(false);
@@ -156,13 +157,18 @@ describe('account and key owner access', () => {
     expect(await resolveKeyOwner('github:alice', deps({ claim: user, account: a }))).toEqual({
       allowed: true,
       address: `user:${user}`,
+      operator: false,
     });
   });
 
   it('leaves operator-made owners alone', async () => {
     env.GITHUB_ALLOWED_USERS = 'alice';
     for (const owner of ['platform', `0x${'0'.repeat(64)}`, 'custom-address']) {
-      expect(await resolveKeyOwner(owner, deps({}))).toEqual({ allowed: true, address: owner });
+      expect(await resolveKeyOwner(owner, deps({}))).toEqual({
+        allowed: true,
+        address: owner,
+        operator: false,
+      });
     }
   });
 

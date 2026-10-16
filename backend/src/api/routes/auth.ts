@@ -14,6 +14,7 @@ import {
   type FindActiveSession,
 } from '../auth/session.js';
 import type { Account } from '../auth/access.js';
+import { isOperatorAccount, operatorAllowlist } from '../auth/operators.js';
 import { getProvider, SignInError, type SignInProvider } from '../auth/providers/index.js';
 import type { SignInInput, SignInResult } from '../../db/queries/accounts.js';
 
@@ -259,13 +260,21 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       });
 
       const allowlist = provider.allowlist();
+      const operators = operatorAllowlist(provider);
       const result = await deps.signIn({
         provider: provider.id,
         subject: profile.subject,
         username: profile.username,
         displayName: profile.displayName,
         legacyAddress: provider.legacyOwnerAddress?.(profile),
-        decide: (pins) => allowlist.atSignIn(profile.subject, profile.username, pins),
+        decide: (pins) => {
+          const decision = allowlist.atSignIn(profile.subject, profile.username, pins);
+          if (!decision.allowed) return decision;
+          // an operator handle entry is pinned the same way, in the same
+          // table; both lists normalise the handle alike, so it is one entry
+          const operatorPin = operators?.atSignIn(profile.subject, profile.username, pins).pin;
+          return { allowed: true, pin: decision.pin ?? operatorPin };
+        },
       });
       if (result.status === 'refused') {
         logger.warn(
@@ -307,9 +316,10 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
 
   /**
    * GET /api/v1/auth/me
-   * The signed-in account: its id and display name, and the provider and
-   * handle the browser signed in with. 401 when not signed in. The Studio
-   * calls this on load to decide whether to show the sign-in screen.
+   * The signed-in account: its id and display name, the provider and handle
+   * the browser signed in with, and whether it is an operator. 401 when not
+   * signed in. The Studio calls this on load to decide whether to show the
+   * sign-in screen, and which operator views to show.
    */
   router.get('/me', async (req: Request, res: Response) => {
     // snake_case and an ISO expiry like the rest of the api; the camelCase
@@ -323,6 +333,8 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
         provider: 'local',
         provider_label: 'Local',
         auth_disabled: true,
+        // the one local user runs the deployment, as resolveCaller treats it
+        operator: true,
         expires_at: null,
         providerLabel: 'Local',
         authDisabled: true,
@@ -344,6 +356,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       provider: identity?.provider ?? null,
       provider_label: providerLabel,
       auth_disabled: false,
+      operator: isOperatorAccount(account),
       expires_at: session.expiresAt.toISOString(),
       providerLabel,
       expiresAt: Math.floor(session.expiresAt.getTime() / 1000),
