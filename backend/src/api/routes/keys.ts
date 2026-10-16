@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { requireScope } from '../middleware/api-key.js';
 import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
-import { generateApiKey } from '../auth.js';
+import { generateApiKey } from '../auth/api-key.js';
 
 export interface ApiKeyRecord {
   id: string;

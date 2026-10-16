@@ -10,12 +10,11 @@
  */
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { createHash, randomBytes } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
-import { apiKeys } from './schema.js';
+import { ADMIN_SCOPES, createAdminApiKey } from './api-key-seeding.js';
 
 // Load .env
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -53,28 +52,14 @@ async function seedApiKey() {
   const sql = postgres(connectionString, { max: 1 });
   const db = drizzle(sql);
 
-  // Generate key
-  const rawKey = `sluby_${randomBytes(32).toString('base64url')}`;
-  const keyHash = createHash('sha256').update(rawKey).digest('hex');
-
-  const [result] = await db
-    .insert(apiKeys)
-    .values({
-      keyHash,
-      name,
-      scopes: ['upload', 'read', 'manage'],
-      rateLimit: 1000,
-      creatorAddress,
-      isActive: true,
-    })
-    .returning({ id: apiKeys.id });
+  const { id, rawKey } = await createAdminApiKey(db, { name, creatorAddress });
 
   console.log('');
   console.log('API key created successfully.');
   console.log('');
-  console.log(`  ID:      ${result.id}`);
+  console.log(`  ID:      ${id}`);
   console.log(`  Name:    ${name}`);
-  console.log(`  Scopes:  upload, read, manage`);
+  console.log(`  Scopes:  ${ADMIN_SCOPES.join(', ')}`);
   console.log(`  Key:     ${rawKey}`);
   console.log('');
   console.log('Save this key — it will not be shown again.');

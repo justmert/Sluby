@@ -291,6 +291,41 @@ describe('SlubyPlayer', () => {
       );
     });
 
+    it('retries a failed manifest with loadSource, since startLoad needs a parsed manifest', () => {
+      vi.useFakeTimers();
+      try {
+        render(<SlubyPlayer src={SRC} maxNetworkRetries={3} />);
+        expect(mockLoadSource).toHaveBeenCalledTimes(1);
+
+        fireHls(MockHlsEvents.ERROR, {
+          fatal: true,
+          type: MockHlsErrorTypes.NETWORK_ERROR,
+          details: 'manifestLoadError',
+        });
+        act(() => {
+          vi.advanceTimersByTime(1000);
+        });
+        expect(mockLoadSource).toHaveBeenCalledTimes(2);
+        expect(mockLoadSource).toHaveBeenLastCalledWith(SRC);
+        expect(mockStartLoad).not.toHaveBeenCalled();
+
+        // once a manifest is in, a later network failure resumes with startLoad
+        fireHls(MockHlsEvents.MANIFEST_PARSED);
+        fireHls(MockHlsEvents.ERROR, {
+          fatal: true,
+          type: MockHlsErrorTypes.NETWORK_ERROR,
+          details: 'fragLoadError',
+        });
+        act(() => {
+          vi.advanceTimersByTime(2000);
+        });
+        expect(mockStartLoad).toHaveBeenCalledTimes(1);
+        expect(mockLoadSource).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('ignores non-fatal errors', () => {
       const onError = vi.fn();
       render(<SlubyPlayer src={SRC} onError={onError} />);

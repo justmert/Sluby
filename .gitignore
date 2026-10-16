@@ -43,6 +43,8 @@ docs/.vitepress/dist/
 *.pdf
 /test/
 /test-output/
+# vitest browser mode failure screenshots
+.vitest/
 
 # vendored binaries (the readme stays tracked so the docker build always has the dir)
 backend/vendor/*

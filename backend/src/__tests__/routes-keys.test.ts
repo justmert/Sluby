@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createKeyRoutes, type ApiKeyRecord, type KeyRouteDeps } from '../api/routes/keys.js';
 import { createTestApp, withApiKey } from './helpers/express-helpers.js';
-import { hashApiKey } from '../api/auth.js';
+import { hashApiKey } from '../api/auth/api-key.js';
 
 vi.mock('../config/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },

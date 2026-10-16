@@ -1,23 +1,7 @@
 import { eq, and, desc, or, isNull, gt } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { apiKeys, type ApiKey, type NewApiKey } from '../schema.js';
-import { createHash, randomBytes } from 'node:crypto';
-
-/**
- * Generate a new raw API key string with a "sluby_" prefix.
- * The raw key is returned only once at creation time.
- */
-export function generateRawApiKey(): string {
-  const bytes = randomBytes(32);
-  return `sluby_${bytes.toString('base64url')}`;
-}
-
-/**
- * Hash a raw API key with SHA-256 for storage and lookup.
- */
-export function hashApiKey(rawKey: string): string {
-  return createHash('sha256').update(rawKey).digest('hex');
-}
+import { generateApiKey, hashApiKey } from '../../api/auth/api-key.js';
 
 /**
  * Create a new API key.
@@ -26,7 +10,7 @@ export function hashApiKey(rawKey: string): string {
 export async function createApiKey(
   data: Omit<NewApiKey, 'keyHash'> & { rawKey?: string },
 ): Promise<{ apiKey: ApiKey; rawKey: string }> {
-  const rawKey = data.rawKey ?? generateRawApiKey();
+  const rawKey = data.rawKey ?? generateApiKey().key;
   const keyHash = hashApiKey(rawKey);
 
   const { rawKey: _rawKey, ...rest } = data;

@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
 import { SESSION_COOKIE_NAME, parseCookieHeader, verifySession } from '../auth/session.js';
+import { hashApiKey } from '../auth/api-key.js';
 
 export interface ApiKeyInfo {
   id: string;
@@ -76,7 +76,7 @@ export function createApiKeyMiddleware(deps: ApiKeyMiddlewareDeps) {
     }
 
     const token = authHeader.slice(7);
-    const hash = createHash('sha256').update(token).digest('hex');
+    const hash = hashApiKey(token);
 
     try {
       const apiKey = await deps.findApiKeyByHash(hash);
