@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { AlertTriangle, ArrowLeft, Lock, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { AccessTier, VideoAsset } from '@sluby/sdk';
+import type { AccessTier, RetryStage, VideoAsset } from '@sluby/sdk';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { AssetPlayer } from '@/components/asset/AssetPlayer';
 import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
@@ -37,7 +37,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -63,9 +63,14 @@ import {
   useAssetSiaInfo,
   useProcessingJob,
 } from '@/hooks/asset-detail-queries';
-import { useAssetById, useDeleteAssets, useUpdateAssetMeta } from '@/hooks/asset-queries';
+import {
+  useAssetById,
+  useDeleteAssets,
+  useForgetAsset,
+  useRetryProcessing,
+  useUpdateAssetMeta,
+} from '@/hooks/asset-queries';
 import { formatBitrate, formatBytes, formatDate, formatDuration } from '@/lib/formatters';
-import { sluby } from '@/lib/sluby';
 
 // ---------------------------------------------------------------------------
 // Pieces
@@ -84,13 +89,19 @@ function EditDialog({
   const [title, setTitle] = useState(asset.title);
   const [description, setDescription] = useState(asset.description);
   const [accessTier, setAccessTier] = useState<AccessTier>(asset.accessTier);
+  const [titleError, setTitleError] = useState<string | null>(null);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmed = title.trim();
+    if (!trimmed) {
+      setTitleError('Enter a title.');
+      return;
+    }
     try {
       await update.mutateAsync({
         id: asset.id,
-        data: { title: title.trim() || asset.title, description, accessTier },
+        data: { title: trimmed, description: description.trim(), accessTier },
       });
       toast.success('Asset updated');
       onOpenChange(false);
@@ -111,14 +122,21 @@ function EditDialog({
             </DialogDescription>
           </DialogHeader>
           <FieldGroup>
-            <Field>
+            <Field data-invalid={titleError ? true : undefined}>
               <FieldLabel htmlFor="edit-title">Title</FieldLabel>
               <Input
                 id="edit-title"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  setTitleError(null);
+                }}
+                required
                 maxLength={200}
+                aria-invalid={titleError ? true : undefined}
+                aria-describedby={titleError ? 'edit-title-error' : undefined}
               />
+              {titleError && <FieldError id="edit-title-error">{titleError}</FieldError>}
             </Field>
             <Field>
               <FieldLabel htmlFor="edit-description">Description</FieldLabel>
@@ -156,21 +174,23 @@ function EditDialog({
   );
 }
 
+const RETRY_STAGE_LABEL: Record<RetryStage, string> = {
+  transcode: 'the transcode',
+  'upload-segments': 'the Sia upload',
+};
+
 function ProcessingCard({ asset }: { asset: VideoAsset }) {
-  const job = useProcessingJob(asset.id, true);
-  const [retrying, setRetrying] = useState(false);
-  const failed = asset.status === 'failed' || job.data?.status === 'failed';
+  const job = useProcessingJob(asset.id, asset.status, true);
+  const retryProcessing = useRetryProcessing();
+  // the job is the fresher signal: it moves first when a retry starts
+  const failed = job.data ? job.data.status === 'failed' : asset.status === 'failed';
 
   const retry = async () => {
-    setRetrying(true);
     try {
-      const { stage } = await sluby.assets.retry(asset.id);
-      toast.success(`Processing restarted from ${stage}`);
-      await job.refetch();
+      const { stage } = await retryProcessing.mutateAsync(asset.id);
+      toast.success(`Processing restarted from ${RETRY_STAGE_LABEL[stage]}`);
     } catch (err) {
       toast.error(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setRetrying(false);
     }
   };
 
@@ -213,7 +233,11 @@ function ProcessingCard({ asset }: { asset: VideoAsset }) {
           </div>
         )}
         {failed && (
-          <Button className="self-start" onClick={() => void retry()} disabled={retrying}>
+          <Button
+            className="self-start"
+            onClick={() => void retry()}
+            disabled={retryProcessing.isPending}
+          >
             <RotateCcw />
             Retry processing
           </Button>
@@ -340,8 +364,19 @@ export default function AssetDetailPage() {
   const ready = asset.data?.status === 'ready';
   const sia = useAssetSiaInfo(id, ready);
   const deleteAssets = useDeleteAssets();
+  const forgetAsset = useForgetAsset();
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleted = useRef<string | null>(null);
+
+  // drop the deleted asset's queries once this page no longer watches them;
+  // removing a watched query makes it fetch again and answer 404
+  useEffect(
+    () => () => {
+      if (deleted.current) forgetAsset(deleted.current);
+    },
+    [forgetAsset],
+  );
 
   if (asset.isLoading) {
     return (
@@ -384,6 +419,7 @@ export default function AssetDetailPage() {
       toast.error(`Could not delete: ${failures[0].error}`);
       return;
     }
+    deleted.current = a.id;
     toast.success('Deleting the asset and unpinning it from Sia');
     navigate('/studio/assets');
   };
@@ -399,7 +435,9 @@ export default function AssetDetailPage() {
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h1 className="truncate text-2xl font-semibold tracking-tight">{a.title}</h1>
+          <h1 className="truncate text-2xl font-semibold tracking-tight" title={a.title}>
+            {a.title}
+          </h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <AssetStatusBadge status={a.status} />
             {a.accessTier === 'private' && (

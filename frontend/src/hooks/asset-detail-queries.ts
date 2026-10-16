@@ -1,4 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
+import type { VideoAssetStatus } from '@sluby/sdk';
+import { failedForGood } from '@/hooks/asset-queries';
 import { apiClient } from '@/lib/api-client';
 import { sluby } from '@/lib/sluby';
 
@@ -74,12 +76,23 @@ export function useAssetSiaInfo(id: string | undefined, enabled: boolean) {
   });
 }
 
-export function useProcessingJob(id: string | undefined, enabled: boolean) {
+/**
+ * The asset's processing job. It is keyed on the asset's status too: the job
+ * appears when the upload finishes and restarts on a retry, and both show up
+ * as a status change first.
+ */
+export function useProcessingJob(
+  id: string | undefined,
+  assetStatus: VideoAssetStatus | undefined,
+  enabled: boolean,
+) {
   return useQuery({
-    queryKey: ['assets', 'processing', id],
+    queryKey: ['assets', 'processing', id, assetStatus],
     queryFn: () => sluby.assets.processing(id!),
     enabled: !!id && enabled,
     refetchInterval: (query) => {
+      // a 404 (no job yet, or the asset is gone) or a 401 does not change by asking again
+      if (failedForGood(query)) return false;
       const s = query.state.data?.status;
       return s === 'completed' || s === 'failed' ? false : 3_000;
     },

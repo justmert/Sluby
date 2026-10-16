@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { Film, Search } from 'lucide-react';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { AssetPlayer } from '@/components/asset/AssetPlayer';
@@ -8,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -15,10 +17,31 @@ import {
 } from '@/components/ui/empty';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useAssetById, useAssetList } from '@/hooks/asset-queries';
+import { AssetStatusBadge } from '@/components/asset/AssetStatusBadge';
+import { useAssetById, useUploadChanges } from '@/hooks/asset-queries';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatDuration } from '@/lib/formatters';
+import { sluby } from '@/lib/sluby';
 import { cn } from '@/lib/utils';
+
+const PAGE_SIZE = 30;
+
+/** Ready videos, newest first, a page at a time. */
+function usePlayableAssets(search: string) {
+  useUploadChanges();
+  return useInfiniteQuery({
+    queryKey: ['assets', 'playable', search],
+    queryFn: ({ pageParam }) =>
+      sluby.assets.list({
+        status: 'ready',
+        limit: PAGE_SIZE,
+        search: search || undefined,
+        cursor: pageParam,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
 
 /** Pick any ready video and play it the way an embedding app would. */
 export default function PlayerPage() {
@@ -26,9 +49,10 @@ export default function PlayerPage() {
   const selectedId = params.get('asset') ?? undefined;
   const [search, setSearch] = useState('');
   const debounced = useDebounce(search.trim(), 300);
-  const list = useAssetList({ status: 'ready', limit: 50, search: debounced || undefined });
+  const list = usePlayableAssets(debounced);
   const selected = useAssetById(selectedId);
-  const assets = list.data?.data ?? [];
+  const assets = list.data?.pages.flatMap((page) => page.data) ?? [];
+  const total = list.data?.pages[0]?.total;
 
   return (
     <PageContainer>
@@ -53,6 +77,22 @@ export default function PlayerPage() {
               </Empty>
             ) : selected.isLoading ? (
               <Skeleton className="aspect-video w-full" />
+            ) : selected.data && selected.data.status !== 'ready' ? (
+              <Empty className="aspect-video">
+                <EmptyHeader>
+                  <EmptyTitle>{selected.data.title} is not ready to play</EmptyTitle>
+                  <EmptyDescription>
+                    <span className="inline-flex items-center gap-2">
+                      Its status is <AssetStatusBadge status={selected.data.status} />
+                    </span>
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button variant="outline" asChild>
+                    <Link to={`/studio/assets/${selected.data.id}`}>Open the asset</Link>
+                  </Button>
+                </EmptyContent>
+              </Empty>
             ) : selected.data ? (
               <div className="flex flex-col gap-3">
                 <AssetPlayer
@@ -61,7 +101,9 @@ export default function PlayerPage() {
                   signed={selected.data.accessTier === 'private'}
                 />
                 <div className="flex items-center justify-between gap-4">
-                  <p className="truncate font-medium">{selected.data.title}</p>
+                  <p className="truncate font-medium" title={selected.data.title}>
+                    {selected.data.title}
+                  </p>
                   <Button variant="outline" size="sm" asChild>
                     <Link to={`/studio/assets/${selected.data.id}`}>Asset details</Link>
                   </Button>
@@ -77,7 +119,9 @@ export default function PlayerPage() {
         <Card>
           <CardHeader>
             <CardTitle>Ready videos</CardTitle>
-            <CardDescription>{list.data ? `${list.data.total} playable` : ' '}</CardDescription>
+            <CardDescription>
+              {total !== undefined ? `${total.toLocaleString()} playable` : ' '}
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <InputGroup>
@@ -98,6 +142,7 @@ export default function PlayerPage() {
                 <li key={a.id}>
                   <button
                     type="button"
+                    aria-current={a.id === selectedId ? 'true' : undefined}
                     onClick={() => setParams({ asset: a.id })}
                     className={cn(
                       'flex w-full items-center gap-3 rounded-md p-2 text-left transition-colors hover:bg-muted',
@@ -110,7 +155,9 @@ export default function PlayerPage() {
                       className="w-16"
                     />
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">{a.title}</span>
+                      <span className="block truncate text-sm font-medium" title={a.title}>
+                        {a.title}
+                      </span>
                       <span className="text-xs text-muted-foreground">
                         {formatDuration(a.durationMs ?? 0)}
                       </span>
@@ -119,9 +166,24 @@ export default function PlayerPage() {
                 </li>
               ))}
               {list.data && assets.length === 0 && (
-                <p className="text-sm text-muted-foreground">No ready videos match.</p>
+                <li className="text-sm text-muted-foreground">No ready videos match.</li>
               )}
             </ul>
+            {list.isError && (
+              <p className="text-sm text-destructive">
+                Could not load videos: {list.error.message}
+              </p>
+            )}
+            {list.hasNextPage && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={list.isFetchingNextPage}
+                onClick={() => void list.fetchNextPage()}
+              >
+                {list.isFetchingNextPage ? 'Loading...' : 'Show more'}
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>

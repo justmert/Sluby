@@ -27,6 +27,10 @@ const ROLE_LABELS: Record<ObjectRole, string> = {
 };
 
 const HOSTS_SHOWN = 12;
+// every sector on a host is 4 MiB, and a slab holds one sector per shard
+const SECTOR_BYTES = 4 * 1024 * 1024;
+
+const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 
 function Stat({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
   return (
@@ -48,7 +52,7 @@ function countryName(code: string): string {
 
 function shortKey(key: string): string {
   const raw = key.replace(/^ed25519:/, '');
-  return raw.length > 16 ? `${raw.slice(0, 8)}...${raw.slice(-6)}` : raw;
+  return raw.length > 16 ? `${raw.slice(0, 8)}\u2026${raw.slice(-6)}` : raw;
 }
 
 export function SiaStorageBreakdown({
@@ -90,6 +94,15 @@ export function SiaStorageBreakdown({
   const explorer = explorerFor(info.indexer.network);
   const hosts = showAllHosts ? info.hosts : info.hosts.slice(0, HOSTS_SHOWN);
   const maxCountrySectors = Math.max(1, ...info.countries.map((c) => c.sectors));
+  // shard counts are null both when no slab was described and when slabs disagree
+  const described = t.unique_slab_count > 0;
+  // a slab is filled up to data_shards sectors whatever the objects in it
+  // hold, so small objects are mostly padding; say how much
+  const padding =
+    t.data_shards !== null && t.redundancy_ratio !== null
+      ? Math.max(0, t.unique_slab_count * t.data_shards * SECTOR_BYTES - t.raw_bytes) *
+        t.redundancy_ratio
+      : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -116,14 +129,30 @@ export function SiaStorageBreakdown({
         <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Stat label="Objects" value={t.object_count} />
           <Stat label="Stored" value={formatBytes(t.raw_bytes)} hint="Before erasure coding" />
-          <Stat label="Encoded" value={formatBytes(t.encoded_bytes)} hint="After erasure coding" />
+          <Stat
+            label="Encoded"
+            value={formatBytes(t.encoded_bytes)}
+            hint={
+              padding !== null && padding > 0
+                ? `After erasure coding. Slabs are filled to a fixed size, so ${formatBytes(padding)} of this is padding.`
+                : 'After erasure coding, in whole slabs'
+            }
+          />
           <Stat
             label="Redundancy"
-            value={t.redundancy_ratio !== null ? `${t.redundancy_ratio.toFixed(1)}x` : 'mixed'}
+            value={
+              t.redundancy_ratio !== null
+                ? `${t.redundancy_ratio.toFixed(1)}x`
+                : described
+                  ? 'mixed'
+                  : '-'
+            }
             hint={
               t.data_shards !== null
                 ? `${t.data_shards} data + ${t.parity_shards} parity shards`
-                : 'Slabs use different shard configs'
+                : described
+                  ? 'Slabs use different shard configs'
+                  : 'No slab was described'
             }
           />
           <Stat label="Slabs" value={t.unique_slab_count} hint="Shared slabs counted once" />
@@ -243,7 +272,7 @@ export function SiaStorageBreakdown({
                   <div className="flex items-center justify-between text-sm">
                     <span>{countryName(c.country_code)}</span>
                     <span className="text-muted-foreground tabular-nums">
-                      {c.sectors} sectors, {c.hosts} host{c.hosts === 1 ? '' : 's'}
+                      {plural(c.sectors, 'sector')}, {plural(c.hosts, 'host')}
                     </span>
                   </div>
                   <Progress

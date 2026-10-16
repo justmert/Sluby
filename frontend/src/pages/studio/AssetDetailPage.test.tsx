@@ -1,9 +1,9 @@
 import { forwardRef, useEffect, useImperativeHandle } from 'react';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { jsonFetch, renderPage } from '@/test/render';
+import { jsonFetch, renderPage, reply } from '@/test/render';
 import AssetDetailPage from './AssetDetailPage';
 
 const setQuality = vi.fn();
@@ -126,35 +126,38 @@ const renditions = {
   ],
 };
 
-function render(assetBody = asset()) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(
-      jsonFetch({
-        '/api/v1/assets/a1': assetBody,
-        '/api/v1/assets/a1/sia': sia,
-        '/api/v1/assets/a1/renditions': renditions,
-        '/api/v1/assets/a1/processing': {
-          id: 'j',
-          status: 'failed',
-          stage: 'failed',
-          progress_percent: 65,
-          retry_count: 3,
-          error_message: 'ffmpeg exited with code 1',
-          started_at: null,
-          completed_at: null,
-          created_at: '2026-10-01T00:00:00Z',
-          logs: [{ timestamp: '2026-10-01T00:00:00Z', stage: 'transcode', message: 'Starting' }],
-        },
-      }),
+const failedJob = {
+  id: 'j',
+  status: 'failed',
+  stage: 'failed',
+  progress_percent: 65,
+  retry_count: 3,
+  error_message: 'ffmpeg exited with code 1',
+  started_at: null,
+  completed_at: null,
+  created_at: '2026-10-01T00:00:00Z',
+  logs: [{ timestamp: '2026-10-01T00:00:00Z', stage: 'transcode', message: 'Starting' }],
+};
+
+function render(assetBody = asset(), extra: Record<string, unknown> = {}) {
+  const server = jsonFetch({
+    '/api/v1/assets/a1': assetBody,
+    '/api/v1/assets/a1/sia': sia,
+    '/api/v1/assets/a1/renditions': renditions,
+    '/api/v1/assets/a1/processing': failedJob,
+    ...extra,
+  });
+  vi.stubGlobal('fetch', vi.fn(server));
+  return {
+    server,
+    ...renderPage(
+      <Routes>
+        <Route path="/studio/assets/:id" element={<AssetDetailPage />} />
+        <Route path="/studio/assets" element={<p>Library</p>} />
+      </Routes>,
+      { route: '/studio/assets/a1' },
     ),
-  );
-  return renderPage(
-    <Routes>
-      <Route path="/studio/assets/:id" element={<AssetDetailPage />} />
-    </Routes>,
-    { route: '/studio/assets/a1' },
-  );
+  };
 }
 
 beforeEach(() => {
@@ -201,5 +204,118 @@ describe('AssetDetailPage', () => {
     expect(await screen.findByText('ffmpeg exited with code 1')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry processing/i })).toBeInTheDocument();
     expect(screen.queryByTestId('player')).not.toBeInTheDocument();
+  });
+
+  it('follows the new run after a retry instead of keeping "Processing failed"', async () => {
+    let status = 'failed';
+    const { server, client } = render(undefined, {
+      '/api/v1/assets/a1': () => asset({ status, manifest_object_id: null }),
+      '/api/v1/assets/a1/processing': () =>
+        status === 'failed'
+          ? failedJob
+          : { ...failedJob, status: 'processing', stage: 'transcode', error_message: null },
+      'POST /api/v1/assets/a1/retry': () => {
+        status = 'processing';
+        return { success: true, stage: 'transcode' };
+      },
+    });
+    client.setQueryData(['assets', 'latest', 6], { data: [] });
+    client.setQueryData(['stats'], {});
+    await screen.findByText('ffmpeg exited with code 1');
+
+    await userEvent.click(screen.getByRole('button', { name: /retry processing/i }));
+
+    expect(await screen.findByText('Processing restarted from the transcode')).toBeInTheDocument();
+    expect(await screen.findByText('Stage: transcode')).toBeInTheDocument();
+    expect(screen.queryByText('Processing failed')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry processing/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Processing progress' })).toBeInTheDocument();
+    expect(client.getQueryState(['assets', 'latest', 6])?.isInvalidated).toBe(true);
+    expect(client.getQueryState(['stats'])?.isInvalidated).toBe(true);
+    const retryAt = server.calls.findIndex((c) => c.method === 'POST');
+    expect(
+      server.calls.slice(retryAt).some((c) => c.method === 'GET' && c.path === '/api/v1/assets/a1'),
+    ).toBe(true);
+  });
+
+  it('switches to the player when the retried run finishes', async () => {
+    let status = 'failed';
+    render(undefined, {
+      '/api/v1/assets/a1': () =>
+        asset({ status, manifest_object_id: status === 'ready' ? 'master-1' : null }),
+      '/api/v1/assets/a1/processing': () => failedJob,
+      'POST /api/v1/assets/a1/retry': () => {
+        // the run is quick: done by the time the page asks again
+        status = 'ready';
+        return { success: true, stage: 'upload-segments' };
+      },
+    });
+    await screen.findByText('ffmpeg exited with code 1');
+    await userEvent.click(screen.getByRole('button', { name: /retry processing/i }));
+    expect(await screen.findByTestId('player')).toBeInTheDocument();
+  });
+
+  it('deletes, goes back to the library, and does not fetch the deleted asset again', async () => {
+    const { server } = render(undefined, { 'DELETE /api/v1/assets/a1': { success: true } });
+    await screen.findByTestId('player');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    expect(await screen.findByText('Library')).toBeInTheDocument();
+    const deletedAt = server.calls.findIndex((c) => c.method === 'DELETE');
+    expect(deletedAt).toBeGreaterThan(-1);
+    // give a stray refetch the chance to happen
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      server.calls.slice(deletedAt + 1).filter((c) => c.path.startsWith('/api/v1/assets/a1')),
+    ).toEqual([]);
+  });
+
+  it('refuses an empty title and trims what it saves', async () => {
+    const { server, client } = render(undefined, {
+      'PATCH /api/v1/assets/a1': ({ body }: { body: Record<string, unknown> }) =>
+        asset({ title: body.title, description: body.description }),
+    });
+    client.setQueryData(['assets', 'latest', 6], { data: [] });
+    await screen.findByTestId('player');
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog');
+    const title = within(dialog).getByLabelText('Title');
+
+    await userEvent.clear(title);
+    await userEvent.type(title, '   ');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(within(dialog).getByText('Enter a title.')).toBeInTheDocument();
+    expect(title).toHaveAttribute('aria-invalid', 'true');
+    expect(server.calls.some((c) => c.method === 'PATCH')).toBe(false);
+
+    await userEvent.clear(title);
+    await userEvent.type(title, '  New title  ');
+    const description = within(dialog).getByLabelText('Description');
+    await userEvent.clear(description);
+    await userEvent.type(description, '  about it  ');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(server.calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({
+      title: 'New title',
+      description: 'about it',
+    });
+    expect(await screen.findByRole('heading', { name: 'New title' })).toHaveAttribute(
+      'title',
+      'New title',
+    );
+    expect(client.getQueryState(['assets', 'latest', 6])?.isInvalidated).toBe(true);
+  });
+
+  it('does not poll a job that is not there', async () => {
+    const { server } = render(asset({ status: 'created', manifest_object_id: null }), {
+      '/api/v1/assets/a1/processing': reply(404, { error: 'No processing job found' }),
+    });
+    expect(await screen.findByText('Waiting for the upload to finish')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 3_500));
+    expect(server.calls.filter((c) => c.path.endsWith('/processing'))).toHaveLength(1);
   });
 });

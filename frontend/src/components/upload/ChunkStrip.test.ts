@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chunkProgress } from './ChunkStrip';
+import { chunkProgress } from './chunk-progress';
 
 const MiB = 1024 * 1024;
 

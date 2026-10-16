@@ -201,7 +201,9 @@ function AssetCard({
       </div>
       <div className="flex items-start gap-2 p-3">
         <Link to={`/studio/assets/${asset.id}`} className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{asset.title}</p>
+          <p className="truncate text-sm font-medium" title={asset.title}>
+            {asset.title}
+          </p>
           <p className="truncate text-xs text-muted-foreground">
             <AssetMeta asset={asset} />
           </p>
@@ -225,11 +227,19 @@ function AssetCard({
 // Page
 // ---------------------------------------------------------------------------
 
+const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+
 export default function AssetsPage() {
   const p = useLibraryParams();
   const [searchInput, setSearchInput] = useState(p.q);
   const debounced = useDebounce(searchInput, 300);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // a selection belongs to the view it was made in: another search, filter,
+  // sort or page starts empty, so a bulk delete never reaches hidden rows
+  const scope = [p.q, p.status, p.tier, p.sortValue, p.page].join('|');
+  const [selection, setSelection] = useState<{ scope: string; ids: Set<string> }>({
+    scope,
+    ids: new Set(),
+  });
   const [pendingDelete, setPendingDelete] = useState<string[] | null>(null);
 
   // push the debounced search into the url (which drives the query)
@@ -254,31 +264,57 @@ export default function AssetsPage() {
   const total = list.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const filtered = Boolean(p.q || p.status || p.tier);
-  const allOnPageSelected = assets.length > 0 && assets.every((a) => selected.has(a.id));
+  // only rows on screen count, also after a refetch dropped one
+  const selected = useMemo(
+    () =>
+      new Set(
+        selection.scope === scope
+          ? assets.filter((a) => selection.ids.has(a.id)).map((a) => a.id)
+          : [],
+      ),
+    [assets, scope, selection],
+  );
+  const allOnPageSelected = assets.length > 0 && selected.size === assets.length;
+  const someOnPageSelected = selected.size > 0 && !allOnPageSelected;
+  const pastTheEnd = !!list.data && !list.isPlaceholderData && assets.length === 0 && total > 0;
 
-  const toggle = (id: string, on: boolean) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+  const select = (ids: Set<string>) => setSelection({ scope, ids });
+  const toggle = (id: string, on: boolean) => {
+    const next = new Set(selected);
+    if (on) next.add(id);
+    else next.delete(id);
+    select(next);
+  };
+  const selectPage = (on: boolean) => select(new Set(on ? assets.map((a) => a.id) : []));
+
+  // a stale link, or deleting the last rows of the last page, lands past the
+  // end; go to the last page that has rows
+  useEffect(() => {
+    if (pastTheEnd) p.update({ page: pages > 1 ? String(pages) : null });
+    // p.update is rebuilt every render; only reaching an empty page should trigger this
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pastTheEnd, pages]);
 
   const confirmDelete = async () => {
     const ids = pendingDelete ?? [];
+    const titles = new Map(assets.map((a) => [a.id, a.title]));
     setPendingDelete(null);
     const failures = await deleteAssets.mutateAsync(ids);
-    setSelected((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
+    // keep what failed selected, so it can be tried again
+    const failed = new Set(failures.map((f) => f.id));
+    select(new Set([...selected].filter((id) => !ids.includes(id) || failed.has(id))));
     const ok = ids.length - failures.length;
-    if (ok > 0) toast.success(`Deleting ${ok} asset${ok === 1 ? '' : 's'} from Sia`);
-    for (const f of failures) toast.error(`Could not delete ${f.id}: ${f.error}`);
+    if (ok > 0) toast.success(`Deleting ${plural(ok, 'video')} from Sia`);
+    for (const f of failures) {
+      toast.error(`Could not delete "${titles.get(f.id) ?? f.id}": ${f.error}`);
+    }
   };
 
   return (
     <PageContainer>
       <PageHeader
         title="Assets"
-        description={list.data ? `${total.toLocaleString()} videos` : 'Your video library'}
+        description={list.data ? plural(total, 'video') : 'Your video library'}
         actions={
           <Button asChild>
             <Link to="/studio/upload">
@@ -387,21 +423,33 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      {selected.size > 0 && (
-        <div className="mb-4 flex items-center gap-3 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-          <span>{selected.size} selected</span>
-          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-            Clear
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            className="ml-auto"
-            onClick={() => setPendingDelete([...selected])}
-          >
-            <Trash2 />
-            Delete selected
-          </Button>
+      {assets.length > 0 && (
+        <div className="mb-4 flex min-h-11 items-center gap-3 rounded-lg border bg-muted/40 px-3 py-1.5 text-sm">
+          <Checkbox
+            id="select-page"
+            checked={allOnPageSelected ? true : someOnPageSelected ? 'indeterminate' : false}
+            onCheckedChange={(v) => selectPage(v === true)}
+            aria-label="Select all on this page"
+          />
+          <label htmlFor="select-page" className="cursor-pointer" aria-hidden="true">
+            {selected.size > 0 ? `${selected.size} of ${assets.length} selected` : 'Select all'}
+          </label>
+          {selected.size > 0 && (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => select(new Set())}>
+                Clear
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="ml-auto"
+                onClick={() => setPendingDelete([...selected])}
+              >
+                <Trash2 />
+                Delete selected
+              </Button>
+            </>
+          )}
         </div>
       )}
 
@@ -423,6 +471,23 @@ export default function AssetsPage() {
             <Skeleton key={i} className="aspect-[4/3] w-full rounded-xl" />
           ))}
         </div>
+      ) : pastTheEnd ? (
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>This page is empty</EmptyTitle>
+            <EmptyDescription>
+              The library has {plural(total, 'video')}, on {plural(pages, 'page')}.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button
+              variant="outline"
+              onClick={() => p.update({ page: pages > 1 ? String(pages) : null })}
+            >
+              Go to page {pages}
+            </Button>
+          </EmptyContent>
+        </Empty>
       ) : assets.length === 0 ? (
         <Empty className="border">
           <EmptyHeader>
@@ -469,18 +534,11 @@ export default function AssetsPage() {
               <TableRow>
                 <TableHead className="w-10">
                   <Checkbox
-                    checked={allOnPageSelected}
-                    onCheckedChange={(v) =>
-                      setSelected((prev) => {
-                        const next = new Set(prev);
-                        for (const a of assets) {
-                          if (v === true) next.add(a.id);
-                          else next.delete(a.id);
-                        }
-                        return next;
-                      })
+                    checked={
+                      allOnPageSelected ? true : someOnPageSelected ? 'indeterminate' : false
                     }
-                    aria-label="Select all on this page"
+                    onCheckedChange={(v) => selectPage(v === true)}
+                    aria-label="Select all rows"
                   />
                 </TableHead>
                 <TableHead>Video</TableHead>
@@ -515,7 +573,9 @@ export default function AssetsPage() {
                         className="w-16"
                       />
                       <span className="min-w-0">
-                        <span className="block max-w-xs truncate font-medium">{asset.title}</span>
+                        <span className="block max-w-xs truncate font-medium" title={asset.title}>
+                          {asset.title}
+                        </span>
                         {asset.accessTier === 'private' && (
                           <span className="text-xs text-muted-foreground">Private</span>
                         )}
@@ -544,7 +604,7 @@ export default function AssetsPage() {
         </Card>
       )}
 
-      {total > PAGE_SIZE && (
+      {(total > PAGE_SIZE || p.page > 1) && !pastTheEnd && (
         <div className="mt-6 flex items-center justify-between gap-4 text-sm">
           <span className="text-muted-foreground">
             {(p.page - 1) * PAGE_SIZE + 1} to {Math.min(p.page * PAGE_SIZE, total)} of{' '}

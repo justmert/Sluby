@@ -1,14 +1,17 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   FileVideo,
   Pause,
   Play,
+  RefreshCw,
   RotateCcw,
   Upload as UploadIcon,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { AccessTier } from '@sluby/sdk';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { ChunkStrip } from '@/components/upload/ChunkStrip';
@@ -35,9 +38,23 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { formatBytes, formatDuration } from '@/lib/formatters';
+import { errorStatus } from '@/hooks/asset-queries';
+import { formatBytes, formatDuration, formatRelativeTime } from '@/lib/formatters';
+import { sluby } from '@/lib/sluby';
 import { uploadStore as defaultStore } from '@/lib/studio-upload';
-import { CHUNK_SIZE, useUploadState, type UploadStore } from '@/lib/upload-store';
+import {
+  findUnfinishedUploads,
+  forgetUnfinishedUpload,
+  isSameFile,
+  type UnfinishedUpload,
+} from '@/lib/unfinished-uploads';
+import {
+  CHUNK_SIZE,
+  isTransferring,
+  useUploads,
+  type UploadState,
+  type UploadStore,
+} from '@/lib/upload-store';
 import { cn } from '@/lib/utils';
 
 function titleFromFile(name: string): string {
@@ -56,12 +73,17 @@ function isVideo(file: File): boolean {
     : file.type.startsWith('video/');
 }
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 // ---------------------------------------------------------------------------
 // Selecting a file
 // ---------------------------------------------------------------------------
 
-function DropZone({ onFile }: { onFile: (file: File) => void }) {
+function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
   const input = useRef<HTMLInputElement>(null);
+  // dragenter and dragleave fire for every child the pointer crosses, so
+  // count them instead of trusting the last one
+  const depth = useRef(0);
   const [dragging, setDragging] = useState(false);
 
   return (
@@ -76,16 +98,21 @@ function DropZone({ onFile }: { onFile: (file: File) => void }) {
           input.current?.click();
         }
       }}
-      onDragOver={(e) => {
+      onDragEnter={(e) => {
         e.preventDefault();
+        depth.current += 1;
         setDragging(true);
       }}
-      onDragLeave={() => setDragging(false)}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={() => {
+        depth.current = Math.max(0, depth.current - 1);
+        if (depth.current === 0) setDragging(false);
+      }}
       onDrop={(e) => {
         e.preventDefault();
+        depth.current = 0;
         setDragging(false);
-        const file = e.dataTransfer.files[0];
-        if (file) onFile(file);
+        onFiles(Array.from(e.dataTransfer.files));
       }}
       className={cn(
         'flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-16 text-center transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
@@ -98,7 +125,8 @@ function DropZone({ onFile }: { onFile: (file: File) => void }) {
       <div>
         <p className="font-medium">Drop a video here, or click to browse</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          MP4, MOV, MKV, WebM. Uploads are resumable and survive dropped connections.
+          MP4, MOV, MKV, WebM. One file at a time. A dropped connection is retried, and a failed
+          upload can be resumed.
         </p>
       </div>
       <input
@@ -108,8 +136,7 @@ function DropZone({ onFile }: { onFile: (file: File) => void }) {
         className="hidden"
         data-testid="file-input"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onFile(file);
+          onFiles(Array.from(e.target.files ?? []));
           e.target.value = '';
         }}
       />
@@ -141,7 +168,9 @@ function DetailsForm({
       <div className="flex items-center gap-3 rounded-lg border p-3">
         <FileVideo className="size-5 text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{file.name}</p>
+          <p className="truncate text-sm font-medium" title={file.name}>
+            {file.name}
+          </p>
           <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
@@ -198,15 +227,144 @@ function DetailsForm({
 }
 
 // ---------------------------------------------------------------------------
-// In flight
+// Uploads a previous page load left unfinished
 // ---------------------------------------------------------------------------
 
-function TransferPanel({ store }: { store: UploadStore }) {
-  const s = useUploadState(store);
+function UnfinishedRow({ upload, store }: { upload: UnfinishedUpload; store: UploadStore }) {
+  const queryClient = useQueryClient();
+  const input = useRef<HTMLInputElement>(null);
+  const [wrongFile, setWrongFile] = useState<string | null>(null);
+  const percent = upload.size > 0 ? Math.floor((upload.offset / upload.size) * 100) : 0;
+
+  const discard = useMutation({
+    mutationFn: async () => {
+      try {
+        // removes the partial file and the asset it created
+        await sluby.uploads.cancel(upload.uploadId);
+      } catch (err) {
+        // gone already, or finished after all: either way nothing is left to discard
+        if (errorStatus(err) !== 404 && errorStatus(err) !== 409) throw err;
+      }
+      forgetUnfinishedUpload(upload.storageKey);
+    },
+    onSuccess: () => {
+      toast.success(`Discarded the unfinished upload of ${upload.fileName}`);
+      void queryClient.invalidateQueries({ queryKey: ['uploads', 'unfinished'] });
+      void queryClient.invalidateQueries({ queryKey: ['assets'] });
+    },
+    onError: (err) => toast.error(`Could not discard: ${err.message}`),
+  });
+
+  const resumeWith = (file: File) => {
+    if (!isSameFile(upload, file)) {
+      setWrongFile(
+        `${file.name} is not the file this upload started from. Choose ${upload.fileName} (${formatBytes(upload.size)}).`,
+      );
+      return;
+    }
+    setWrongFile(null);
+    store.start(file, {
+      title: upload.title,
+      description: upload.description,
+      accessTier: upload.accessTier,
+    });
+    void queryClient.invalidateQueries({ queryKey: ['uploads', 'unfinished'] });
+  };
+
+  return (
+    <li className="flex flex-col gap-2 rounded-lg border p-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium" title={upload.title}>
+            {upload.title || upload.fileName}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {upload.fileName}, {formatBytes(upload.offset)} of {formatBytes(upload.size)} sent (
+            {percent}%)
+            {upload.createdAt && `, started ${formatRelativeTime(upload.createdAt)}`}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => input.current?.click()}>
+            <Play />
+            Resume
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={discard.isPending}
+            onClick={() => discard.mutate()}
+          >
+            <X />
+            Discard
+          </Button>
+        </div>
+      </div>
+      <input
+        ref={input}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        aria-label={`Choose ${upload.fileName} to resume its upload`}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) resumeWith(file);
+          e.target.value = '';
+        }}
+      />
+      {wrongFile && (
+        <p role="alert" className="text-sm text-destructive">
+          {wrongFile}
+        </p>
+      )}
+    </li>
+  );
+}
+
+function UnfinishedUploads({ store, known }: { store: UploadStore; known: Set<string> }) {
+  const unfinished = useQuery({
+    queryKey: ['uploads', 'unfinished'],
+    queryFn: findUnfinishedUploads,
+    staleTime: 0,
+  });
+  // uploads this page is already showing have their own controls
+  const rows = (unfinished.data ?? []).filter((u) => !known.has(u.uploadId));
+  if (unfinished.isError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not check for unfinished uploads: {unfinished.error.message}
+      </p>
+    );
+  }
+  if (rows.length === 0) return null;
+
+  return (
+    <section aria-labelledby="unfinished-title" className="flex flex-col gap-2">
+      <h2 id="unfinished-title" className="text-sm font-medium">
+        Unfinished uploads
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        These stopped before they finished, for example when the page was closed. Choose the same
+        file again to continue where it stopped, or discard it to remove the partial upload.
+      </p>
+      <ul className="flex flex-col gap-2">
+        {rows.map((u) => (
+          <UnfinishedRow key={u.storageKey} upload={u} store={store} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// One upload
+// ---------------------------------------------------------------------------
+
+function TransferPanel({ store, s }: { store: UploadStore; s: UploadState }) {
   const percent = s.bytesTotal > 0 ? (s.bytesUploaded / s.bytesTotal) * 100 : 0;
   const remaining = s.bytesTotal - s.bytesUploaded;
   const eta = s.speed > 0 ? (remaining / s.speed) * 1000 : null;
-  const transferring = s.phase === 'uploading' || s.phase === 'paused';
+  const controls = s.phase === 'uploading' || s.phase === 'paused';
 
   return (
     <div className="flex flex-col gap-4">
@@ -223,7 +381,12 @@ function TransferPanel({ store }: { store: UploadStore }) {
         chunkSize={CHUNK_SIZE}
         active={s.phase === 'uploading'}
       />
-      {transferring && (
+      {s.phase === 'finishing' && (
+        <p className="text-sm text-muted-foreground">
+          All bytes sent. Waiting for the server to confirm the upload.
+        </p>
+      )}
+      {controls && (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
           <span>
             {s.phase === 'paused'
@@ -235,17 +398,17 @@ function TransferPanel({ store }: { store: UploadStore }) {
           {s.phase === 'uploading' && eta !== null && <span>{formatDuration(eta)} left</span>}
           <div className="ml-auto flex gap-2">
             {s.phase === 'uploading' ? (
-              <Button variant="outline" size="sm" onClick={() => void store.pause()}>
+              <Button variant="outline" size="sm" onClick={() => void store.pause(s.key)}>
                 <Pause />
                 Pause
               </Button>
             ) : (
-              <Button variant="outline" size="sm" onClick={() => store.resume()}>
+              <Button variant="outline" size="sm" onClick={() => store.resume(s.key)}>
                 <Play />
                 Resume
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={() => void store.cancel()}>
+            <Button variant="outline" size="sm" onClick={() => void store.cancel(s.key)}>
               <X />
               Cancel
             </Button>
@@ -256,56 +419,88 @@ function TransferPanel({ store }: { store: UploadStore }) {
   );
 }
 
-function ProcessingLog({ store }: { store: UploadStore }) {
-  const { job } = useUploadState(store);
-  if (!job || job.logs.length === 0) return null;
+function CancelledPanel({ store, s }: { store: UploadStore; s: UploadState }) {
+  if (s.cleanup === 'pending') {
+    return <p className="text-sm text-muted-foreground">Cancelling and removing the upload...</p>;
+  }
+  if (s.cleanup === 'failed') {
+    return (
+      <Alert variant="destructive">
+        <AlertTriangle />
+        <AlertTitle>Upload stopped, but not removed</AlertTitle>
+        <AlertDescription>
+          <p>{s.error}</p>
+          <p>The partial file and its asset may still be on the server.</p>
+          {s.uploadId && !s.authFailed && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              onClick={() => void store.retryCleanup(s.key)}
+            >
+              <RotateCcw />
+              Try removing again
+            </Button>
+          )}
+        </AlertDescription>
+      </Alert>
+    );
+  }
   return (
-    <div className="max-h-48 overflow-y-auto rounded-lg bg-muted/50 p-3 font-mono text-xs">
-      {job.logs.map((line, i) => (
-        <div key={i} className="flex gap-3">
-          <span className="shrink-0 text-muted-foreground">
-            {new Date(line.timestamp).toLocaleTimeString()}
-          </span>
-          <span className="shrink-0 text-primary">{line.stage}</span>
-          <span className="min-w-0 break-words">{line.message}</span>
-        </div>
-      ))}
-    </div>
+    <p className="text-sm text-muted-foreground">
+      {s.cleanup === 'nothing'
+        ? 'Upload cancelled before it reached the server.'
+        : 'Upload cancelled. The partial file and its asset were removed.'}
+    </p>
   );
 }
 
 const PHASE_BADGE = {
   uploading: { label: 'Uploading', variant: 'warning' },
   paused: { label: 'Paused', variant: 'secondary' },
+  finishing: { label: 'Finishing', variant: 'warning' },
   processing: { label: 'Processing', variant: 'warning' },
   ready: { label: 'Ready', variant: 'success' },
   failed: { label: 'Failed', variant: 'destructive' },
   cancelled: { label: 'Cancelled', variant: 'secondary' },
 } as const;
 
-function ActiveUpload({ store }: { store: UploadStore }) {
-  const s = useUploadState(store);
-  if (s.phase === 'idle') return null;
+function failureTitle(s: UploadState): string {
+  if (s.assetGone) return 'Video deleted';
+  return s.failedDuring === 'upload' ? 'Upload failed' : 'Processing failed';
+}
+
+function UploadCard({ store, s }: { store: UploadStore; s: UploadState }) {
   const badge = PHASE_BADGE[s.phase];
+  const assetLink = s.assetId && !s.assetGone && s.cleanup !== 'done' ? s.assetId : null;
+  const dismissable = !isTransferring(s) && s.cleanup !== 'pending';
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 lg:grid-cols-3" data-testid="upload-card">
       <Card className="lg:col-span-2">
         <CardHeader>
-          <CardTitle className="truncate">{s.title}</CardTitle>
-          <CardDescription className="truncate">{s.fileName}</CardDescription>
+          <CardTitle className="truncate" title={s.title}>
+            {s.title}
+          </CardTitle>
+          <CardDescription className="truncate" title={s.fileName}>
+            {s.fileName}
+          </CardDescription>
           <CardAction>
             <Badge variant={badge.variant}>{badge.label}</Badge>
           </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
+          {/* the badge changes silently; announce the phase instead */}
+          <span className="sr-only" role="status" aria-live="polite">
+            {s.title}: {badge.label}
+          </span>
           {s.phase === 'cancelled' ? (
-            <p className="text-sm text-muted-foreground">
-              Upload cancelled. The partial file and its asset were removed.
-            </p>
+            <CancelledPanel store={store} s={s} />
           ) : (
-            <TransferPanel store={store} />
+            <TransferPanel store={store} s={s} />
           )}
+
+          {s.notice && <p className="text-sm text-muted-foreground">{s.notice}</p>}
 
           {s.phase === 'processing' && (
             <div className="flex flex-col gap-2">
@@ -324,44 +519,74 @@ function ActiveUpload({ store }: { store: UploadStore }) {
             </div>
           )}
 
-          {s.error && s.phase !== 'failed' && <p className="text-sm text-destructive">{s.error}</p>}
+          {s.error && s.phase !== 'failed' && s.phase !== 'cancelled' && (
+            <p className="text-sm text-destructive">{s.error}</p>
+          )}
 
           {s.phase === 'failed' && (
             <Alert variant="destructive">
               <AlertTriangle />
-              <AlertTitle>
-                {s.failedDuring === 'upload' ? 'Upload failed' : 'Processing failed'}
-              </AlertTitle>
+              <AlertTitle>{failureTitle(s)}</AlertTitle>
               <AlertDescription>{s.error}</AlertDescription>
             </Alert>
           )}
 
-          <ProcessingLog store={store} />
+          {s.job && s.job.logs.length > 0 && (
+            <div className="max-h-48 overflow-y-auto rounded-lg bg-muted/50 p-3 font-mono text-xs">
+              {s.job.logs.map((line, i) => (
+                <div key={i} className="flex gap-3">
+                  <span className="shrink-0 text-muted-foreground">
+                    {new Date(line.timestamp).toLocaleTimeString()}
+                  </span>
+                  <span className="shrink-0 text-primary">{line.stage}</span>
+                  <span className="min-w-0 break-words">{line.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-2">
-            {s.phase === 'ready' && s.assetId && (
+            {s.phase === 'ready' && assetLink && (
               <Button asChild>
-                <Link to={`/studio/assets/${s.assetId}`}>
+                <Link to={`/studio/assets/${assetLink}`}>
                   <Play />
                   Open asset
                 </Link>
               </Button>
             )}
-            {s.phase === 'failed' && s.failedDuring === 'processing' && (
-              <Button onClick={() => void store.retryProcessing()}>
-                <RotateCcw />
-                Retry processing
+            {s.phase === 'failed' && s.failedDuring === 'upload' && s.canResume && (
+              <Button
+                disabled={store.busy()}
+                title={store.busy() ? 'Another upload is in progress' : undefined}
+                onClick={() => store.resumeTransfer(s.key)}
+              >
+                <Play />
+                Resume upload
               </Button>
             )}
-            {s.phase === 'processing' && s.assetId && (
+            {s.phase === 'failed' &&
+              s.failedDuring === 'processing' &&
+              !s.assetGone &&
+              !s.authFailed && (
+                <Button onClick={() => void store.retryProcessing(s.key)}>
+                  <RotateCcw />
+                  Retry processing
+                </Button>
+              )}
+            {s.phase === 'processing' && s.pollStopped && !s.authFailed && (
+              <Button variant="outline" onClick={() => store.refresh(s.key)}>
+                <RefreshCw />
+                Check again
+              </Button>
+            )}
+            {(s.phase === 'processing' || s.phase === 'failed') && assetLink && (
               <Button variant="outline" asChild>
-                <Link to={`/studio/assets/${s.assetId}`}>View asset</Link>
+                <Link to={`/studio/assets/${assetLink}`}>View asset</Link>
               </Button>
             )}
-            {(s.phase === 'ready' || s.phase === 'failed' || s.phase === 'cancelled') && (
-              <Button variant="outline" onClick={() => store.reset()}>
-                <UploadIcon />
-                Upload another
+            {dismissable && (
+              <Button variant="ghost" onClick={() => store.dismiss(s.key)}>
+                Dismiss
               </Button>
             )}
           </div>
@@ -384,17 +609,27 @@ function ActiveUpload({ store }: { store: UploadStore }) {
 // ---------------------------------------------------------------------------
 
 export default function UploadPage({ store = defaultStore }: { store?: UploadStore }) {
-  const s = useUploadState(store);
+  const { uploads } = useUploads(store);
   const [file, setFile] = useState<File | null>(null);
   const [rejected, setRejected] = useState<string | null>(null);
+  const [ignored, setIgnored] = useState<string | null>(null);
+  const busy = uploads.some(isTransferring);
+  const known = new Set(uploads.map((u) => u.uploadId).filter((id): id is string => !!id));
 
-  const choose = (f: File) => {
-    if (!isVideo(f)) {
-      setRejected(`${f.name} is not a video file.`);
+  const choose = (files: File[]) => {
+    const [first, ...rest] = files;
+    setIgnored(
+      rest.length > 0
+        ? `Only one file uploads at a time, so ${plural(rest.length, 'other file')} ${rest.length === 1 ? 'was' : 'were'} not added.`
+        : null,
+    );
+    if (!first) return;
+    if (!isVideo(first)) {
+      setRejected(`${first.name} is not a video file.`);
       return;
     }
     setRejected(null);
-    setFile(f);
+    setFile(first);
   };
 
   return (
@@ -403,31 +638,41 @@ export default function UploadPage({ store = defaultStore }: { store?: UploadSto
         title="Upload"
         description="Videos are transcoded to adaptive HLS and stored on Sia"
       />
-      {s.phase !== 'idle' ? (
-        <ActiveUpload store={store} />
-      ) : (
-        <Card className="max-w-2xl">
-          <CardContent className="flex flex-col gap-4">
-            {file ? (
-              <DetailsForm
-                file={file}
-                onCancel={() => setFile(null)}
-                onStart={(opts) => {
-                  store.start(file, opts);
-                  setFile(null);
-                }}
-              />
-            ) : (
-              <DropZone onFile={choose} />
-            )}
-            {rejected && (
-              <p role="alert" className="text-sm text-destructive">
-                {rejected}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      <div className="flex flex-col gap-6">
+        {!busy && (
+          <Card className="max-w-2xl">
+            <CardContent className="flex flex-col gap-4">
+              {file ? (
+                <DetailsForm
+                  file={file}
+                  onCancel={() => setFile(null)}
+                  onStart={(opts) => {
+                    store.start(file, opts);
+                    setFile(null);
+                    setIgnored(null);
+                  }}
+                />
+              ) : (
+                <DropZone onFiles={choose} />
+              )}
+              {rejected && (
+                <p role="alert" className="text-sm text-destructive">
+                  {rejected}
+                </p>
+              )}
+              {ignored && (
+                <p role="status" className="text-sm text-muted-foreground">
+                  {ignored}
+                </p>
+              )}
+              {!file && <UnfinishedUploads store={store} known={known} />}
+            </CardContent>
+          </Card>
+        )}
+        {uploads.map((u) => (
+          <UploadCard key={u.key} store={store} s={u} />
+        ))}
+      </div>
     </PageContainer>
   );
 }
