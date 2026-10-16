@@ -1,0 +1,2 @@
+ALTER TABLE "api_keys" ADD COLUMN "replaced_by_id" uuid;--> statement-breakpoint
+ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_replaced_by_id_api_keys_id_fk" FOREIGN KEY ("replaced_by_id") REFERENCES "public"."api_keys"("id") ON DELETE set null ON UPDATE no action;

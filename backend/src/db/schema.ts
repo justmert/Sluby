@@ -9,6 +9,7 @@ import {
   jsonb,
   pgEnum,
   index,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -274,6 +275,11 @@ export const apiKeys = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
+    /** The key that replaced this one in a rotation. A rotated key cannot be
+     *  rotated again: rotate its replacement instead. */
+    replacedById: uuid('replaced_by_id').references((): AnyPgColumn => apiKeys.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [index('api_keys_creator_address_idx').on(t.creatorAddress)],
 );

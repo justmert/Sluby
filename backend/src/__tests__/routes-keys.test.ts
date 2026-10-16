@@ -92,6 +92,7 @@ describe('key routes', () => {
     it('issues a replacement and retires the old key after the grace period', async () => {
       vi.useFakeTimers({ now: new Date('2026-10-02T12:00:00Z') });
       vi.mocked(deps.rotateApiKey).mockImplementation(async (_id, _owner, _r, retireAt) => ({
+        status: 'rotated',
         replacement: record({ id: 'key-3' }),
         retiredAt: retireAt,
       }));
@@ -113,6 +114,7 @@ describe('key routes', () => {
 
     it('retires the old key immediately by default', async () => {
       vi.mocked(deps.rotateApiKey).mockImplementation(async (_id, _o, _r, retireAt) => ({
+        status: 'rotated',
         replacement: record({ id: 'key-3' }),
         retiredAt: retireAt,
       }));
@@ -130,9 +132,19 @@ describe('key routes', () => {
     });
 
     it('answers 404 for a key the caller does not own or that is retired', async () => {
-      vi.mocked(deps.rotateApiKey).mockResolvedValue(null);
+      vi.mocked(deps.rotateApiKey).mockResolvedValue({ status: 'not_found' });
       const res = await request(app()).post('/key-9/rotate').send({});
       expect(res.status).toBe(404);
+    });
+
+    it('answers 409 for a key that was already rotated', async () => {
+      vi.mocked(deps.rotateApiKey).mockResolvedValue({
+        status: 'already_rotated',
+        replacedById: 'key-3',
+      });
+      const res = await request(app()).post('/key-2/rotate').send({});
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('API key was already rotated; rotate its replacement instead');
     });
   });
 

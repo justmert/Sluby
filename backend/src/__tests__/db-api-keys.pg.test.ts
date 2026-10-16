@@ -151,7 +151,8 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       const retireAt = new Date(Date.now() + 3600_000);
 
       const result = await q.rotateApiKey(old.apiKey.id, 'alice', next.hash, retireAt);
-      expect(result!.replacement).toMatchObject({
+      if (result.status !== 'rotated') throw new Error(`not rotated: ${result.status}`);
+      expect(result.replacement).toMatchObject({
         name: 'ci',
         scopes: ['read', 'upload'],
         rateLimit: 42,
@@ -160,7 +161,9 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
         isActive: true,
         expiresAt: null,
       });
-      expect(result!.retiredAt.getTime()).toBe(retireAt.getTime());
+      expect(result.retiredAt.getTime()).toBe(retireAt.getTime());
+      const [row] = await tdb.sql`select replaced_by_id from api_keys where id = ${old.apiKey.id}`;
+      expect(row.replaced_by_id).toBe(result.replacement.id);
 
       // both work during the grace period, then only the new one
       expect(await q.validateApiKey(old.rawKey)).toBeDefined();
@@ -185,7 +188,8 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
         generateApiKey().hash,
         new Date(Date.now() + 7 * 86400_000),
       );
-      expect(result!.retiredAt.getTime()).toBe(soon.getTime());
+      if (result.status !== 'rotated') throw new Error(`not rotated: ${result.status}`);
+      expect(result.retiredAt.getTime()).toBe(soon.getTime());
       const [row] = await tdb.sql`select expires_at from api_keys where id = ${old.apiKey.id}`;
       expect((row.expires_at as Date).getTime()).toBe(soon.getTime());
     });
@@ -196,9 +200,15 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       const gone = await newKey({ expiresAt: new Date(Date.now() - 1) });
       const hash = () => generateApiKey().hash;
 
-      expect(await q.rotateApiKey(mine.apiKey.id, 'bob', hash(), new Date())).toBeNull();
-      expect(await q.rotateApiKey(off.apiKey.id, 'alice', hash(), new Date())).toBeNull();
-      expect(await q.rotateApiKey(gone.apiKey.id, 'alice', hash(), new Date())).toBeNull();
+      expect(await q.rotateApiKey(mine.apiKey.id, 'bob', hash(), new Date())).toEqual({
+        status: 'not_found',
+      });
+      expect(await q.rotateApiKey(off.apiKey.id, 'alice', hash(), new Date())).toEqual({
+        status: 'not_found',
+      });
+      expect(await q.rotateApiKey(gone.apiKey.id, 'alice', hash(), new Date())).toEqual({
+        status: 'not_found',
+      });
       const [{ n }] = await tdb.sql`select count(*)::int as n from api_keys`;
       expect(n).toBe(3);
     });
@@ -209,9 +219,48 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
         q.rotateApiKey(old.apiKey.id, 'alice', generateApiKey().hash, new Date()),
         q.rotateApiKey(old.apiKey.id, 'alice', generateApiKey().hash, new Date()),
       ]);
-      expect(results.filter(Boolean)).toHaveLength(1);
+      expect(results.filter((r) => r.status === 'rotated')).toHaveLength(1);
       const [{ n }] = await tdb.sql`select count(*)::int as n from api_keys`;
       expect(n).toBe(2);
+    });
+
+    it('lets only one of two concurrent rotations with a grace period mint a replacement', async () => {
+      const old = await newKey();
+      const later = new Date(Date.now() + 3600_000);
+      const results = await Promise.all([
+        q.rotateApiKey(old.apiKey.id, 'alice', generateApiKey().hash, later),
+        q.rotateApiKey(old.apiKey.id, 'alice', generateApiKey().hash, later),
+      ]);
+      const rotated = results.filter((r) => r.status === 'rotated');
+      expect(rotated).toHaveLength(1);
+      expect(results.filter((r) => r.status === 'already_rotated')).toEqual([
+        {
+          status: 'already_rotated',
+          replacedById: rotated[0].status === 'rotated' ? rotated[0].replacement.id : null,
+        },
+      ]);
+      const [{ n }] = await tdb.sql`select count(*)::int as n from api_keys`;
+      expect(n).toBe(2);
+    });
+
+    it('refuses to rotate a key again during its grace period', async () => {
+      const old = await newKey();
+      const later = new Date(Date.now() + 3600_000);
+      const first = await q.rotateApiKey(old.apiKey.id, 'alice', generateApiKey().hash, later);
+      expect(first.status).toBe('rotated');
+      const second = await q.rotateApiKey(old.apiKey.id, 'alice', generateApiKey().hash, later);
+      expect(second.status).toBe('already_rotated');
+      // the old key keeps working until its grace period ends, and the
+      // replacement can itself be rotated
+      expect(await q.validateApiKey(old.rawKey)).toBeDefined();
+      if (first.status !== 'rotated') throw new Error('not rotated');
+      const third = await q.rotateApiKey(
+        first.replacement.id,
+        'alice',
+        generateApiKey().hash,
+        later,
+      );
+      expect(third.status).toBe('rotated');
     });
 
     it('rolls back the replacement when the new hash collides', async () => {

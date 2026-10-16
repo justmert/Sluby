@@ -784,9 +784,10 @@ const apiRouterDeps: ApiRouterDeps = {
 
   rotateApiKey: async (id, owner, { keyHash }, retireAt) => {
     const result = await dbRotateApiKey(id, owner, keyHash, retireAt);
-    if (!result) return null;
+    if (result.status !== 'rotated') return result;
     const k = result.replacement;
     return {
+      status: 'rotated',
       replacement: {
         id: k.id,
         name: k.name,

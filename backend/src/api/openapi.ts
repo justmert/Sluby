@@ -909,6 +909,10 @@ export const openapiDocument = {
           '201': { description: 'The replacement key, with its secret shown once.' },
           '400': errorResponse,
           '404': errorResponse,
+          '409': {
+            ...errorResponse,
+            description: 'The key was already rotated; rotate its replacement instead.',
+          },
         },
       },
     },
