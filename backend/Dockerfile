@@ -59,6 +59,10 @@ WORKDIR /app/backend
 ENV NODE_ENV=production
 COPY --from=deps /app /app
 COPY --from=build --chown=node:node /app/backend/dist ./dist
+# /api/v1/docs serves scalar's prebuilt browser bundle. the package is a dev
+# dependency so the image does not carry the ~180 packages it pulls in, which
+# the bundle does not need at runtime
+COPY --from=build /app/node_modules/@scalar/api-reference /app/node_modules/@scalar/api-reference
 COPY --chown=node:node backend/drizzle ./drizzle
 COPY --chown=node:node backend/scripts ./scripts
 

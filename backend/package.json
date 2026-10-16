@@ -15,7 +15,8 @@
     "db:push": "drizzle-kit push",
     "db:seed-key": "tsx src/db/seed-api-key.ts",
     "provision-viewer": "node scripts/provision-viewer.mjs",
-    "connect-indexer": "node scripts/connect-indexer.mjs"
+    "connect-indexer": "node scripts/connect-indexer.mjs",
+    "openapi:export": "tsx scripts/export-openapi.ts"
   },
   "dependencies": {
     "@siafoundation/sia-storage": "^0.1.1",
@@ -36,6 +37,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@scalar/api-reference": "1.73.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
