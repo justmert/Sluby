@@ -58,7 +58,9 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
 
     it('refuses a second key with the same hash', async () => {
       await newKey({ rawKey: 'sluby_dup' });
-      await expect(newKey({ rawKey: 'sluby_dup' })).rejects.toMatchObject({ cause: { code: '23505' } });
+      await expect(newKey({ rawKey: 'sluby_dup' })).rejects.toMatchObject({
+        cause: { code: '23505' },
+      });
     });
   });
 
