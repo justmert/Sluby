@@ -50,6 +50,13 @@
       "when": 1791309553950,
       "tag": "0006_api_key_replaced_by",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791309702214,
+      "tag": "0007_studio_sessions",
+      "breakpoints": true
     }
   ]
 }

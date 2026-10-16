@@ -4,14 +4,29 @@ vi.mock('../config/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
 vi.mock('../config/env.js', () => ({
-  env: { AUTH_DISABLED: false, SESSION_SECRET: 's'.repeat(40), UPLOAD_DIR: '/tmp' },
+  env: {
+    AUTH_DISABLED: false,
+    SESSION_SECRET: 's'.repeat(40),
+    GITHUB_ALLOWED_USERS: '',
+    UPLOAD_DIR: '/tmp',
+  },
 }));
 
 import { authorizeTusRequest, type TusServerDeps } from '../upload/tus-server.js';
 import { PLATFORM_ADDRESS } from '../api/ownership.js';
+import { SESSION_COOKIE_NAME, signSession } from '../api/auth/session.js';
+import { env } from '../config/env.js';
+
+const LIVE_SID = '00000000-0000-4000-8000-000000000001';
 
 function deps(): TusServerDeps {
   return {
+    // only LIVE_SID is a live session row; anything else was revoked or expired
+    findActiveSession: vi.fn(async (sid: string) =>
+      sid === LIVE_SID
+        ? { id: sid, login: 'owner', expiresAt: new Date(Date.now() + 3600_000) }
+        : undefined,
+    ),
     validateApiKey: vi.fn(async (token: string) =>
       token === 'owner-key'
         ? { id: 'k1', creatorAddress: 'github:owner', scopes: ['upload'] }
@@ -48,10 +63,35 @@ const req = (method: string, token?: string) =>
     headers: token ? { authorization: `Bearer ${token}` } : {},
   });
 
+const sessionReq = (method: string, sid: string) =>
+  new Request('http://studio.test/api/v1/uploads/u1', {
+    method,
+    headers: {
+      cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(signSession(sid, 'owner', env.SESSION_SECRET))}`,
+    },
+  });
+
 describe('authorizeTusRequest', () => {
   let d: TusServerDeps;
   beforeEach(() => {
     d = deps();
+  });
+
+  it('lets a live studio session patch its own upload', async () => {
+    await expect(
+      authorizeTusRequest(sessionReq('PATCH', LIVE_SID), 'u1', d, getUpload),
+    ).resolves.toBeUndefined();
+  });
+
+  it('rejects a signed session cookie whose session was revoked', async () => {
+    await expect(
+      authorizeTusRequest(
+        sessionReq('PATCH', '00000000-0000-4000-8000-000000000002'),
+        'u1',
+        d,
+        getUpload,
+      ),
+    ).rejects.toMatchObject({ status_code: 401 });
   });
 
   it('rejects requests without credentials', async () => {

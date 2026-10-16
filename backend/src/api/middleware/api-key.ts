@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
-import { SESSION_COOKIE_NAME, parseCookieHeader, verifySession } from '../auth/session.js';
+import { resolveSession, type FindActiveSession } from '../auth/session.js';
 import { hashApiKey } from '../auth/api-key.js';
 
 export interface ApiKeyInfo {
@@ -22,6 +22,8 @@ export interface ApiKeyMiddlewareDeps {
     isActive: boolean;
     expiresAt: Date | null;
   } | null>;
+  /** The live Studio session row for a session id, see resolveSession. */
+  findActiveSession: FindActiveSession;
 }
 
 declare global {
@@ -59,26 +61,29 @@ export function createApiKeyMiddleware(deps: ApiKeyMiddlewareDeps) {
       return;
     }
 
-    // 1) Session cookie path (Studio UI).
-    const cookies = parseCookieHeader(req.headers.cookie);
-    const session = verifySession(cookies[SESSION_COOKIE_NAME], env.SESSION_SECRET);
-    if (session) {
-      req.apiKey = sessionIdentity(session.login);
-      next();
-      return;
-    }
-
-    // 2) API-key bearer path (SDK / programmatic callers).
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      res.status(401).json({ error: 'Missing or invalid Authorization header' });
-      return;
-    }
-
-    const token = authHeader.slice(7);
-    const hash = hashApiKey(token);
-
     try {
+      // 1) Session cookie path (Studio UI).
+      const session = await resolveSession(req.headers.cookie, {
+        secret: env.SESSION_SECRET,
+        allowedUsers: env.GITHUB_ALLOWED_USERS,
+        findActiveSession: deps.findActiveSession,
+      });
+      if (session) {
+        req.apiKey = sessionIdentity(session.login);
+        next();
+        return;
+      }
+
+      // 2) API-key bearer path (SDK / programmatic callers).
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Missing or invalid Authorization header' });
+        return;
+      }
+
+      const token = authHeader.slice(7);
+      const hash = hashApiKey(token);
+
       const apiKey = await deps.findApiKeyByHash(hash);
 
       if (!apiKey) {
@@ -106,7 +111,7 @@ export function createApiKeyMiddleware(deps: ApiKeyMiddlewareDeps) {
 
       next();
     } catch (err) {
-      logger.error({ err }, 'API key validation error');
+      logger.error({ err }, 'Authentication check failed');
       res.status(500).json({ error: 'Internal server error' });
     }
   };

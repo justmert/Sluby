@@ -11,7 +11,7 @@ import {
 import { createWebhookRoutes, type WebhookRouteDeps } from './routes/webhooks.js';
 import { createStatsRoutes, type StatsRouteDeps } from './routes/stats.js';
 import { createKeyRoutes, type KeyRouteDeps } from './routes/keys.js';
-import { createAuthRoutes } from './routes/auth.js';
+import { createAuthRoutes, type AuthRouteDeps } from './routes/auth.js';
 import {
   createApiKeyMiddleware,
   requireScope,
@@ -34,6 +34,7 @@ export interface ApiRouterDeps
     WebhookRouteDeps,
     StatsRouteDeps,
     KeyRouteDeps,
+    AuthRouteDeps,
     ApiKeyMiddlewareDeps {}
 
 export function createApiRouter(deps: ApiRouterDeps): Router {
@@ -43,7 +44,7 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   // which the browser obtains a session in the first place, and /auth/me
   // must be callable unauthenticated so the Studio can decide whether to
   // show the sign-in screen.
-  router.use('/auth', createAuthRoutes());
+  router.use('/auth', createAuthRoutes(deps));
 
   // The API spec and its docs page are public (no key required) so tools
   // and humans can discover the contract before authenticating.

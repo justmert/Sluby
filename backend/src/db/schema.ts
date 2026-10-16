@@ -285,6 +285,24 @@ export const apiKeys = pgTable(
 );
 
 /**
+ * studio_sessions holds one row per Studio sign-in. The session cookie only
+ * carries the row id (signed), so a session can be ended server-side: on
+ * sign-out, from the sessions list, or by taking the login off the allowlist.
+ */
+export const studioSessions = pgTable(
+  'studio_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    login: text('login').notNull(),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [index('studio_sessions_login_idx').on(t.login)],
+);
+
+/**
  * webhook_endpoints stores registered webhook URLs for a given API key.
  * Each endpoint receives POST requests for subscribed event types.
  */
@@ -436,3 +454,5 @@ export type NewPlaybackId = typeof playbackIds.$inferInsert;
 
 export type ReconciliationRun = typeof reconciliationRuns.$inferSelect;
 export type NewReconciliationRun = typeof reconciliationRuns.$inferInsert;
+
+export type StudioSession = typeof studioSessions.$inferSelect;

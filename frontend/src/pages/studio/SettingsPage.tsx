@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { AlertTriangle, KeyRound, LogOut, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { useSession } from '@/components/AuthGate';
@@ -80,6 +80,7 @@ import {
   type KeyScope,
 } from '@/hooks/useApiKeys';
 import { useSystemStatus } from '@/hooks/useStats';
+import { useRevokeAllSessions, useRevokeSession, useSessions } from '@/hooks/useSessions';
 import { formatDate, formatRelativeTime } from '@/lib/formatters';
 
 const SCOPES: { value: KeyScope; label: string; detail: string }[] = [
@@ -453,6 +454,132 @@ function ApiKeysCard() {
   );
 }
 
+function SessionsCard() {
+  const session = useSession();
+  const sessions = useSessions(!session.authDisabled);
+  const revoke = useRevokeSession();
+  const revokeAll = useRevokeAllSessions();
+  const [confirmAll, setConfirmAll] = useState(false);
+  const rows = sessions.data?.data ?? [];
+
+  const end = async (id: string, current: boolean) => {
+    try {
+      await revoke.mutateAsync(id);
+      if (current) {
+        // this browser's session is gone; let the auth gate show sign-in
+        window.location.href = '/';
+        return;
+      }
+      toast.success('Session ended');
+    } catch (err) {
+      toast.error(`Could not end the session: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const endAll = async () => {
+    setConfirmAll(false);
+    try {
+      await revokeAll.mutateAsync();
+      window.location.href = '/';
+    } catch (err) {
+      toast.error(`Could not sign out: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Sessions</CardTitle>
+        <CardDescription>Browsers signed in to the Studio as {session.login}.</CardDescription>
+        {!session.authDisabled && rows.length > 0 && (
+          <CardAction>
+            <Button variant="outline" size="sm" onClick={() => setConfirmAll(true)}>
+              <LogOut />
+              Sign out everywhere
+            </Button>
+          </CardAction>
+        )}
+      </CardHeader>
+      <CardContent className="px-0">
+        {session.authDisabled ? (
+          <p className="px-4 text-sm text-muted-foreground">
+            Sign-in is disabled on this server, so there are no sessions to manage.
+          </p>
+        ) : sessions.isLoading ? (
+          <Skeleton className="mx-4 h-16" />
+        ) : sessions.isError ? (
+          <Alert variant="destructive" className="mx-4 w-auto">
+            <AlertTriangle />
+            <AlertTitle>Could not load sessions</AlertTitle>
+            <AlertDescription>{sessions.error.message}</AlertDescription>
+          </Alert>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-4">Browser</TableHead>
+                <TableHead className="hidden md:table-cell">Signed in</TableHead>
+                <TableHead className="hidden sm:table-cell">Expires</TableHead>
+                <TableHead className="pr-4 text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((s) => (
+                <TableRow key={s.id}>
+                  <TableCell className="max-w-[280px] pl-4">
+                    <div className="flex items-center gap-2">
+                      <Monitor className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate text-xs" title={s.user_agent ?? undefined}>
+                        {s.user_agent ?? 'Unknown browser'}
+                      </span>
+                      {s.current && <Badge variant="secondary">This browser</Badge>}
+                    </div>
+                  </TableCell>
+                  <TableCell className="hidden text-muted-foreground md:table-cell">
+                    <span title={formatDate(s.created_at)}>{formatRelativeTime(s.created_at)}</span>
+                  </TableCell>
+                  <TableCell className="hidden text-muted-foreground sm:table-cell">
+                    {timeLeft(s.expires_at)}
+                  </TableCell>
+                  <TableCell className="pr-4 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive"
+                      disabled={revoke.isPending}
+                      onClick={() => void end(s.id, s.current)}
+                    >
+                      <LogOut />
+                      {s.current ? 'Sign out' : 'End'}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+      <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign out everywhere?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Every browser signed in as {session.login} is signed out right away, this one
+              included. API keys keep working.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void endAll()}>
+              Sign out everywhere
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
 function AppearanceCard() {
   const { theme, resolvedTheme, setTheme } = useTheme();
   return (
@@ -537,10 +664,11 @@ function AccountCard() {
 export default function SettingsPage() {
   return (
     <PageContainer>
-      <PageHeader title="Settings" description="API keys, appearance and account" />
+      <PageHeader title="Settings" description="API keys, sessions, appearance and account" />
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="flex flex-col gap-4 lg:col-span-2">
           <ApiKeysCard />
+          <SessionsCard />
         </div>
         <div className="flex flex-col gap-4">
           <AppearanceCard />

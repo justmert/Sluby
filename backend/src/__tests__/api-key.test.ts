@@ -57,6 +57,7 @@ describe('api-key middleware', () => {
   describe('createApiKeyMiddleware', () => {
     it('should return 401 when Authorization header is missing', async () => {
       const deps: ApiKeyMiddlewareDeps = {
+        findActiveSession: vi.fn(async () => undefined),
         findApiKeyByHash: vi.fn(),
       };
       const middleware = createApiKeyMiddleware(deps);
@@ -74,6 +75,7 @@ describe('api-key middleware', () => {
 
     it('should return 401 when Authorization header does not start with Bearer', async () => {
       const deps: ApiKeyMiddlewareDeps = {
+        findActiveSession: vi.fn(async () => undefined),
         findApiKeyByHash: vi.fn(),
       };
       const middleware = createApiKeyMiddleware(deps);
@@ -90,6 +92,7 @@ describe('api-key middleware', () => {
 
     it('should return 401 when API key is not found', async () => {
       const deps: ApiKeyMiddlewareDeps = {
+        findActiveSession: vi.fn(async () => undefined),
         findApiKeyByHash: vi.fn().mockResolvedValue(null),
       };
       const middleware = createApiKeyMiddleware(deps);
@@ -108,6 +111,7 @@ describe('api-key middleware', () => {
 
     it('should return 401 when API key is deactivated', async () => {
       const deps: ApiKeyMiddlewareDeps = {
+        findActiveSession: vi.fn(async () => undefined),
         findApiKeyByHash: vi.fn().mockResolvedValue({ ...activeApiKey, isActive: false }),
       };
       const middleware = createApiKeyMiddleware(deps);
@@ -126,6 +130,7 @@ describe('api-key middleware', () => {
     it('should return 401 when API key has expired', async () => {
       const pastDate = new Date(Date.now() - 60_000);
       const deps: ApiKeyMiddlewareDeps = {
+        findActiveSession: vi.fn(async () => undefined),
         findApiKeyByHash: vi.fn().mockResolvedValue({ ...activeApiKey, expiresAt: pastDate }),
       };
       const middleware = createApiKeyMiddleware(deps);
@@ -143,6 +148,7 @@ describe('api-key middleware', () => {
 
     it('should allow a valid, active, non-expired API key', async () => {
       const deps: ApiKeyMiddlewareDeps = {
+        findActiveSession: vi.fn(async () => undefined),
         findApiKeyByHash: vi.fn().mockResolvedValue(activeApiKey),
       };
       const middleware = createApiKeyMiddleware(deps);
@@ -166,6 +172,7 @@ describe('api-key middleware', () => {
     it('should allow API key with expiresAt in the future', async () => {
       const futureDate = new Date(Date.now() + 86400_000);
       const deps: ApiKeyMiddlewareDeps = {
+        findActiveSession: vi.fn(async () => undefined),
         findApiKeyByHash: vi.fn().mockResolvedValue({ ...activeApiKey, expiresAt: futureDate }),
       };
       const middleware = createApiKeyMiddleware(deps);
@@ -181,6 +188,7 @@ describe('api-key middleware', () => {
 
     it('should return 500 when findApiKeyByHash throws', async () => {
       const deps: ApiKeyMiddlewareDeps = {
+        findActiveSession: vi.fn(async () => undefined),
         findApiKeyByHash: vi.fn().mockRejectedValue(new Error('DB connection failed')),
       };
       const middleware = createApiKeyMiddleware(deps);
@@ -198,6 +206,7 @@ describe('api-key middleware', () => {
 
     it('should hash the token with SHA-256 before looking it up', async () => {
       const deps: ApiKeyMiddlewareDeps = {
+        findActiveSession: vi.fn(async () => undefined),
         findApiKeyByHash: vi.fn().mockResolvedValue(null),
       };
       const middleware = createApiKeyMiddleware(deps);

@@ -527,9 +527,47 @@ export const openapiDocument = {
     '/api/v1/auth/logout': {
       post: {
         tags: ['Auth'],
-        summary: 'Clear the session cookie.',
+        summary: 'End the current session and clear its cookie.',
         security: [{ cookieAuth: [] }],
         responses: { '200': { description: 'Logged out.' } },
+      },
+    },
+    '/api/v1/auth/sessions': {
+      get: {
+        tags: ['Auth'],
+        summary: "The signed-in user's live Studio sessions, newest first.",
+        description:
+          'Studio sessions only: an API key cannot list sessions. Each entry has id, user_agent, created_at, expires_at and current (true for the session making the request).',
+        security: [{ cookieAuth: [] }],
+        responses: {
+          '200': { description: 'The sessions.' },
+          '401': errorResponse,
+          '409': { ...errorResponse, description: 'Sign-in is disabled on this server.' },
+        },
+      },
+      delete: {
+        tags: ['Auth'],
+        summary: 'Sign out everywhere: end every session of the signed-in user.',
+        security: [{ cookieAuth: [] }],
+        responses: {
+          '200': { description: 'Sessions ended; `revoked` is how many.' },
+          '401': errorResponse,
+          '409': { ...errorResponse, description: 'Sign-in is disabled on this server.' },
+        },
+      },
+    },
+    '/api/v1/auth/sessions/{id}': {
+      delete: {
+        tags: ['Auth'],
+        summary: 'End one session of the signed-in user.',
+        security: [{ cookieAuth: [] }],
+        parameters: [idParam('id', 'Session id, from GET /api/v1/auth/sessions.')],
+        responses: {
+          '200': { description: 'Session ended.' },
+          '401': errorResponse,
+          '404': errorResponse,
+          '409': { ...errorResponse, description: 'Sign-in is disabled on this server.' },
+        },
       },
     },
 
