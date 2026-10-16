@@ -84,7 +84,7 @@ import {
   revokeAllStudioSessions,
   revokeStudioSession,
 } from './db/queries/sessions.js';
-import { getLatestReconciliationRun } from './db/queries/reconciliation.js';
+import { getLatestReconciliationRun, filterObjectIdsOwnedBy } from './db/queries/reconciliation.js';
 import { getAssetStats } from './db/queries/stats.js';
 import { createCachedSystemStatus } from './system/status.js';
 import {
@@ -700,9 +700,9 @@ const apiRouterDeps: ApiRouterDeps = {
     };
   },
 
-  triggerRun: async () => {
-    await triggerReconciliation();
-  },
+  filterReconciliationIdsOwnedBy: filterObjectIdsOwnedBy,
+
+  triggerRun: () => triggerReconciliation(),
 
   generateSignedUrl: async (manifestObjectId, expiresIn) => {
     // A real capability URL: HMAC over (objectId, expiry) that the delivery

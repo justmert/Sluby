@@ -90,12 +90,44 @@ flowchart TB
 
 How a run works:
 
-- **When.** A repeatable job every `RECONCILE_INTERVAL_MS` (one hour by default, off with `RECONCILE_ENABLED=false`), and on demand with `POST /api/v1/reconciliation/run` (scope `manage`), which answers 202.
+- **When.** A repeatable job every `RECONCILE_INTERVAL_MS` (one hour by default, off with `RECONCILE_ENABLED=false`), and on demand with `POST /api/v1/reconciliation/run` (scope `manage`). Only one run is ever pending, see [one run at a time](#one-run-at-a-time).
 - **The database side** is every object id in `artifacts` plus the ids stored on `video_assets`, for every asset of every owner, including soft-deleted ones whose objects have not been unpinned yet.
 - **The indexer side.** The SDK has no call that lists all objects, so the worker replays the indexer's object event feed (`objectEvents`) page by page (`RECONCILE_PAGE_SIZE`, 500 by default), keeps the latest event per object id, and treats every id whose latest event is not a deletion as pinned. It stops on a short page, or if the cursor stops advancing.
 - **The result.** Ids in both are in sync. Ids only the indexer has are orphans: storage the account pays for that no asset references. Ids only the database has are missing: an object the database expects but the indexer does not report, which is the worrying case. The run is stored in `reconciliation_runs` with counts and the full id lists, with status `ok` when there is no drift and `drift` otherwise.
 - **Failures.** If either side cannot be read, a run with status `failed` and the error message is stored, so an outage shows up as a failed run rather than as a stale report.
 
 `GET /api/v1/reconciliation` (scope `manage`) returns the latest run, and the Studio dashboard shows the status and time of the last run.
+
+### What each caller sees
+
+A run covers every tenant's objects, but the object ids in it are not shared between tenants. The counts, the status, the timestamps and a failed run's error message cover the whole deployment and are returned to every caller with `manage`, like the host counts in the system status. The id lists depend on who asks:
+
+- **A tenant** (any identity whose owner address is not the platform address, which includes every Studio session) gets `scope: "account"`. `missing_ids` holds only the missing ids that belong to its own assets, found through the same sources the run reads (`artifacts` plus the ids on `video_assets`, soft-deleted assets included, matched on `creator_address`), and `account_missing_count` is their number. `orphaned_ids` is left out: an orphan is referenced by no asset, so it belongs to no tenant, and the tenant only gets `orphan_count`.
+- **The platform identity** (an API key with the platform address, see [tenancy](./auth-and-tenancy#tenancy)) gets `scope: "deployment"` with the full `missing_ids` and `orphaned_ids`.
+
+The ownership of a missing id is looked up when the report is read, not when the run was made, so an asset deleted since the run no longer contributes its ids to anyone's list.
+
+```json
+{
+  "id": "6f1c...",
+  "status": "drift",
+  "db_object_count": 1200,
+  "indexer_object_count": 1199,
+  "in_sync_count": 1196,
+  "orphan_count": 3,
+  "missing_count": 4,
+  "scope": "account",
+  "account_missing_count": 1,
+  "missing_ids": ["8a2f..."]
+}
+```
+
+### One run at a time
+
+Every run, manual or scheduled, is added to the `reconcile` queue under one BullMQ deduplication id (`reconcile-run`), so at most one run is waiting or active at any moment. The deduplication key is deleted when its run completes or fails, so the next trigger after that queues a new run. A fixed job id would not work here, because the queue keeps finished jobs (the last 100 completed and 100 failed) and BullMQ ignores an add whose job id it still holds; every run therefore gets an id of its own.
+
+`POST /api/v1/reconciliation/run` answers 202 with `{ "enqueued": true, "already_pending": false }` when it queued a run, and with `{ "enqueued": false, "already_pending": true }` when a run was already waiting or running, in which case nothing is added.
+
+The repeatable schedule does not run a pass itself. Each tick enqueues a run through the same deduplicated add, so a tick that lands while a manual run is pending is dropped, and a manual trigger while a scheduled run is pending is answered with `already_pending`. The worker has two slots so that a tick is handled while a run is active rather than waiting behind it and queuing a second run as soon as the first finishes; the deduplication keeps two runs from overlapping.
 
 Some drift is expected and temporary. Objects of an asset that is between its Sia upload and its finalize step are pinned but not yet in the database, so a run at that moment counts them as orphans. Objects from a processing run whose finalize never succeeded stay orphaned until someone removes them.

@@ -35,9 +35,15 @@ Each key carries one or more scopes, and every endpoint requires exactly one:
 | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `upload` | Uploading videos over tus at `/api/v1/uploads` and cancelling an upload.                                                                     |
 | `read`   | Listing and reading assets, renditions, processing state and Sia storage details, playback URLs, upload status, webhooks, stats and metrics. |
-| `manage` | Editing, deleting and retrying assets, playback IDs, API keys, creating and deleting webhooks, and reconciliation.                           |
+| `manage` | Editing, deleting and retrying assets, playback IDs, API keys, creating and deleting webhooks, and reconciliation (see below).               |
 
 Scopes are checked independently: `manage` does not include `read`, so a key that should do both needs both. A key without the required scope gets `403` with `Requires '<scope>' scope`. Each operation in the reference shows its scope as `x-required-scope`.
+
+### Accounts
+
+Every resource belongs to the account that created it, and a request only reaches its own account's assets, keys, webhooks and playback IDs. An ID from another account answers `404`, the same as one that does not exist. The exception is a key with the platform address (`0x` followed by 64 zeros), which acts across all accounts (see [tenancy](/architecture/auth-and-tenancy#tenancy)).
+
+The reconciliation report (`GET /api/v1/reconciliation`) is the one place that covers every account, since a run compares the whole database with the shared indexer. Its counts and status are the same for every caller, but its object IDs are scoped: an ordinary account gets `"scope": "account"`, with `missing_ids` and `account_missing_count` limited to its own assets and no `orphaned_ids`, because an orphaned object belongs to no asset. Only a key with the platform address gets `"scope": "deployment"` and the full lists. `POST /api/v1/reconciliation/run` queues a run only when none is already waiting or running, and says which happened in `enqueued` and `already_pending`. See [deletion and reconciliation](/architecture/deletion-and-reconciliation#what-each-caller-sees) for the details.
 
 ## Pagination
 

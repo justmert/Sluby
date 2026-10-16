@@ -186,6 +186,84 @@ describe.skipIf(!hasTestDatabase)(
           'thumb-a',
         ]);
       });
+
+      describe('filterObjectIdsOwnedBy', () => {
+        it('keeps the ids of the owner’s assets from every source, in the given order', async () => {
+          const a = await asset({
+            manifestObjectId: 'master-a',
+            thumbnailObjectIds: ['thumb-a'],
+            siaObjectIds: ['legacy-a'],
+          });
+          await storage.persistStorageRecords(a.id, {
+            renditions: [],
+            artifacts: [
+              { role: 'thumbnail', objectId: 'artifact-a', byteSize: 1, renditionName: null },
+            ],
+          });
+          // soft-deleted assets are still in the inventory until unpinned
+          const gone = await asset({ manifestObjectId: 'master-deleted' });
+          await assets.softDeleteVideoAsset(gone.id);
+          const b = await asset({
+            creatorAddress: 'bob',
+            manifestObjectId: 'master-b',
+            thumbnailObjectIds: ['thumb-b'],
+            siaObjectIds: ['legacy-b'],
+          });
+          await storage.persistStorageRecords(b.id, {
+            renditions: [],
+            artifacts: [
+              { role: 'thumbnail', objectId: 'artifact-b', byteSize: 1, renditionName: null },
+            ],
+          });
+
+          const missing = [
+            'legacy-b',
+            'artifact-a',
+            'nobody',
+            'thumb-a',
+            'master-b',
+            'master-deleted',
+            'legacy-a',
+            'thumb-b',
+            'master-a',
+            'artifact-b',
+          ];
+          expect(await recon.filterObjectIdsOwnedBy(missing, 'alice')).toEqual([
+            'artifact-a',
+            'thumb-a',
+            'master-deleted',
+            'legacy-a',
+            'master-a',
+          ]);
+          expect(await recon.filterObjectIdsOwnedBy(missing, 'bob')).toEqual([
+            'legacy-b',
+            'master-b',
+            'thumb-b',
+            'artifact-b',
+          ]);
+          expect(await recon.filterObjectIdsOwnedBy(missing, 'carol')).toEqual([]);
+          // an empty address owns nothing, it is not a wildcard
+          expect(await recon.filterObjectIdsOwnedBy(missing, '')).toEqual([]);
+        });
+
+        it('returns nothing for an empty list without querying', async () => {
+          await asset({ manifestObjectId: 'master-a' });
+          expect(await recon.filterObjectIdsOwnedBy([], 'alice')).toEqual([]);
+        });
+
+        it('skips a sia_object_ids value that is not an array', async () => {
+          const a = await asset({ manifestObjectId: 'master-a' });
+          await tdb.sql`update video_assets set sia_object_ids = 'null'::jsonb where id = ${a.id}`;
+          expect(await recon.filterObjectIdsOwnedBy(['master-a'], 'alice')).toEqual(['master-a']);
+        });
+
+        it('handles a list longer than the bind parameter limit', async () => {
+          await asset({ manifestObjectId: 'needle' });
+          const ids = Array.from({ length: 70_000 }, (_, i) => `id-${i}`);
+          ids[65_000] = 'needle';
+          expect(await recon.filterObjectIdsOwnedBy(ids, 'alice')).toEqual(['needle']);
+        });
+      });
     });
 
     describe('getAssetStats', () => {
