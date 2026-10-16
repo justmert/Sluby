@@ -75,3 +75,30 @@ describe('env from docker compose', () => {
     expect(withoutEmpty({ A: 'x', B: '', C: undefined })).toEqual({ A: 'x' });
   });
 });
+
+describe('TRANSCODE_MAX_RENDITION', () => {
+  const parse = (value?: string) =>
+    envSchema.safeParse(withoutEmpty({ TRANSCODE_MAX_RENDITION: value }));
+
+  it('defaults to 1080p, also when compose passes it empty', () => {
+    for (const value of [undefined, '']) {
+      const parsed = parse(value);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) expect(parsed.data.TRANSCODE_MAX_RENDITION).toBe('1080p');
+    }
+  });
+
+  it('accepts every rung name', () => {
+    for (const value of ['2160p', '1440p', '1080p', '720p', '540p', '360p']) {
+      const parsed = parse(value);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) expect(parsed.data.TRANSCODE_MAX_RENDITION).toBe(value);
+    }
+  });
+
+  it('rejects anything else', () => {
+    for (const value of ['4k', '2160', '480p', '2160P']) {
+      expect(parse(value).success).toBe(false);
+    }
+  });
+});

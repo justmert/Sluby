@@ -17,7 +17,7 @@ features:
   - title: Resumable uploads
     details: Uploads go over tus, so a dropped connection resumes where it stopped instead of starting again.
   - title: Adaptive HLS
-    details: FFmpeg transcodes each upload into a 1080p to 360p ladder of fMP4 renditions with byte-range playlists.
+    details: FFmpeg transcodes each upload into a 1080p to 360p ladder of fMP4 renditions with byte-range playlists, up to 2160p when enabled.
   - title: Stored on Sia
     details: Every rendition, playlist and thumbnail is an encrypted, erasure-coded object on Sia, pinned through an indexer.
   - title: Two delivery paths

@@ -69,6 +69,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-}
       MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-}
       CACHE_MAX_SIZE_MB: ${CACHE_MAX_SIZE_MB:-}
+      TRANSCODE_MAX_RENDITION: ${TRANSCODE_MAX_RENDITION:-}
       # sia indexer. defaults to the hosted mainnet indexer; see the
       # production guide for a self-hosted indexd on the zen testnet.
       SIA_INDEXER_URL: ${SIA_INDEXER_URL:-https://sia.storage}

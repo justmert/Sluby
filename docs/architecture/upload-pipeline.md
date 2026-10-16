@@ -102,14 +102,24 @@ Progress is written to `processing_jobs.progress_percent` as the job moves: the 
 
 `backend/src/transcode/ffmpeg-runner.ts` probes the source with `ffprobe`, then runs a single FFmpeg command that scales the video into every rung of the ladder at once:
 
-| Rung  | Box       | Video bitrate (max) | Audio |
-| ----- | --------- | ------------------- | ----- |
-| 1080p | 1920x1080 | 6000k (6420k)       | 192k  |
-| 720p  | 1280x720  | 3500k (3745k)       | 128k  |
-| 540p  | 960x540   | 1800k (1926k)       | 128k  |
-| 360p  | 640x360   | 800k (856k)         | 96k   |
+| Rung  | Landscape size | Video bitrate (max) | Audio | Made                                 |
+| ----- | -------------- | ------------------- | ----- | ------------------------------------ |
+| 2160p | 3840x2160      | 15000k (16050k)     | 192k  | with `TRANSCODE_MAX_RENDITION=2160p` |
+| 1440p | 2560x1440      | 9000k (9630k)       | 192k  | with `1440p` or `2160p`              |
+| 1080p | 1920x1080      | 6000k (6420k)       | 192k  | by default                           |
+| 720p  | 1280x720       | 3500k (3745k)       | 128k  | by default                           |
+| 540p  | 960x540        | 1800k (1926k)       | 128k  | by default                           |
+| 360p  | 640x360        | 800k (856k)         | 96k   | always                               |
 
-Rungs taller than the source are dropped, so a 720p source produces 720p, 540p and 360p; the 360p rung is always kept. Each rung is scaled to fit its box and padded, encoded with libx264 (`ultrafast` preset, a keyframe forced every 2 seconds, no scene-cut keyframes) and, when the source has audio, AAC stereo at 48 kHz.
+`TRANSCODE_MAX_RENDITION` sets the tallest rung (see [Configuration](../guide/configuration)): the default `1080p` makes the four rungs from 1080p down, `1440p` or `2160p` add the taller ones, and a lower value such as `720p` drops rungs. The 1440p and 2160p bitrates continue the 720p to 1080p step, and every rung has the same 7% maxrate headroom and 1.5x buffer.
+
+A rung's name is its short side. Rungs whose short side is larger than the source's are dropped, so a 720p source produces 720p, 540p and 360p, and the 360p rung is always kept. Each rung keeps the source's aspect ratio with square pixels, so a 1080x1920 phone video gets a 1080x1920 "1080p" rung rather than a pillarboxed 1920x1080 frame. Rotation metadata is applied before scaling, and the asset's `resolution` is the size as shown (a portrait clip recorded as rotated 1920x1080 reads `1080x1920`).
+
+Before scaling, frames flagged as interlaced are deinterlaced (`bwdif`), and the source is scaled once to the tallest rung's size. HDR sources (PQ or HLG transfer, typically 10-bit HEVC from phones) are then tone-mapped to SDR BT.709: the ladder is 8-bit H.264, which browsers and players treat as SDR, so the HDR signal passed through unchanged would look grey and washed out. The tone mapping uses `zscale` (linear light with 1.0 at 203 nits, the BT.2408 HDR reference white) and the `mobius` curve, which keeps darks and mid-tones and rolls highlights off; it needs an FFmpeg built with zimg, which the backend image's Debian FFmpeg is. Every rung is converted to 8-bit 4:2:0 and encoded with libx264 (High profile, `veryfast` preset, a keyframe forced every 2 seconds, no scene-cut keyframes), so 10-bit and 4:2:2 sources work as well. When the source has audio, one track is kept (the default track, else the first) and encoded as AAC stereo at 48 kHz. If the audio runs on more than half a second past the last video frame, the output ends where the video ends, and the asset's duration is the video stream's.
+
+FFmpeg and ffprobe only read local files through a fixed list of container demuxers (MP4 and MOV, Matroska and WebM, AVI, MPEG-TS and PS, ASF, FLV, Ogg, MXF, DV, RealMedia, NUT, IVF and raw H.264, HEVC and MPEG video), so an upload that is really a playlist or an `ffconcat` file cannot make them open other files. They print errors only, and a failure is reported with FFmpeg's first error lines, for example `FFmpeg exited with code 234: [libx264] ...`. A transcode is killed if its output time stops moving for 10 minutes, or after 30 minutes plus 60 times the video's length; ffprobe and each thumbnail get 60 seconds. FFmpeg gets the CPU cores divided by the two transcodes the worker runs at once as its encoder threads.
+
+A transcode costs CPU in proportion to the pixels decoded and encoded. Measured on 10 seconds of video with two cores (Docker on an Apple Silicon Mac, FFmpeg 7.1.5): an SDR 4K H.264 source into the 2160p ladder took 92 seconds, a 10-bit HLG 4K HEVC source into the 2160p ladder 149 seconds, and the same HLG source into the default ladder 62 seconds, most of it decoding the 4K HEVC.
 
 The output is HLS with fMP4 segments of 6 seconds (`-hls_segment_type fmp4 -hls_time 6 -hls_playlist_type vod`) and the `single_file` flag. With `single_file`, each rung is one `data.m4s` file holding the init segment followed by every media segment, and its playlist addresses segments by byte range instead of by file name. For a 15 second 720p test clip the transcoder writes `master.m3u8`, three thumbnails, and for each rung a `playlist.m3u8` and a `data.m4s`. The 720p playlist looks like this:
 
@@ -120,20 +130,20 @@ The output is HLS with fMP4 segments of 6 seconds (`-hls_segment_type fmp4 -hls_
 #EXT-X-MEDIA-SEQUENCE:0
 #EXT-X-PLAYLIST-TYPE:VOD
 #EXT-X-INDEPENDENT-SEGMENTS
-#EXT-X-MAP:URI="data.m4s",BYTERANGE="1354@0"
+#EXT-X-MAP:URI="data.m4s",BYTERANGE="1373@0"
 #EXTINF:6.000000,
-#EXT-X-BYTERANGE:2878578@1354
+#EXT-X-BYTERANGE:2726877@1373
 data.m4s
 #EXTINF:6.000000,
-#EXT-X-BYTERANGE:2716869@2879932
+#EXT-X-BYTERANGE:2731149@2728250
 data.m4s
 #EXTINF:3.000000,
-#EXT-X-BYTERANGE:1347948@5596801
+#EXT-X-BYTERANGE:1363688@5459399
 data.m4s
 #EXT-X-ENDLIST
 ```
 
-The thumbnails (`backend/src/transcode/thumbnail-extractor.ts`) are JPEG frames at 25, 50 and 75 percent of the duration, scaled and padded to 640x360. They stay on disk and go up to Sia with the media.
+The thumbnails (`backend/src/transcode/thumbnail-extractor.ts`) are JPEG frames at 25, 50 and 75 percent of the video's duration, deinterlaced and tone-mapped like the renditions, scaled and padded to 640x360. They are best effort: a shot that fails or comes out empty is logged and skipped, so the asset still finishes with fewer thumbnails. They stay on disk and go up to Sia with the media.
 
 ### The Sia storage layout
 
@@ -178,9 +188,9 @@ The erasure coding settings are left to the SDK unless both `SIA_DATA_SHARDS` an
 `backend/src/transcode/manifest-rewriter.ts` replaces file names with gateway paths before a manifest is uploaded. In a variant playlist, `data.m4s` becomes `/v1/objects/{data object id}`, both in the `EXT-X-MAP` URI and on every segment line; the `BYTERANGE` attribute and the `EXT-X-BYTERANGE` lines are left exactly as FFmpeg wrote them. In the master playlist, each `720p/playlist.m3u8` style line becomes `/v1/objects/{playlist object id}`. The rewritten 720p playlist from the example above reads:
 
 ```
-#EXT-X-MAP:URI="/v1/objects/<data-object-id>",BYTERANGE="1354@0"
+#EXT-X-MAP:URI="/v1/objects/<data-object-id>",BYTERANGE="1373@0"
 #EXTINF:6.000000,
-#EXT-X-BYTERANGE:2878578@1354
+#EXT-X-BYTERANGE:2726877@1373
 /v1/objects/<data-object-id>
 ```
 
