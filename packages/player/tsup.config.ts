@@ -1,7 +1,8 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // `hls` is the react-free entry for plain hls.js apps
+  entry: { index: 'src/index.ts', hls: 'src/hls.ts' },
   format: ['esm', 'cjs'],
   dts: true,
   sourcemap: true,

@@ -41,6 +41,13 @@ export default defineConfig({
         ],
       },
       {
+        text: 'Guides',
+        items: [
+          { text: 'React', link: '/guide/react' },
+          { text: 'Plain JavaScript', link: '/guide/javascript' },
+        ],
+      },
+      {
         text: 'API',
         items: [
           { text: 'Overview', link: '/api/' },

@@ -266,7 +266,7 @@ backend/          Node.js backend (Express + BullMQ + Drizzle + @siafoundation/s
 frontend/         Studio (Vite + React + shadcn/ui)
 packages/sdk/     @sluby/sdk     TypeScript API client
 packages/player/  @sluby/player  SlubyPlayer + hooks
-examples/         quickstart app using the sdk and player
+examples/         react (quickstart) and plain javascript (vanilla) apps using the sdk and player
 docs/             documentation site (VitePress)
 nginx/            web front door: Studio, api proxy and object cache
 deploy/           Caddyfile for the production override

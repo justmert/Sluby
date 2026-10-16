@@ -7,7 +7,8 @@
     "packages/sdk",
     "packages/player",
     "frontend",
-    "examples/quickstart"
+    "examples/quickstart",
+    "examples/vanilla"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=backend",

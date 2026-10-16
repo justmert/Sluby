@@ -12,6 +12,16 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./hls": {
+      "import": {
+        "types": "./dist/hls.d.ts",
+        "default": "./dist/hls.js"
+      },
+      "require": {
+        "types": "./dist/hls.d.cts",
+        "default": "./dist/hls.cjs"
+      }
     }
   },
   "sideEffects": false,

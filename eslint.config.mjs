@@ -33,6 +33,20 @@ export default tseslint.config(
     },
   },
   {
+    // the plain javascript example runs in the browser; .js files do not get
+    // the typescript rule that turns no-undef off
+    files: ['examples/vanilla/src/**/*.js'],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        console: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        Option: 'readonly',
+      },
+    },
+  },
+  {
     files: ['frontend/src/**/*.{ts,tsx}', 'packages/player/src/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: {
