@@ -1,0 +1,12 @@
+# tls termination for the production stack. caddy gets and renews a
+# certificate for DOMAIN on its own; ports 80 and 443 must reach this host.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	# caddy sends X-Forwarded-Proto https, which the web proxy passes on so
+	# the backend builds https urls for uploads and sign-in
+	reverse_proxy web:80
+}

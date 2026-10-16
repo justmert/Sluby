@@ -1,0 +1,18 @@
+# the build context is the repo root, so keep it to sources and manifests
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.github
+.env
+.env.*
+!.env.example
+**/uploads
+**/transcode-output
+**/cache
+resources
+sia
+demo-app
+reference-app
+*.mp4
+**/coverage

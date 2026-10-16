@@ -14,7 +14,8 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:push": "drizzle-kit push",
     "db:seed-key": "tsx src/db/seed-api-key.ts",
-    "provision-viewer": "node scripts/provision-viewer.mjs"
+    "provision-viewer": "node scripts/provision-viewer.mjs",
+    "connect-indexer": "node scripts/connect-indexer.mjs"
   },
   "dependencies": {
     "@siafoundation/sia-storage": "^0.1.1",

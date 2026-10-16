@@ -40,8 +40,8 @@ Thumbs.db
 /test/
 /test-output/
 
-# vendored binaries
-backend/vendor/
+# vendored binaries (the readme stays tracked so the docker build always has the dir)
+backend/vendor/*
 
 # unused apps
 demo-app/
@@ -51,6 +51,7 @@ reference-app/
 *.md
 !README.md
 !CONTRIBUTING.md
+!backend/vendor/README.md
 sia/
 
 # internal working artifacts (plans, notes, scratch)

@@ -1,28 +1,19 @@
+# compose file for a server that already runs its own reverse proxy (nginx on
+# the host terminating tls) and a self-hosted indexd from docker-compose.sia.yml
+# on the zen testnet. the backend listens on 127.0.0.1:4600 for that proxy.
 #
-# Server compose file for the Sluby deployment at sluby.app.
-#
-# Architecture:
-#   - sia-indexd (sluby/indexd:patched, see docker-compose.sia.yml):
-#       runs in its own compose project. Manages contracts, accounts,
-#       and slabs across Zen-testnet hosts. Backend talks to it via
-#       the indexd application API on port 9982 and the admin API on
-#       port 9980. Both are bound to 127.0.0.1 only.
-#   - sluby-backend  : Node.js service. Loads sia-storage NAPI,
-#                          signs requests with a stored AppKey, and
-#                          uploads/downloads through indexd. Bound to
-#                          127.0.0.1:4600 on the host so the system
-#                          nginx can proxy.
-#   - sluby-postgres : metadata store.
-#   - sluby-redis    : BullMQ + rate limiter backing store.
-#
-# The backend container uses host networking to reach indexd on the
-# host's loopback interface (where docker-compose.sia.yml publishes
-# its ports). Postgres and Redis stay on this compose project's own
-# network, so their hostnames resolve via the Docker network.
+# the zen pool is small, so this setup pins 2 data + 4 parity shards and builds
+# with a custom sia-storage binary from backend/vendor/ (see
+# backend/vendor/README.md). for a fresh deployment use docker-compose.yml with
+# docker-compose.prod.yml instead.
 #
 services:
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        SIA_STORAGE_NATIVE: ${SIA_STORAGE_NATIVE:-sia-storage-linux-x64-gnu/sia-storage.node}
     image: sluby-backend:latest
     container_name: sluby-backend
     depends_on:
