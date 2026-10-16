@@ -44,7 +44,6 @@ import {
   updateProcessingJobStatus,
 } from './db/queries/jobs.js';
 import {
-  validateApiKey as dbValidateApiKey,
   getApiKeyByHash,
   listApiKeys as dbListApiKeys,
   deleteApiKey as dbDeleteApiKey,
@@ -53,9 +52,15 @@ import {
 import { apiKeys as apiKeysTable, type ApiKey, type VideoAsset } from './db/schema.js';
 import {
   createWebhookEndpoint,
+  createWebhookDelivery,
+  getWebhookEndpointForOwner,
+  listWebhookDeliveries,
   listWebhookEndpointsByOwner,
   deleteWebhookEndpoint,
 } from './db/queries/webhooks.js';
+import { EgressError, vetUrl } from './webhooks/egress.js';
+import { webhookEgressPolicy } from './webhooks/policy.js';
+import { attemptDelivery, eventBody, newDeliveryId } from './webhooks/delivery.js';
 import {
   createPlaybackIdForAsset,
   listPlaybackIdsByAsset,
@@ -70,6 +75,15 @@ import {
   revokeAllStudioSessions,
   revokeStudioSession,
 } from './db/queries/sessions.js';
+import {
+  ensureIdentityAccount,
+  findLegacyClaim,
+  getAccount,
+  isAllowlistEntryPinned,
+  signInIdentity,
+} from './db/queries/accounts.js';
+import type { CallerDeps } from './api/auth/caller.js';
+import { LOCAL_DEV_SUBJECT, LOCAL_PROVIDER } from './api/auth/providers/index.js';
 import { getLatestReconciliationRun, filterObjectIdsOwnedBy } from './db/queries/reconciliation.js';
 import { getAssetStats } from './db/queries/stats.js';
 import { getArtifacts, getRenditions } from './db/queries/storage-records.js';
@@ -182,22 +196,68 @@ export function buildAssetDeleter(ctx: AppContext) {
   });
 }
 
+// ── Accounts and callers ──
+
+const LOCAL_DEV = {
+  provider: LOCAL_PROVIDER,
+  subject: LOCAL_DEV_SUBJECT,
+  username: 'dev',
+  displayName: 'Local developer',
+};
+
+/** The AUTH_DISABLED account, created on first use and then remembered. */
+export function buildLocalDevAccount() {
+  let account: Promise<{ userId: string; username: string; displayName: string }> | undefined;
+  return () => {
+    account ??= ensureIdentityAccount(LOCAL_DEV).then(
+      ({ userId }) => ({
+        userId,
+        username: LOCAL_DEV.username,
+        displayName: LOCAL_DEV.displayName,
+      }),
+      (err: unknown) => {
+        account = undefined;
+        throw err;
+      },
+    );
+    return account;
+  };
+}
+
+/** How the REST api and tus resolve a request's caller, from the database. */
+export function buildCallerDeps(
+  localDevAccount: ReturnType<typeof buildLocalDevAccount>,
+): CallerDeps {
+  return {
+    findActiveSession: findActiveStudioSession,
+    getAccount,
+    findLegacyClaim,
+    isAllowlistEntryPinned,
+    localDevAccount,
+    findApiKeyByHash: async (hash) => {
+      const apiKey = await getApiKeyByHash(hash);
+      if (!apiKey) return null;
+      return {
+        id: apiKey.id,
+        name: apiKey.name,
+        scopes: apiKey.scopes,
+        rateLimit: apiKey.rateLimit,
+        creatorAddress: apiKey.creatorAddress,
+        isActive: apiKey.isActive,
+        expiresAt: apiKey.expiresAt,
+      };
+    },
+  };
+}
+
 export function buildTusServerDeps(
   ctx: AppContext,
   sessionManager: SessionManager,
   deleteAsset: (id: string, owner?: string) => Promise<boolean>,
+  callers: CallerDeps,
 ): TusServerDeps {
   return {
-    findActiveSession: findActiveStudioSession,
-    validateApiKey: async (token: string) => {
-      const apiKey = await dbValidateApiKey(token);
-      if (!apiKey) return null;
-      return {
-        id: apiKey.id,
-        creatorAddress: apiKey.creatorAddress,
-        scopes: apiKey.scopes,
-      };
-    },
+    callers,
 
     createUploadSession: async (data) => {
       // the tus hook validated these fields already
@@ -363,10 +423,22 @@ export function buildApiDeps(
   ctx: AppContext,
   sessionManager: SessionManager,
   deleteAsset: (id: string, owner?: string) => Promise<boolean>,
+  callers: CallerDeps,
+  localDevAccount: ReturnType<typeof buildLocalDevAccount>,
   /** Bytes the tus store holds for upload `id`, or null when it has none. */
   receivedBytes: (id: string) => Promise<number | null> = async () => null,
 ): ApiRouterDeps {
   return {
+    // ── Callers, accounts and sessions ──
+    ...callers,
+    localDevAccount,
+    signIn: signInIdentity,
+    createSession: createStudioSession,
+    listActiveSessions: listActiveStudioSessions,
+    revokeSession: revokeStudioSession,
+    revokeAllSessions: revokeAllStudioSessions,
+    pruneSessions: pruneStudioSessions,
+
     // ── UploadRouteDeps ──
     // Upload creation happens through the TUS protocol (see tusServer); the REST
     // surface only exposes owner-scoped status and cancellation.
@@ -659,26 +731,50 @@ export function buildApiDeps(
       return Boolean(deleted);
     },
 
-    // ── ApiKeyMiddlewareDeps ──
-    findActiveSession: findActiveStudioSession,
-    createSession: createStudioSession,
-    listActiveSessions: listActiveStudioSessions,
-    revokeSession: revokeStudioSession,
-    revokeAllSessions: revokeAllStudioSessions,
-    pruneSessions: pruneStudioSessions,
+    vetWebhookUrl: async (url) => {
+      try {
+        await vetUrl(url, webhookEgressPolicy(), AbortSignal.timeout(10_000));
+        return null;
+      } catch (err) {
+        if (err instanceof EgressError) return err.message;
+        throw err;
+      }
+    },
 
-    findApiKeyByHash: async (hash) => {
-      const apiKey = await getApiKeyByHash(hash);
-      if (!apiKey) return null;
-      return {
-        id: apiKey.id,
-        name: apiKey.name,
-        scopes: apiKey.scopes,
-        rateLimit: apiKey.rateLimit,
-        creatorAddress: apiKey.creatorAddress,
-        isActive: apiKey.isActive,
-        expiresAt: apiKey.expiresAt,
+    testWebhook: async (id, creatorAddress) => {
+      const endpoint = await getWebhookEndpointForOwner(id, creatorAddress);
+      if (!endpoint) return null;
+      const job = {
+        endpointId: endpoint.id,
+        event: 'webhook.test',
+        body: eventBody('webhook.test', { webhook_id: endpoint.id }),
+        deliveryId: newDeliveryId(),
       };
+      const outcome = await attemptDelivery(endpoint, job, { egress: webhookEgressPolicy() });
+      await createWebhookDelivery({
+        webhookEndpointId: endpoint.id,
+        eventType: job.event,
+        payload: JSON.parse(job.body) as Record<string, unknown>,
+        statusCode: outcome.statusCode,
+        error: outcome.error,
+        retryCount: 0,
+      });
+      return outcome;
+    },
+
+    listWebhookDeliveries: async (id, creatorAddress, limit) => {
+      const endpoint = await getWebhookEndpointForOwner(id, creatorAddress);
+      if (!endpoint) return null;
+      const rows = await listWebhookDeliveries({ webhookEndpointId: endpoint.id, limit });
+      return rows.map((d) => ({
+        id: d.id,
+        eventId: typeof d.payload.id === 'string' ? d.payload.id : null,
+        event: d.eventType,
+        statusCode: d.statusCode,
+        error: d.error,
+        attempt: d.retryCount + 1,
+        createdAt: d.createdAt,
+      }));
     },
 
     // ── ApiRouterDeps (key management) ──
@@ -737,6 +833,8 @@ export function createApp(ctx: AppContext): {
   const { logger } = ctx;
   const sessionManager = buildSessionManager();
   const deleteAsset = buildAssetDeleter(ctx);
+  const localDevAccount = buildLocalDevAccount();
+  const callers = buildCallerDeps(localDevAccount);
 
   const app = express();
 
@@ -820,7 +918,7 @@ export function createApp(ctx: AppContext): {
     },
   });
 
-  const tusServer = createTusServer(buildTusServerDeps(ctx, sessionManager, deleteAsset));
+  const tusServer = createTusServer(buildTusServerDeps(ctx, sessionManager, deleteAsset, callers));
 
   // Mount TUS server handler, a single middleware to avoid double-firing hooks.
   //
@@ -853,7 +951,9 @@ export function createApp(ctx: AppContext): {
   };
   app.use(
     '/api/v1',
-    createApiRouter(buildApiDeps(ctx, sessionManager, deleteAsset, receivedBytes)),
+    createApiRouter(
+      buildApiDeps(ctx, sessionManager, deleteAsset, callers, localDevAccount, receivedBytes),
+    ),
   );
 
   // ── Delivery Routes ──

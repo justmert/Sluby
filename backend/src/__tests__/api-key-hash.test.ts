@@ -50,6 +50,12 @@ describe('a minted key authenticates through the bearer middleware', () => {
     const stored = new Map<string, { id: string }>();
     const middleware = createApiKeyMiddleware({
       findActiveSession: async () => undefined,
+      getAccount: async () => null,
+      findLegacyClaim: async () => null,
+      isAllowlistEntryPinned: async () => false,
+      localDevAccount: async () => {
+        throw new Error('auth is enabled in this test');
+      },
       findApiKeyByHash: async (hash) => {
         const row = stored.get(hash);
         if (!row) return null;

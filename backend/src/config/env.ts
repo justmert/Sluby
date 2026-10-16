@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
+import { parseCidrList } from '../webhooks/egress.js';
 
 // Load .env file before parsing process.env.
 // Search upward from this file to find .env at the monorepo root.
@@ -156,11 +157,26 @@ export const envSchema = z.object({
   /** GitHub OAuth app client secret. */
   GITHUB_CLIENT_SECRET: z.string().optional(),
 
-  /** Comma-separated list of GitHub usernames allowed into the Studio.
-   *  When empty, Studio sign-in is OPEN to any GitHub account (each signer
-   *  gets their own isolated tenant); the server logs a warning at startup
-   *  in that case. Set it to lock the Studio down. Case-insensitive. */
+  /** Who may sign in with GitHub, comma-separated: logins (case-insensitive,
+   *  each pinned to the account that first signs in with it), `id:<numeric
+   *  github id>` entries, or `*` for open sign-up. Empty also leaves sign-up
+   *  open, with a warning at startup. See api/auth/allowlist.ts. */
   GITHUB_ALLOWED_USERS: z.string().default(''),
+
+  /** Networks webhook receivers may be on although they are private or
+   *  otherwise special (loopback, RFC 1918, link-local, unique local, CGNAT,
+   *  ...), comma-separated CIDRs or addresses such as `10.0.5.0/24,fd00:5::/64`.
+   *  Empty: webhooks only reach public addresses. */
+  WEBHOOK_ALLOWED_NETWORKS: z
+    .string()
+    .default('')
+    .superRefine((v, ctx) => {
+      try {
+        parseCidrList(v);
+      } catch (err) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+      }
+    }),
 
   /** HMAC secret for signing session cookies. Must be set in production;
    *  loadEnv() refuses to boot with the dev default when NODE_ENV=production. */

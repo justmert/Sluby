@@ -2,7 +2,7 @@
 
 PostgreSQL holds everything except the video bytes. The schema is defined with Drizzle in `backend/src/db/schema.ts`; the SQL migrations in `backend/drizzle/` run when the backend container starts (`node dist/db/migrate.js`), or with `npm run db:migrate` from `backend/`.
 
-There is no users table. Ownership is a plain text `creator_address` on assets, API keys and webhook endpoints, compared by value (see [Auth and tenancy](./auth-and-tenancy)).
+Ownership is a plain text `creator_address` on assets, API keys and webhook endpoints (and in upload sessions' metadata), compared by value. For a person it is `user:<id>` of their `users` row; other values are operator-made owners (see [Auth and tenancy](./auth-and-tenancy#tenancy)).
 
 The diagrams show the columns that matter for understanding the system; most tables also have `created_at` (and some `updated_at`) timestamps, and `schema.ts` has the indexes.
 
@@ -101,9 +101,42 @@ erDiagram
 ```mermaid
 erDiagram
   direction TB
+  users ||--o{ user_identities : "user_id (cascade)"
+  users ||--o{ studio_sessions : "user_id (cascade)"
+  user_identities ||--o{ studio_sessions : "identity_id (cascade)"
+  users ||--o{ legacy_owner_claims : "user_id"
   api_keys |o--o{ webhook_endpoints : "api_key_id (set null)"
   webhook_endpoints ||--o{ webhook_deliveries : "webhook_endpoint_id (cascade)"
 
+  users {
+    uuid id PK
+    text display_name
+  }
+  user_identities {
+    uuid id PK
+    uuid user_id FK
+    text provider "github, local"
+    text subject "stable provider id"
+    text username "display only"
+    timestamptz last_sign_in_at
+  }
+  allowlist_pins {
+    text provider PK
+    text entry PK "a handle in the allowlist"
+    text subject "the account it admits"
+  }
+  legacy_owner_claims {
+    text address PK "github:login of older versions"
+    uuid user_id FK
+  }
+  studio_sessions {
+    uuid id PK
+    uuid user_id FK
+    uuid identity_id FK
+    text user_agent
+    timestamptz expires_at
+    timestamptz revoked_at
+  }
   api_keys {
     uuid id PK
     text key_hash UK "sha256 hex"
@@ -129,7 +162,7 @@ erDiagram
     text event_type
     jsonb payload
     int status_code
-    text response_body
+    text error "our words, never the receiver's body"
     int retry_count
   }
   reconciliation_runs {
@@ -158,9 +191,11 @@ erDiagram
   }
 ```
 
+- **`users`** is one row per account and **`user_identities`** the ways it signs in, unique on `(provider, subject)`; `subject` is the provider's stable id (GitHub's numeric account id), `username` the handle last reported, for display. **`allowlist_pins`** ties a login written in `GITHUB_ALLOWED_USERS` to the account that first signed in with it, and **`legacy_owner_claims`** records which account took over each `github:<login>` address older versions wrote, at most one per address (see [Auth and tenancy](./auth-and-tenancy#upgrading-from-login-keyed-versions)).
+- **`studio_sessions`** is one row per Studio sign-in, so a session can be revoked; the cookie carries only its id and the account id, signed.
 - **`api_keys`** stores only the SHA-256 of each key. `expires_at` is how rotation retires the old key after its grace period.
 - **`webhook_endpoints`** belong to an owner through `creator_address`. `api_key_id` records which key registered the endpoint (null when it was the Studio) and is kept for audit only: revoking the key leaves the endpoint working. The `secret` is stored in plain text because the backend needs it to sign every delivery; it is returned once, when the endpoint is created.
-- **`webhook_deliveries`** logs every delivery attempt, one row per try.
+- **`webhook_deliveries`** logs every delivery attempt, one row per try, with the status code and, for a failure, why in our own words. Receivers' response bodies are never read or stored, so the log cannot be used to read an internal service.
 - **`reconciliation_runs`** keeps one row per run, including failed ones, with the full lists of orphaned and missing object ids; only the latest 100 are kept. The API only returns those lists in full to the platform identity; a tenant gets the missing ids of its own assets (see [what each caller sees](./deletion-and-reconciliation#what-each-caller-sees)).
 - **`indexer_objects`** is reconciliation's copy of the indexer's inventory: per object id, whether its latest event was a delete and when the indexer recorded it. **`reconcile_feed`** is its one row naming the indexer URL and account key the copy came from and the feed cursor it was read up to (see [reconciliation](./deletion-and-reconciliation#reconciliation)).
 

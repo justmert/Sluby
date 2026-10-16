@@ -1,13 +1,14 @@
 import crypto from 'node:crypto';
+import { isAccountAllowed, type Account } from './access.js';
 
 /**
  * Signed session cookie utilities.
  *
  * Format: `<base64url(payload)>.<base64url(hmac-sha256)>`
  *
- * The payload is a JSON object `{ sid, login, exp }`: `sid` is the
- * studio_sessions row the cookie stands for, `exp` a Unix timestamp in
- * seconds. Verifying the HMAC and expiry here only proves the cookie was
+ * The payload is a JSON object `{ sid, uid, exp }`: `sid` is the
+ * studio_sessions row the cookie stands for, `uid` the account it belongs to,
+ * `exp` a Unix timestamp in seconds. Verifying the HMAC and expiry here only proves the cookie was
  * issued by this server; resolveSession() also checks the row is still live,
  * which is what makes a session revocable.
  */
@@ -15,8 +16,8 @@ import crypto from 'node:crypto';
 export interface SessionPayload {
   /** studio_sessions row id. */
   sid: string;
-  /** GitHub login of the authenticated user. */
-  login: string;
+  /** The account (users row) the session belongs to. */
+  uid: string;
   /** Unix expiry timestamp (seconds). */
   exp: number;
 }
@@ -27,13 +28,13 @@ export const SESSION_COOKIE_NAME = 'sluby_session';
 
 export function signSession(
   sid: string,
-  login: string,
+  uid: string,
   secret: string,
   ttlSec: number = SESSION_TTL_SEC,
 ): string {
   const payload: SessionPayload = {
     sid,
-    login,
+    uid,
     exp: Math.floor(Date.now() / 1000) + ttlSec,
   };
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -59,7 +60,7 @@ export function verifySession(token: string | undefined, secret: string): Sessio
     ) as SessionPayload;
     if (
       typeof payload.sid !== 'string' ||
-      typeof payload.login !== 'string' ||
+      typeof payload.uid !== 'string' ||
       typeof payload.exp !== 'number' ||
       payload.exp < Math.floor(Date.now() / 1000)
     ) {
@@ -73,7 +74,7 @@ export function verifySession(token: string | undefined, secret: string): Sessio
 
 /**
  * Parse the `Cookie` request header into a plain object. Handles the
- * subset we need — no quoted values, no cookie attributes (those are
+ * subset we need: no quoted values, no cookie attributes (those are
  * response-only).
  */
 export function parseCookieHeader(header: string | undefined): Record<string, string> {
@@ -127,7 +128,9 @@ export function buildClearCookie(secure: boolean): string {
 /** A live Studio session, as stored server-side. */
 export interface ActiveSession {
   id: string;
-  login: string;
+  userId: string;
+  /** The identity the browser signed in with. */
+  identityId: string;
   expiresAt: Date;
 }
 
@@ -135,31 +138,24 @@ export interface ActiveSession {
 export type FindActiveSession = (sid: string) => Promise<ActiveSession | undefined>;
 
 /**
- * Whether `login` may use the Studio right now. Checked on every request, not
- * only at sign-in, so taking someone off GITHUB_ALLOWED_USERS ends their
- * existing sessions too. An empty list leaves the Studio open.
- */
-export function isLoginAllowed(login: string, allowedUsers: string): boolean {
-  const allowed = allowedUsers
-    .split(',')
-    .map((u) => u.trim().toLowerCase())
-    .filter(Boolean);
-  return allowed.length === 0 || allowed.includes(login.toLowerCase());
-}
-
-/**
- * The live session behind a request's cookie header, or null: the cookie
- * must verify, its row must still be live, and the login must still be
- * allowed.
+ * The live session behind a request's cookie header, with its account, or
+ * null: the cookie must verify, its row must still be live, and the account
+ * must still pass the allowlist. Checked on every request, not only at
+ * sign-in, so taking someone off the allowlist ends their sessions too.
  */
 export async function resolveSession(
   cookieHeader: string | undefined,
-  opts: { secret: string; allowedUsers: string; findActiveSession: FindActiveSession },
-): Promise<ActiveSession | null> {
+  opts: {
+    secret: string;
+    findActiveSession: FindActiveSession;
+    getAccount: (userId: string) => Promise<Account | null>;
+  },
+): Promise<{ session: ActiveSession; account: Account } | null> {
   const payload = verifySession(parseCookieHeader(cookieHeader)[SESSION_COOKIE_NAME], opts.secret);
   if (!payload) return null;
-  const row = await opts.findActiveSession(payload.sid);
-  if (!row || row.login !== payload.login) return null;
-  if (!isLoginAllowed(row.login, opts.allowedUsers)) return null;
-  return row;
+  const session = await opts.findActiveSession(payload.sid);
+  if (!session || session.userId !== payload.uid) return null;
+  const account = await opts.getAccount(session.userId);
+  if (!account || !isAccountAllowed(account)) return null;
+  return { session, account };
 }

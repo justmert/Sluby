@@ -258,6 +258,11 @@ export interface SlubyConfig {
 
 /** Webhook event payload delivered to registered endpoints. */
 export interface WebhookEvent {
+  /**
+   * The event's id, the same on every retry of it: drop an id already
+   * handled. Absent from events sent by backends before it was added.
+   */
+  id?: string;
   event: string;
   timestamp: string;
   data: Record<string, unknown>;

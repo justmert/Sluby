@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, LogOut } from 'lucide-react';
+import { ChevronDown, LogOut, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -31,16 +31,22 @@ export function UserMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="gap-2">
-          <GitHubMark className="size-3.5" />
-          <span className="max-w-[140px] truncate font-mono text-xs">{session.login}</span>
+          {session.provider === 'github' ? (
+            <GitHubMark className="size-3.5" />
+          ) : (
+            <UserRound className="size-3.5" />
+          )}
+          <span className="max-w-[140px] truncate font-mono text-xs">{session.username}</span>
           <ChevronDown className="size-3 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-          {session.authDisabled ? 'Auth disabled (dev identity)' : 'Signed in with GitHub'}
+          {session.authDisabled
+            ? 'Auth disabled (local dev account)'
+            : `Signed in with ${session.providerLabel ?? 'an unknown provider'}`}
         </DropdownMenuLabel>
-        <DropdownMenuLabel className="font-mono text-xs">{session.login}</DropdownMenuLabel>
+        <DropdownMenuLabel className="font-mono text-xs">{session.username}</DropdownMenuLabel>
         {!session.authDisabled && (
           <>
             <DropdownMenuSeparator />

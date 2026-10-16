@@ -49,8 +49,18 @@ let nextAsset = 0;
 
 function makeDeps(world: Omit<World, 'deps'>): TusServerDeps {
   return {
-    findActiveSession: vi.fn(async () => undefined),
-    validateApiKey: vi.fn(),
+    callers: {
+      findActiveSession: vi.fn(async () => undefined),
+      findApiKeyByHash: vi.fn(async () => null),
+      getAccount: vi.fn(async () => null),
+      findLegacyClaim: vi.fn(async () => null),
+      isAllowlistEntryPinned: vi.fn(async () => false),
+      localDevAccount: vi.fn(async () => ({
+        userId: '00000000-0000-4000-8000-0000000000de',
+        username: 'dev',
+        displayName: 'Local developer',
+      })),
+    },
     createUploadSession: vi.fn(async (data) => {
       const id = `session-${++nextAsset}`;
       const videoAssetId = `asset-${nextAsset}`;

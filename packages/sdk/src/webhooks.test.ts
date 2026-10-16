@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { WebhookManager } from './webhooks.js';
+import { WebhookManager, type VerifyRequestOptions, type WebhookHeaders } from './webhooks.js';
 
 // ---------------------------------------------------------------------------
 // Helper: compute a known-good HMAC-SHA256 hex digest
@@ -233,5 +233,94 @@ describe('Constant-time comparison', () => {
     const badSig = altChar + validSig.slice(1);
 
     expect(manager.verifySignature(payload, badSig, secret)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: verifyRequest / verifyRequestAsync (signature v1 with a time window)
+// ---------------------------------------------------------------------------
+
+describe('WebhookManager.verifyRequest()', () => {
+  const body =
+    '{"id":"evt_1","event":"asset.ready","timestamp":"2026-10-06T10:00:00.000Z","data":{}}';
+  const secret = 'whsec_test_secret_1234';
+  const now = 1_790_000_000;
+  // the headers the backend sends, as node's req.headers gives them
+  const sent = (timestamp: number, payload = body): Record<string, string> => ({
+    'x-sluby-timestamp': String(timestamp),
+    'x-sluby-signature-v1': computeHmac(`${timestamp}.${payload}`, secret),
+    'x-sluby-signature': computeHmac(payload, secret),
+  });
+
+  type Verify = (
+    p: string,
+    h: WebhookHeaders,
+    s: string,
+    o?: VerifyRequestOptions,
+  ) => Promise<boolean>;
+  const variants: Array<[string, Verify]> = [
+    ['sync', (p, h, s, o) => Promise.resolve(manager.verifyRequest(p, h, s, o))],
+    ['async', (p, h, s, o) => manager.verifyRequestAsync(p, h, s, o)],
+  ];
+
+  describe.each(variants)('%s', (_name, verify) => {
+    it('accepts a fresh request signed with the secret', async () => {
+      expect(await verify(body, sent(now), secret, { now })).toBe(true);
+    });
+
+    it('accepts a fetch Headers object, any header case and an uppercase signature', async () => {
+      expect(await verify(body, new Headers(sent(now)), secret, { now })).toBe(true);
+      const upper = Object.fromEntries(
+        Object.entries(sent(now)).map(([k, v]) => [k.toUpperCase(), v.toUpperCase()]),
+      );
+      expect(await verify(body, upper, secret, { now })).toBe(true);
+    });
+
+    it('refuses a replay older than the window, and one from the future', async () => {
+      expect(await verify(body, sent(now - 301), secret, { now })).toBe(false);
+      expect(await verify(body, sent(now + 301), secret, { now })).toBe(false);
+      expect(await verify(body, sent(now - 300), secret, { now })).toBe(true);
+      expect(await verify(body, sent(now - 3600), secret, { now, toleranceSeconds: 3600 })).toBe(
+        true,
+      );
+    });
+
+    it('refuses a timestamp moved without signing it again', async () => {
+      const headers = { ...sent(now - 1000), 'x-sluby-timestamp': String(now) };
+      expect(await verify(body, headers, secret, { now })).toBe(false);
+    });
+
+    it('refuses a changed body, a wrong secret and missing or malformed headers', async () => {
+      expect(await verify(`${body} `, sent(now), secret, { now })).toBe(false);
+      expect(await verify(body, sent(now), 'wrong', { now })).toBe(false);
+      expect(await verify(body, {}, secret, { now })).toBe(false);
+      const legacyOnly = { ...sent(now) };
+      delete legacyOnly['x-sluby-signature-v1'];
+      expect(await verify(body, legacyOnly, secret, { now })).toBe(false);
+      const badTime = { ...sent(now), 'x-sluby-timestamp': '1.79e9' };
+      expect(await verify(body, badTime, secret, { now })).toBe(false);
+      const notHex = { ...sent(now), 'x-sluby-signature-v1': 'z'.repeat(64) };
+      expect(await verify(body, notHex, secret, { now })).toBe(false);
+    });
+
+    it('uses the clock by default', async () => {
+      const t = Math.floor(Date.now() / 1000);
+      expect(await verify(body, sent(t), secret)).toBe(true);
+      expect(await verify(body, sent(t - 600), secret)).toBe(false);
+    });
+  });
+});
+
+describe('WebhookManager.parseEvent() event ids', () => {
+  it('returns the event id when the backend sent one', () => {
+    const event = manager.parseEvent(
+      '{"id":"evt_1","event":"asset.ready","timestamp":"2026-10-06T10:00:00Z","data":{}}',
+    );
+    expect(event.id).toBe('evt_1');
+  });
+
+  it('leaves it out for events from older backends', () => {
+    const event = manager.parseEvent('{"event":"asset.ready","timestamp":"2026-10-06T10:00:00Z"}');
+    expect(event).not.toHaveProperty('id');
   });
 });

@@ -10,7 +10,8 @@ export { UploadManager } from './uploads.js';
 export type { UploadOptions, AssetUploadHandle } from './uploads.js';
 export { AssetManager } from './assets.js';
 export { PlaybackManager } from './playback.js';
-export { WebhookManager } from './webhooks.js';
+export { WebhookManager, DEFAULT_WEBHOOK_TOLERANCE_SECONDS } from './webhooks.js';
+export type { WebhookHeaders, VerifyRequestOptions } from './webhooks.js';
 export { SiaSession, publicShareMapUrl } from './sia-session.js';
 export type { SiaDownloadOptions, SiaSessionTransport } from './sia-session.js';
 

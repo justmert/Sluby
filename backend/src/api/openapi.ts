@@ -789,15 +789,37 @@ export const openapiDocument = {
       },
       AuthMe: {
         type: 'object',
-        required: ['login', 'auth_disabled', 'expires_at'],
+        required: [
+          'id',
+          'name',
+          'username',
+          'provider',
+          'provider_label',
+          'auth_disabled',
+          'expires_at',
+        ],
         properties: {
-          login: { type: 'string' },
+          id: { type: 'string', format: 'uuid', description: 'The account id.' },
+          name: { type: 'string', description: 'Display name.' },
+          username: {
+            type: 'string',
+            description: "The provider's current username (GitHub: the login).",
+          },
+          provider: nullable('string', {
+            description: 'The sign-in provider of this session, `local` with AUTH_DISABLED.',
+          }),
+          provider_label: nullable('string'),
           auth_disabled: {
             type: 'boolean',
             description:
-              'True when the server runs with AUTH_DISABLED and `login` is a dev identity.',
+              'True when the server runs with AUTH_DISABLED and this is the local dev account.',
           },
           expires_at: nullable('string', { format: 'date-time' }),
+          providerLabel: {
+            type: ['string', 'null'],
+            deprecated: true,
+            description: 'Old spelling of provider_label, removed in the next release.',
+          },
           authDisabled: {
             type: 'boolean',
             deprecated: true,
@@ -1022,48 +1044,77 @@ export const openapiDocument = {
     },
 
     // ── Auth (unauthenticated) ──
-    '/api/v1/auth/github/login': {
+    '/api/v1/auth/{provider}/login': {
       get: {
         tags: ['Auth'],
-        summary: 'Begin GitHub OAuth login.',
+        summary: 'Begin a Studio sign-in with a provider.',
+        description:
+          'Sets the short-lived `sluby_signin` cookie (path /api/v1/auth) holding the handshake ' +
+          'state and where to land afterwards, then redirects to the provider. `next` is a path ' +
+          'on this server; anything that would leave the origin falls back to /studio.',
         security: [],
         parameters: [
           {
+            name: 'provider',
+            in: 'path' as const,
+            required: true,
+            schema: { type: 'string', enum: ['github'] },
+            description: 'The sign-in provider.',
+          },
+          {
             name: 'next',
-            in: 'query',
+            in: 'query' as const,
+            required: false,
             schema: { type: 'string' },
-            description: 'Studio path to land on after sign-in.',
+            description: 'Studio path to land on after sign-in, /studio by default.',
           },
         ],
         responses: {
-          '302': { description: 'Redirect to GitHub.' },
-          '500': errorWith('GitHub OAuth is not configured on this server.'),
+          '302': { description: 'Redirect to the provider.' },
+          '404': errorWith('No such sign-in provider.'),
+          '500': errorWith('The provider is not configured on this server.'),
         },
       },
     },
-    '/api/v1/auth/github/callback': {
+    '/api/v1/auth/{provider}/callback': {
       get: {
         tags: ['Auth'],
-        summary: 'GitHub OAuth callback.',
-        description: 'Browser-facing: failures answer plain text, not JSON.',
+        summary: "The provider's redirect back after sign-in.",
+        description:
+          'Browser-facing: failures answer plain text, not JSON. Accepted only from the browser ' +
+          'that started the sign-in: the `state` must match the `sluby_signin` cookie set by the ' +
+          "login route, within ten minutes. The account is the provider's stable id (GitHub: the " +
+          'numeric account id), never the login.',
         security: [],
+        parameters: [
+          {
+            name: 'provider',
+            in: 'path' as const,
+            required: true,
+            schema: { type: 'string', enum: ['github'] },
+            description: 'The sign-in provider.',
+          },
+        ],
         responses: {
-          '302': { description: 'Signed in; redirect into the Studio.' },
-          '400': textResponse(
-            'GitHub reported an error, or the code or state is missing or stale.',
-          ),
-          '403': textResponse('The GitHub account is not on the Studio allowlist.'),
-          '500': textResponse('OAuth is not configured, or GitHub could not be reached.'),
+          '302': { description: 'Signed in; redirect into the Studio with a session cookie.' },
+          '400': textResponse('Expired or foreign handshake, cancelled or malformed sign-in.'),
+          '403': textResponse('The account is not on the allowlist.'),
+          '404': errorWith('No such sign-in provider.'),
+          '500': textResponse('The provider is not configured or could not be reached.'),
         },
       },
     },
     '/api/v1/auth/me': {
       get: {
         tags: ['Auth'],
-        summary: 'Current session identity.',
+        summary: 'The signed-in account.',
+        description:
+          'The account id and display name, plus the provider, provider label and handle the ' +
+          'browser signed in with, and the session expiry (Unix seconds). With AUTH_DISABLED it ' +
+          'is the local dev account (`provider: "local"`, `authDisabled: true`).',
         security: [{ cookieAuth: [] }],
         responses: {
-          '200': jsonResponse('AuthMe', 'The signed-in user, or the dev identity.'),
+          '200': jsonResponse('AuthMe', 'The signed-in account, or the local dev account.'),
           '401': ref('Unauthorized'),
         },
       },
@@ -1090,7 +1141,8 @@ export const openapiDocument = {
       },
       delete: {
         tags: ['Auth'],
-        summary: 'Sign out everywhere: end every session of the signed-in user.',
+        summary: 'Sign out everywhere: end every session of the signed-in account.',
+        description: 'API keys are not touched; revoke them from the keys routes.',
         security: [{ cookieAuth: [] }],
         responses: {
           '200': jsonResponse('SessionsRevoked', 'Sessions ended; `revoked` is how many.'),
@@ -1668,8 +1720,17 @@ export const openapiDocument = {
         tags: ['Webhooks'],
         summary: 'Register a webhook endpoint for your account.',
         description:
-          'Events are delivered only for assets owned by the same account, signed with ' +
-          'an HMAC-SHA256 of the raw body in X-Sluby-Signature. The secret is returned once.',
+          'Events are delivered only for assets owned by the same account. Each request carries ' +
+          'X-Sluby-Event, X-Sluby-Delivery (the same on every retry of one delivery), ' +
+          'X-Sluby-Timestamp (Unix seconds, per attempt) and X-Sluby-Signature-V1, the hex ' +
+          'HMAC-SHA256 of `<timestamp>.<raw body>` with the endpoint secret; receivers should ' +
+          'refuse a timestamp more than five minutes from their clock. X-Sluby-Signature (the HMAC ' +
+          'of the body alone) is still sent but deprecated, since it does not bind a time. The body ' +
+          'is `{ id, event, timestamp, data }`, where `id` identifies the event across retries. The ' +
+          'URL must be http(s) and its host must resolve only to public addresses (or to the ' +
+          "operator's WEBHOOK_ALLOWED_NETWORKS); this is checked again before every delivery, " +
+          'redirects are not followed and response bodies are not read or stored. The secret is ' +
+          'returned once.',
         'x-required-scope': 'manage',
         requestBody: {
           content: {
@@ -1677,7 +1738,11 @@ export const openapiDocument = {
               schema: {
                 type: 'object',
                 properties: {
-                  url: { type: 'string', format: 'uri', description: 'Absolute http(s) URL.' },
+                  url: {
+                    type: 'string',
+                    format: 'uri',
+                    description: 'Absolute http(s) URL on a public address.',
+                  },
                   events: {
                     type: 'array',
                     minItems: 1,
@@ -1708,9 +1773,100 @@ export const openapiDocument = {
       get: {
         tags: ['Webhooks'],
         summary: 'List webhook endpoints.',
-        'x-required-scope': 'read',
+        description: 'Needs `manage`, like creating them: receiver URLs often carry credentials.',
+        'x-required-scope': 'manage',
         responses: {
           '200': jsonResponse('WebhookList', 'Endpoints.'),
+          ...authFailures,
+        },
+      },
+    },
+    '/api/v1/webhooks/{id}/test': {
+      post: {
+        tags: ['Webhooks'],
+        summary: 'Send a signed `webhook.test` event to the endpoint now.',
+        description:
+          'Delivered once, signed like any event, and recorded with the deliveries. Answers how ' +
+          'the receiver responded: `delivered`, `status_code` (null when no response came) and ' +
+          '`error` (why it failed, in our words).',
+        'x-required-scope': 'manage',
+        parameters: [idParam('id', 'Endpoint id.')],
+        responses: {
+          '200': {
+            description: 'The outcome.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    delivered: { type: 'boolean' },
+                    status_code: { type: ['integer', 'null'] },
+                    error: { type: ['string', 'null'] },
+                  },
+                  required: ['delivered', 'status_code', 'error'],
+                },
+              },
+            },
+          },
+          '404': errorResponse,
+        },
+      },
+    },
+    '/api/v1/webhooks/{id}/deliveries': {
+      get: {
+        tags: ['Webhooks'],
+        summary: "The endpoint's latest delivery attempts, newest first.",
+        description:
+          'One entry per attempt: id, event_id, event, status_code, delivered, error, attempt ' +
+          '(1 for the first try) and created_at. Response bodies are never stored.',
+        'x-required-scope': 'manage',
+        parameters: [
+          idParam('id', 'Endpoint id.'),
+          {
+            name: 'limit',
+            in: 'query' as const,
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+            description: 'How many attempts to return.',
+          },
+        ],
+        responses: {
+          '200': jsonSchemaResponse(
+            {
+              type: 'object',
+              required: ['data'],
+              properties: {
+                data: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: [
+                      'id',
+                      'event',
+                      'status_code',
+                      'delivered',
+                      'error',
+                      'attempt',
+                      'created_at',
+                    ],
+                    properties: {
+                      id: { type: 'string' },
+                      event_id: nullable('string'),
+                      event: { type: 'string' },
+                      status_code: nullable('integer'),
+                      delivered: { type: 'boolean' },
+                      error: nullable('string'),
+                      attempt: { type: 'integer', minimum: 1 },
+                      created_at: { type: 'string', format: 'date-time' },
+                    },
+                  },
+                },
+              },
+            },
+            'Attempts.',
+          ),
+          '400': errorResponse,
+          '404': errorResponse,
           ...authFailures,
         },
       },

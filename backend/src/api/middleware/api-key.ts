@@ -1,31 +1,11 @@
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../../config/logger.js';
-import { env } from '../../config/env.js';
-import { resolveSession, type FindActiveSession } from '../auth/session.js';
-import { hashApiKey } from '../auth/api-key.js';
+import { resolveCaller, type Caller, type CallerDeps } from '../auth/caller.js';
 import { isPlatformIdentity } from '../ownership.js';
 
-export interface ApiKeyInfo {
-  id: string;
-  name: string;
-  scopes: string[];
-  rateLimit: number;
-  creatorAddress: string;
-}
+export type ApiKeyInfo = Caller;
 
-export interface ApiKeyMiddlewareDeps {
-  findApiKeyByHash: (hash: string) => Promise<{
-    id: string;
-    name: string;
-    scopes: string[];
-    rateLimit: number;
-    creatorAddress: string;
-    isActive: boolean;
-    expiresAt: Date | null;
-  } | null>;
-  /** The live Studio session row for a session id, see resolveSession. */
-  findActiveSession: FindActiveSession;
-}
+export type ApiKeyMiddlewareDeps = CallerDeps;
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -37,79 +17,23 @@ declare global {
 }
 
 /**
- * Synthesise an ApiKeyInfo for a GitHub-authenticated Studio session.
- * The Studio UI doesn't manage its own API key — it trades the signed
- * session cookie for a virtual "manage"-scoped identity that lets it
- * exercise every REST endpoint exactly like a first-party SDK caller.
+ * Authenticate every request below /api/v1 (except /auth and the public spec)
+ * as a Studio session, the AUTH_DISABLED dev account or an API key, see
+ * resolveCaller. The result is `req.apiKey`, whose creatorAddress scopes
+ * every query.
  */
-function sessionIdentity(login: string): ApiKeyInfo {
-  return {
-    id: `session:${login}`,
-    name: `GitHub session (${login})`,
-    scopes: ['upload', 'read', 'manage'],
-    rateLimit: 1000,
-    creatorAddress: `github:${login.toLowerCase()}`,
-  };
-}
-
 export function createApiKeyMiddleware(deps: ApiKeyMiddlewareDeps) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    // Dev bypass: AUTH_DISABLED=true skips all auth checks and uses a
-    // synthetic dev identity.
-    if (env.AUTH_DISABLED) {
-      req.apiKey = sessionIdentity('dev');
-      next();
-      return;
-    }
-
     try {
-      // 1) Session cookie path (Studio UI).
-      const session = await resolveSession(req.headers.cookie, {
-        secret: env.SESSION_SECRET,
-        allowedUsers: env.GITHUB_ALLOWED_USERS,
-        findActiveSession: deps.findActiveSession,
-      });
-      if (session) {
-        req.apiKey = sessionIdentity(session.login);
-        next();
+      const result = await resolveCaller(
+        { cookie: req.headers.cookie, authorization: req.headers.authorization },
+        deps,
+      );
+      if (!result.ok) {
+        res.status(401).json({ error: result.error });
         return;
       }
-
-      // 2) API-key bearer path (SDK / programmatic callers).
-      const authHeader = req.headers.authorization;
-      if (!authHeader?.startsWith('Bearer ')) {
-        res.status(401).json({ error: 'Missing or invalid Authorization header' });
-        return;
-      }
-
-      const token = authHeader.slice(7);
-      const hash = hashApiKey(token);
-
-      const apiKey = await deps.findApiKeyByHash(hash);
-
-      if (!apiKey) {
-        res.status(401).json({ error: 'Invalid API key' });
-        return;
-      }
-
-      if (!apiKey.isActive) {
-        res.status(401).json({ error: 'API key is deactivated' });
-        return;
-      }
-
-      if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
-        res.status(401).json({ error: 'API key has expired' });
-        return;
-      }
-
-      req.apiKey = {
-        id: apiKey.id,
-        name: apiKey.name,
-        scopes: apiKey.scopes,
-        rateLimit: apiKey.rateLimit,
-        creatorAddress: apiKey.creatorAddress,
-      };
-
+      req.apiKey = result.caller;
       next();
     } catch (err) {
       logger.error({ err }, 'Authentication check failed');

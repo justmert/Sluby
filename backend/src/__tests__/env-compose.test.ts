@@ -25,6 +25,16 @@ describe('env from docker compose', () => {
     expect(envSchema.safeParse(composeEnv).success).toBe(false);
   });
 
+  it('accepts webhook networks as cidrs and refuses anything else at boot', () => {
+    expect(
+      envSchema.safeParse({ WEBHOOK_ALLOWED_NETWORKS: '10.0.5.0/24, fd00:5::/64' }).success,
+    ).toBe(true);
+    const bad = envSchema.safeParse({ WEBHOOK_ALLOWED_NETWORKS: '10.0.5.0/24,internal-hooks' });
+    expect(bad.success).toBe(false);
+    if (bad.success) return;
+    expect(bad.error.issues[0].message).toContain('internal-hooks');
+  });
+
   it('keeps real values', () => {
     expect(withoutEmpty({ A: 'x', B: '', C: undefined })).toEqual({ A: 'x' });
   });

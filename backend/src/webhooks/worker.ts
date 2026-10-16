@@ -6,6 +6,7 @@ import {
 } from '../db/queries/webhooks.js';
 import { WebhookDispatcher } from './dispatcher.js';
 import { createWebhookWorker } from './delivery.js';
+import { webhookEgressPolicy } from './policy.js';
 
 /**
  * The backend's webhook dispatcher and the worker that sends what it queues.
@@ -32,6 +33,7 @@ export const webhookWorker = createWebhookWorker({
     recordDelivery: async (data) => {
       await createWebhookDelivery(data);
     },
+    egress: webhookEgressPolicy(),
   },
 });
 

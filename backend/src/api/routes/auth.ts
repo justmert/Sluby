@@ -7,13 +7,15 @@ import {
   SESSION_TTL_SEC,
   buildClearCookie,
   buildSessionCookie,
-  isLoginAllowed,
   parseCookieHeader,
   resolveSession,
   signSession,
   type ActiveSession,
   type FindActiveSession,
 } from '../auth/session.js';
+import type { Account } from '../auth/access.js';
+import { getProvider, SignInError, type SignInProvider } from '../auth/providers/index.js';
+import type { SignInInput, SignInResult } from '../../db/queries/accounts.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,89 +25,109 @@ function isSecure(): boolean {
   return env.PUBLIC_URL.startsWith('https://');
 }
 
-function callbackUrl(): string {
-  return `${env.PUBLIC_URL.replace(/\/$/, '')}/api/v1/auth/github/callback`;
+function callbackUrl(provider: SignInProvider): string {
+  return `${env.PUBLIC_URL.replace(/\/$/, '')}/api/v1/auth/${provider.id}/callback`;
 }
 
 /**
- * A tiny in-memory set of currently-valid OAuth `state` values. Each entry
- * lives for ~10 minutes; the callback verifies + consumes a state to
- * mitigate CSRF on the OAuth handshake.
+ * Answer with fixed text. Never put request or provider input in it: the
+ * callback runs on the Studio's origin, so an echoed value would be script
+ * running with the user's session.
  */
-const PENDING_STATES = new Map<string, number>();
-const STATE_TTL_MS = 10 * 60 * 1000;
-
-function issueState(): string {
-  const now = Date.now();
-  // Opportunistic GC so the map stays bounded.
-  for (const [k, exp] of PENDING_STATES) {
-    if (exp < now) PENDING_STATES.delete(k);
-  }
-  const s = crypto.randomBytes(24).toString('base64url');
-  PENDING_STATES.set(s, now + STATE_TTL_MS);
-  return s;
+function plain(res: Response, status: number, message: string): void {
+  res
+    .status(status)
+    .set({
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'no-store',
+    })
+    .send(message);
 }
 
-function consumeState(s: string): boolean {
-  const exp = PENDING_STATES.get(s);
-  if (!exp) return false;
-  PENDING_STATES.delete(s);
-  return exp >= Date.now();
+const DEFAULT_LANDING = '/studio';
+
+/**
+ * Where to send the browser after sign-in: a path on this server, or /studio.
+ * The value is resolved against PUBLIC_URL the way a browser would, so
+ * `/\evil.example` (a backslash is a slash to browsers), `/\t/evil.example`
+ * (tabs are dropped) and `//evil.example` all land on another origin and are
+ * refused.
+ */
+export function safeRedirectPath(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw.startsWith('/')) return DEFAULT_LANDING;
+  const base = new URL(env.PUBLIC_URL);
+  let url: URL;
+  try {
+    url = new URL(raw, base);
+  } catch {
+    return DEFAULT_LANDING;
+  }
+  if (url.origin !== base.origin) return DEFAULT_LANDING;
+  const path = `${url.pathname}${url.search}${url.hash}`;
+  // dot segments can still normalise into a leading //, which a browser
+  // reads as a host
+  if (!path.startsWith('/') || path.startsWith('//')) return DEFAULT_LANDING;
+  return path;
 }
 
 // ---------------------------------------------------------------------------
-// GitHub API calls
+// The sign-in handshake cookie
 // ---------------------------------------------------------------------------
 
-interface GithubTokenResponse {
-  access_token?: string;
-  token_type?: string;
-  scope?: string;
-  error?: string;
-  error_description?: string;
+/**
+ * The state of a sign-in in progress lives in a cookie of the browser that
+ * started it, not on the server: the callback only accepts the state that
+ * this browser's cookie holds, so a callback URL made in someone else's
+ * browser (login CSRF) is refused, and any backend replica can finish it.
+ */
+const HANDSHAKE_COOKIE = 'sluby_signin';
+const HANDSHAKE_PATH = '/api/v1/auth';
+const HANDSHAKE_TTL_SEC = 10 * 60;
+
+interface Handshake {
+  provider: string;
+  issuedAt: number;
+  state: string;
+  next: string;
 }
 
-interface GithubUser {
-  login: string;
-  id: number;
-  avatar_url: string;
-  name: string | null;
-  email: string | null;
+function handshakeCookie(value: string, maxAgeSec: number): string {
+  const parts = [
+    `${HANDSHAKE_COOKIE}=${value}`,
+    `Path=${HANDSHAKE_PATH}`,
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${maxAgeSec}`,
+  ];
+  if (isSecure()) parts.push('Secure');
+  return parts.join('; ');
 }
 
-async function exchangeCodeForToken(code: string): Promise<string> {
-  const res = await fetch('https://github.com/login/oauth/access_token', {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      client_id: env.GITHUB_CLIENT_ID,
-      client_secret: env.GITHUB_CLIENT_SECRET,
-      code,
-      redirect_uri: callbackUrl(),
-    }),
-  });
-  const body = (await res.json()) as GithubTokenResponse;
-  if (!res.ok || body.error || !body.access_token) {
-    throw new Error(`GitHub token exchange failed: ${body.error ?? res.statusText}`);
-  }
-  return body.access_token;
+function encodeHandshake(h: Handshake): string {
+  const next = Buffer.from(h.next, 'utf8').toString('base64url');
+  return `${h.provider}.${h.issuedAt}.${h.state}.${next}`;
 }
 
-async function fetchGithubUser(accessToken: string): Promise<GithubUser> {
-  const res = await fetch('https://api.github.com/user', {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${accessToken}`,
-      'User-Agent': 'sluby',
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`GitHub /user call failed: ${res.status}`);
-  }
-  return (await res.json()) as GithubUser;
+function decodeHandshake(value: string | undefined): Handshake | null {
+  if (!value) return null;
+  const parts = value.split('.');
+  if (parts.length !== 4) return null;
+  const [provider, issuedAt, state, next] = parts;
+  const issued = Number(issuedAt);
+  if (!provider || !state || !Number.isSafeInteger(issued)) return null;
+  return {
+    provider,
+    issuedAt: issued,
+    state,
+    next: Buffer.from(next, 'base64url').toString('utf8'),
+  };
+}
+
+function sameState(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
 // ---------------------------------------------------------------------------
@@ -114,24 +136,29 @@ async function fetchGithubUser(accessToken: string): Promise<GithubUser> {
 
 export interface StudioSessionRecord {
   id: string;
-  login: string;
   userAgent: string | null;
   createdAt: Date;
   expiresAt: Date;
 }
 
 export interface AuthRouteDeps {
+  /** Apply the allowlist, find or create the account and claim legacy data, see signInIdentity. */
+  signIn: (input: SignInInput) => Promise<SignInResult>;
+  getAccount: (userId: string) => Promise<Account | null>;
+  /** The local dev account AUTH_DISABLED runs as, created on first use. */
+  localDevAccount: () => Promise<{ userId: string; username: string; displayName: string }>;
   createSession: (data: {
-    login: string;
+    userId: string;
+    identityId: string;
     expiresAt: Date;
     userAgent: string | null;
   }) => Promise<{ id: string }>;
   findActiveSession: FindActiveSession;
-  listActiveSessions: (login: string) => Promise<StudioSessionRecord[]>;
-  revokeSession: (id: string, login: string) => Promise<boolean>;
-  revokeAllSessions: (login: string) => Promise<number>;
+  listActiveSessions: (userId: string) => Promise<StudioSessionRecord[]>;
+  revokeSession: (id: string, userId: string) => Promise<boolean>;
+  revokeAllSessions: (userId: string) => Promise<number>;
   /** Drop sessions that ended before `olderThan`, see pruneStudioSessions. */
-  pruneSessions: (login: string, olderThan: Date) => Promise<void>;
+  pruneSessions: (userId: string, olderThan: Date) => Promise<void>;
 }
 
 // ended sessions stay listed nowhere, but keep their rows a while for audit
@@ -140,158 +167,185 @@ export const ENDED_SESSION_RETENTION_MS = 30 * 24 * 3600 * 1000;
 export function createAuthRoutes(deps: AuthRouteDeps): Router {
   const router = Router();
 
-  const currentSession = (req: Request): Promise<ActiveSession | null> =>
+  const currentSession = async (
+    req: Request,
+  ): Promise<{ session: ActiveSession; account: Account } | null> =>
     resolveSession(req.headers.cookie, {
       secret: env.SESSION_SECRET,
-      allowedUsers: env.GITHUB_ALLOWED_USERS,
       findActiveSession: deps.findActiveSession,
+      getAccount: deps.getAccount,
     });
 
   /** The caller's live session, or a 401. Only a Studio session, never a key. */
-  const requireSession = async (req: Request): Promise<ActiveSession> => {
+  const requireSession = async (req: Request) => {
     if (env.AUTH_DISABLED) {
       throw new AppError(409, 'Sign-in is disabled on this server, so there are no sessions');
     }
-    const session = await currentSession(req);
-    if (!session) throw new AppError(401, 'Not signed in');
-    return session;
+    const current = await currentSession(req);
+    if (!current) throw new AppError(401, 'Not signed in');
+    return current;
+  };
+
+  /** The provider named in the path, or null after answering 404 for an unknown one. */
+  const providerOf = (req: Request, res: Response): SignInProvider | null => {
+    const provider = getProvider(String(req.params.provider));
+    // answered here rather than passed on, or the request would reach the
+    // api-key check below and read as a missing key instead of a bad path
+    if (!provider) res.status(404).json({ error: 'No such sign-in provider' });
+    return provider ?? null;
   };
 
   /**
-   * GET /api/v1/auth/github/login
-   * Starts the OAuth handshake. Issues a state token, stashes it, and
-   * 302s the browser to GitHub's consent page.
+   * GET /api/v1/auth/:provider/login
+   * Starts a sign-in: remembers a fresh state and where to land afterwards in
+   * this browser's handshake cookie, and sends the browser to the provider.
    */
-  router.get('/github/login', (req: Request, res: Response) => {
-    if (!env.GITHUB_CLIENT_ID) {
-      res.status(500).json({ error: 'GitHub OAuth is not configured' });
+  router.get('/:provider/login', (req: Request, res: Response) => {
+    const provider = providerOf(req, res);
+    if (!provider) return;
+    if (!provider.isConfigured()) {
+      res.status(500).json({ error: `${provider.label} sign-in is not configured` });
       return;
     }
-    const state = issueState();
-    const authUrl = new URL('https://github.com/login/oauth/authorize');
-    authUrl.searchParams.set('client_id', env.GITHUB_CLIENT_ID);
-    authUrl.searchParams.set('redirect_uri', callbackUrl());
-    authUrl.searchParams.set('scope', 'read:user');
-    authUrl.searchParams.set('state', state);
-
-    // Optional per-request post-login redirect path (relative). The caller
-    // can land users back where they started after auth completes.
-    const next = String(req.query.next ?? '/studio');
-    const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/studio';
-
-    const nextCookie = [
-      `sluby_login_next=${encodeURIComponent(safeNext)}`,
-      'Path=/',
-      'HttpOnly',
-      'SameSite=Lax',
-      `Max-Age=${10 * 60}`,
-    ];
-    if (isSecure()) nextCookie.push('Secure');
-    res.setHeader('Set-Cookie', nextCookie.join('; '));
-    res.redirect(authUrl.toString());
+    const handshake: Handshake = {
+      provider: provider.id,
+      issuedAt: Math.floor(Date.now() / 1000),
+      state: crypto.randomBytes(24).toString('base64url'),
+      next: safeRedirectPath(req.query.next),
+    };
+    res.setHeader('Set-Cookie', handshakeCookie(encodeHandshake(handshake), HANDSHAKE_TTL_SEC));
+    res.redirect(
+      provider.authorizationUrl({ state: handshake.state, callbackUrl: callbackUrl(provider) }),
+    );
   });
 
   /**
-   * GET /api/v1/auth/github/callback?code=...&state=...
-   * Exchanges the code for an access token, fetches the user's profile,
-   * enforces the allowlist, issues a signed session cookie, and
-   * redirects the browser back into the Studio.
+   * GET /api/v1/auth/:provider/callback
+   * Finishes a sign-in started in this browser: checks the state against the
+   * handshake cookie, lets the provider verify the person, applies the
+   * allowlist, signs the account in and redirects into the Studio.
    */
-  router.get('/github/callback', async (req: Request, res: Response) => {
-    if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
-      res.status(500).send('GitHub OAuth is not configured');
+  router.get('/:provider/callback', async (req: Request, res: Response) => {
+    const provider = providerOf(req, res);
+    if (!provider) return;
+
+    // the handshake is single use whatever happens next
+    const clear = handshakeCookie('', 0);
+    res.setHeader('Set-Cookie', clear);
+
+    if (!provider.isConfigured()) {
+      plain(res, 500, `${provider.label} sign-in is not configured.`);
       return;
     }
 
-    const code = String(req.query.code ?? '');
-    const state = String(req.query.state ?? '');
-    const err = req.query.error as string | undefined;
-
-    if (err) {
-      logger.warn({ err }, 'GitHub OAuth returned error');
-      res.status(400).send(`GitHub login failed: ${err}`);
-      return;
-    }
-    if (!code || !state) {
-      res.status(400).send('Missing code or state');
-      return;
-    }
-    if (!consumeState(state)) {
-      res.status(400).send('Invalid or expired state');
+    const handshake = decodeHandshake(parseCookieHeader(req.headers.cookie)[HANDSHAKE_COOKIE]);
+    const state = req.query.state;
+    const age = handshake ? Math.floor(Date.now() / 1000) - handshake.issuedAt : -1;
+    if (
+      !handshake ||
+      handshake.provider !== provider.id ||
+      age < 0 ||
+      age > HANDSHAKE_TTL_SEC ||
+      typeof state !== 'string' ||
+      !sameState(state, handshake.state)
+    ) {
+      plain(res, 400, 'This sign-in has expired or was started in another browser. Sign in again.');
       return;
     }
 
     try {
-      const accessToken = await exchangeCodeForToken(code);
-      const user = await fetchGithubUser(accessToken);
+      const profile = await provider.completeSignIn(req.query as Record<string, unknown>, {
+        callbackUrl: callbackUrl(provider),
+      });
 
-      // Allowlist enforcement is a runtime setting rather than commented-out
-      // code: when GITHUB_ALLOWED_USERS lists any logins, only those may sign
-      // in. Leaving it empty keeps sign-in open, which is what the public
-      // review deployment wants; startup logs a warning in that case so an
-      // open Studio is never a silent surprise.
-      if (!isLoginAllowed(user.login, env.GITHUB_ALLOWED_USERS)) {
-        logger.warn({ login: user.login }, 'GitHub user not in allowlist');
-        res
-          .status(403)
-          .send(`Access denied: GitHub user "${user.login}" is not on the Studio allowlist.`);
+      const allowlist = provider.allowlist();
+      const result = await deps.signIn({
+        provider: provider.id,
+        subject: profile.subject,
+        username: profile.username,
+        displayName: profile.displayName,
+        legacyAddress: provider.legacyOwnerAddress?.(profile),
+        decide: (pins) => allowlist.atSignIn(profile.subject, profile.username, pins),
+      });
+      if (result.status === 'refused') {
+        logger.warn(
+          { provider: provider.id, subject: profile.subject, username: profile.username },
+          'Sign-in refused by the allowlist',
+        );
+        plain(
+          res,
+          403,
+          `Access denied: ${provider.label} account "${profile.username}" is not on the Studio allowlist.`,
+        );
         return;
       }
 
-      await deps.pruneSessions(user.login, new Date(Date.now() - ENDED_SESSION_RETENTION_MS));
+      await deps.pruneSessions(result.userId, new Date(Date.now() - ENDED_SESSION_RETENTION_MS));
       const userAgent = req.headers['user-agent'];
       const session = await deps.createSession({
-        login: user.login,
+        userId: result.userId,
+        identityId: result.identityId,
         expiresAt: new Date(Date.now() + SESSION_TTL_SEC * 1000),
         userAgent: typeof userAgent === 'string' ? userAgent.slice(0, 500) : null,
       });
-      const token = signSession(session.id, user.login, env.SESSION_SECRET);
-      const setCookies = [
-        buildSessionCookie(token, {
-          maxAgeSec: SESSION_TTL_SEC,
-          secure: isSecure(),
-        }),
-      ];
-
-      const cookies = parseCookieHeader(req.headers.cookie);
-      const next = cookies['sluby_login_next'];
-      const redirectTo = next && next.startsWith('/') && !next.startsWith('//') ? next : '/studio';
-
-      // Clear the one-shot next cookie.
-      const clearNext = ['sluby_login_next=', 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
-      if (isSecure()) clearNext.push('Secure');
-      setCookies.push(clearNext.join('; '));
-
-      res.setHeader('Set-Cookie', setCookies);
-      res.redirect(redirectTo);
+      const token = signSession(session.id, result.userId, env.SESSION_SECRET);
+      res.setHeader('Set-Cookie', [
+        buildSessionCookie(token, { maxAgeSec: SESSION_TTL_SEC, secure: isSecure() }),
+        clear,
+      ]);
+      // checked again: the cookie came back from the browser
+      res.redirect(safeRedirectPath(handshake.next));
     } catch (e) {
-      logger.error({ err: e }, 'GitHub OAuth callback failed');
-      res.status(500).send('GitHub login failed. Please try again.');
+      if (e instanceof SignInError) {
+        plain(res, e.reason === 'failed' ? 500 : 400, e.message);
+        return;
+      }
+      logger.error({ err: e, provider: provider.id }, 'Sign-in callback failed');
+      plain(res, 500, `${provider.label} sign-in failed. Please try again.`);
     }
   });
 
   /**
    * GET /api/v1/auth/me
-   * Returns the current session's user profile. 401 when not signed in.
-   * The Studio polls this on load to decide whether to show the sign-in
-   * screen or the app.
+   * The signed-in account: its id and display name, and the provider and
+   * handle the browser signed in with. 401 when not signed in. The Studio
+   * calls this on load to decide whether to show the sign-in screen.
    */
   router.get('/me', async (req: Request, res: Response) => {
     // snake_case and an ISO expiry like the rest of the api; the camelCase
     // fields stay one more release because the Studio still reads them
     if (env.AUTH_DISABLED) {
-      res.json({ login: 'dev', auth_disabled: true, expires_at: null, authDisabled: true });
+      const dev = await deps.localDevAccount();
+      res.json({
+        id: dev.userId,
+        name: dev.displayName,
+        username: dev.username,
+        provider: 'local',
+        provider_label: 'Local',
+        auth_disabled: true,
+        expires_at: null,
+        providerLabel: 'Local',
+        authDisabled: true,
+      });
       return;
     }
-    const session = await currentSession(req);
-    if (!session) {
+    const current = await currentSession(req);
+    if (!current) {
       res.status(401).json({ error: 'Not signed in' });
       return;
     }
+    const { session, account } = current;
+    const identity = account.identities.find((i) => i.id === session.identityId);
+    const providerLabel = (identity && getProvider(identity.provider)?.label) ?? null;
     res.json({
-      login: session.login,
+      id: account.id,
+      name: account.displayName,
+      username: identity?.username ?? account.displayName,
+      provider: identity?.provider ?? null,
+      provider_label: providerLabel,
       auth_disabled: false,
       expires_at: session.expiresAt.toISOString(),
+      providerLabel,
       expiresAt: Math.floor(session.expiresAt.getTime() / 1000),
     });
   });
@@ -301,19 +355,19 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
    * Ends the current session server-side and clears the cookie.
    */
   router.post('/logout', async (req: Request, res: Response) => {
-    const session = await currentSession(req);
-    if (session) await deps.revokeSession(session.id, session.login);
+    const current = await currentSession(req);
+    if (current) await deps.revokeSession(current.session.id, current.session.userId);
     res.setHeader('Set-Cookie', buildClearCookie(isSecure()));
     res.json({ success: true });
   });
 
   /**
    * GET /api/v1/auth/sessions
-   * The signed-in user's live sessions, newest first, marking the current one.
+   * The signed-in account's live sessions, newest first, marking the current one.
    */
   router.get('/sessions', async (req: Request, res: Response) => {
-    const session = await requireSession(req);
-    const rows = await deps.listActiveSessions(session.login);
+    const { session } = await requireSession(req);
+    const rows = await deps.listActiveSessions(session.userId);
     res.json({
       data: rows.map((r) => ({
         id: r.id,
@@ -327,13 +381,13 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
 
   /**
    * DELETE /api/v1/auth/sessions/:id
-   * Ends one of the signed-in user's sessions. Ending the current one also
+   * Ends one of the signed-in account's sessions. Ending the current one also
    * clears its cookie.
    */
   router.delete('/sessions/:id', async (req: Request, res: Response) => {
-    const session = await requireSession(req);
+    const { session } = await requireSession(req);
     const id = String(req.params.id);
-    if (!(await deps.revokeSession(id, session.login))) {
+    if (!(await deps.revokeSession(id, session.userId))) {
       throw new AppError(404, 'Session not found');
     }
     if (id === session.id) res.setHeader('Set-Cookie', buildClearCookie(isSecure()));
@@ -342,11 +396,12 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
 
   /**
    * DELETE /api/v1/auth/sessions
-   * Signs the user out everywhere, this browser included.
+   * Signs the account out everywhere, this browser included. API keys are
+   * not touched: they are revoked from the keys page.
    */
   router.delete('/sessions', async (req: Request, res: Response) => {
-    const session = await requireSession(req);
-    const revoked = await deps.revokeAllSessions(session.login);
+    const { session } = await requireSession(req);
+    const revoked = await deps.revokeAllSessions(session.userId);
     res.setHeader('Set-Cookie', buildClearCookie(isSecure()));
     res.json({ success: true, revoked });
   });

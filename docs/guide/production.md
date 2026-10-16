@@ -60,7 +60,11 @@ GITHUB_CLIENT_SECRET=...
 GITHUB_ALLOWED_USERS=your-login,a-colleague
 ```
 
-`GITHUB_ALLOWED_USERS` is a comma-separated list of GitHub logins. Leave it empty and any GitHub account can sign in; each one gets its own isolated library, and the backend logs a warning at startup. Sluby has no per-account quotas (only `MAX_UPLOAD_SIZE` per file), so an open Studio lets anyone with a GitHub account fill your disk, keep the transcoder busy and spend your Sia storage. Keep the list set unless you mean to run an open service with limits of your own in front of it.
+`GITHUB_ALLOWED_USERS` says who may sign in: GitHub logins, `id:<numeric GitHub id>` entries, or `*` for anyone. Each person gets their own account, keyed on their numeric GitHub id rather than the login, so a renamed or re-registered login never moves data between people. A login entry is matched when someone signs in and then pinned to that account: it keeps admitting them after a rename and refuses whoever registers the freed login next. To move an entry to another account, write it as `id:<number>` (`https://api.github.com/users/<login>` shows the id). Removing an entry signs that person out and stops their API keys on their next request; adding it back restores the keys. `*` opens sign-up to every GitHub account, and so does an empty value, which the backend warns about at startup. An open Studio lets anyone store and transcode video on your Sia account with no quota, so put limits in front of it before opening it. See [the allowlist](/architecture/auth-and-tenancy#the-allowlist).
+
+The Studio needs https outside localhost: the session cookie is only marked `Secure` when `PUBLIC_URL` starts with `https://`, and the backend logs a warning when `PUBLIC_URL` is plain http on any other host.
+
+Upgrading from a version that keyed accounts on GitHub logins signs everyone out once. Each person's first sign-in after the upgrade links their old assets, keys and webhooks to their account (see [upgrading](/architecture/auth-and-tenancy#upgrading-from-login-keyed-versions)); their API keys keep working in the meantime.
 
 ## 3. Connect to a Sia indexer
 

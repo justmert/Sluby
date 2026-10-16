@@ -56,7 +56,7 @@ describe('WebhookDispatcher', () => {
     expect(deps.queue.addBulk).not.toHaveBeenCalled();
   });
 
-  it('queues one job per endpoint, all with the same body and no fixed job id', async () => {
+  it('queues one job per endpoint, all with the same body and event id, and no fixed job id', async () => {
     vi.mocked(deps.getActiveWebhooksForEvent).mockResolvedValue([
       createEndpoint({ id: 'ep-1' }),
       createEndpoint({ id: 'ep-2', url: 'https://b.example/hook' }),
@@ -74,6 +74,7 @@ describe('WebhookDispatcher', () => {
 
     const body = JSON.parse(jobs[0].data.body);
     expect(body).toEqual({
+      id: expect.stringMatching(/^evt_/),
       event: 'upload.completed',
       timestamp: expect.any(String),
       data: { id: '123' },
@@ -81,7 +82,10 @@ describe('WebhookDispatcher', () => {
     expect(new Date(body.timestamp).toISOString()).toBe(body.timestamp);
     // the secret stays in postgres; the worker reads it when it sends
     expect(jobs[0].data.body).not.toContain('secret-abc');
-    expect(Object.keys(jobs[0].data).sort()).toEqual(['body', 'endpointId', 'event']);
+    expect(Object.keys(jobs[0].data).sort()).toEqual(['body', 'deliveryId', 'endpointId', 'event']);
+    // each endpoint's delivery has its own id, kept across its retries
+    expect(jobs[0].data.deliveryId).toMatch(/^dlv_/);
+    expect(jobs[0].data.deliveryId).not.toBe(jobs[1].data.deliveryId);
   });
 
   it('queues the same event twice when it is dispatched twice', async () => {

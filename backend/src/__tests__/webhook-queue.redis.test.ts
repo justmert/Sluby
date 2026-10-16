@@ -19,6 +19,7 @@ import {
   type WebhookJobData,
 } from '../webhooks/delivery.js';
 import { verifySignature } from '../webhooks/signature.js';
+import { parseCidrList } from '../webhooks/egress.js';
 
 /**
  * The webhook queue against a real redis and a real http receiver: retries,
@@ -84,6 +85,8 @@ describe.skipIf(!hasTestRedis)('webhook queue (redis)', () => {
       recordDelivery: async (row) => {
         recorded.push(row);
       },
+      // the receiver runs on loopback, which needs an operator exemption
+      egress: { allowedNetworks: parseCidrList('127.0.0.1/32') },
     };
   });
 
@@ -215,6 +218,6 @@ describe.skipIf(!hasTestRedis)('webhook queue (redis)', () => {
     expect(recorded.map((r) => r.retryCount)).toEqual([0, 1, 2, 3]);
     const job = await onlyJob();
     expect(job.attemptsMade).toBe(4);
-    expect(job.failedReason).toBe('Webhook endpoint answered 500');
+    expect(job.failedReason).toBe('Webhook delivery failed: the receiver answered 500');
   }, 20_000);
 });

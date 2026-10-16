@@ -23,6 +23,30 @@ export interface WebhookRouteDeps {
   >;
   /** Deletes only if the endpoint belongs to the account; false when it does not. */
   deleteWebhook: (id: string, creatorAddress: string) => Promise<boolean>;
+  /**
+   * Why a receiver URL may not be registered (not http(s), or its host
+   * resolves to an address webhooks may not reach), or null when it may.
+   */
+  vetWebhookUrl: (url: string) => Promise<string | null>;
+  /** Send a signed `webhook.test` event now; null when the endpoint is not the account's. */
+  testWebhook: (
+    id: string,
+    creatorAddress: string,
+  ) => Promise<{ delivered: boolean; statusCode: number | null; error: string | null } | null>;
+  /** The endpoint's latest delivery attempts, newest first; null when it is not the account's. */
+  listWebhookDeliveries: (
+    id: string,
+    creatorAddress: string,
+    limit: number,
+  ) => Promise<Array<{
+    id: string;
+    eventId: string | null;
+    event: string;
+    statusCode: number | null;
+    error: string | null;
+    attempt: number;
+    createdAt: Date;
+  }> | null>;
 }
 
 /** Events the pipeline actually emits. */
@@ -48,15 +72,9 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
     if (!url || typeof url !== 'string') {
       throw new AppError(400, 'URL is required');
     }
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      throw new AppError(400, 'URL must be an absolute http(s) URL');
-    }
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      throw new AppError(400, 'URL must be an absolute http(s) URL');
-    }
+    // checked again before every delivery, since dns can change after this
+    const refused = await deps.vetWebhookUrl(url);
+    if (refused) throw new AppError(400, `URL refused: ${refused}`);
 
     if (!events || !Array.isArray(events) || events.length === 0) {
       throw new AppError(400, 'At least one event type is required');
@@ -89,9 +107,10 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
 
   /**
    * GET /api/v1/webhooks
-   * List registered webhook endpoints.
+   * List registered webhook endpoints. Needs `manage` like creating them:
+   * receiver URLs often carry credentials or hook tokens.
    */
-  router.get('/', requireScope('read'), async (req: Request, res: Response) => {
+  router.get('/', requireScope('manage'), async (req: Request, res: Response) => {
     const webhooks = await deps.listWebhooks(req.apiKey!.creatorAddress);
 
     res.json({
@@ -116,6 +135,53 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
       throw new AppError(404, 'Webhook endpoint not found');
     }
     res.json({ success: true });
+  });
+
+  /**
+   * POST /api/v1/webhooks/:id/test
+   * Send a signed `webhook.test` event to the endpoint now and report how the
+   * receiver answered. Recorded with the other deliveries.
+   */
+  router.post('/:id/test', requireScope('manage'), async (req: Request, res: Response) => {
+    const result = await deps.testWebhook(String(req.params.id), req.apiKey!.creatorAddress);
+    if (!result) throw new AppError(404, 'Webhook endpoint not found');
+    res.json({
+      delivered: result.delivered,
+      status_code: result.statusCode,
+      error: result.error,
+    });
+  });
+
+  /**
+   * GET /api/v1/webhooks/:id/deliveries
+   * The endpoint's latest delivery attempts, newest first: the event, the
+   * receiver's status code and, for a failure, why. Response bodies are
+   * never stored.
+   */
+  router.get('/:id/deliveries', requireScope('manage'), async (req: Request, res: Response) => {
+    const raw = req.query.limit;
+    const limit = raw === undefined ? 50 : Number(raw);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new AppError(400, 'limit must be an integer from 1 to 100');
+    }
+    const rows = await deps.listWebhookDeliveries(
+      String(req.params.id),
+      req.apiKey!.creatorAddress,
+      limit,
+    );
+    if (!rows) throw new AppError(404, 'Webhook endpoint not found');
+    res.json({
+      data: rows.map((d) => ({
+        id: d.id,
+        event_id: d.eventId,
+        event: d.event,
+        status_code: d.statusCode,
+        delivered: d.statusCode !== null && d.statusCode >= 200 && d.statusCode < 300,
+        error: d.error,
+        attempt: d.attempt,
+        created_at: d.createdAt.toISOString(),
+      })),
+    });
   });
 
   return router;

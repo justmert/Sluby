@@ -1,6 +1,6 @@
 import type { Queue } from 'bullmq';
 import { logger } from '../config/logger.js';
-import type { WebhookJobData } from './delivery.js';
+import { eventBody, newDeliveryId, type WebhookJobData } from './delivery.js';
 
 export interface WebhookEndpointRecord {
   id: string;
@@ -38,7 +38,8 @@ export class WebhookDispatcher {
       return;
     }
 
-    const body = JSON.stringify({ event, timestamp: new Date().toISOString(), data });
+    // one event id for every endpoint, so a receiver can drop a repeat
+    const body = eventBody(event, data);
 
     // ids are left to bullmq: each dispatch is a new event and must never be
     // dropped as a duplicate of an earlier job, which a fixed id would risk
@@ -46,7 +47,7 @@ export class WebhookDispatcher {
     await this.deps.queue.addBulk(
       endpoints.map((endpoint) => ({
         name: event,
-        data: { endpointId: endpoint.id, event, body },
+        data: { endpointId: endpoint.id, event, body, deliveryId: newDeliveryId() },
       })),
     );
   }
