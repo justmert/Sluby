@@ -66,11 +66,11 @@
     "@tus/server": "^2.4.5",
     "@types/node": "^22.0.0",
     "@vitest/browser-playwright": "^5.0.3",
-    "@vitest/coverage-v8": "^5.0.3",
+    "@vitest/coverage-v8": "^5.0.4",
     "playwright": "^1.64.0",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.4"
   },
   "bugs": {
     "url": "https://github.com/justmert/Sluby/issues"
