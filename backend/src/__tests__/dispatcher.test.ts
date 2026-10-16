@@ -16,7 +16,6 @@ function createEndpoint(overrides: Partial<WebhookEndpointRecord> = {}): Webhook
     id: 'endpoint-1',
     url: 'https://example.com/webhook',
     events: ['upload.completed'],
-    secret: 'secret-abc',
     isActive: true,
     ...overrides,
   };
@@ -80,8 +79,6 @@ describe('WebhookDispatcher', () => {
       data: { id: '123' },
     });
     expect(new Date(body.timestamp).toISOString()).toBe(body.timestamp);
-    // the secret stays in postgres; the worker reads it when it sends
-    expect(jobs[0].data.body).not.toContain('secret-abc');
     expect(Object.keys(jobs[0].data).sort()).toEqual(['body', 'deliveryId', 'endpointId', 'event']);
     // each endpoint's delivery has its own id, kept across its retries
     expect(jobs[0].data.deliveryId).toMatch(/^dlv_/);

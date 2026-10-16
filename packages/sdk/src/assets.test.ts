@@ -3,10 +3,6 @@ import { AssetManager } from './assets.js';
 import { AbortError, ProcessingFailedError, SlubyError, TimeoutError } from './errors.js';
 import type { FetchFn } from './uploads.js';
 
-// ---------------------------------------------------------------------------
-// Mock fetch function
-// ---------------------------------------------------------------------------
-
 let mockFetch: ReturnType<typeof vi.fn<FetchFn>>;
 
 const SAMPLE_RAW_ASSET = {
@@ -55,10 +51,6 @@ function makeJsonResponse(body: unknown): Response {
 beforeEach(() => {
   mockFetch = vi.fn<FetchFn>();
 });
-
-// ---------------------------------------------------------------------------
-// Tests: list()
-// ---------------------------------------------------------------------------
 
 describe('AssetManager.list()', () => {
   it('should GET /api/v1/assets without query params when no options provided', async () => {
@@ -179,10 +171,6 @@ describe('AssetManager.list()', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Tests: get()
-// ---------------------------------------------------------------------------
-
 describe('AssetManager.get()', () => {
   it('should GET /api/v1/assets/:id and map the response', async () => {
     mockFetch.mockResolvedValueOnce(makeJsonResponse(SAMPLE_RAW_ASSET));
@@ -215,10 +203,6 @@ describe('AssetManager.get()', () => {
     expect(result.thumbnailObjectIds).toEqual([]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Tests: update()
-// ---------------------------------------------------------------------------
 
 describe('AssetManager.update()', () => {
   it('should PATCH /api/v1/assets/:id with camelCase to snake_case mapping', async () => {
@@ -276,10 +260,6 @@ describe('AssetManager.update()', () => {
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
   });
 });
-
-// ---------------------------------------------------------------------------
-// Tests: delete()
-// ---------------------------------------------------------------------------
 
 describe('AssetManager.delete()', () => {
   it('should DELETE /api/v1/assets/:id', async () => {
@@ -344,10 +324,6 @@ describe('AssetManager.retry()', () => {
     expect(result).toEqual({ stage: 'upload' });
   });
 });
-
-// ---------------------------------------------------------------------------
-// Tests: waitForReady()
-// ---------------------------------------------------------------------------
 
 describe('AssetManager.waitForReady()', () => {
   it('should return immediately if asset is already ready', async () => {

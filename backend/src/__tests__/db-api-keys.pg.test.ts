@@ -40,6 +40,13 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       ...overrides,
     });
 
+  // the key a bearer token names, if it is active and unexpired; the
+  // middleware tests at the end check the same rules through the real path
+  const usable = async (rawKey: string) => {
+    const key = await q.getApiKeyByHash(hashApiKey(rawKey));
+    return key?.isActive && !(key.expiresAt && key.expiresAt < new Date()) ? key : undefined;
+  };
+
   describe('createApiKey', () => {
     it('stores only the sha-256 of a generated sluby_ key', async () => {
       const { apiKey, rawKey } = await newKey();
@@ -71,20 +78,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       expect((await q.getApiKeyByHash(hashApiKey(rawKey)))?.id).toBe(apiKey.id);
       expect(await q.getApiKeyByHash(hashApiKey(`${rawKey}x`))).toBeUndefined();
       // the stored hash is not itself a key
-      expect(await q.validateApiKey(apiKey.keyHash)).toBeUndefined();
-    });
-
-    it('validates an active key and refuses inactive, expired and unknown ones', async () => {
-      const active = await newKey();
-      const inactive = await newKey({ isActive: false });
-      const expired = await newKey({ expiresAt: new Date(Date.now() - 1000) });
-      const future = await newKey({ expiresAt: new Date(Date.now() + 60_000) });
-
-      expect((await q.validateApiKey(active.rawKey))?.id).toBe(active.apiKey.id);
-      expect((await q.validateApiKey(future.rawKey))?.id).toBe(future.apiKey.id);
-      expect(await q.validateApiKey(inactive.rawKey)).toBeUndefined();
-      expect(await q.validateApiKey(expired.rawKey)).toBeUndefined();
-      expect(await q.validateApiKey(generateApiKey().key)).toBeUndefined();
+      expect(await q.getApiKeyByHash(hashApiKey(apiKey.keyHash))).toBeUndefined();
     });
   });
 
@@ -197,17 +191,17 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       expect(row.replaced_by_id).toBe(result.replacement.id);
 
       // both work during the grace period, then only the new one
-      expect(await q.validateApiKey(old.rawKey)).toBeDefined();
-      expect(await q.validateApiKey(next.key)).toBeDefined();
+      expect(await usable(old.rawKey)).toBeDefined();
+      expect(await usable(next.key)).toBeDefined();
       await tdb.sql`update api_keys set expires_at = now() - interval '1 second' where id = ${old.apiKey.id}`;
-      expect(await q.validateApiKey(old.rawKey)).toBeUndefined();
-      expect(await q.validateApiKey(next.key)).toBeDefined();
+      expect(await usable(old.rawKey)).toBeUndefined();
+      expect(await usable(next.key)).toBeDefined();
     });
 
     it('retires the old key at once with no grace period', async () => {
       const old = await newKey();
       await q.rotateApiKey(old.apiKey.id, 'alice', generateApiKey().hash, new Date());
-      expect(await q.validateApiKey(old.rawKey)).toBeUndefined();
+      expect(await usable(old.rawKey)).toBeUndefined();
     });
 
     it('never pushes an earlier expiry out', async () => {
@@ -283,7 +277,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       expect(second.status).toBe('already_rotated');
       // the old key keeps working until its grace period ends, and the
       // replacement can itself be rotated
-      expect(await q.validateApiKey(old.rawKey)).toBeDefined();
+      expect(await usable(old.rawKey)).toBeDefined();
       if (first.status !== 'rotated') throw new Error('not rotated');
       const third = await q.rotateApiKey(
         first.replacement.id,
@@ -300,7 +294,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       await expect(
         q.rotateApiKey(a.apiKey.id, 'alice', b.apiKey.keyHash, new Date()),
       ).rejects.toMatchObject({ cause: { code: '23505' } });
-      expect(await q.validateApiKey(a.rawKey)).toBeDefined();
+      expect(await usable(a.rawKey)).toBeDefined();
       const [{ n }] = await tdb.sql`select count(*)::int as n from api_keys`;
       expect(n).toBe(2);
     });
@@ -311,7 +305,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_bootstrap_secret')).toBe(
         'created',
       );
-      const key = await q.validateApiKey('sluby_bootstrap_secret');
+      const key = await usable('sluby_bootstrap_secret');
       expect(key).toMatchObject({
         name: 'bootstrap',
         scopes: ['upload', 'read', 'manage'],
@@ -335,7 +329,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       await q.rotateApiKey(row!.id, undefined, generateApiKey().hash, new Date());
 
       expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_boot')).toBe('exists');
-      expect(await q.validateApiKey('sluby_boot')).toBeUndefined();
+      expect(await usable('sluby_boot')).toBeUndefined();
     });
 
     it('never seeds a deleted bootstrap key again', async () => {
@@ -344,7 +338,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       await q.deleteApiKey(row!.id);
 
       expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_boot')).toBe('retired');
-      expect(await q.validateApiKey('sluby_boot')).toBeUndefined();
+      expect(await usable('sluby_boot')).toBeUndefined();
     });
 
     it('keeps a rotated bootstrap key retired after its expired row is deleted', async () => {
@@ -354,14 +348,14 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       await q.deleteApiKey(row!.id);
 
       expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_boot')).toBe('retired');
-      expect(await q.validateApiKey('sluby_boot')).toBeUndefined();
+      expect(await usable('sluby_boot')).toBeUndefined();
     });
 
     it('seeds a new bootstrap value after the old one was retired', async () => {
       await seeding.seedBootstrapApiKey(database.db, 'sluby_boot');
       await q.deleteApiKey((await q.getApiKeyByHash(hashApiKey('sluby_boot')))!.id);
       expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_boot_2')).toBe('created');
-      expect(await q.validateApiKey('sluby_boot_2')).toBeDefined();
+      expect(await usable('sluby_boot_2')).toBeDefined();
     });
 
     it('seeds once when replicas start together', async () => {
@@ -390,12 +384,12 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
 
   describe('cli admin key seeding', () => {
     it('mints a full-scope key for the given account and returns it once', async () => {
-      const { id, rawKey } = await seeding.createAdminApiKey(database.db, {
+      const { id, rawKey } = await seeding.createAdminApiKey({
         name: 'ops',
         creatorAddress: `0x${'0'.repeat(64)}`,
       });
       expect(rawKey).toMatch(/^sluby_[A-Za-z0-9_-]{43}$/);
-      expect(await q.validateApiKey(rawKey)).toMatchObject({
+      expect(await usable(rawKey)).toMatchObject({
         id,
         name: 'ops',
         scopes: ['upload', 'read', 'manage'],
@@ -442,7 +436,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
     it('authenticates keys from every minting path', async () => {
       const created = await newKey();
       await seeding.seedBootstrapApiKey(database.db, 'sluby_boot');
-      const admin = await seeding.createAdminApiKey(database.db, {
+      const admin = await seeding.createAdminApiKey({
         name: 'a',
         creatorAddress: 'ops',
       });

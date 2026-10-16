@@ -39,18 +39,6 @@ export async function getProcessingJobByVideoAssetId(
 }
 
 /**
- * Find a processing job by its associated upload session ID.
- */
-export async function getProcessingJobByUploadSessionId(
-  uploadSessionId: string,
-): Promise<ProcessingJob | undefined> {
-  return db.query.processingJobs.findFirst({
-    where: eq(processingJobs.uploadSessionId, uploadSessionId),
-    orderBy: [desc(processingJobs.createdAt)],
-  });
-}
-
-/**
  * Update the status and progress of a processing job. `startedAt` is set by
  * the first move to processing of a run only, so the duration covers every
  * attempt and not just the last one.

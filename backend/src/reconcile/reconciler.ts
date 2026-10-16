@@ -1,14 +1,9 @@
 /**
- * Reconciliation orchestrator.
- *
- * Gathers the two inventories (what PostgreSQL tracks vs. what the indexer
- * pins), diffs them, and persists a run record. It is deliberately
- * report-only: it flags orphans and missing objects but never deletes
- * anything, matching the proposal ("flagging orphaned objects for
- * cleanup"). Cleanup is a human/operator decision.
- *
- * All I/O is injected so the orchestration is unit-testable without a DB
- * or a live indexer.
+ * One reconciliation run: gather what Postgres tracks and what the indexer
+ * pins, diff them and save the run. It only reports. Orphans and missing
+ * objects are flagged and never deleted, because removing them is the
+ * operator's call. All I/O is injected, so it is tested without a database
+ * or an indexer.
  */
 
 import { diffInventory, type IndexerObjectState } from './inventory-diff.js';

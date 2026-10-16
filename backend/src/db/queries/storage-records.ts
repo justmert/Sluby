@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   renditions,
@@ -65,8 +65,6 @@ async function writeStorageRecords(
   }
 }
 
-// ── Pending objects ──
-//
 // Every object the pipeline pins is written to pending_objects just before
 // its pin, as `uploading`. Finalize promotes the run's objects to artifacts
 // and marks everything else of the asset `release`; a failed or cancelled
@@ -302,7 +300,11 @@ export interface ArtifactRecord {
   byteSize: number;
 }
 
-/** The asset's renditions, tallest first, as the pipeline recorded them. */
+/**
+ * The asset's renditions, tallest first, as the pipeline recorded them. One
+ * whose master playlist line gave no resolution has no height; postgres
+ * sorts nulls first in a descending order, so it is moved last.
+ */
 export async function getRenditions(videoAssetId: string): Promise<RenditionRecord[]> {
   const rows = await db
     .select({
@@ -317,7 +319,10 @@ export async function getRenditions(videoAssetId: string): Promise<RenditionReco
     })
     .from(renditions)
     .where(eq(renditions.videoAssetId, videoAssetId))
-    .orderBy(desc(renditions.height), desc(renditions.videoBitrateKbps));
+    .orderBy(
+      sql`${renditions.height} desc nulls last`,
+      sql`${renditions.videoBitrateKbps} desc nulls last`,
+    );
   return rows;
 }
 

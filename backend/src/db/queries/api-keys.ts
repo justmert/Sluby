@@ -63,26 +63,6 @@ export async function getApiKeyByHash(keyHash: string): Promise<ApiKey | undefin
 }
 
 /**
- * Validate a raw API key.
- * Hashes the key, looks it up, and checks it is active and not expired.
- * Returns the API key record if valid, undefined otherwise.
- */
-export async function validateApiKey(rawKey: string): Promise<ApiKey | undefined> {
-  const keyHash = hashApiKey(rawKey);
-  const key = await getApiKeyByHash(keyHash);
-
-  if (!key) return undefined;
-  if (!key.isActive) return undefined;
-
-  // Check expiration
-  if (key.expiresAt && key.expiresAt < new Date()) {
-    return undefined;
-  }
-
-  return key;
-}
-
-/**
  * One page of API keys, newest first. Only active, unexpired keys unless
  * `includeInactive`. `creatorAddress` undefined lists every account (the
  * platform identity). Keyset paging on (created_at, id), like the asset

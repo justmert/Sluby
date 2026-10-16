@@ -2,9 +2,8 @@
  * Keyset (cursor) pagination helpers.
  *
  * A cursor is an opaque, URL-safe token that encodes the sort key of the
- * last row on a page — here the `(createdAt, id)` pair, which is a stable
- * total order over `video_assets` (createdAt is not unique on its own, so
- * id breaks ties). The next page is everything strictly "after" that key
+ * last row on a page: the `(createdAt, id)` pair, a stable total order
+ * (createdAt is not unique on its own, so id breaks ties). The next page is everything strictly "after" that key
  * in the sort direction, which is why keyset pagination stays correct even
  * when rows are inserted or deleted between requests (unlike OFFSET).
  */

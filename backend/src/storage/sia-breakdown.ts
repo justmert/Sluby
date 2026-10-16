@@ -2,8 +2,8 @@
  * Per-asset Sia storage breakdown, computed from what the indexer reports for
  * each object. Pure, so the accounting is testable without a network.
  *
- * Objects uploaded together (variant playlists and thumbnails go up in one
- * packed upload) share slabs: each references its byte range inside the same
+ * Objects uploaded together share slabs (the pipeline packs the rendition
+ * data with the thumbnails, then the playlists): each references its byte range inside the same
  * erasure-coded slab. Summing slabs per object would count a shared slab once
  * per object, so totals dedupe slabs by identity and count each one once.
  */
@@ -99,8 +99,6 @@ export interface SiaBreakdown {
     encodedBytes: number;
     uniqueSlabCount: number;
     uniqueSectorCount: number;
-    /** Host-side footprint: every unique sector is a full 4 MiB on a host. */
-    sectorBytes: number;
     dataShards: number | null;
     parityShards: number | null;
     /** totalShards / dataShards for the asset's slabs; null if they differ or none. */
@@ -228,7 +226,6 @@ export function buildSiaBreakdown(
       encodedBytes: uniqueSectorCount * SECTOR_SIZE_BYTES,
       uniqueSlabCount: uniqueSlabs.size,
       uniqueSectorCount,
-      sectorBytes: uniqueSectorCount * SECTOR_SIZE_BYTES,
       dataShards,
       parityShards,
       redundancyRatio,

@@ -18,10 +18,6 @@ import { isOperatorAccount, operatorAllowlist } from '../auth/operators.js';
 import { getProvider, SignInError, type SignInProvider } from '../auth/providers/index.js';
 import type { SignInInput, SignInResult } from '../../db/queries/accounts.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function isSecure(): boolean {
   return env.PUBLIC_URL.startsWith('https://');
 }
@@ -71,10 +67,6 @@ export function safeRedirectPath(raw: unknown): string {
   if (!path.startsWith('/') || path.startsWith('//')) return DEFAULT_LANDING;
   return path;
 }
-
-// ---------------------------------------------------------------------------
-// The sign-in handshake cookie
-// ---------------------------------------------------------------------------
 
 /**
  * The state of a sign-in in progress lives in a cookie of the browser that
@@ -130,10 +122,6 @@ function sameState(a: string, b: string): boolean {
   const y = Buffer.from(b);
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
-
-// ---------------------------------------------------------------------------
-// Routes
-// ---------------------------------------------------------------------------
 
 export interface StudioSessionRecord {
   id: string;

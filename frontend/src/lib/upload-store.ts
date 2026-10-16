@@ -193,10 +193,6 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
     opts.onAuthFailure?.();
   };
 
-  // ---------------------------------------------------------------------------
-  // Processing poll
-  // ---------------------------------------------------------------------------
-
   function stopPolling(key: string) {
     const task = tasks.get(key);
     if (!task) return;
@@ -314,10 +310,6 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
     if (task.pollGen !== gen) return;
     task.pollTimer = setTimeout(() => void poll(key, gen), POLL_MS);
   }
-
-  // ---------------------------------------------------------------------------
-  // Transfer
-  // ---------------------------------------------------------------------------
 
   const recordProgress = (key: string, bytes: number, total: number) => {
     const task = tasks.get(key)!;

@@ -214,8 +214,6 @@ export function buildAssetDeleter(ctx: AppContext) {
   });
 }
 
-// ── Accounts and callers ──
-
 const LOCAL_DEV = {
   provider: LOCAL_PROVIDER,
   subject: LOCAL_DEV_SUBJECT,
@@ -451,7 +449,6 @@ export function buildApiDeps(
   receivedBytes: (id: string) => Promise<number | null> = async () => null,
 ): ApiRouterDeps {
   return {
-    // ── Callers, accounts and sessions ──
     ...callers,
     localDevAccount,
     signIn: signInIdentity,
@@ -461,7 +458,6 @@ export function buildApiDeps(
     revokeAllSessions: revokeAllStudioSessions,
     pruneSessions: pruneStudioSessions,
 
-    // ── UploadRouteDeps ──
     // Upload creation happens through the TUS protocol (see tusServer); the REST
     // surface only exposes owner-scoped status and cancellation.
     getUploadStatus: async (id, owner) => {
@@ -487,7 +483,6 @@ export function buildApiDeps(
       return outcome.status;
     },
 
-    // ── AssetRouteDeps ──
     listAssets: async (params) => {
       const result = await listVideoAssets({
         status: params.status as
@@ -539,7 +534,6 @@ export function buildApiDeps(
 
     deleteAsset,
 
-    // ── SiaInfoRouteDeps ──
     getAssetArtifacts: (assetId) => getArtifacts(assetId),
     inspectSiaObject: inspectObject,
     listSiaHosts: listHosts,
@@ -590,7 +584,6 @@ export function buildApiDeps(
       },
     }),
 
-    // ── PlaybackRouteDeps ──
     getPlaybackAsset: async (id, owner) => {
       // Accept either an internal asset UUID or a public pb_... playback id.
       const assetId = await resolveAssetId(id);
@@ -611,7 +604,6 @@ export function buildApiDeps(
       };
     },
 
-    // ── PlaybackIdRouteDeps ──
     createPlaybackId: async (assetId, opts, owner) => {
       const row = await createPlaybackIdForAsset(
         assetId,
@@ -647,7 +639,6 @@ export function buildApiDeps(
       return deletePlaybackIdByPublicId(playbackId, owner);
     },
 
-    // ── StatsRouteDeps ──
     getAssetStats: (owner) => getAssetStats(owner),
     getSystemStatus: createCachedSystemStatus({
       version: ctx.version,
@@ -684,7 +675,6 @@ export function buildApiDeps(
       },
     }),
 
-    // ── ReconciliationRouteDeps ──
     getLatestRun: async () => {
       const run = await getLatestReconciliationRun();
       if (!run) return null;
@@ -739,7 +729,6 @@ export function buildApiDeps(
     createShareUrls: (assetId, masterObjectId, expiresIn, notAfterSec) =>
       createAssetShareUrls(assetId, masterObjectId, expiresIn, notAfterSec),
 
-    // ── WebhookRouteDeps ──
     createWebhook: async (data) => {
       const endpoint = await createWebhookEndpoint({
         creatorAddress: data.creatorAddress,
@@ -793,6 +782,7 @@ export function buildApiDeps(
         payload: JSON.parse(job.body) as Record<string, unknown>,
         statusCode: outcome.statusCode,
         error: outcome.error,
+        deliveredAt: outcome.delivered ? new Date() : null,
         retryCount: 0,
       });
       return outcome;
@@ -813,7 +803,6 @@ export function buildApiDeps(
       }));
     },
 
-    // ── ApiRouterDeps (key management) ──
     createApiKey: async (data, maxKeys) => {
       // the router already generated the key and hashes it here
       const created = await createApiKeyWithinCap(data, maxKeys);
@@ -872,10 +861,7 @@ export function createApp(ctx: AppContext): {
   // address it resolved itself.
   app.set('trust proxy', env.TRUST_PROXY);
 
-  // ── Global Middleware ──
-
   app.use(express.json({ limit: '1mb' }));
-  app.use(express.urlencoded({ extended: true }));
 
   // health checks come every few seconds from docker and the web proxy, so
   // they log at debug; urls lose query values that could be capabilities
@@ -888,33 +874,20 @@ export function createApp(ctx: AppContext): {
     next();
   });
 
-  // ── Health Check ──
-
   app.get('/health', createHealthHandler(ctx.version));
-
-  // ── Delivery Routes ──
-
-  // Set db on app for the delivery aggregator's stream endpoint
-  app.set('db', db);
 
   // The delivery router defines routes with /v1/ prefix in the path, so it
   // mounts at root. It comes before the api cors because it answers its own:
   // any origin, never credentials, and Range allowed on preflight.
   mountRouter(app, '/', deliveryRouter);
 
-  // ── Metrics (Prometheus format) ──
-
   app.get('/metrics', requireMetricsToken(env.METRICS_TOKEN), createPrometheusHandler(logger));
-
-  // ── API cors and the per-IP limit ──
 
   const corsPolicy = { credentialedOrigins: env.CORS_ORIGIN, authDisabled: env.AUTH_DISABLED };
   app.use('/api', createApiCors(corsPolicy));
   app.use('/api', createCrossOriginWriteGuard(corsPolicy, env.PUBLIC_URL));
   const ipLimiter = createIpRateLimiter(env.API_IP_RATE_LIMIT);
   app.use('/api/v1', ipLimiter.count);
-
-  // ── TUS Upload Handler ──
 
   setMetricSources({
     queueDepth: async () => {
@@ -955,8 +928,6 @@ export function createApp(ctx: AppContext): {
     }
   });
 
-  // ── API Router ──
-
   // Mount API router at /api/v1 (but below the TUS handler which takes priority)
   const receivedBytes = async (id: string): Promise<number | null> => {
     try {
@@ -976,11 +947,7 @@ export function createApp(ctx: AppContext): {
     ),
   );
 
-  // ── 404 Handler ──
-
   app.use(notFoundHandler);
-
-  // ── Error Handling Middleware ──
 
   app.use(createErrorHandler(logger, { exposeStacks: env.EXPOSE_ERROR_STACKS }));
 

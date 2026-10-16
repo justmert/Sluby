@@ -11,7 +11,6 @@ const ALLOWED_HEADERS = [
   'Upload-Concat',
   'Upload-Defer-Length',
   'X-Requested-With',
-  'X-HTTP-Method-Override',
 ];
 
 const EXPOSED_HEADERS = [
@@ -23,7 +22,6 @@ const EXPOSED_HEADERS = [
   'Tus-Max-Size',
   'Tus-Extension',
   'Location',
-  'X-Request-Id',
   'Retry-After',
   'X-RateLimit-Limit',
   'X-RateLimit-Remaining',

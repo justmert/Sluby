@@ -1,17 +1,13 @@
 # @sluby/player
 
-Production-ready React player for [Sluby](https://github.com/justmert/Sluby),
-decentralized video on Sia. Wraps [hls.js](https://github.com/video-dev/hls.js)
-with adaptive quality, bounded automatic error recovery, loading / error states,
-and Safari native HLS fallback. Segments are fetched directly from Sia-backed
-delivery.
+React player for [Sluby](https://github.com/justmert/Sluby), the self-hosted video platform that stores its media on Sia. It wraps [hls.js](https://github.com/video-dev/hls.js) with adaptive quality, bounded automatic error recovery, loading and error states, and Safari's native HLS fallback. By default it plays through the Sluby gateway; given a viewer identity, it downloads the bytes straight from Sia hosts instead.
 
 ## Install
 
 ```bash
 npm install @sluby/player
-# hls.js comes with it; react and react-dom (18 or 19) are peer dependencies
-# of the React player, and not needed for @sluby/player/hls
+# hls.js comes with it. react and react-dom (18 or 19) are optional peer
+# dependencies: the react player needs them, @sluby/player/hls does not
 ```
 
 ## Usage
@@ -24,8 +20,7 @@ import { SlubyPlayer } from '@sluby/player';
 <SlubyPlayer src="https://video.example.com/v1/objects/abc?type=manifest" controls />;
 ```
 
-Or hand it a `SlubyClient` and an asset id, and it resolves the delivery URL
-itself:
+Or hand it a `SlubyClient` and an asset id, and it resolves the delivery URL itself:
 
 ```tsx
 import { SlubyClient } from '@sluby/sdk';
@@ -39,9 +34,7 @@ const client = new SlubyClient({ apiKey: 'sluby_...', baseUrl: 'https://video.ex
 
 Create the client once (outside the component, or in `useMemo`), not on every render: a different `client` makes the player resolve and load the video again. A private asset is played through a signed URL even without `signed`. Before a signed URL the player fetched expires, it fetches a new one and continues from the same position.
 
-Direct from Sia with no API key in the page: give it the playback URL, the
-asset id and a keyless client with a viewer identity. The share map comes from
-the public `/v1/share/:id`, gated by the URL's own signature for private content.
+Direct from Sia with no API key in the page: give it the playback URL, the asset id and a keyless client with a viewer identity. The share map comes from the public `/v1/share/:id`, gated by the URL's own signature for private content.
 
 ```tsx
 const viewer = new SlubyClient({

@@ -1,19 +1,17 @@
 /**
- * Multi-tenant ownership rules.
+ * Ownership rules.
  *
- * Every resource is owned by the `creatorAddress` of the API key that
- * created it. Scope checks (`requireScope`) only prove a caller may perform
- * a KIND of action; they say nothing about WHOSE data it is. Any handler
- * that resolves a resource by id must additionally constrain the lookup to
- * the caller's owner, or one tenant can read and delete another tenant's
- * assets by guessing a UUID.
+ * Every resource is owned by the `creatorAddress` of the caller that created
+ * it. Scope checks (`requireScope`) only prove a caller may do a kind of
+ * action, not whose data it is, so any handler that resolves a resource by id
+ * also constrains the lookup to the caller's owner. Otherwise one tenant could
+ * read and delete another's assets by guessing a UUID.
  *
- * One deliberate exception: a key seeded with the all-zero address is a
- * platform/superuser identity (see db/seed-api-key.ts, which mints it with
- * `--platform`) and is allowed to act across tenants. The rule: an
+ * The exception is a key with the all-zero address, the platform identity
+ * (`db:seed-key --platform` mints one), which acts across tenants: every
  * owner-scoped route, listings included, passes the caller through
- * ownerFilter, so that identity lists, reads and changes the resources of
- * every tenant alike.
+ * ownerFilter, and that identity gets no filter.
+ *
  * Deployment-wide operations data (full system status, process metrics, the
  * whole reconciliation run and starting one) is for it and for operators
  * (OPERATOR_USERS, see auth/operators.ts), who see the deployment but not
@@ -60,10 +58,9 @@ export function userIdFromAddress(address: string): string | null {
  * otherwise the address that queries must match.
  */
 export function ownerFilter(creatorAddress: string | undefined): string | undefined {
-  // Only the explicit platform address grants cross-tenant (unfiltered) access.
-  // A genuinely absent identity (undefined, from internal callers) is also
-  // unfiltered, but an empty string is NOT: it must scope to '' (matching no
-  // real asset) so a stray empty address can never become a superuser.
+  // internal callers pass undefined and are unfiltered too, but an empty
+  // string is not: it scopes to '', which matches no real asset, so a stray
+  // empty address can never act across tenants
   if (creatorAddress === undefined) return undefined;
   return creatorAddress === PLATFORM_ADDRESS ? undefined : creatorAddress;
 }

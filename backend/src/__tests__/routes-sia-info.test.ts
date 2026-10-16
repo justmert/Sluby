@@ -82,6 +82,7 @@ describe('GET /assets/:id/sia', () => {
       encoded_bytes: 4 * 4 * 1024 * 1024,
       unique_slab_count: 2,
       unique_sector_count: 4,
+      sector_bytes: 4 * 4 * 1024 * 1024,
     });
     expect(res.body.countries).toEqual([{ country_code: 'DE', hosts: 1, sectors: 2 }]);
     expect(res.body.contracts).toBeNull();

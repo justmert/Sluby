@@ -32,6 +32,9 @@ export const webhookJobOptions: DefaultJobOptions = {
   removeOnFail: { count: 5000 },
 };
 
+/** How long the delivery log keeps an attempt; the hourly sweep drops older ones. */
+export const WEBHOOK_DELIVERY_RETENTION_MS = 30 * 24 * 3600 * 1000;
+
 /** From the first byte sent to the receiver's status line, DNS included. */
 export const WEBHOOK_TIMEOUT_MS = 10_000;
 
@@ -66,6 +69,8 @@ export interface DeliveryRecord {
   statusCode: number | null;
   /** Why the attempt failed, in our words; null when it was delivered. */
   error: string | null;
+  /** When the receiver answered 2xx; null for a failed attempt. */
+  deliveredAt: Date | null;
   retryCount: number;
 }
 
@@ -162,6 +167,7 @@ export async function deliverWebhook(
       payload: JSON.parse(data.body) as Record<string, unknown>,
       statusCode: outcome.statusCode,
       error: outcome.error,
+      deliveredAt: outcome.delivered ? new Date() : null,
       retryCount,
     });
   } catch (err) {

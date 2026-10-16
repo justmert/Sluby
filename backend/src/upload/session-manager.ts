@@ -90,13 +90,6 @@ export class SessionManager {
     };
   }
 
-  async resume(sessionId: string): Promise<{ uploadUrl: string } | null> {
-    const session = await this.deps.getSession(sessionId);
-    if (!session || session.status !== 'uploading') return null;
-
-    return { uploadUrl: session.uploadUrl };
-  }
-
   /**
    * Mark an upload that is still in progress cancelled and delete its files.
    * A completed upload is the source its asset is processed (or retried)

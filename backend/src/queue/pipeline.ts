@@ -182,8 +182,6 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
     ...opts.workerOptions,
   };
 
-  // ── transcode ──
-
   const transcodeWorker = new Worker<TranscodeJobData>(
     'transcode',
     async (job) => {
@@ -251,7 +249,6 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
           videoAssetId,
           uploadSessionId,
           outputDir: output.outputDir,
-          accessTier: asset.accessTier,
           thumbnailPaths: output.thumbnailPaths,
           durationMs: output.marker.durationMs,
           resolution: output.marker.resolution,
@@ -333,8 +330,6 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
     });
     return { outputDir, marker, thumbnailPaths };
   }
-
-  // ── upload segments ──
 
   const leaseRenewMs = opts.uploadLeaseRenewMs ?? UPLOAD_LEASE_RENEW_MS;
 
@@ -538,8 +533,6 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
     });
   }
 
-  // ── finalize ──
-
   const finalizeWorker = new Worker<FinalizeJobData>(
     'finalize',
     async (job) => {
@@ -660,8 +653,6 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
     },
     { ...workerBase, concurrency: 4 },
   );
-
-  // ── failures ──
 
   const delays = opts.failureWriteDelaysMs ?? FAILURE_WRITE_DELAYS_MS;
 

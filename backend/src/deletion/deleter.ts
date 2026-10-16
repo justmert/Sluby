@@ -1,7 +1,6 @@
 /**
- * The deletion sequence, with its side effects injected so it is unit-testable
- * without Redis, Postgres, or a live indexer. The queue worker wires the real
- * Sia client + DB + cache into it.
+ * The deletion sequence, with its side effects injected so it can be tested
+ * without Redis, Postgres or an indexer (deletion/wiring.ts has the real ones).
  *
  * Order: remove the source upload still on disk (a failed asset kept it for a
  * retry, or the upload was still in flight) and the transcode output, unpin
@@ -12,10 +11,9 @@
  * the indexer no longer has counts as unpinned (sia-client deleteObject), so
  * a deletion that crashed after an unpin still converges.
  *
- * Unpinning is best-effort per object so one wedged host cannot block the
- * others, but if ANY object could not be unpinned the function throws WITHOUT
- * removing the row, so BullMQ retries and the GC sweep keep re-driving it until
- * the objects are actually gone. Nothing is silently orphaned.
+ * Each object is unpinned on its own, so one stuck object does not hold up
+ * the rest, but if any could not be unpinned this throws and keeps the row:
+ * BullMQ retries and the GC sweep drive it again until every object is gone.
  */
 export interface DeletionDeps {
   /** Resolves when the object is not pinned anymore, including when it was not found. */

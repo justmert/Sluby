@@ -8,10 +8,6 @@ import {
   SlubyError,
 } from './errors.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function makeResponse(status: number, body: unknown, headers?: Record<string, string>): Response {
   const headersObj = new Headers(headers);
   return {
@@ -35,10 +31,6 @@ function getStatusText(status: number): string {
   };
   return statusTexts[status] ?? 'Unknown';
 }
-
-// ---------------------------------------------------------------------------
-// Tests: Constructor
-// ---------------------------------------------------------------------------
 
 describe('SlubyClient constructor', () => {
   it('should throw if apiKey is provided but empty', () => {
@@ -110,10 +102,6 @@ describe('SlubyClient constructor', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Tests: delivery URL resolution
-// ---------------------------------------------------------------------------
-
 describe('SlubyClient.resolveDeliveryUrl', () => {
   it('defaults the delivery base to the API base', () => {
     const client = new SlubyClient({ apiKey: 'k', baseUrl: 'https://api.sluby.app' });
@@ -158,10 +146,6 @@ describe('SlubyClient.resolveDeliveryUrl', () => {
     vi.unstubAllGlobals();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Tests: _fetch (via sub-managers)
-// ---------------------------------------------------------------------------
 
 describe('SlubyClient._fetch', () => {
   let fetchMock: ReturnType<typeof vi.fn>;

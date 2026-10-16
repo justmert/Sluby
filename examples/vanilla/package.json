@@ -1,6 +1,6 @@
 {
   "name": "@sluby/example-vanilla",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "upload": "node server/upload.mjs",
-    "playback-server": "node server/playback-server.mjs"
+    "signing-server": "node server/signing-server.mjs"
   },
   "dependencies": {
     "@sluby/player": "*",

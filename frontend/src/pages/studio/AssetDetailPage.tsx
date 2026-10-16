@@ -72,10 +72,6 @@ import {
 } from '@/hooks/asset-queries';
 import { formatBitrate, formatBytes, formatDate, formatDuration } from '@/lib/formatters';
 
-// ---------------------------------------------------------------------------
-// Pieces
-// ---------------------------------------------------------------------------
-
 function EditDialog({
   asset,
   open,
@@ -352,10 +348,6 @@ function DetailsCard({ asset }: { asset: VideoAsset }) {
     </Card>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 
 export default function AssetDetailPage() {
   const { id } = useParams<{ id: string }>();

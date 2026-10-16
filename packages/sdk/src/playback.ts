@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// @sluby/sdk - PlaybackManager
-// ---------------------------------------------------------------------------
-
 import { readJson } from './errors.js';
 import type { AccessTier, PlaybackInfo, RequestOptions, SignedPlaybackInfo } from './types.js';
 import type { FetchFn } from './uploads.js';
@@ -18,10 +14,6 @@ export class PlaybackManager {
     this._resolveDeliveryUrl = resolveDeliveryUrl;
   }
 
-  // -----------------------------------------------------------------------
-  // /v1/stream/:id/master.m3u8 (no request)
-  // -----------------------------------------------------------------------
-
   /**
    * The absolute public master manifest URL for an asset id or a `pb_...`
    * playback id, on the delivery base. Builds the URL without a request and
@@ -32,10 +24,6 @@ export class PlaybackManager {
   streamUrl(idOrPlaybackId: string): string {
     return this._resolveDeliveryUrl(`/v1/stream/${encodeURIComponent(idOrPlaybackId)}/master.m3u8`);
   }
-
-  // -----------------------------------------------------------------------
-  // GET /api/v1/playback/:id
-  // -----------------------------------------------------------------------
 
   /**
    * Retrieve the public playback information for a video asset including
@@ -59,10 +47,6 @@ export class PlaybackManager {
       accessTier: body.access_tier as AccessTier,
     };
   }
-
-  // -----------------------------------------------------------------------
-  // GET /api/v1/playback/:id/signed
-  // -----------------------------------------------------------------------
 
   /**
    * Retrieve a time-limited signed playback URL for gated / private

@@ -1,4 +1,12 @@
-import { AuthenticationError, NotFoundError, RateLimitError, SlubyError } from '@sluby/sdk';
+import {
+  AuthenticationError,
+  ConflictError,
+  NotFoundError,
+  PermissionError,
+  RateLimitError,
+  SlubyError,
+  ValidationError,
+} from '@sluby/sdk';
 
 /**
  * Turn anything the SDK throws into a message a person can act on.
@@ -8,19 +16,26 @@ import { AuthenticationError, NotFoundError, RateLimitError, SlubyError } from '
  */
 export function describeError(err) {
   if (err instanceof AuthenticationError) {
-    // 401 is a missing or bad key, 403 a key without the scope this call needs
-    return err.statusCode === 403
-      ? `This API key lacks the scope for that call: ${err.message}`
-      : `The API key was rejected: ${err.message}`;
+    return `The API key was rejected: ${err.message}`;
+  }
+  if (err instanceof PermissionError) {
+    return `This API key lacks the scope for that call: ${err.message}`;
   }
   if (err instanceof NotFoundError) {
     return `Not found: ${err.message}`;
+  }
+  if (err instanceof ValidationError) {
+    return `The request was refused: ${err.message}`;
+  }
+  if (err instanceof ConflictError) {
+    // for example playing an asset that is not ready yet
+    return `Not possible right now: ${err.message}`;
   }
   if (err instanceof RateLimitError) {
     return `Rate limited, retry in ${err.retryAfter ?? '?'} seconds.`;
   }
   if (err instanceof SlubyError) {
-    // TimeoutError lands here too, with statusCode 0
+    // timeouts, aborts and failed processing carry statusCode 0
     return err.statusCode ? `API error ${err.statusCode}: ${err.message}` : err.message;
   }
   return err instanceof Error ? err.message : String(err);

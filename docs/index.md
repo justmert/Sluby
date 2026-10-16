@@ -21,7 +21,7 @@ features:
   - title: Stored on Sia
     details: Every rendition, playlist and thumbnail is an encrypted, erasure-coded object on Sia, pinned through an indexer.
   - title: Two delivery paths
-    details: Play through the built-in caching gateway, or let the browser download from Sia hosts directly with shared objects.
+    details: Play through the built-in byte-range gateway, or let the browser download from Sia hosts directly with shared objects.
   - title: API, SDK and player
     details: A REST API described by OpenAPI 3.1, a TypeScript SDK (@sluby/sdk) and a React player (@sluby/player).
   - title: Studio

@@ -3,7 +3,7 @@
 //   SLUBY_BASE_URL=http://localhost:8080 SLUBY_API_KEY=sluby_... \
 //     node server/upload.mjs ./video.mp4 "My video"
 
-import { readFile } from 'node:fs/promises';
+import { openAsBlob } from 'node:fs';
 import { basename } from 'node:path';
 import { SlubyClient } from '@sluby/sdk';
 
@@ -19,8 +19,9 @@ const client = new SlubyClient({
   baseUrl: process.env.SLUBY_BASE_URL ?? 'http://localhost:8080',
 });
 
-// in node the sdk uploads a Buffer, so the whole file is read into memory
-const file = await readFile(path);
+// a blob backed by the file: the sdk reads it one chunk at a time, so a large
+// file is never held in memory whole
+const file = await openAsBlob(path);
 const upload = client.uploads.upload(file, {
   title: title ?? basename(path),
   accessTier: 'public',

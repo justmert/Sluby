@@ -1,16 +1,8 @@
-// ---------------------------------------------------------------------------
-// @sluby/sdk - Type definitions
-// ---------------------------------------------------------------------------
-
 /** Processing status of a video asset. */
 export type VideoAssetStatus = 'created' | 'uploading' | 'processing' | 'ready' | 'failed';
 
 /** Access tier controlling who can view a video. */
 export type AccessTier = 'public' | 'private';
-
-// ---------------------------------------------------------------------------
-// Core resources
-// ---------------------------------------------------------------------------
 
 /** Video asset with associated metadata. */
 export interface VideoAsset {
@@ -229,10 +221,6 @@ export interface CursorPage<T> {
   /** Pass as `cursor` to get the next page; null on the last page. */
   nextCursor: string | null;
 }
-
-// ---------------------------------------------------------------------------
-// Request / option types
-// ---------------------------------------------------------------------------
 
 /** Options for listing API keys. */
 export interface ListApiKeysOptions extends RequestOptions {

@@ -79,10 +79,6 @@ const WEBHOOK_EVENTS = [
   { value: 'asset.errored', detail: 'processing failed for good' },
 ];
 
-// ---------------------------------------------------------------------------
-// Snippets
-// ---------------------------------------------------------------------------
-
 function Snippets() {
   const snippets = useMemo(() => buildSnippets(window.location.origin), []);
   const [active, setActive] = useState(snippets[0].id);
@@ -137,10 +133,6 @@ function Snippets() {
     </Card>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Webhooks
-// ---------------------------------------------------------------------------
 
 function CreateWebhookDialog({
   open,
@@ -419,10 +411,6 @@ function Webhooks() {
     </Card>
   );
 }
-
-// ---------------------------------------------------------------------------
-// API explorer
-// ---------------------------------------------------------------------------
 
 interface ExplorerResponse {
   status: number;

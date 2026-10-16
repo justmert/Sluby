@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// @sluby/sdk - UploadManager
-// ---------------------------------------------------------------------------
-
 import * as tus from 'tus-js-client';
 import {
   AbortError,
@@ -218,10 +214,6 @@ export class UploadManager {
     if (!Number.isFinite(offset) || !Number.isFinite(length)) return 'unknown';
     return offset < length ? 'resume' : 'stale';
   }
-
-  // -----------------------------------------------------------------------
-  // Resumable upload (TUS)
-  // -----------------------------------------------------------------------
 
   /**
    * Upload a video in one step: creates the asset and streams the file to the
@@ -499,10 +491,6 @@ export class UploadManager {
     return handle;
   }
 
-  // -----------------------------------------------------------------------
-  // GET /api/v1/uploads/:id
-  // -----------------------------------------------------------------------
-
   /**
    * Retrieve the current status and progress of an upload session, by the
    * `uploadId` of an upload handle.
@@ -522,10 +510,6 @@ export class UploadManager {
       uploadedBytes: body.uploaded_bytes as number,
     };
   }
-
-  // -----------------------------------------------------------------------
-  // DELETE /api/v1/uploads/:id
-  // -----------------------------------------------------------------------
 
   /**
    * Cancel an in-progress upload and clean up server-side resources, by the

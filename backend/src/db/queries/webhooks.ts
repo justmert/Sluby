@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, lt, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   webhookEndpoints,
@@ -8,10 +8,6 @@ import {
   type WebhookDelivery,
   type NewWebhookDelivery,
 } from '../schema.js';
-
-// ──────────────────────────────────────────
-// Webhook Endpoints
-// ──────────────────────────────────────────
 
 /**
  * Register a new webhook endpoint.
@@ -36,14 +32,10 @@ export async function getWebhookEndpointById(id: string): Promise<WebhookEndpoin
  */
 export async function listWebhookEndpointsByOwner(
   creatorAddress: string | undefined,
-  opts?: { includeInactive?: boolean },
 ): Promise<WebhookEndpoint[]> {
-  const conditions = [];
+  const conditions = [eq(webhookEndpoints.isActive, true)];
   if (creatorAddress !== undefined) {
     conditions.push(eq(webhookEndpoints.creatorAddress, creatorAddress));
-  }
-  if (!opts?.includeInactive) {
-    conditions.push(eq(webhookEndpoints.isActive, true));
   }
 
   return db.query.webhookEndpoints.findMany({
@@ -88,33 +80,6 @@ export async function getWebhookEndpointForOwner(
 }
 
 /**
- * Update a webhook endpoint.
- */
-export async function updateWebhookEndpoint(
-  id: string,
-  data: Partial<Pick<WebhookEndpoint, 'url' | 'events' | 'secret' | 'isActive'>>,
-): Promise<WebhookEndpoint | undefined> {
-  const [updated] = await db
-    .update(webhookEndpoints)
-    .set(data)
-    .where(eq(webhookEndpoints.id, id))
-    .returning();
-  return updated;
-}
-
-/**
- * Deactivate a webhook endpoint (soft-delete).
- */
-export async function deactivateWebhookEndpoint(id: string): Promise<WebhookEndpoint | undefined> {
-  const [updated] = await db
-    .update(webhookEndpoints)
-    .set({ isActive: false })
-    .where(eq(webhookEndpoints.id, id))
-    .returning();
-  return updated;
-}
-
-/**
  * Permanently delete a webhook endpoint and all its delivery records.
  *
  * `creatorAddress` constrains the delete to the owning account so one caller
@@ -136,25 +101,12 @@ export async function deleteWebhookEndpoint(
   return deleted;
 }
 
-// ──────────────────────────────────────────
-// Webhook Deliveries
-// ──────────────────────────────────────────
-
 /**
  * Log a new webhook delivery attempt.
  */
 export async function createWebhookDelivery(data: NewWebhookDelivery): Promise<WebhookDelivery> {
   const [delivery] = await db.insert(webhookDeliveries).values(data).returning();
   return delivery;
-}
-
-/**
- * Find a webhook delivery by its primary key.
- */
-export async function getWebhookDeliveryById(id: string): Promise<WebhookDelivery | undefined> {
-  return db.query.webhookDeliveries.findFirst({
-    where: eq(webhookDeliveries.id, id),
-  });
 }
 
 /**
@@ -176,75 +128,14 @@ export async function listWebhookDeliveries(opts: {
 }
 
 /**
- * Record the HTTP response of a delivery attempt.
+ * Delete delivery log rows older than `olderThan`. Every attempt adds a row
+ * and nothing else removes them while the endpoint lives, so without this the
+ * table only grows. Returns how many went.
  */
-export async function updateWebhookDeliveryResult(
-  id: string,
-  data: {
-    statusCode: number;
-    error?: string | null;
-    deliveredAt: Date;
-  },
-): Promise<WebhookDelivery | undefined> {
-  const [updated] = await db
-    .update(webhookDeliveries)
-    .set({
-      statusCode: data.statusCode,
-      error: data.error ?? null,
-      deliveredAt: data.deliveredAt,
-    })
-    .where(eq(webhookDeliveries.id, id))
-    .returning();
-  return updated;
-}
-
-/**
- * Increment the retry count for a failed delivery.
- */
-export async function incrementDeliveryRetryCount(
-  id: string,
-): Promise<WebhookDelivery | undefined> {
-  const [updated] = await db
-    .update(webhookDeliveries)
-    .set({
-      retryCount: sql`${webhookDeliveries.retryCount} + 1`,
-    })
-    .where(eq(webhookDeliveries.id, id))
-    .returning();
-  return updated;
-}
-
-/**
- * Delete a webhook delivery record by ID.
- */
-export async function deleteWebhookDelivery(id: string): Promise<WebhookDelivery | undefined> {
-  const [deleted] = await db
+export async function pruneWebhookDeliveries(olderThan: Date): Promise<number> {
+  const deleted = await db
     .delete(webhookDeliveries)
-    .where(eq(webhookDeliveries.id, id))
-    .returning();
-  return deleted;
-}
-
-/**
- * Count total deliveries grouped by status code for a given endpoint.
- * Useful for endpoint health monitoring.
- */
-export async function countDeliveriesByStatusCode(
-  webhookEndpointId: string,
-): Promise<Record<string, number>> {
-  const rows = await db
-    .select({
-      statusCode: webhookDeliveries.statusCode,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(webhookDeliveries)
-    .where(eq(webhookDeliveries.webhookEndpointId, webhookEndpointId))
-    .groupBy(webhookDeliveries.statusCode);
-
-  const result: Record<string, number> = {};
-  for (const row of rows) {
-    const key = row.statusCode?.toString() ?? 'pending';
-    result[key] = row.count;
-  }
-  return result;
+    .where(lt(webhookDeliveries.createdAt, olderThan))
+    .returning({ id: webhookDeliveries.id });
+  return deleted.length;
 }

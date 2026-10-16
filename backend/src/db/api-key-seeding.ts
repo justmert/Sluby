@@ -1,10 +1,9 @@
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { apiKeys, bootstrapKeys } from './schema.js';
-import { generateApiKey, hashApiKey } from '../api/auth/api-key.js';
+import { hashApiKey } from '../api/auth/api-key.js';
+import { createApiKey } from './queries/api-keys.js';
 
-// the two seeding paths run with different drizzle instances (the app's,
-// with the relational schema, and the cli's bare one), so accept either
 type Database = PostgresJsDatabase<Record<string, unknown>>;
 
 /** Scopes of a seeded key: everything, so it can mint the account's other keys. */
@@ -65,21 +64,15 @@ export async function seedBootstrapApiKey(
  * Mint a fresh full-scope key for `creatorAddress` (the `db:seed-key` cli).
  * Returns the raw key, which is not stored anywhere and must be shown once.
  */
-export async function createAdminApiKey(
-  database: Database,
-  opts: { name: string; creatorAddress: string },
-): Promise<{ id: string; rawKey: string }> {
-  const { key, hash } = generateApiKey();
-  const [row] = await database
-    .insert(apiKeys)
-    .values({
-      keyHash: hash,
-      name: opts.name,
-      scopes: ADMIN_SCOPES,
-      rateLimit: 1000,
-      creatorAddress: opts.creatorAddress,
-      isActive: true,
-    })
-    .returning({ id: apiKeys.id });
-  return { id: row.id, rawKey: key };
+export async function createAdminApiKey(opts: {
+  name: string;
+  creatorAddress: string;
+}): Promise<{ id: string; rawKey: string }> {
+  const { apiKey, rawKey } = await createApiKey({
+    name: opts.name,
+    scopes: ADMIN_SCOPES,
+    rateLimit: 1000,
+    creatorAddress: opts.creatorAddress,
+  });
+  return { id: apiKey.id, rawKey };
 }

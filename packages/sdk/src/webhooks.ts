@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// @sluby/sdk - WebhookManager
-// ---------------------------------------------------------------------------
-
 import type { WebhookEvent } from './types.js';
 
 /** Request headers as a Fetch `Headers` or as Node's `req.headers` record. */
@@ -55,10 +51,6 @@ function signedV1(
  * without instantiating the full SDK client.
  */
 export class WebhookManager {
-  // -----------------------------------------------------------------------
-  // Request verification (signature v1, with a replay window)
-  // -----------------------------------------------------------------------
-
   /**
    * Verify a webhook request: the `X-Sluby-Signature-V1` header must be the
    * hex HMAC-SHA256 of `<X-Sluby-Timestamp>.<raw body>` under the endpoint
@@ -90,10 +82,6 @@ export class WebhookManager {
     const v1 = signedV1(payload, headers, options);
     return v1 !== null && this.verifySignatureAsync(v1.signed, v1.signature, secret);
   }
-
-  // -----------------------------------------------------------------------
-  // HMAC-SHA256 signature verification
-  // -----------------------------------------------------------------------
 
   /**
    * Verify an HMAC-SHA256 signature of a string.
@@ -132,10 +120,6 @@ export class WebhookManager {
     return nodeCrypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signature, 'hex'));
   }
 
-  // -----------------------------------------------------------------------
-  // Async verification (Web Crypto API)
-  // -----------------------------------------------------------------------
-
   /**
    * Async variant of `verifySignature` that uses the Web Crypto API.
    * Prefer `verifyRequestAsync`, which also refuses replays.
@@ -156,10 +140,6 @@ export class WebhookManager {
     // hex is case-insensitive, and verifySignature accepts either case too
     return this._constantTimeEqual(expected, signature.toLowerCase());
   }
-
-  // -----------------------------------------------------------------------
-  // Event parsing
-  // -----------------------------------------------------------------------
 
   /**
    * Parse a raw webhook payload string into a typed `WebhookEvent`.
@@ -186,10 +166,6 @@ export class WebhookManager {
       data: (parsed.data ?? {}) as Record<string, unknown>,
     };
   }
-
-  // -----------------------------------------------------------------------
-  // Private helpers
-  // -----------------------------------------------------------------------
 
   /**
    * Constant-time string comparison to mitigate timing attacks.

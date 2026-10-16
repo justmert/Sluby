@@ -29,10 +29,9 @@ export interface UploadRouteDeps {
 export function createUploadRoutes(deps: UploadRouteDeps): Router {
   const router = Router();
 
-  // NOTE: creating an upload is done through the TUS protocol at the collection
-  // endpoint `POST /api/v1/uploads` (handled by the TUS server, which mints the
-  // asset as the upload begins). There is deliberately no JSON session-creation
-  // route: it would produce an asset that the TUS flow can never upload to.
+  // uploads are created through tus at `POST /api/v1/uploads`, which makes the
+  // asset as the upload begins. a json creation route would make an asset that
+  // tus could never upload to, so there is none.
 
   /**
    * GET /api/v1/uploads/:id

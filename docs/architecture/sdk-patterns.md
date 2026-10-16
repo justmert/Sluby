@@ -42,13 +42,14 @@ const upload = sluby.uploads.upload(file, {
 });
 
 const assetId = await upload.assetId;
+const uploadId = await upload.uploadId;
 await upload;
 ```
 
 - The key needs the `upload` scope, and `read` as well to poll the asset afterwards. Create a dedicated key per service in the Studio or with `POST /api/v1/keys`.
-- `upload()` returns at once. `upload.assetId` resolves as soon as the server has created the asset, which is right after the upload starts, so you can store the id before the bytes finish; awaiting `upload` itself waits for the last byte.
-- In Node, pass a `Buffer`. The SDK's type also allows `File` and `Blob`, but tus-js-client's Node reader accepts only a `Buffer` or a readable stream, so a `Blob` is rejected at runtime. A `Buffer` holds the whole file in memory.
-- The upload is resumable: tus retries failed chunks after 0, 1, 3 and 5 seconds by default (`retryDelays`), and the handle has `pause()`, `resume()` and `abort()`. `abort()` terminates the upload and the backend deletes the asset it created.
+- `upload()` returns at once. `upload.assetId` resolves as soon as the server has created the asset, which is right after the upload starts, so you can store the id before the bytes finish; awaiting `upload` itself waits for the last byte. `upload.uploadId` is the last segment of the tus upload URL, which `sluby.uploads.getStatus(uploadId)` and `sluby.uploads.cancel(uploadId)` take.
+- `upload()` takes a `Blob` (a browser `File` included) or a `Uint8Array` (a Node `Buffer` included). A `Buffer` holds the whole file in memory; in Node, `await openAsBlob(path)` from `node:fs` gives a `Blob` that the SDK reads chunk by chunk from disk instead.
+- The upload is resumable: tus retries failed chunks after 0, 1, 3 and 5 seconds by default (`retryDelays`), and the handle has `pause()`, `resume()` and `abort()`. `abort()`, or a `signal` passed in the options, terminates an unfinished upload, the backend deletes the asset it created, and the handle rejects with an `AbortError`; once the upload has finished, `abort()` does nothing, so cleanup code that always calls it never deletes a finished asset. In a browser an unfinished upload of the same file, metadata and key is resumed after a page reload unless `resume: false`; a finished one is never resumed, so uploading the same file again creates a new asset.
 - `accessTier: 'private'` makes the asset need signed URLs from the start. The tier can be changed later with `sluby.assets.update(assetId, { accessTier })`.
 
 ## Knowing when an asset is ready
@@ -76,7 +77,7 @@ try {
 }
 ```
 
-`waitForReady` calls `GET /api/v1/assets/:id` every `pollInterval` milliseconds (5 seconds by default) until the status is `ready`. It rejects with a plain `Error` when the asset becomes `failed` and with `TimeoutError` after `timeout` (10 minutes by default). Each poll counts against the key's rate limit, 100 requests a minute by default. `assets.processing(assetId)` returns the stage, percentage, error and log lines, which is what to show a user while they wait.
+`waitForReady` calls `GET /api/v1/assets/:id` every `pollInterval` milliseconds (5 seconds by default) until the status is `ready`. It rejects with a `ProcessingFailedError` carrying the asset when the asset becomes `failed`, with `TimeoutError` after `timeout` (10 minutes by default), and with an `AbortError` when its `signal` fires. Each poll counts against the key's rate limit, 100 requests a minute by default. `assets.processing(assetId)` returns the stage, percentage, error and log lines, which is what to show a user while they wait.
 
 Polling needs nothing but outbound HTTP, so it suits scripts, CLIs and servers that cannot receive inbound requests.
 
@@ -141,6 +142,62 @@ app.post('/hooks/sluby', express.text({ type: 'application/json' }), async (req,
 | Missed results | none, the next poll sees them       | possible if all four attempts fail |
 | Detail         | full asset and processing log       | the event payload                  |
 
+## Managing the account from a server
+
+Everything the Studio's settings do is also on the client, for a key with the `manage` scope (reading renditions and stats needs `read`):
+
+```ts
+// api keys: cursor-paged list, create, rotate with a grace period, revoke
+const page = await sluby.keys.list({ limit: 100 });
+const created = await sluby.keys.create({ name: 'encoder', scopes: ['upload', 'read'] });
+const rotated = await sluby.keys.rotate(created.id, { gracePeriodSeconds: 3600 });
+await sluby.keys.revoke(rotated.rotatedFrom);
+
+// webhook endpoints: the secret is returned once, by create
+const endpoint = await sluby.webhookEndpoints.create({
+  url: 'https://app.example.com/hooks/sluby',
+  events: ['asset.ready'],
+});
+const test = await sluby.webhookEndpoints.test(endpoint.id);
+const attempts = await sluby.webhookEndpoints.deliveries(endpoint.id, { limit: 20 });
+
+// playback ids, renditions and library totals
+const handle = await sluby.playbackIds.create(assetId, { policy: 'public', name: 'embed' });
+const renditions = await sluby.assets.renditions(assetId);
+const stats = await sluby.assets.stats();
+console.log(page.hasMore, test.delivered, attempts.length, handle.playbackId, renditions, stats);
+```
+
+`client.webhookEndpoints` manages registered endpoints over the API; `client.webhooks` is only the signature verifier and needs no key. A rotated key keeps working until its grace period ends, and a key can be rotated once (rotate its replacement after that; a second rotation rejects with `ConflictError`).
+
+## Errors, cancelling and paging
+
+Every SDK error is a `SlubyError` with the HTTP status in `statusCode`: `ValidationError` (400, 422), `AuthenticationError` (401), `PermissionError` (403, a missing scope or an operations-only route), `NotFoundError` (404, 410), `ConflictError` (409), `RateLimitError` (429, with `retryAfter` in seconds), and a plain `SlubyError` for other statuses. `TimeoutError` and `AbortError` report a request the client gave up on, and `ProcessingFailedError` carries the failed asset from `waitForReady`. A network failure before any answer stays the runtime's own `TypeError`.
+
+Every request method takes `{ signal }`, an `AbortSignal` that cancels it with an `AbortError`, and `timeoutMs` in the client's config bounds every request, its body included, with a `TimeoutError`:
+
+```ts
+const client = new SlubyClient({
+  baseUrl: 'https://video.example.com',
+  apiKey: process.env.SLUBY_API_KEY!,
+  timeoutMs: 15_000,
+});
+
+const ids: string[] = [];
+let cursor: string | undefined;
+do {
+  const page = await client.assets.list({
+    limit: 100,
+    cursor,
+    signal: AbortSignal.timeout(60_000),
+  });
+  ids.push(...page.data.map((asset) => asset.id));
+  cursor = page.nextCursor ?? undefined;
+} while (cursor);
+```
+
+`assets.list` pages by cursor with the default newest-first order: pass `nextCursor` back as `cursor` until it is null (`hasMore` says the same). With another `sort` or `order` there is no cursor, and `page` numbers are used instead. `keys.list` pages by cursor the same way.
+
 ## Playing in the browser
 
 How the player gets its URL depends on whether the browser may hold a credential.
@@ -167,7 +224,7 @@ export function Watch({
 }
 ```
 
-`playbackUrl` points at the master manifest on the gateway (`/v1/objects/{id}?type=manifest`, made absolute with `deliveryBaseUrl`), and every object of a public asset is served without credentials. An alternative is a playback id: create one with `POST /api/v1/assets/:id/playback-ids` (scope `manage`, body `{ "policy": "public" }`) and use `https://video.example.com/v1/stream/{playback_id}/master.m3u8` as `src`. Deleting the playback id later stops that URL, but not the asset's object URLs. `sluby.playback.streamUrl(id)` builds that kind of URL (for an asset id or a playback id) without a request.
+`playbackUrl` points at the master manifest on the gateway (`/v1/objects/{id}?type=manifest`, made absolute with `deliveryBaseUrl`), and every object of a public asset is served without credentials. An alternative is a playback id: create one with `sluby.playbackIds.create(assetId, { policy: 'public' })` (the REST `POST /api/v1/assets/:id/playback-ids`, scope `manage`) and use `https://video.example.com/v1/stream/{playback_id}/master.m3u8` as `src`. Deleting the playback id later stops that URL, but not the asset's object URLs. `sluby.playback.streamUrl(id)` builds that kind of URL (for an asset id or a playback id) without a request.
 
 The player uses the browser's native HLS when hls.js is not supported (no Media Source Extensions) and the browser can play HLS itself, and retries network errors up to `maxNetworkRetries` times (3 by default) before it shows an error with a Retry button.
 
@@ -189,7 +246,24 @@ export function PrivateWatch({ signedUrl }: { signedUrl: string }) {
 }
 ```
 
-The URL authorizes the whole asset until `expiresAt`: the gateway signs the playlists and segments inside the manifests with the same expiry. Choose `expiresIn` longer than the video plus pauses, because segments requested after the expiry get 403 and the player cannot renew the URL by itself. Anyone holding the URL can watch until then, so mint one per viewer and session. All signed URLs stop working if `SESSION_SECRET` changes.
+The URL authorizes the whole asset until `expiresAt`: the gateway signs the playlists and segments inside the manifests with the same expiry, and caps every signed URL at six hours (one hour by default). Segments requested after the expiry get 403, so either choose `expiresIn` longer than the video plus pauses, or give the player a `refreshSrc` function that returns a freshly signed URL; the player calls it shortly before the expiry and continues from the same position:
+
+```tsx
+export function RenewingWatch({ signedUrl }: { signedUrl: string }) {
+  return (
+    <SlubyPlayer
+      src={signedUrl}
+      refreshSrc={async () => {
+        // your own endpoint, which checks the viewer and signs a new url
+        const res = await fetch('/api/watch-url');
+        return ((await res.json()) as { url: string }).url;
+      }}
+    />
+  );
+}
+```
+
+Anyone holding the URL can watch until it expires, so mint one per viewer and session. `POST /api/v1/playback/:id/signed/revoke` (scope `manage`; the SDK has no method for it) stops every URL signed for the asset so far, and so does a tier change; all signed URLs also stop working if `SESSION_SECRET` changes.
 
 ### Apps where the browser holds a credential
 
@@ -231,10 +305,17 @@ const viewer = new SlubyClient({
 });
 
 // public asset: the stream url, built without a request
-<SlubyPlayer src={viewer.playback.streamUrl(assetId)} client={viewer} assetId={assetId} />
+export function PublicWatch({ assetId }: { assetId: string }) {
+  return <SlubyPlayer src={viewer.playback.streamUrl(assetId)} client={viewer} assetId={assetId} />;
+}
+```
 
-// private asset: the signed url your server minted for this viewer
-<SlubyPlayer src={signedUrl} client={viewer} assetId={assetId} />
+For a private asset, pass the signed URL your server minted for this viewer as `src` instead:
+
+```tsx
+export function PrivateSiaWatch({ assetId, signedUrl }: { assetId: string; signedUrl: string }) {
+  return <SlubyPlayer src={signedUrl} client={viewer} assetId={assetId} />;
+}
 ```
 
 Things to weigh:

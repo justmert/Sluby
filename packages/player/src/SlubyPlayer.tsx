@@ -20,10 +20,6 @@ import type { SiaPlaybackSession, SiaShareSource } from './sia-types.js';
 import { createSiaLoader } from './SiaLoader.js';
 import { renewingLoader, signedUrlsFor, withoutQuery, type SignedUrls } from './renewal.js';
 
-// ---------------------------------------------------------------------------
-// Public imperative handle exposed via ref
-// ---------------------------------------------------------------------------
-
 export interface SlubyPlayerHandle {
   /** The underlying HTMLVideoElement, or null before mount. */
   getVideoElement: () => HTMLVideoElement | null;
@@ -41,10 +37,6 @@ export interface SlubyPlayerHandle {
   /** Whether hls.js is picking the rendition adaptively. */
   isAutoQuality: () => boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Defaults & helpers
-// ---------------------------------------------------------------------------
 
 // direct-from-Sia delivery for one load; `source` is set when the share map
 // comes from the public endpoint for `src`
@@ -199,10 +191,6 @@ async function prepareSia(
     return null;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 /**
  * `<SlubyPlayer>`: a production React component for playing HLS streams
@@ -616,9 +604,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         for (const name of trackedEvents) video.removeEventListener(name, track);
       };
 
-      // ------------------------------------------------------------------
-      // Native HLS support (e.g. Safari on macOS / iOS)
-      // ------------------------------------------------------------------
+      // native hls where hls.js cannot run, such as safari on an iphone without managedmediasource
       if (!Hls.isSupported() && video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = current.src;
         cb.current.onDeliveryChange?.('gateway');
@@ -643,9 +629,6 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         };
       }
 
-      // ------------------------------------------------------------------
-      // hls.js path
-      // ------------------------------------------------------------------
       if (!Hls.isSupported()) {
         stopTracking();
         fail('HLS is not supported in this browser and native HLS is unavailable.');
@@ -904,10 +887,6 @@ function Spinner() {
   }, []);
   return <div ref={ref} style={SPINNER_STYLE} data-sluby-spinner="" aria-hidden="true" />;
 }
-
-// ---------------------------------------------------------------------------
-// Inline overlay styling (dependency-free)
-// ---------------------------------------------------------------------------
 
 const OVERLAY_STYLE: CSSProperties = {
   position: 'absolute',

@@ -1,5 +1,11 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { SlubyClient, type AccessTier, type AssetUploadHandle, type VideoAsset } from '@sluby/sdk';
+import {
+  ProcessingFailedError,
+  SlubyClient,
+  type AccessTier,
+  type AssetUploadHandle,
+  type VideoAsset,
+} from '@sluby/sdk';
 import { SlubyPlayer, type QualityLevel, type SlubyPlayerHandle } from '@sluby/player';
 import { describeError } from './errors.js';
 
@@ -114,10 +120,12 @@ export function App() {
           timeout: 30 * 60_000,
         });
       } catch (err) {
-        // waitForReady throws a plain Error when processing failed; the
-        // processing job carries the reason
+        if (!(err instanceof ProcessingFailedError)) throw err;
+        // the processing job says why it failed
         const job = await client.assets.processing(videoAssetId).catch(() => null);
-        throw job?.errorMessage ? new Error(`Processing failed: ${job.errorMessage}`) : err;
+        throw new Error(`Processing failed: ${job?.errorMessage ?? 'no reason was recorded'}`, {
+          cause: err,
+        });
       } finally {
         clearInterval(stagePoll);
       }
@@ -321,8 +329,8 @@ export function App() {
             }
             client={client}
             assetId={playing.assetId}
-            signed={playing.signed}
-            expiresIn={3600}
+            // the player only signs without a src, and warns if these come with one
+            {...(playing.signed && !playing.src ? { signed: true, expiresIn: 3600 } : {})}
             controls
             style={{ width: '100%' }}
             onQualitiesChange={setQualities}

@@ -2,19 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
 import { WebhookManager, type VerifyRequestOptions, type WebhookHeaders } from './webhooks.js';
 
-// ---------------------------------------------------------------------------
-// Helper: compute a known-good HMAC-SHA256 hex digest
-// ---------------------------------------------------------------------------
-
 function computeHmac(payload: string, secret: string): string {
   return createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
 }
 
 const manager = new WebhookManager();
-
-// ---------------------------------------------------------------------------
-// Tests: verifySignature (sync, Node.js)
-// ---------------------------------------------------------------------------
 
 describe('WebhookManager.verifySignature()', () => {
   const payload = '{"event":"video.ready","timestamp":"2025-01-01T00:00:00Z","data":{}}';
@@ -72,10 +64,6 @@ describe('WebhookManager.verifySignature()', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Tests: verifySignatureAsync (Web Crypto API)
-// ---------------------------------------------------------------------------
-
 describe('WebhookManager.verifySignatureAsync()', () => {
   const payload = '{"event":"video.ready","timestamp":"2025-01-01T00:00:00Z","data":{}}';
   const secret = 'whsec_test_secret_1234';
@@ -115,10 +103,6 @@ describe('WebhookManager.verifySignatureAsync()', () => {
     expect(await manager.verifySignatureAsync(payload, upper, secret)).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Tests: parseEvent()
-// ---------------------------------------------------------------------------
 
 describe('WebhookManager.parseEvent()', () => {
   it('should parse a valid webhook event payload', () => {
@@ -211,10 +195,6 @@ describe('WebhookManager.parseEvent()', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Tests: constant-time comparison behavior
-// ---------------------------------------------------------------------------
-
 describe('Constant-time comparison', () => {
   it('should reject signatures that differ by one character', () => {
     const payload = 'test-payload';
@@ -241,10 +221,6 @@ describe('Constant-time comparison', () => {
     expect(manager.verifySignature(payload, badSig, secret)).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Tests: verifyRequest / verifyRequestAsync (signature v1 with a time window)
-// ---------------------------------------------------------------------------
 
 describe('WebhookManager.verifyRequest()', () => {
   const body =

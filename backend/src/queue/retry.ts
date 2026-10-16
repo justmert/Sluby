@@ -9,10 +9,7 @@ import type { CompletedOutput } from './output-dirs.js';
  */
 export interface RetryAssetDeps {
   /** The asset if it exists, is owned by `owner` and is not being deleted. */
-  getAsset: (
-    id: string,
-    owner?: string,
-  ) => Promise<{ id: string; status: string; accessTier: string } | undefined>;
+  getAsset: (id: string, owner?: string) => Promise<{ id: string; status: string } | undefined>;
   /** The asset's latest processing job, if it has one. */
   getProcessingJob: (videoAssetId: string) => Promise<{ id: string } | undefined>;
   createProcessingJob: (videoAssetId: string, uploadSessionId: string) => Promise<{ id: string }>;
@@ -76,7 +73,6 @@ export function buildRetryAsset(deps: RetryAssetDeps) {
             videoAssetId: id,
             ...(session ? { uploadSessionId: session.id } : {}),
             outputDir: completed.outputDir,
-            accessTier: asset.accessTier,
             thumbnailPaths: completed.thumbnailPaths,
             durationMs: completed.marker.durationMs,
             resolution: completed.marker.resolution,

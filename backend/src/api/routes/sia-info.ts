@@ -11,10 +11,6 @@ import {
   type SiaBreakdown,
 } from '../../storage/sia-breakdown.js';
 
-// ---------------------------------------------------------------------------
-// Dependencies
-// ---------------------------------------------------------------------------
-
 export interface SiaInfoAssetRecord {
   id: string;
   manifestObjectId: string | null;
@@ -46,10 +42,6 @@ export interface SiaInfoRouteDeps {
   siaIndexer: { url: string; network: string };
 }
 
-// ---------------------------------------------------------------------------
-// Caches
-// ---------------------------------------------------------------------------
-//
 // A breakdown touches every object of the asset on the indexer, so it is
 // cached briefly per asset; the host list is the same for every asset and
 // changes slowly, so it is cached longer.
@@ -98,10 +90,6 @@ async function cachedHosts(deps: SiaInfoRouteDeps): Promise<HostInfo[]> {
     return hostsCache?.hosts ?? [];
   }
 }
-
-// ---------------------------------------------------------------------------
-// Assembly
-// ---------------------------------------------------------------------------
 
 // objects without a recorded role go last
 const ROLE_ORDER = ['master_manifest', 'variant_playlist', 'rendition_data', 'thumbnail', null];
@@ -175,7 +163,8 @@ function formatBreakdown(
       encoded_bytes: b.totals.encodedBytes,
       unique_slab_count: b.totals.uniqueSlabCount,
       unique_sector_count: b.totals.uniqueSectorCount,
-      sector_bytes: b.totals.sectorBytes,
+      // the same number as encoded_bytes, kept so existing clients still read it
+      sector_bytes: b.totals.encodedBytes,
       data_shards: b.totals.dataShards,
       parity_shards: b.totals.parityShards,
       redundancy_ratio: b.totals.redundancyRatio,
@@ -203,10 +192,6 @@ function formatBreakdown(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Route
-// ---------------------------------------------------------------------------
 
 export function createSiaInfoRoutes(deps: SiaInfoRouteDeps): Router {
   const router = Router();

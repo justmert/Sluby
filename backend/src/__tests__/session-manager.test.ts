@@ -219,31 +219,6 @@ describe('SessionManager', () => {
     });
   });
 
-  describe('resume', () => {
-    it('should return null when session does not exist', async () => {
-      vi.mocked(deps.getSession).mockResolvedValue(null);
-
-      const result = await manager.resume('nonexistent');
-      expect(result).toBeNull();
-    });
-
-    it('should return null when session is not in uploading status', async () => {
-      vi.mocked(deps.getSession).mockResolvedValue(createMockSession({ status: 'completed' }));
-
-      const result = await manager.resume('session-1');
-      expect(result).toBeNull();
-    });
-
-    it('should return upload URL when session is uploading', async () => {
-      vi.mocked(deps.getSession).mockResolvedValue(
-        createMockSession({ uploadUrl: '/api/v1/uploads/session-1' }),
-      );
-
-      const result = await manager.resume('session-1');
-      expect(result).toEqual({ uploadUrl: '/api/v1/uploads/session-1' });
-    });
-  });
-
   describe('cancel', () => {
     it('should do nothing when session does not exist', async () => {
       vi.mocked(deps.getSession).mockResolvedValue(null);

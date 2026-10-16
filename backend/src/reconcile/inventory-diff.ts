@@ -1,8 +1,7 @@
 /**
- * Pure comparison between what PostgreSQL believes it stored on Sia and what
- * the indexer reports. This is the heart of the reconciliation worker:
- * everything else (reading the indexer's feed, reading the DB, persisting a
- * run) is plumbing around this comparison.
+ * The comparison behind reconciliation: what Postgres believes it stored on
+ * Sia against what the indexer reports. No I/O; the reconciler gathers both
+ * sides and saves the result.
  */
 
 /** The indexer's latest event for one object. */

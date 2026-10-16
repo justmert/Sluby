@@ -97,10 +97,6 @@ const GRACE_OPTIONS = [
   { value: '604800', label: 'After 7 days' },
 ];
 
-// ---------------------------------------------------------------------------
-// Dialogs
-// ---------------------------------------------------------------------------
-
 /** Shows a freshly issued secret, which the server never returns again. */
 function SecretDialog({ issued, onClose }: { issued: IssuedKey | null; onClose: () => void }) {
   return (
@@ -330,10 +326,6 @@ function RotateDialog({
     </Dialog>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Sections
-// ---------------------------------------------------------------------------
 
 function ApiKeysCard() {
   const keys = useApiKeys();

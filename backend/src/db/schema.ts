@@ -15,10 +15,6 @@ import {
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
-// ──────────────────────────────────────────
-// Enums
-// ──────────────────────────────────────────
-
 export const uploadStatusEnum = pgEnum('upload_status', [
   'uploading',
   'completed',
@@ -62,14 +58,10 @@ export const playbackPolicyEnum = pgEnum('playback_policy', ['public', 'signed']
 /** Outcome of a reconciliation run: matched, or drift was detected. */
 export const reconcileStatusEnum = pgEnum('reconcile_status', ['ok', 'drift', 'failed']);
 
-// ──────────────────────────────────────────
-// Tables
-// ──────────────────────────────────────────
-
 /**
- * upload_sessions tracks the state of each TUS upload.
- * Created when a client initiates an upload, updated as chunks arrive,
- * and finalized when the full file has been received and verified.
+ * upload_sessions tracks each tus upload: created when the upload starts,
+ * updated as bytes arrive, and completed with the file's sha-256 once all of
+ * it is on disk.
  */
 export const uploadSessions = pgTable(
   'upload_sessions',
@@ -99,9 +91,8 @@ export const uploadSessions = pgTable(
 );
 
 /**
- * video_assets stores local metadata for each video.
- * PostgreSQL is the source of truth for video metadata;
- * this table is a cache for fast queries and search.
+ * video_assets is the record of each video: its owner, metadata, processing
+ * status and the Sia objects it is stored as.
  */
 export const videoAssets = pgTable(
   'video_assets',
@@ -138,7 +129,7 @@ export const videoAssets = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // Every by-id API lookup is now owner-scoped, and listing filters on it.
+    // every by-id lookup is owner-scoped, and listings filter on it
     index('video_assets_creator_address_idx').on(t.creatorAddress),
     index('video_assets_status_idx').on(t.status),
     // the platform listing's sort key (created_at desc, id desc), read backwards
@@ -148,7 +139,7 @@ export const videoAssets = pgTable(
     index('video_assets_owner_listing_idx')
       .on(t.creatorAddress, t.createdAt, t.id)
       .where(sql`${t.deletedAt} is null`),
-    // Lets the deletion GC sweep find rows stuck mid-deletion cheaply.
+    // the deletion gc sweep looks for rows stuck mid-deletion
     index('video_assets_deleted_at_idx').on(t.deletedAt),
   ],
 );
@@ -283,7 +274,7 @@ export const pendingObjects = pgTable(
  * playback_ids are public, rotatable handles that map to a video asset.
  * A creator can hand out a `pb_...` id (or several) for embedding and
  * revoke or rotate it without exposing or changing the internal asset
- * UUID — the same indirection Mux and other platforms use.
+ * UUID.
  */
 export const playbackIds = pgTable(
   'playback_ids',
@@ -500,8 +491,8 @@ export const studioSessions = pgTable(
 );
 
 /**
- * webhook_endpoints stores registered webhook URLs for a given API key.
- * Each endpoint receives POST requests for subscribed event types.
+ * webhook_endpoints stores each account's webhook URLs and the events each
+ * one is sent.
  */
 export const webhookEndpoints = pgTable(
   'webhook_endpoints',
@@ -526,8 +517,9 @@ export const webhookEndpoints = pgTable(
 );
 
 /**
- * webhook_deliveries logs every webhook delivery attempt.
- * Used for debugging, retries, and auditing.
+ * webhook_deliveries logs every delivery attempt, one row per try, for the
+ * delivery log the api serves. Retries are queued in Redis, not here, and the
+ * hourly sweep drops rows older than WEBHOOK_DELIVERY_RETENTION_MS.
  */
 export const webhookDeliveries = pgTable(
   'webhook_deliveries',
@@ -551,10 +543,6 @@ export const webhookDeliveries = pgTable(
     index('webhook_deliveries_endpoint_created_at_idx').on(t.webhookEndpointId, t.createdAt),
   ],
 );
-
-// ──────────────────────────────────────────
-// Relations
-// ──────────────────────────────────────────
 
 export const uploadSessionsRelations = relations(uploadSessions, ({ one }) => ({
   videoAsset: one(videoAssets, {
@@ -626,10 +614,6 @@ export const webhookDeliveriesRelations = relations(webhookDeliveries, ({ one })
     references: [webhookEndpoints.id],
   }),
 }));
-
-// ──────────────────────────────────────────
-// Type exports for use in queries
-// ──────────────────────────────────────────
 
 export type UploadSession = typeof uploadSessions.$inferSelect;
 export type NewUploadSession = typeof uploadSessions.$inferInsert;

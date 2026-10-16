@@ -6,7 +6,6 @@ export interface WebhookEndpointRecord {
   id: string;
   url: string;
   events: string[];
-  secret: string;
   isActive: boolean;
 }
 
