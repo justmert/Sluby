@@ -266,6 +266,19 @@ describe('playback routes', () => {
       status: 'ready',
     };
 
+    // the fourth argument is the hard limit (unix seconds): now plus the cap
+    function expectMint(expiresIn: number, capSec: number) {
+      expect(deps.createShareUrls).toHaveBeenCalledWith(
+        'asset-1',
+        'manifest-obj-1',
+        expiresIn,
+        expect.any(Number),
+      );
+      const notAfter = vi.mocked(deps.createShareUrls).mock.calls[0][3];
+      const expected = Math.floor(Date.now() / 1000) + capSec;
+      expect(Math.abs(notAfter - expected)).toBeLessThanOrEqual(2);
+    }
+
     it('returns the share-url map with master + expiry', async () => {
       vi.mocked(deps.getPlaybackAsset).mockResolvedValue(readyAsset);
 
@@ -294,7 +307,7 @@ describe('playback routes', () => {
 
       await request(createApp()).get('/asset-1/share');
 
-      expect(deps.createShareUrls).toHaveBeenCalledWith('asset-1', 'manifest-obj-1', 3600);
+      expectMint(3600, 21600);
     });
 
     it('clamps a public request to the six-hour ceiling', async () => {
@@ -302,7 +315,7 @@ describe('playback routes', () => {
 
       await request(createApp()).get('/asset-1/share?expires_in=999999');
 
-      expect(deps.createShareUrls).toHaveBeenCalledWith('asset-1', 'manifest-obj-1', 21600);
+      expectMint(21600, 21600);
     });
 
     it('caps a private asset to one hour and marks the response no-store', async () => {
@@ -313,7 +326,7 @@ describe('playback routes', () => {
 
       const res = await request(createApp()).get('/asset-1/share?expires_in=999999');
 
-      expect(deps.createShareUrls).toHaveBeenCalledWith('asset-1', 'manifest-obj-1', 3600);
+      expectMint(3600, 3600);
       expect(res.headers['cache-control']).toBe('private, no-store');
     });
 
@@ -327,7 +340,7 @@ describe('playback routes', () => {
       const res = await request(createApp()).get('/asset-1/share?expires_in=999999');
 
       expect(deps.resolveObjectTier).toHaveBeenCalledWith('manifest-obj-1');
-      expect(deps.createShareUrls).toHaveBeenCalledWith('asset-1', 'manifest-obj-1', 3600);
+      expectMint(3600, 3600);
       expect(res.headers['cache-control']).toBe('private, no-store');
     });
 

@@ -158,3 +158,25 @@ describe('PlaybackManager.getSignedUrl()', () => {
     expect(calledPath).toBe('/api/v1/playback/id%2Fspecial/signed');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tests: streamUrl()
+// ---------------------------------------------------------------------------
+
+describe('PlaybackManager.streamUrl()', () => {
+  it('builds the public master url on the delivery base without a request', () => {
+    const manager = new PlaybackManager(mockFetch, resolve);
+
+    expect(manager.streamUrl('asset-1')).toBe(
+      'https://delivery.test/v1/stream/asset-1/master.m3u8',
+    );
+    expect(manager.streamUrl('pb_abc')).toBe('https://delivery.test/v1/stream/pb_abc/master.m3u8');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('encodes the id', () => {
+    const manager = new PlaybackManager(mockFetch, resolve);
+
+    expect(manager.streamUrl('a/b')).toBe('https://delivery.test/v1/stream/a%2Fb/master.m3u8');
+  });
+});

@@ -4,6 +4,7 @@ import { playbackInitiationTotal } from '../../metrics/collector.js';
 import { ownerFilter } from '../ownership.js';
 import { AppError } from '../middleware/error-handler.js';
 import { logger } from '../../config/logger.js';
+import { shareExpiryBounds } from '../../delivery/share-expiry.js';
 
 export interface PlaybackRouteDeps {
   // `owner` is the caller's creatorAddress (undefined for a platform key).
@@ -30,11 +31,13 @@ export interface PlaybackRouteDeps {
   }>;
   // Mint per-object sia:// share URLs so the player can stream directly from
   // Sia. `masterObjectId` is the asset's manifest object; `expiresIn` is in
-  // seconds and already clamped by the route.
+  // seconds and already clamped by the route, and `notAfterSec` (unix
+  // seconds) is the tier cap the minted urls must not outlive.
   createShareUrls: (
     assetId: string,
     masterObjectId: string,
     expiresIn: number,
+    notAfterSec: number,
   ) => Promise<{
     masterObjectId: string;
     shares: Record<string, string>;
@@ -46,14 +49,6 @@ export interface PlaybackRouteDeps {
   // gates the whole object graph, not just the /v1/stream entry).
   resolveObjectTier: (objectId: string) => Promise<'public' | 'private' | 'unknown' | 'gone'>;
 }
-
-// Share URLs are per-session capabilities. Default an hour, allow up to six so
-// a long watch (with mid-stream ABR rendition switches) stays resolvable, but
-// cap gated content shorter since a leaked URL bypasses the gateway.
-const DEFAULT_SHARE_EXPIRES_IN = 3600;
-const MIN_SHARE_EXPIRES_IN = 60;
-const MAX_SHARE_EXPIRES_IN = 21600;
-const MAX_GATED_SHARE_EXPIRES_IN = 3600;
 
 export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
   const router = Router();
@@ -151,13 +146,15 @@ export function createPlaybackRoutes(deps: PlaybackRouteDeps): Router {
     const tier = await deps.resolveObjectTier(asset.manifestObjectId);
     const gated = tier === 'private' || asset.accessTier === 'private';
 
-    const requested = parseInt(req.query.expires_in as string) || DEFAULT_SHARE_EXPIRES_IN;
-    const cap = gated ? MAX_GATED_SHARE_EXPIRES_IN : MAX_SHARE_EXPIRES_IN;
-    const expiresIn = Math.min(Math.max(requested, MIN_SHARE_EXPIRES_IN), cap);
+    const { expiresIn, notAfterSec } = shareExpiryBounds(
+      req.query.expires_in,
+      gated,
+      Math.floor(Date.now() / 1000),
+    );
 
     let result: Awaited<ReturnType<typeof deps.createShareUrls>>;
     try {
-      result = await deps.createShareUrls(asset.id, asset.manifestObjectId, expiresIn);
+      result = await deps.createShareUrls(asset.id, asset.manifestObjectId, expiresIn, notAfterSec);
     } catch (err) {
       // minting talks to the indexer for every object; when that fails the
       // problem is upstream, so say so instead of answering a bare 500

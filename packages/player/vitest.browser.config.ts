@@ -9,6 +9,15 @@ export default defineConfig({
   plugins: [
     hlsFixtureGateway(fileURLToPath(new URL('./src/__browser__/fixtures/hls', import.meta.url))),
   ],
+  resolve: {
+    alias: {
+      // the real sdk from source, with the sia network faked underneath it
+      '@sluby/sdk': fileURLToPath(new URL('../sdk/src/index.ts', import.meta.url)),
+      '@siafoundation/sia-storage': fileURLToPath(
+        new URL('./src/__browser__/fake-sia-storage.ts', import.meta.url),
+      ),
+    },
+  },
   test: {
     name: 'player-browser',
     include: ['src/**/*.browser.test.{ts,tsx}'],

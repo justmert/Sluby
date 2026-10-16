@@ -350,3 +350,77 @@ describe('SlubyClient._fetch', () => {
     }
   });
 });
+
+describe('SlubyClient direct-from-Sia share maps', () => {
+  const sia = {
+    indexerUrl: 'https://sia.storage',
+    appId: 'ab'.repeat(32),
+    appKey: 'cd'.repeat(32),
+  };
+  const shareBody = { master_object_id: 'm', shares: { m: 'sia://m#k' }, expires_at: 'x' };
+
+  it('fetches the public share map from the delivery base with no key, even when one is set', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(makeResponse(200, shareBody));
+    vi.stubGlobal('fetch', mockFetch);
+    try {
+      const client = new SlubyClient({
+        apiKey: 'sluby_secret',
+        baseUrl: 'https://api.example.com',
+        deliveryBaseUrl: 'https://cdn.example.com',
+        credentials: 'include',
+        sia,
+      });
+
+      const src = client.playback.streamUrl('pb_abc');
+      const map = await client.sia!.getShareMap('pb_abc', { src });
+
+      expect(src).toBe('https://cdn.example.com/v1/stream/pb_abc/master.m3u8');
+      expect(map.masterObjectId).toBe('m');
+      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://cdn.example.com/v1/share/pb_abc');
+      expect(new Headers(init.headers).has('Authorization')).toBe(false);
+      expect(init.credentials).toBe('omit');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('turns a 403 from the public share map into an AuthenticationError', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValue(
+        makeResponse(403, { error: 'This share map requires a valid signed URL' }),
+      );
+    vi.stubGlobal('fetch', mockFetch);
+    try {
+      const client = new SlubyClient({ baseUrl: 'https://api.example.com', sia });
+
+      await expect(
+        client.sia!.getShareMap('a', { src: '/v1/stream/a/master.m3u8' }),
+      ).rejects.toBeInstanceOf(AuthenticationError);
+      expect(mockFetch.mock.calls[0][0]).toBe('https://api.example.com/v1/share/a');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps the authenticated api route when no src is given', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(makeResponse(200, shareBody));
+    vi.stubGlobal('fetch', mockFetch);
+    try {
+      const client = new SlubyClient({
+        apiKey: 'sluby_secret',
+        baseUrl: 'https://api.example.com',
+        sia,
+      });
+
+      await client.sia!.getShareMap('asset-1');
+
+      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://api.example.com/api/v1/playback/asset-1/share');
+      expect(new Headers(init.headers).get('Authorization')).toBe('Bearer sluby_secret');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

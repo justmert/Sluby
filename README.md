@@ -194,9 +194,11 @@ Two modes, from one stored manifest (objects are referenced as
 `/v1/objects/{id}`, so no re-processing to switch):
 
 - **Direct from Sia** (default when a viewer identity is configured): the
-  player asks the backend for a short-lived, per-object share map, then a custom
-  hls.js loader resolves each object and downloads its byte ranges from Sia. The
-  backend serves only the small share-map JSON.
+  player asks the backend for a short-lived, per-object share map (the public
+  `GET /v1/share/:id`, gated like the gateway by the playback URL's own
+  signature, so no API key is needed), then a custom hls.js loader resolves each
+  object and downloads its byte ranges from Sia. The backend serves only the
+  small share-map JSON.
 - **Gateway** (fallback): used for Safari native HLS, when no viewer identity is
   configured, or if the Sia session fails to start.
 
@@ -212,23 +214,25 @@ Approve the printed URL in your indexer account; it prints three publishable
 values. Pass them to the client (or set `VITE_SLUBY_SIA_*` in the quickstart):
 
 ```ts
-const client = new SlubyClient({ apiKey, baseUrl, sia: { indexerUrl, appId, appKey } });
-// <SlubyPlayer client={client} assetId={id} /> now streams directly from Sia.
+const client = new SlubyClient({ baseUrl, sia: { indexerUrl, appId, appKey } });
+// no api key: <SlubyPlayer src={client.playback.streamUrl(id)} client={client} assetId={id} />
+// streams directly from Sia; for a private asset pass a signed url as src.
 ```
 
 Trade-offs: egress is paid by the downloading account, so direct mode moves
 egress to the viewer account (fund it) and has no shared proxy cache (each
 viewer pulls independently); use gateway mode for the shared cache. A share URL
 carries the object's decryption key and bypasses the signed-URL gateway, so the
-backend mints them owner-scoped and short-lived (shorter and non-cacheable for
-private or signed-policy assets).
+backend mints them short-lived, only for a public asset or a valid signed URL,
+and never past that signature's expiry (shorter and non-cacheable for private
+or signed-policy assets).
 
 Verify the data path with `node scripts/e2e-sia-share.mjs` (opt-in; set the
 `SIA_E2E_*` vars it prints when skipped). For the browser, run the quickstart
 with the viewer config, open DevTools' Network tab filtered to your backend
 origin, and confirm that during playback the manifest and segments do **not**
-hit the backend's `/v1/objects` (they go to Sia hosts); the only backend calls
-are `GET /api/v1/playback/:id` and `.../share`. One exception: the
+hit the backend's `/v1/objects` (they go to Sia hosts); with a playback URL the
+only backend call is `GET /v1/share/:id`. One exception: the
 `<video poster>` thumbnail is always served via the gateway, so you will see a
 single `/v1/objects/{thumbnail}` request for it. Unset the viewer config to see
 the manifest and segment requests reappear on `/v1/objects` (the gateway

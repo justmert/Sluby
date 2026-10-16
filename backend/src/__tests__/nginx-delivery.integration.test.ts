@@ -79,9 +79,31 @@ http {
       add_header Access-Control-Allow-Credentials true always;
       add_header Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges" always;
     }
+    # share maps: the backend marks a public map briefly cacheable and a gated
+    # one private, no-store
+    location /v1/share/ {
+      root /origin;
+      default_type application/json;
+      add_header Cache-Control "public, max-age=30" always;
+      add_header Access-Control-Allow-Origin * always;
+      add_header Access-Control-Allow-Credentials true always;
+    }
+    location /v1/share/gated {
+      root /origin;
+      default_type application/json;
+      add_header Cache-Control "private, no-store" always;
+      add_header Access-Control-Allow-Origin * always;
+      add_header Access-Control-Allow-Credentials true always;
+    }
   }
 }
 `;
+
+const SHARE_MAP = JSON.stringify({
+  master_object_id: 'master',
+  shares: { master: 'sia://indexer/objects/master/shared?sv=1' },
+  expires_at: '2030-01-01T00:00:00.000Z',
+});
 
 /** Write the origin file tree and the container configs to a temp dir. */
 function writeFixtures(): string {
@@ -91,6 +113,10 @@ function writeFixtures(): string {
   writeFileSync(join(objects, 'master'), MASTER);
   writeFileSync(join(objects, 'variant'), VARIANT);
   writeFileSync(join(objects, 'data'), DATA);
+  const share = join(dir, 'origin', 'v1', 'share');
+  mkdirSync(share, { recursive: true });
+  writeFileSync(join(share, 'public'), SHARE_MAP);
+  writeFileSync(join(share, 'gated'), SHARE_MAP);
   writeFileSync(join(dir, 'origin.conf'), ORIGIN_CONF);
 
   // The real proxy config, with its upstream pointed at the origin container.
@@ -266,5 +292,34 @@ describe.skipIf(!HAS_DOCKER)('HLS delivery through nginx', () => {
     const second = await fetchThroughNginx(base, path);
     expect(first.headers.get('x-cache-status')).toBe('MISS');
     expect(second.headers.get('x-cache-status')).toBe('HIT');
+  });
+
+  it('proxies share maps with one set of cors headers, caching only public ones', async () => {
+    const origin = { Origin: 'http://example.test' };
+    const first = await fetchThroughNginx(base, '/v1/share/public', origin);
+    const second = await fetchThroughNginx(base, '/v1/share/public', origin);
+    expect(first.status).toBe(200);
+    expect(JSON.parse(first.buf.toString()).master_object_id).toBe('master');
+    expect(first.headers.get('x-cache-status')).toBe('MISS');
+    expect(second.headers.get('x-cache-status')).toBe('HIT');
+
+    const gatedFirst = await fetchThroughNginx(base, '/v1/share/gated?expires=1&sig=a', origin);
+    const gatedSecond = await fetchThroughNginx(base, '/v1/share/gated?expires=1&sig=a', origin);
+    expect(gatedFirst.status).toBe(200);
+    expect(gatedSecond.headers.get('x-cache-status')).not.toBe('HIT');
+    expect(gatedSecond.headers.get('cache-control')).toBe('private, no-store');
+
+    for (const r of [first, second, gatedFirst, gatedSecond]) {
+      expect(r.headers.get('access-control-allow-origin')).toBe('*');
+      expect(r.headers.get('access-control-allow-credentials')).toBeNull();
+    }
+
+    const preflight = await fetch(`${base}/v1/share/public`, {
+      method: 'OPTIONS',
+      headers: { ...origin, 'Access-Control-Request-Method': 'GET' },
+      signal: AbortSignal.timeout(4000),
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
   });
 });

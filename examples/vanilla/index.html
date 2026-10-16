@@ -72,10 +72,11 @@
       <input id="base-url" type="text" />
       <label for="delivery-url">Delivery base URL (optional, defaults to the API base)</label>
       <input id="delivery-url" type="text" />
-      <label for="api-key">API key (empty when the base URL is your playback server)</label>
+      <label for="api-key">API key (for uploading and deleting; playback needs none)</label>
       <input id="api-key" type="password" />
       <p class="muted">
-        Direct-from-Sia playback (optional): set all three to stream bytes straight from Sia.
+        Direct-from-Sia playback (optional): set all three to stream bytes straight from Sia. No API
+        key needed.
       </p>
       <label for="sia-indexer">Sia indexer URL</label>
       <input id="sia-indexer" type="text" />
@@ -102,8 +103,16 @@
     </section>
 
     <section>
-      <label for="asset-id">Asset id</label>
+      <label for="asset-id">Asset id (or pb_ playback id)</label>
       <input id="asset-id" type="text" />
+      <label for="playback-url">
+        Playback URL (optional: a signed URL your server minted, for a private asset)
+      </label>
+      <input
+        id="playback-url"
+        type="text"
+        placeholder="empty plays the public stream URL, no key needed"
+      />
       <div class="row">
         <label><input id="signed" type="checkbox" /> signed URL</label>
         <button id="play" type="button">Play</button>

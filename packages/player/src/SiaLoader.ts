@@ -6,13 +6,17 @@ import type {
   LoaderContext,
   LoaderStats,
 } from 'hls.js';
-import type { SiaPlaybackSession } from './types.js';
+import type { SiaPlaybackSession, SiaShareSource } from './types.js';
 
 // hls.js addresses every HLS child as `{base}/v1/objects/{hexId}` (see the
 // backend manifest rewriter). The loader pulls the object id out of that URL
 // and hands it to the session, so the same stored manifest serves both the
 // gateway and this direct-from-Sia path.
 const OBJECT_URL_RE = /\/v1\/objects\/([^/?#]+)/;
+
+// the public master url names the asset (or playback id), not an object, so
+// for it the session supplies the master object id from the share map
+const STREAM_URL_RE = /\/v1\/stream\/[^/?#]+\/master\.m3u8(?:[?#]|$)/;
 
 function parseObjectId(url: string): string | null {
   const m = OBJECT_URL_RE.exec(url);
@@ -37,8 +41,11 @@ function emptyStats(): LoaderStats {
  * Build an hls.js `Loader` class that streams every segment and playlist
  * directly from Sia via the SDK's viewer session, instead of fetching the
  * gateway over HTTP. hls.js constructs a loader with only the `HlsConfig`, so
- * the session and asset id are captured here by closure. The session owns the
- * share map (fetching and refreshing it as needed).
+ * the session, asset id and share source are captured here by closure. The
+ * session owns the share map (fetching and refreshing it as needed).
+ *
+ * Pass `{ src }` with the playback URL hls.js loads to use the public share
+ * map for it (no API key); leave it out to use the authenticated API route.
  *
  * One instance is created per load; hls.js calls `load` once, then `abort` or
  * `destroy` on teardown.
@@ -46,7 +53,18 @@ function emptyStats(): LoaderStats {
 export function createSiaLoader(
   session: SiaPlaybackSession,
   assetId: string,
+  source?: SiaShareSource,
 ): { new (config: HlsConfig): Loader<LoaderContext> } {
+  const masterObjectId = async (): Promise<string> => {
+    if (!session.masterObjectId) {
+      throw new Error(
+        'this session cannot resolve a /v1/stream master url; use a SlubyClient session ' +
+          'or play the /v1/objects/{id} master url',
+      );
+    }
+    return session.masterObjectId(assetId, source);
+  };
+
   return class SiaLoader implements Loader<LoaderContext> {
     context: LoaderContext | null = null;
     stats: LoaderStats = emptyStats();
@@ -71,7 +89,7 @@ export function createSiaLoader(
       stats.loading.start = performance.now();
 
       const objectId = parseObjectId(context.url);
-      if (!objectId) {
+      if (!objectId && !STREAM_URL_RE.test(context.url)) {
         this.failNow(`SiaLoader: no object id in "${context.url}"`);
         return;
       }
@@ -95,13 +113,15 @@ export function createSiaLoader(
 
     private async run(
       context: LoaderContext,
-      objectId: string,
+      objectId: string | null,
       options: { offset?: number; length?: number },
       wantText: boolean,
     ): Promise<void> {
       const stats = this.stats;
       try {
-        const object = await session.resolveObjectId(assetId, objectId);
+        const id = objectId ?? (await masterObjectId());
+        if (this.aborted) return;
+        const object = await session.resolveObjectId(assetId, id, source);
         if (this.aborted) return;
 
         const stream = session.download(object, options);

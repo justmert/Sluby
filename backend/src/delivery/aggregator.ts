@@ -4,9 +4,10 @@ import { downloadObject, getObject } from '../storage/sia-client.js';
 import { contentTypeForHint } from './content-type.js';
 import { getObjectAccessTier } from './access-control.js';
 import { verifyObjectAccess, signManifestObjectUrls } from './signed-url.js';
+import { shareExpiryBounds } from './share-expiry.js';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
-import { recordDelivery } from '../metrics/collector.js';
+import { playbackInitiationTotal, recordDelivery } from '../metrics/collector.js';
 
 export const deliveryRouter = Router();
 
@@ -427,6 +428,118 @@ deliveryRouter.get('/v1/stream/:videoAssetId/master.m3u8', async (req: Request, 
   } catch (err) {
     logger.error({ param, err }, 'Failed to serve manifest');
     res.status(500).json({ error: 'Failed to serve manifest' });
+  }
+});
+
+// a public share map may sit in a browser or proxy cache this long at most,
+// and never so long that a cached copy is handed out after the shares lapse
+const PUBLIC_SHARE_MAX_AGE_SEC = 60;
+// lifetime a cached copy must still have left when served: the sdk refreshes a
+// map 60s before it expires, plus slack for a second cache in front
+const PUBLIC_SHARE_CACHE_MARGIN_SEC = 120;
+
+/**
+ * GET /v1/share/:id
+ *
+ * The sia:// share map for an asset or pb_ playback id, without credentials,
+ * so a public page can play direct from Sia. Gated exactly like the gateway:
+ * a public asset needs nothing, a private asset or a signed handle needs the
+ * same `expires` and `sig` as its signed master url, and the shares never
+ * outlive that signature. Minting goes through the per-asset cache in
+ * share-urls.ts, whose gridded expiries bound indexer calls per asset no
+ * matter how often or with which `expires_in` this is called.
+ */
+deliveryRouter.get('/v1/share/:id', async (req: Request, res: Response) => {
+  const param = String(req.params.id);
+  try {
+    const { getPlaybackIdByPublicId } = await import('../db/queries/playback-ids.js');
+    const { isPlaybackId } = await import('../api/playback-id.js');
+    const { getVideoAssetById } = await import('../db/queries/assets.js');
+
+    let assetId = param;
+    let policy = 'public';
+    if (isPlaybackId(param)) {
+      const pb = await getPlaybackIdByPublicId(param);
+      if (!pb) {
+        res.status(404).set(COMMON_CORS).json({ error: 'Video asset not found or not ready' });
+        return;
+      }
+      assetId = pb.videoAssetId;
+      policy = pb.policy;
+    }
+
+    const asset = await getVideoAssetById(assetId);
+    if (!asset?.manifestObjectId || asset.status !== 'ready') {
+      res.status(404).set(COMMON_CORS).json({ error: 'Video asset not found or not ready' });
+      return;
+    }
+
+    // the object tier also catches a public asset that has a signed handle:
+    // its objects are gated at /v1/objects, and a share map skips that gate,
+    // so handing it out unsigned under the asset id would open the asset
+    const tier = await getObjectAccessTier(asset.manifestObjectId);
+    if (tier === 'gone') {
+      res.status(404).set(COMMON_CORS).json({ error: 'Video asset not found or not ready' });
+      return;
+    }
+    const gated = asset.accessTier === 'private' || policy === 'signed' || tier === 'private';
+
+    let signatureExpiresSec: number | undefined;
+    if (gated) {
+      const check = verifyObjectAccess(
+        asset.manifestObjectId,
+        req.query.expires as string | undefined,
+        req.query.sig as string | undefined,
+        env.SESSION_SECRET,
+        Math.floor(Date.now() / 1000),
+      );
+      if (!check.ok) {
+        logger.warn({ param, reason: check.reason }, 'Rejected unsigned share map request');
+        res.status(403).set(COMMON_CORS).json({
+          error: 'This share map requires a valid signed URL',
+          reason: check.reason,
+        });
+        return;
+      }
+      signatureExpiresSec = Number(req.query.expires);
+    }
+
+    const { createAssetShareUrls } = await import('./share-urls.js');
+    const nowSec = Math.floor(Date.now() / 1000);
+    const { expiresIn, notAfterSec } = shareExpiryBounds(
+      req.query.expires_in,
+      gated,
+      nowSec,
+      signatureExpiresSec,
+    );
+
+    let result: Awaited<ReturnType<typeof createAssetShareUrls>>;
+    try {
+      result = await createAssetShareUrls(asset.id, asset.manifestObjectId, expiresIn, notAfterSec);
+    } catch (err) {
+      logger.warn({ assetId: asset.id, err }, 'Could not mint share urls');
+      res.status(502).set(COMMON_CORS).json({
+        error: 'The Sia indexer did not answer while minting share URLs; try again',
+      });
+      return;
+    }
+
+    let cacheControl = 'private, no-store';
+    if (!gated) {
+      const remaining = Math.floor(Date.parse(result.expiresAt) / 1000) - nowSec;
+      const maxAge = Math.min(PUBLIC_SHARE_MAX_AGE_SEC, remaining - PUBLIC_SHARE_CACHE_MARGIN_SEC);
+      cacheControl = maxAge > 0 ? `public, max-age=${maxAge}` : 'no-store';
+    }
+
+    playbackInitiationTotal.inc({ mode: 'sia' });
+    res.set({ 'Cache-Control': cacheControl, ...COMMON_CORS }).json({
+      master_object_id: result.masterObjectId,
+      shares: result.shares,
+      expires_at: result.expiresAt,
+    });
+  } catch (err) {
+    logger.error({ param, err }, 'Failed to serve share map');
+    res.status(500).set(COMMON_CORS).json({ error: 'Failed to serve share map' });
   }
 });
 

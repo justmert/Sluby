@@ -196,6 +196,7 @@ export interface SiaViewerConfig {
 /**
  * Per-playback capability map: a short-lived sia:// share URL per object of an
  * asset, plus which object is the HLS master. Fetched from the backend's
+ * public `GET /v1/share/:id` (see `SiaShareSource`) or the authenticated
  * `GET /api/v1/playback/:id/share`.
  */
 export interface SiaShareMap {
@@ -203,6 +204,20 @@ export interface SiaShareMap {
   /** object id (hex) -> sia:// share URL */
   shares: Record<string, string>;
   expiresAt: string;
+}
+
+/** Where a `SiaSession` gets an asset's share map from. */
+export interface SiaShareSource {
+  /**
+   * The gateway playback URL being played: `/v1/stream/{id}/master.m3u8` (for
+   * example from `playback.streamUrl`) or `/v1/objects/{id}`, signed or not,
+   * absolute or relative to `deliveryBaseUrl`. When set, the share map comes
+   * from the public `GET /v1/share/:id` on the same delivery base, with that
+   * URL's `expires` and `sig` and no credentials, so a page without an API key
+   * can play direct from Sia. When unset, the authenticated
+   * `GET /api/v1/playback/:id/share` is used.
+   */
+  src?: string;
 }
 
 /** SDK client configuration. */
@@ -234,8 +249,9 @@ export interface SlubyConfig {
   /**
    * Viewer identity for direct-from-Sia playback. When set, `client.sia` is
    * available and the player can stream bytes straight from Sia (backend out
-   * of the byte path). Omit for REST-only or gateway-delivery consumers; the
-   * WASM SDK is then never loaded.
+   * of the byte path). It needs no API key: given the playback URL, the share
+   * map comes from the public share endpoint. Omit for REST-only or
+   * gateway-delivery consumers; the WASM SDK is then never loaded.
    */
   sia?: SiaViewerConfig;
 }

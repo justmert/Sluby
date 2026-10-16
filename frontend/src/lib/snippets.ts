@@ -137,7 +137,7 @@ for (const asset of page.data) console.log(asset.id, asset.title, asset.duration
       id: 'player',
       title: 'Play it in React',
       description:
-        'The player resolves the stream from the asset id, switches quality on its own, and lets you pin a rendition.',
+        'The player plays the public stream url with no key, switches quality on its own, and lets you pin a rendition.',
       js: {
         lang: 'tsx',
         code: `// npm install @sluby/sdk @sluby/player
@@ -145,8 +145,8 @@ import { useRef, useState } from 'react';
 import { SlubyClient } from '@sluby/sdk';
 import { SlubyPlayer, type QualityLevel, type SlubyPlayerHandle } from '@sluby/player';
 
-// browser code: use a key with only the read scope
-const sluby = new SlubyClient({ baseUrl: '${base}', apiKey: 'sluby_read_only_key' });
+// browser code: public playback needs no api key
+const sluby = new SlubyClient({ baseUrl: '${base}' });
 
 export function Video({ assetId }: { assetId: string }) {
   const player = useRef<SlubyPlayerHandle>(null);
@@ -154,7 +154,13 @@ export function Video({ assetId }: { assetId: string }) {
 
   return (
     <>
-      <SlubyPlayer ref={player} client={sluby} assetId={assetId} onQualitiesChange={setLevels} />
+      <SlubyPlayer
+        ref={player}
+        src={sluby.playback.streamUrl(assetId)}
+        client={sluby}
+        assetId={assetId}
+        onQualitiesChange={setLevels}
+      />
       <button onClick={() => player.current?.setQuality(-1)}>Auto</button>
       {levels.map((level) => (
         <button key={level.index} onClick={() => player.current?.setQuality(level.index)}>
@@ -165,9 +171,8 @@ export function Video({ assetId }: { assetId: string }) {
   );
 }`,
       },
-      curl: `# the hls master playlist url any player can load
-curl -s "${base}/api/v1/playback/YOUR_ASSET_ID" \\
-  ${auth}`,
+      curl: `# the hls master playlist any player can load, no key needed for a public asset
+curl -s "${base}/v1/stream/YOUR_ASSET_ID/master.m3u8"`,
     },
     {
       id: 'private',
@@ -191,7 +196,7 @@ console.log(signedUrl, 'valid until', expiresAt);
       id: 'direct',
       title: 'Stream direct from Sia',
       description:
-        'With a viewer identity the player pulls bytes straight from Sia hosts; the backend only mints short-lived share URLs.',
+        'With a viewer identity the player pulls bytes straight from Sia hosts, no API key needed; the backend only mints short-lived share URLs.',
       js: {
         lang: 'ts',
         code: `import { SlubyClient } from '@sluby/sdk';
@@ -199,18 +204,18 @@ console.log(signedUrl, 'valid until', expiresAt);
 // a publishable viewer identity from \`npm run provision-viewer --workspace=backend\`
 const sluby = new SlubyClient({
   baseUrl: '${base}',
-  apiKey: 'sluby_read_only_key',
   sia: {
     indexerUrl: 'https://sia.storage',
     appId: 'VIEWER_APP_ID_HEX',
     appKey: 'VIEWER_APP_KEY_HEX',
   },
 });
-// <SlubyPlayer client={sluby} assetId="..." onDeliveryChange={console.log} /> reports "sia"`,
+// <SlubyPlayer src={sluby.playback.streamUrl(id)} client={sluby} assetId={id}
+//   onDeliveryChange={console.log} /> reports "sia"; for a private asset pass
+//   the signed url your server minted as src`,
       },
-      curl: `# the per-object sia:// share urls the player resolves
-curl -s "${base}/api/v1/playback/YOUR_ASSET_ID/share" \\
-  ${auth}`,
+      curl: `# the per-object sia:// share urls the player resolves, public for a public asset
+curl -s "${base}/v1/share/YOUR_ASSET_ID"`,
     },
     {
       id: 'storage',

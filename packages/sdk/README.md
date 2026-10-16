@@ -63,9 +63,10 @@ allow credentialed CORS for your origin on the API.
 - `client.assets`: `list()` (with `search`, `sort`, `order` and cursor paging), `get()`, `update()`, `delete()`, `waitForReady()`, `processing()` (the processing job with its stage, progress and log), `retry()` for a failed asset.
 - `client.playback`: `getUrl()` and `getSignedUrl()`, both returning an absolute
   URL (`playbackUrl` / `signedUrl`) resolved against the delivery base, plus the
-  raw server path (`playbackPath` / `signedPath`).
+  raw server path (`playbackPath` / `signedPath`). `streamUrl(id)` returns the
+  public master URL (`/v1/stream/{id}/master.m3u8`) without a request or a key.
 - `client.webhooks`: signature verification and event parsing.
-- `client.sia`: present when the client is created with a `sia` viewer config; `@sluby/player` uses it to stream straight from Sia hosts instead of the gateway.
+- `client.sia`: present when the client is created with a `sia` viewer config; `@sluby/player` uses it to stream straight from Sia hosts instead of the gateway. Given the playback URL (`prepare(id, { src })`), it fetches the share map from the public `/v1/share/:id` with that URL's signature and no credentials, so a page without an API key can play direct from Sia.
 - `client.resolveDeliveryUrl(path)`: turn a server-relative delivery path into an
   absolute URL.
 

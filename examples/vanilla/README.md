@@ -3,9 +3,9 @@
 Sluby without a framework: `@sluby/sdk` for the API, hls.js for playback, and `@sluby/player/hls` for direct-from-Sia playback. The code is plain JavaScript modules, typechecked with `checkJs`. The [plain JavaScript guide](../../docs/guide/javascript.md) walks through it.
 
 - `src/main.js`: upload with progress and pause, wait for processing, play, pick a rendition, delete
-- `src/player.js`: playback with hls.js, native HLS on Safari without Media Source Extensions, signed URLs, direct from Sia
+- `src/player.js`: playback with hls.js, native HLS on Safari without Media Source Extensions, signed URLs, direct from Sia with no API key
 - `server/upload.mjs`: upload from Node.js with an API key
-- `server/playback-server.mjs`: answers the browser's playback calls with a key the browser never sees
+- `server/playback-server.mjs`: mints signed URLs for private assets with a key the browser never sees
 
 ## Run
 
@@ -25,7 +25,7 @@ cp .env.example .env   # optional: defaults for the form fields
 npm run dev
 ```
 
-Open http://localhost:5181. Entering an API key in the page is for local development only; see the guide for keeping keys on a server.
+Open http://localhost:5181. Playback needs no API key: leave the key empty, enter an asset id and press Play, and a public asset plays from its stream URL, straight from Sia when the viewer fields are set. A private asset needs a signed URL in the playback URL field (or the signing server below). Uploading and deleting need a key; entering one in the page is for local development only, see the guide for keeping keys on a server.
 
 Upload from Node.js:
 
@@ -33,7 +33,7 @@ Upload from Node.js:
 SLUBY_BASE_URL=http://localhost:8080 SLUBY_API_KEY=sluby_... npm run upload -- ./video.mp4 "My video"
 ```
 
-Serve playback without a key in the browser (then set the page's base URL to `http://localhost:8787`, the delivery URL to Sluby, and leave the key empty):
+Mint signed URLs for private assets without a key in the browser (then set the page's base URL to `http://localhost:8787`, the delivery URL to Sluby, leave the key empty, and tick "signed URL"):
 
 ```bash
 SLUBY_BASE_URL=http://localhost:8080 SLUBY_API_KEY=sluby_... \

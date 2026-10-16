@@ -36,12 +36,36 @@ const client = new SlubyClient({ apiKey: 'sluby_...', baseUrl: 'https://video.ex
 // Private content: <SlubyPlayer client={client} assetId="…" signed expiresIn={3600} />
 ```
 
+Direct from Sia with no API key in the page: give it the playback URL, the
+asset id and a keyless client with a viewer identity. The share map comes from
+the public `/v1/share/:id`, gated by the URL's own signature for private content.
+
+```tsx
+const viewer = new SlubyClient({
+  baseUrl: 'https://video.example.com',
+  sia: { indexerUrl, appId, appKey },
+});
+
+<SlubyPlayer src={viewer.playback.streamUrl(id)} client={viewer} assetId={id} />;
+// Private content: <SlubyPlayer src={signedUrlFromYourServer} client={viewer} assetId={id} />
+```
+
+Plain hls.js apps get the same from `@sluby/player/hls`:
+
+```ts
+import { createSiaLoader } from '@sluby/player/hls';
+
+await viewer.sia!.prepare(id, { src });
+const hls = new Hls({ loader: createSiaLoader(viewer.sia!, id, { src }) });
+hls.loadSource(src);
+```
+
 ## Props
 
 | Prop                                                                                   | Type                    | Notes                                                                         |
 | -------------------------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------------- |
 | `src`                                                                                  | `string`                | Absolute HLS master manifest URL.                                             |
-| `client` + `assetId`                                                                   | `SlubyClient`, `string` | Alternative to `src`; the player resolves the URL.                            |
+| `client` + `assetId`                                                                   | `SlubyClient`, `string` | Alone: the player resolves the URL. With `src`: direct from Sia, no key.      |
 | `signed`, `expiresIn`                                                                  | `boolean`, `number`     | Resolve a signed URL for private content.                                     |
 | `autoPlay`, `controls`, `muted`                                                        | `boolean`               | Standard playback flags.                                                      |
 | `poster`, `width`, `height`, `className`, `style`                                      |                         | Passed through to the video / wrapper.                                        |

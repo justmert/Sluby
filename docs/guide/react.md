@@ -29,7 +29,7 @@ Every API key belongs to one account and carries scopes:
 Anything shipped to a browser can be read by whoever loads the page. A key with `manage` lets them delete your library and create new keys. A key with `upload` lets them fill your storage. A `read` key is not harmless either: it lists every asset of the account and mints signed URLs for private ones. The API has no short-lived or per-viewer tokens, so the safe setup keeps every key on a server you control:
 
 - **Uploads** run on your server with an `upload` key. The [Node.js section of the plain JavaScript guide](./javascript#upload-from-a-server) shows the code.
-- **Playback** in the browser needs no key at all. Public video is served by the gateway without authentication, and a private video plays from a signed URL that your server mints. See [Keeping keys out of the browser](#keeping-keys-out-of-the-browser).
+- **Playback** in the browser needs no key at all, direct from Sia included. A public video plays from its stream URL, which the SDK builds without a request, and a private video plays from a signed URL that your server mints. See [Keeping keys out of the browser](#keeping-keys-out-of-the-browser).
 
 The example app takes a key in a form field so you can try the whole flow against a local stack. Treat that as a development convenience, not a pattern for a public site.
 
@@ -43,7 +43,8 @@ const client = useMemo(() => {
       ? { indexerUrl: siaIndexerUrl, appId: siaAppId, appKey: siaAppKey }
       : undefined;
   return new SlubyClient({
-    // no key means the base url is a server of yours that adds it
+    // public playback, direct from Sia included, needs no key; uploading,
+    // deleting and minting signed urls do
     apiKey: apiKey || undefined,
     baseUrl,
     deliveryBaseUrl: deliveryUrl || undefined,
@@ -54,7 +55,7 @@ const client = useMemo(() => {
 
 - `baseUrl` is where the REST API is, for example `http://localhost:8080` on the Compose stack.
 - `deliveryBaseUrl` is where the browser fetches manifests and segments from. It defaults to `baseUrl`, which is right for the Compose stack because nginx serves the API and the gateway on one port.
-- `apiKey` is sent as a bearer token. The constructor throws on an empty string, because that is usually an unset environment variable, so pass `undefined` when there is no key.
+- `apiKey` is sent as a bearer token on API calls. The constructor throws on an empty string, because that is usually an unset environment variable, so pass `undefined` when there is no key. Playback requests to the delivery base never carry it.
 - `sia` is the optional viewer identity for [direct-from-Sia playback](#direct-from-sia-playback).
 
 Create the client once per configuration with `useMemo`. `<SlubyPlayer>` resolves its playback URL again whenever the `client` prop changes, so a new client on every render would restart playback.
@@ -130,12 +131,16 @@ try {
 
 ## Play it
 
-Give `<SlubyPlayer>` the client and an asset id, and it resolves the playback URL itself:
+Give `<SlubyPlayer>` a playback URL, the client and the asset id:
 
 ```tsx
 <SlubyPlayer
-  key={`${playing.assetId}:${playing.signed}`}
+  key={`${playing.assetId}:${playing.signed}:${playing.src ?? ''}`}
   ref={playerRef}
+  // a public asset plays from its stream url with no key, and with a
+  // viewer identity straight from Sia; "signed" without a url has the
+  // client mint one, which needs a key
+  src={playing.src ?? (playing.signed ? undefined : client.playback.streamUrl(playing.assetId))}
   client={client}
   assetId={playing.assetId}
   signed={playing.signed}
@@ -149,9 +154,13 @@ Give `<SlubyPlayer>` the client and an asset id, and it resolves the playback UR
 />
 ```
 
+- `client.playback.streamUrl(id)` returns the public master manifest URL, `{deliveryBaseUrl}/v1/stream/{id}/master.m3u8`, for an asset id or a `pb_...` playback id. It makes no request and needs no key, and the gateway serves it to anyone while the asset is public (a private asset or a `signed` playback id answers 403).
+- With `src` and `assetId`, a `client` that has a [viewer identity](#direct-from-sia-playback) streams that URL straight from Sia. Without one, the player plays `src` through the gateway.
+- With `client` and `assetId` but no `src`, the player asks the API for the URL (`playback.getUrl`, or `playback.getSignedUrl` when `signed` is set), which needs a key or a signed-in session. The example uses this only for `signed`.
+
 The player uses hls.js wherever hls.js is supported (any browser with Media Source Extensions, including Safari's ManagedMediaSource), and plays HLS natively where it is not, such as Safari on an iPhone whose iOS has no ManagedMediaSource yet. It retries fatal network errors up to 3 times and media errors up to 2 times (`maxNetworkRetries`, `maxMediaRetries`), and shows a spinner and an error overlay with a **Retry** button unless you pass `overlay={false}`. Other props: `poster`, `autoPlay`, `muted`, `width`, `height`, `className`, and the callbacks `onReady`, `onPlay`, `onPause`, `onEnd` and `onStateChange`.
 
-Instead of `client` and `assetId` you can pass `src`, an absolute HLS manifest URL. That is the way to play a URL your server handed you without any SDK client in the browser.
+`src` on its own, without `client`, plays any gateway URL through the gateway, with no SDK client in the browser at all.
 
 ## Pick a rendition
 
@@ -198,58 +207,54 @@ SIA_INDEXER_URL=https://sia.storage npm run provision-viewer
 
 It prints a URL to approve in your indexer account, then three values: the indexer URL, the app id and the app key (both 64 hex characters). Pass them as `sia: { indexerUrl, appId, appKey }` in the client config (see [Create a client](#create-a-client)). They are meant to be public, like a publishable key.
 
-For each asset the player asks the API for a share map (`GET /api/v1/playback/:id/share`, `read` scope): a short-lived `sia://` share URL for every object of the asset, valid for an hour by default. It then streams each playlist and segment through the viewer session with a custom hls.js loader. The WASM part of the Sia SDK (about 1.7 MB) is only loaded when `sia` is set.
+For each playback the client fetches a share map: a short-lived `sia://` share URL for every object of the asset, valid for an hour by default. When the player has `src`, the map comes from the public `GET /v1/share/:id` on the same delivery base as `src`, with the `expires` and `sig` of `src` when it is a signed URL, and the request carries no key and no cookie. The backend gates it exactly like the gateway: a public asset needs nothing, a private one needs the signature, and the shares never outlive that signature. Without `src` (the `client` and `assetId` path), the map comes from `GET /api/v1/playback/:id/share`, which needs the `read` scope. The player then streams each playlist and segment through the viewer session with a custom hls.js loader. The WASM part of the Sia SDK (about 1.7 MB) is only loaded when `sia` is set.
 
 `onDeliveryChange` tells you which path a load took. The player uses the gateway when no viewer identity is configured, on the native HLS path, and when the viewer session fails to start, in which case it logs `Sluby: direct-from-Sia delivery unavailable, using the gateway.` as a console warning with the cause.
-
-Because the share map needs the `read` scope, the browser either holds a read key or gets the share map from your server, as described next.
 
 The viewer session talks to many Sia hosts at once, and some of them are always unreachable. Chrome logs each failed host connection in the console (for example `ERR_CONNECTION_REFUSED`, a QUIC idle timeout, or a WebTransport warning about too many pending sessions). Playback carries on as long as enough hosts answer, because every object is erasure-coded across many of them.
 
 ## Keeping keys out of the browser
 
-The client does not need a key when its `baseUrl` points at your own server and that server answers the playback calls the browser makes, adding the key on its side. `<SlubyPlayer>` makes two kinds:
+Playback in a public page needs no API key, direct from Sia included:
 
-- `GET /api/v1/playback/:id` for a public asset, or `GET /api/v1/playback/:id/signed` (with `expires_in` when you pass `expiresIn`) for a private one
-- `GET /api/v1/playback/:id/share` when `sia` is configured
-
-Point `deliveryBaseUrl` at Sluby, because the playback URL that comes back is a path on the gateway:
+- **Public video**: pass `src={client.playback.streamUrl(id)}` with `assetId={id}` and a keyless client. The page talks to the gateway (or, with a viewer identity, fetches one share map from `/v1/share/:id` and then talks to Sia hosts) and never to `/api/v1`.
+- **Private video**: your server mints a signed URL with its own key and decides who gets one. The page passes it as `src` with the asset id. The signature unlocks the manifests on the gateway and the share map on `/v1/share/:id`, and only until it expires.
 
 ```ts
 new SlubyClient({
-  baseUrl: 'https://app.example.com', // your server
-  deliveryBaseUrl: 'https://sluby.example.com', // the sluby gateway
-  sia: { indexerUrl, appId, appKey }, // optional
+  baseUrl: 'https://sluby.example.com', // used only for api calls, which playback does not make
+  sia: { indexerUrl, appId, appKey }, // optional, publishable
 });
 ```
 
 ```mermaid
 sequenceDiagram
-  participant B as Browser
+  participant B as Browser (no key)
   participant S as Your server (read key)
   participant A as Sluby API
-  participant G as Gateway or Sia hosts
-  B->>S: GET /api/v1/playback/:id (and /share)
-  S->>S: may this viewer watch this asset?
-  S->>A: same request, with Authorization
-  A-->>S: playback URL, share map
-  S-->>B: passed through unchanged
-  B->>G: manifests and segments
+  participant G as Sluby delivery (/v1)
+  participant H as Sia hosts
+  B->>S: may I watch this private video?
+  S->>A: GET /api/v1/playback/:id/signed, with Authorization
+  A-->>S: signed master URL
+  S-->>B: signed URL
+  B->>G: GET /v1/share/:id?expires&sig
+  G-->>B: share map
+  B->>H: manifests and segments
 ```
 
-Your server decides who may watch what, so a private asset's signed URL only reaches viewers you allowed. The plain JavaScript example ships a small server that does exactly this; see [Serve playback from your server](./javascript#serve-playback-from-your-server). The example apps in both guides work against it: leave the API key empty, set the base URL to the server and the delivery URL to Sluby.
-
-If you do not need direct-from-Sia playback, there is a simpler option: your server calls `client.playback.getUrl(id)` or `getSignedUrl(id)` with its own client and gives the browser only the URL, which you pass to `<SlubyPlayer src={url} />`.
+Your server decides who may watch what, so a private asset's signed URL only reaches viewers you allowed. The plain JavaScript example ships a small server that does exactly this; see [Mint signed URLs on your server](./javascript#mint-signed-urls-on-your-server). The example apps in both guides work against it: leave the API key empty, set the base URL to the server and the delivery URL to Sluby, and tick **signed URL**. `<SlubyPlayer client={client} assetId={id} signed />` then calls `GET /api/v1/playback/:id/signed` on your server (with `expires_in` when you pass `expiresIn`) and plays the answer.
 
 ## Private videos
 
-Upload with `accessTier: 'private'` and the gateway refuses to serve the asset's objects without a valid signature (`403 This object requires a valid signed URL`). Play it with `signed`:
+Upload with `accessTier: 'private'` and the gateway refuses to serve the asset's objects without a valid signature (`403 This object requires a valid signed URL`). Play it from a signed URL, either one your server handed the page or one the client mints with `signed` (which needs a key):
 
 ```tsx
+<SlubyPlayer src={signedUrl} client={client} assetId={id} />
 <SlubyPlayer client={client} assetId={id} signed expiresIn={3600} />
 ```
 
-The player then calls `playback.getSignedUrl`, which returns a manifest URL carrying an expiry and an HMAC signature. The gateway signs every playlist and segment URL inside the manifests it serves with the same expiry, so the one URL authorizes the whole video until it expires (one hour by default). Share maps for private assets are capped at one hour as well.
+`playback.getSignedUrl` returns a manifest URL carrying an expiry and an HMAC signature. The gateway signs every playlist and segment URL inside the manifests it serves with the same expiry, so the one URL authorizes the whole video until it expires (one hour by default). The same signature unlocks the asset's share map on `/v1/share/:id`; share maps for private assets are capped at one hour and never outlive the signature.
 
 `assets.update(id, { accessTier })` changes the tier of an existing asset. It needs the `manage` scope.
 
@@ -300,4 +305,4 @@ cp .env.example .env   # optional: defaults for the form fields
 npm run dev
 ```
 
-Open [http://localhost:5180](http://localhost:5180), enter the API base URL and a key, pick a video, and follow it through upload, processing and playback. The **Play an asset by id** field plays any asset of the account, and **Delete asset** removes it and unpins its objects from Sia.
+Open [http://localhost:5180](http://localhost:5180), enter the API base URL and a key, pick a video, and follow it through upload, processing and playback. The **Play an asset by id** field plays any public asset with no key (paste a signed URL into the playback URL field for a private one), and **Delete asset** removes it and unpins its objects from Sia.

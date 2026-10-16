@@ -11,8 +11,8 @@ export type { UploadOptions, AssetUploadHandle } from './uploads.js';
 export { AssetManager } from './assets.js';
 export { PlaybackManager } from './playback.js';
 export { WebhookManager } from './webhooks.js';
-export { SiaSession } from './sia-session.js';
-export type { SiaDownloadOptions } from './sia-session.js';
+export { SiaSession, publicShareMapUrl } from './sia-session.js';
+export type { SiaDownloadOptions, SiaSessionTransport } from './sia-session.js';
 
 // Error classes
 export {
@@ -43,5 +43,6 @@ export type {
   SlubyConfig,
   SiaViewerConfig,
   SiaShareMap,
+  SiaShareSource,
   WebhookEvent,
 } from './types.js';
