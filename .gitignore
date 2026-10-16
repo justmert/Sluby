@@ -63,3 +63,6 @@ sia/
 
 # internal working artifacts (plans, notes, scratch)
 resources/
+
+# claude code agent worktrees
+.claude/worktrees/
