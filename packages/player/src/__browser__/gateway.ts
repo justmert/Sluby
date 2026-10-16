@@ -9,6 +9,11 @@
 // raw object bytes for the fake Sia session (which stands in for the Sia
 // network, so it must not show up as a gateway request).
 //
+// An object asked for with `expires` and `sig` is checked like a private one:
+// a missing, bad or expired signature is refused with 403, and a manifest is
+// served with every object url in it signed until the same expiry, as the
+// backend's signManifestObjectUrls does. Plain urls stay unchecked.
+//
 // The public share map is gated like the backend's GET /v1/share/:id: the
 // gated id (GATED_SHARE_ID) answers only with a valid, unexpired `expires` and
 // `sig` over the master object, and its map never outlives that signature.
@@ -44,6 +49,8 @@ export interface GatewayRequest {
   method: string;
   range: string | null;
   status: number;
+  /** the `expires` the url was signed until, or null for a plain url */
+  expires: string | null;
 }
 
 /** A call to the public share map endpoint, /v1/share/:id. */
@@ -222,8 +229,10 @@ export function hlsFixtureGateway(fixtureDir: string): Plugin {
         if (objectMatch) {
           const id = objectMatch[1];
           const range = req.headers.range ?? null;
+          const expires = url.searchParams.get('expires');
+          const sig = url.searchParams.get('sig');
           const record = (status: number) =>
-            requests.push({ id, method: req.method ?? '', range, status });
+            requests.push({ id, method: req.method ?? '', range, status, expires });
           const obj = objects.get(id);
           res.setHeader('Cache-Control', 'no-store');
           if (!obj) {
@@ -231,6 +240,17 @@ export function hlsFixtureGateway(fixtureDir: string): Plugin {
             res.statusCode = 404;
             res.end('object not found');
             return;
+          }
+          let signedUntil: number | null = null;
+          if (expires !== null || sig !== null) {
+            const check = verifyObject(id, expires, sig);
+            if (!check.ok) {
+              record(403);
+              res.statusCode = 403;
+              res.end(`signature ${check.reason}`);
+              return;
+            }
+            signedUntil = check.expires;
           }
           const fault = faults.get(id);
           const rangeStart = range ? (parseRange(range, obj.bytes.length)?.start ?? 0) : 0;
@@ -258,10 +278,22 @@ export function hlsFixtureGateway(fixtureDir: string): Plugin {
             res.end(req.method === 'HEAD' ? undefined : obj.bytes.subarray(r.start, r.end + 1));
             return;
           }
+          let body = obj.bytes;
+          if (signedUntil !== null && obj.contentType === 'application/vnd.apple.mpegurl') {
+            const at = signedUntil;
+            body = Buffer.from(
+              obj.bytes
+                .toString('utf8')
+                .replace(
+                  /\/v1\/objects\/([0-9a-f]+)/g,
+                  (url, child: string) => `${url}?expires=${at}&sig=${signObject(child, at)}`,
+                ),
+            );
+          }
           record(200);
           res.statusCode = 200;
-          res.setHeader('Content-Length', String(obj.bytes.length));
-          res.end(req.method === 'HEAD' ? undefined : obj.bytes);
+          res.setHeader('Content-Length', String(body.length));
+          res.end(req.method === 'HEAD' ? undefined : body);
           return;
         }
 
@@ -275,6 +307,7 @@ export function hlsFixtureGateway(fixtureDir: string): Plugin {
             method: req.method ?? '',
             range: req.headers.range ?? null,
             status: 200,
+            expires: url.searchParams.get('expires'),
           });
           res.statusCode = 200;
           res.setHeader('Content-Type', master.contentType);
