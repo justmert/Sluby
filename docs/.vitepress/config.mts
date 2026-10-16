@@ -28,6 +28,7 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/guide/quickstart' },
       { text: 'API', link: '/api/' },
+      { text: 'Architecture', link: '/architecture/' },
       { text: 'GitHub', link: repo },
     ],
     sidebar: [
@@ -52,6 +53,21 @@ export default defineConfig({
         items: [
           { text: 'Overview', link: '/api/' },
           { text: 'Reference', link: '/api/reference' },
+        ],
+      },
+      {
+        text: 'Architecture',
+        items: [
+          { text: 'Overview', link: '/architecture/' },
+          { text: 'Upload pipeline', link: '/architecture/upload-pipeline' },
+          { text: 'Playback', link: '/architecture/playback' },
+          {
+            text: 'Deletion and reconciliation',
+            link: '/architecture/deletion-and-reconciliation',
+          },
+          { text: 'Data model', link: '/architecture/data-model' },
+          { text: 'Auth and tenancy', link: '/architecture/auth-and-tenancy' },
+          { text: 'SDK integration patterns', link: '/architecture/sdk-patterns' },
         ],
       },
     ],

@@ -177,36 +177,11 @@ Programmatic calls authenticate with a `Bearer` API key; each key carries
 
 ## Architecture
 
-```
-┌─────────┐   TUS     ┌──────────────┐   FFmpeg   ┌──────────────┐
-│ Client  ├──────────▶│  TUS server  ├───────────▶│  Transcoder  │
-└─────────┘           └──────────────┘            └──────┬───────┘
-                                                         │ per-segment put
-                                                         ▼
-                                                 ┌──────────────┐
-                                                 │  Sia object  │
-                                                 │   storage    │
-                                                 └──────┬───────┘
-                                                        │
-┌─────────┐   HLS     ┌──────────────┐   range fetch   │
-│ Player  │◀─────────▶│ Nginx cache  │◀────────────────┘
-└─────────┘           │ + aggregator │
-                      └──────────────┘
-```
+One backend process runs the REST API, the tus upload server, the delivery gateway and the BullMQ workers, behind an nginx front door that serves the Studio and caches delivery. PostgreSQL holds metadata and the map from Sia objects to assets; Redis holds the job queues.
 
-Upload path: TUS server buffers the source, FFmpeg produces HLS renditions,
-each output artifact is pushed to Sia through `@siafoundation/sia-storage`, and the resulting
-object references are persisted in Postgres. BullMQ (backed by Redis) drives
-the transcode queue.
+An upload arrives over tus, FFmpeg transcodes it into a ladder of fMP4 HLS renditions (one byte-ranged `data.m4s` per rendition), and the output goes to Sia in three packed uploads: the media and thumbnails, then the variant playlists rewritten to point at the media's object ids, then the master playlist. Playback either goes through the gateway, which downloads byte ranges from Sia on demand, or straight from Sia in the browser with short-lived share URLs, using the same stored manifests.
 
-Playback path: the player can stream bytes **directly from Sia in the browser**
-(the backend leaves the byte path), or fetch them through the gateway. In
-direct mode the backend only mints a short-lived per-object share map and a
-custom hls.js loader pulls the byte ranges from Sia; in gateway mode the
-aggregator resolves the asset's object references from Postgres, pulls the bytes
-from Sia on demand, and keeps hot manifests and small objects in an in-memory
-LRU cache, with Nginx's `proxy_cache` in front. The same stored manifest serves
-both. See [Direct-from-Sia playback](#direct-from-sia-playback).
+The [architecture docs](./docs/architecture/index.md) cover each part with diagrams: the upload pipeline, both playback paths, deletion and reconciliation, the data model, auth and tenancy, and SDK integration patterns.
 
 ## Direct-from-Sia playback
 
