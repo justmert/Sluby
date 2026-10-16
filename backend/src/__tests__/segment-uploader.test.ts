@@ -10,6 +10,18 @@ import { uploadSegments } from '../storage/segment-uploader.js';
 import { deleteObject } from '../storage/sia-client.js';
 import type { ObjectLedger } from '../storage/object-ledger.js';
 
+/**
+ * Runs the retry backoff sleeps at once. Faking the clock instead would age
+ * the upload stall watchdog too, and on a slow runner it fired mid-attempt.
+ */
+function skipBackoff() {
+  const real = globalThis.setTimeout;
+  return vi
+    .spyOn(globalThis, 'setTimeout')
+    .mockImplementation(((fn: () => void, ms?: number) =>
+      real(fn, ms !== undefined && ms <= 60_000 ? 0 : ms)) as typeof setTimeout);
+}
+
 const MASTER = [
   '#EXTM3U',
   '#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720',
@@ -123,24 +135,15 @@ describe('uploadSegments', () => {
   });
 
   it('retries the data batch, then fails with the last error and leaves nothing pinned', async () => {
-    // only the backoff sleeps are faked; the file reads stay real
-    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const backoff = skipBackoff();
     const { ledger, uploading } = memoryLedger();
     try {
       fake.fail('add', new Error('no more hosts available'), 5);
-      let settled = false;
-      const run = uploadSegments(dir, { thumbnailPaths: thumbs, ledger });
-      const assertion = expect(run).rejects.toThrow(
+      await expect(uploadSegments(dir, { thumbnailPaths: thumbs, ledger })).rejects.toThrow(
         'variant data upload failed after 5 attempts: no more hosts available',
       );
-      run.catch(() => {}).finally(() => (settled = true));
-      while (!settled) {
-        await new Promise((r) => setImmediate(r));
-        await vi.advanceTimersByTimeAsync(60_000);
-      }
-      await assertion;
     } finally {
-      vi.useRealTimers();
+      backoff.mockRestore();
     }
     await settle();
     expect(fake.calls.add).toBe(5);
