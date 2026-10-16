@@ -19,7 +19,7 @@ import {
   type ApiKeyMiddlewareDeps,
 } from './middleware/api-key.js';
 import { notFoundHandler } from './middleware/error-handler.js';
-import { listRoutes } from './list-routes.js';
+import { listRoutes, mountRouter } from './list-routes.js';
 import { rateLimiter, type IpRateLimiter } from './rate-limiter.js';
 import { env } from '../config/env.js';
 import { getMetricsJson } from '../metrics/collector.js';
@@ -57,7 +57,7 @@ export function createApiRouter(deps: ApiRouterDeps, options: ApiRouterOptions =
   // which the browser obtains a session in the first place, and /auth/me
   // must be callable unauthenticated so the Studio can decide whether to
   // show the sign-in screen.
-  router.use('/auth', createAuthRoutes(deps));
+  mountRouter(router, '/auth', createAuthRoutes(deps));
 
   // The API spec and its docs page are public (no key required) so tools
   // and humans can discover the contract before authenticating.
@@ -105,19 +105,19 @@ export function createApiRouter(deps: ApiRouterDeps, options: ApiRouterOptions =
   router.use(rateLimiter(keyRateLimitMax));
 
   // Mount route modules
-  router.use('/uploads', createUploadRoutes(deps));
-  router.use('/assets', createAssetRoutes(deps));
-  router.use('/assets', createSiaInfoRoutes(deps));
-  router.use('/playback', createPlaybackRoutes(deps));
-  router.use('/webhooks', createWebhookRoutes(deps));
+  mountRouter(router, '/uploads', createUploadRoutes(deps));
+  mountRouter(router, '/assets', createAssetRoutes(deps));
+  mountRouter(router, '/assets', createSiaInfoRoutes(deps));
+  mountRouter(router, '/playback', createPlaybackRoutes(deps));
+  mountRouter(router, '/webhooks', createWebhookRoutes(deps));
   // Playback-id and reconciliation routers own absolute paths
   // (/assets/:id/playback-ids, /playback-ids/:id, /reconciliation), so
   // they mount at the router root rather than a fixed prefix.
-  router.use('/', createPlaybackIdRoutes(deps));
-  router.use('/', createReconciliationRoutes(deps));
-  router.use('/', createStatsRoutes(deps));
+  mountRouter(router, '/', createPlaybackIdRoutes(deps));
+  mountRouter(router, '/', createReconciliationRoutes(deps));
+  mountRouter(router, '/', createStatsRoutes(deps));
 
-  router.use('/keys', createKeyRoutes(deps));
+  mountRouter(router, '/keys', createKeyRoutes(deps));
 
   // Metrics endpoint (JSON format). The registry counts the whole process,
   // every tenant together, so it is operations data.

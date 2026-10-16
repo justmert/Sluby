@@ -38,6 +38,8 @@ import type {
 } from '@siafoundation/sia-storage';
 import type { ObjectSnapshot } from './sia-breakdown.js';
 import { siaUploadDurationSeconds } from '../metrics/collector.js';
+import { RedisPruneLeases } from './prune-leases.js';
+import { SlabPruneGate } from './slab-prune-gate.js';
 
 // the sdk's node entry ships its own declarations (the backend resolves them
 // through the "node" export condition, see customConditions in tsconfig)
@@ -254,7 +256,8 @@ export type PackedSource = Uint8Array | { path: string };
  *
  * The SDK pins each slab as soon as it is stored, before any object exists,
  * so a failed upload leaves pinned slabs behind; they are pruned once no
- * other upload is in flight (see pruneSlabs).
+ * other upload is in flight on any replica (see pruneSlabs). An upload a
+ * prune may have run under fails before its pin.
  */
 export async function uploadAndPinPacked(
   items: PackedSource[],
@@ -262,14 +265,20 @@ export async function uploadAndPinPacked(
 ): Promise<UploadResult[]> {
   if (items.length === 0) return [];
   const sdk = await getClient();
-  await pruneGate.beginUpload();
+  const lease = await pruneGate.beginUpload();
   try {
-    return await packedUpload(sdk, items, hooks);
+    return await packedUpload(sdk, items, {
+      ...hooks,
+      beforePin: async (ids) => {
+        await pruneGate.confirmUpload(lease);
+        await hooks.beforePin?.(ids);
+      },
+    });
   } catch (err) {
     requestSlabPrune('failed upload');
     throw err;
   } finally {
-    pruneGate.endUpload();
+    pruneGate.endUpload(lease);
   }
 }
 
@@ -606,73 +615,35 @@ export async function deleteObject(objectId: string): Promise<UnpinOutcome> {
   return 'unpinned';
 }
 
-/**
- * Keeps slab pruning and uploads apart. indexd prunes every slab of the
- * account that no pinned object references (persist/postgres/slabs.go
- * PruneSlabs), and the SDK pins each slab of an upload as soon as it is
- * stored but the objects only at the end, so a prune during an upload strips
- * that upload's slabs: indexd drops their sector records, and the SDK's pin
- * then has to re-pin slabs whose sectors the hosts may already have dropped.
- * Uploads and prunes all go through this process (the workers and the API
- * share it), so an in-process gate is enough: a prune waits until no upload
- * is in flight, and uploads wait for a running prune.
- */
-class SlabPruneGate {
-  private uploads = 0;
-  private wanted = false;
-  private running: Promise<void> | null = null;
+// a lease outlives four renewals, so a slow renewal or a short stall keeps it
+const PRUNE_LEASE_RENEW_MS = 15_000;
 
-  constructor(private readonly prune: () => Promise<void>) {}
-
-  async beginUpload(): Promise<void> {
-    while (this.running) await this.running.catch(() => {});
-    this.uploads += 1;
-  }
-
-  endUpload(): void {
-    this.uploads -= 1;
-    if (this.uploads === 0 && this.wanted) {
-      this.start().catch((err: unknown) => {
-        logger.warn({ err }, 'Deferred slab prune failed');
-      });
-    }
-  }
-
-  async request(): Promise<'pruned' | 'deferred'> {
-    if (this.running) {
-      // it may have read the slab list before the caller unpinned anything
-      await this.running.catch(() => {});
-      return this.request();
-    }
-    if (this.uploads > 0) {
-      this.wanted = true;
-      return 'deferred';
-    }
-    await this.start();
-    return 'pruned';
-  }
-
-  private start(): Promise<void> {
-    if (this.running) return this.running;
-    this.wanted = false;
-    this.running = this.prune().finally(() => {
-      this.running = null;
-    });
-    return this.running;
-  }
-}
-
-const pruneGate = new SlabPruneGate(async () => {
-  const sdk = await getClient();
-  await sdk.pruneSlabs();
-  logger.info('Pruned slabs no object references');
+/** Uploads and prunes of every replica meet here (see SlabPruneGate). */
+const pruneGate = new SlabPruneGate({
+  prune: async () => {
+    const sdk = await getClient();
+    await sdk.pruneSlabs();
+    logger.info('Pruned slabs no object references');
+  },
+  leases: new RedisPruneLeases(
+    // imported when first needed, so loading this module opens no connection
+    async () => (await import('../queue/bull-config.js')).transcodeQueue.client,
+    {
+      prefix: 'sluby:slab-prune',
+      uploadTtlMs: 4 * PRUNE_LEASE_RENEW_MS,
+      pruneTtlMs: 4 * PRUNE_LEASE_RENEW_MS,
+    },
+  ),
+  log: logger,
+  renewMs: PRUNE_LEASE_RENEW_MS,
+  pollMs: 1000,
 });
 
 /**
  * Unpin the account's slabs that no object references: the slabs of objects
  * deleted since, and the slabs a failed upload stored. indexd only prunes on
  * this request, it has no background prune. Runs now when no upload is in
- * flight, otherwise once the last one ends ('deferred').
+ * flight on any replica, otherwise once the last one ends ('deferred').
  */
 export function pruneSlabs(): Promise<'pruned' | 'deferred'> {
   return pruneGate.request();

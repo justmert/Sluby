@@ -4,6 +4,17 @@ import { hasTestDatabase, createTestDatabase, type TestDatabase } from './helper
 
 const fake = await vi.hoisted(async () => (await import('./helpers/fake-sia.js')).createFakeSia());
 vi.mock('@siafoundation/sia-storage', () => fake.module);
+// the prune gate's leases live in memory here; slab-prune-gate.redis.test.ts covers the redis ones
+vi.mock('../storage/prune-leases.js', async () => {
+  const { MemoryPruneLeases } = await import('./helpers/memory-prune-leases.js');
+  return {
+    RedisPruneLeases: class extends MemoryPruneLeases {
+      constructor() {
+        super();
+      }
+    },
+  };
+});
 
 type Assets = typeof import('../db/queries/assets.js');
 type Storage = typeof import('../db/queries/storage-records.js');

@@ -5,6 +5,17 @@ import path from 'node:path';
 
 const fake = await vi.hoisted(async () => (await import('./helpers/fake-sia.js')).createFakeSia());
 vi.mock('@siafoundation/sia-storage', () => fake.module);
+// the prune gate's leases live in memory here; slab-prune-gate.redis.test.ts covers the redis ones
+vi.mock('../storage/prune-leases.js', async () => {
+  const { MemoryPruneLeases } = await import('./helpers/memory-prune-leases.js');
+  return {
+    RedisPruneLeases: class extends MemoryPruneLeases {
+      constructor() {
+        super();
+      }
+    },
+  };
+});
 
 import { uploadSegments } from '../storage/segment-uploader.js';
 import { deleteObject } from '../storage/sia-client.js';

@@ -107,6 +107,13 @@ describe('webhook routes', () => {
       expect(res.body.error).toBe('URL is required');
     });
 
+    it('answers 400 to a request with no body, which express 5 leaves undefined', async () => {
+      const res = await request(createApp()).post('/');
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('URL is required');
+    });
+
     it('should return 400 when events is missing', async () => {
       const res = await request(createApp()).post('/').send({ url: 'https://example.com/hook' });
 

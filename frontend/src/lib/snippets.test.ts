@@ -33,10 +33,10 @@ function typecheckSnippets() {
     jsx: ts.JsxEmit.ReactJSX,
     lib: ['lib.es2022.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
     types: ['node'],
-    baseUrl: frontendDir,
+    // absolute, since typescript 6 deprecates baseUrl
     paths: {
-      '@sluby/sdk': ['../packages/sdk/src/index.ts'],
-      '@sluby/player': ['../packages/player/src/index.ts'],
+      '@sluby/sdk': [path.join(frontendDir, '../packages/sdk/src/index.ts')],
+      '@sluby/player': [path.join(frontendDir, '../packages/player/src/index.ts')],
     },
   };
   const host = ts.createCompilerHost(options);

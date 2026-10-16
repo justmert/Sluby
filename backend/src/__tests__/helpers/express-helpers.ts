@@ -3,7 +3,6 @@
  * Mounts a router behind the app's real 404 and error handlers, so route
  * tests see the same status codes and bodies the running server sends.
  */
-import 'express-async-errors';
 import express, {
   type Express,
   type Router,
@@ -19,8 +18,8 @@ const silentLogger = pino({ level: 'silent' });
 
 /**
  * Creates a test Express app with the given router, the app's 404 handler
- * and its error handler. express-async-errors forwards rejected async
- * handlers to it, as in the app.
+ * and its error handler. Express 5 forwards rejected async handlers to it,
+ * as in the app.
  */
 export function createTestApp(router: Router, basePath = '/'): Express {
   const app = express();

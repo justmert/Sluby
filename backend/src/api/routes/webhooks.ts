@@ -72,7 +72,7 @@ export function createWebhookRoutes(deps: WebhookRouteDeps): Router {
    * Register a new webhook endpoint.
    */
   router.post('/', requireScope('manage'), async (req: Request, res: Response) => {
-    const { url, events } = req.body;
+    const { url, events } = req.body ?? {};
 
     if (!url || typeof url !== 'string') {
       throw new AppError(400, 'URL is required');

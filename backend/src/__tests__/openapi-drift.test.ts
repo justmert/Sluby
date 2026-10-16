@@ -43,7 +43,7 @@ const stub = new Proxy(() => stub, {
 
 /** METHOD + canonical path for every route actually mounted. */
 function mountedRouteKeys(): Set<string> {
-  const routes = listRoutes((app as unknown as { _router: unknown })._router);
+  const routes = listRoutes(app.router);
   return new Set(routes.map((r) => `${r.method} ${r.path}`));
 }
 

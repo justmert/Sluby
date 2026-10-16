@@ -195,7 +195,14 @@ flowchart TB
 
 After each upload the objects are pinned with the indexer, in parallel. Their ids are written to `pending_objects` first, before any pin, so an object is on record from the moment it is pinned, whatever happens to the process after that. If any pin in a packed batch fails, the objects of that batch that were pinned are unpinned again before the error is raised.
 
-The SDK pins each slab as soon as it is stored and the objects only at the end, so a failed or cancelled upload leaves slabs pinned that no object uses. A failed upload is cancelled (which stops its slab uploads still running) and then asks for a slab prune. indexd prunes only when asked (`POST /slabs/prune`, every slab of the account no object references), and a prune during an upload would strip that upload's slabs before its objects exist, so prunes and uploads are kept apart in the backend process: a prune requested while an upload is in flight runs when the last one ends, and an upload waits for a running prune. This assumes one backend process per Sia app key, which is how the compose files run it.
+The SDK pins each slab as soon as it is stored and the objects only at the end, so a failed or cancelled upload leaves slabs pinned that no object uses. A failed upload is cancelled (which stops its slab uploads still running) and then asks for a slab prune. indexd prunes only when asked (`POST /slabs/prune`, every slab of the account no object references), and a prune during an upload would strip that upload's slabs before its objects exist, so prunes and uploads are kept apart across every backend process that shares the Redis (`backend/src/storage/slab-prune-gate.ts`):
+
+- Each upload holds a lease in Redis (`sluby:slab-prune:uploads`, a sorted set scored by expiry on the Redis clock) and renews it every 15 seconds; a lease lasts 60 seconds.
+- A prune takes a lock (`sluby:slab-prune:lock`) only when no lease is live anywhere, and renews it while it runs. Otherwise it is marked wanted (`sluby:slab-prune:wanted`) and returns `deferred`: the replica whose last upload ends runs it, and the replica that asked checks every 15 seconds, so it also runs once the leases of a replica that died have expired.
+- An upload waits while the lock is held; within one process it waits on the running prune itself, across processes it asks again every second. A lock left by a replica that died expires after 60 seconds.
+- A lease lapses only when its process stalls for longer than 60 seconds. If a prune ran meanwhile (a counter of prunes, `sluby:slab-prune:epoch`, tells), the upload fails right before its pin instead of pinning objects whose slabs may be gone, and the stage's retry uploads it again. A lapsed lease with no prune in between is taken back.
+
+Prunes are account-wide, so backends that share the Sia app key but not the Redis are not kept apart.
 
 A packed upload that stores no shard for 10 minutes is cancelled and fails. The SDK limits each host write (90 seconds) and each indexer call (45 seconds), but not an upload as a whole, which can otherwise wait on hosts forever.
 
