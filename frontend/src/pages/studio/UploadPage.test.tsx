@@ -8,19 +8,34 @@ import { createUploadStore, type UploadState } from '@/lib/upload-store';
 import { stepStates } from '@/components/upload/pipeline-steps';
 import UploadPage from './UploadPage';
 
-vi.mock('@/lib/studio-upload', () => ({ uploadStore: null }));
+// each test hands the page its own store; the shared one only feeds the asset
+// list hooks, which watch it for changes
+vi.mock('@/lib/studio-upload', async () => {
+  const { fakeUploadClient } = await import('@/test/fake-uploads');
+  const { createUploadStore } = await import('@/lib/upload-store');
+  return { uploadStore: createUploadStore(fakeUploadClient().client, { unloadTarget: null }) };
+});
 
-function setup() {
+// the page lists assets the server is still processing; none by default
+const noAssets = { data: [], total: 0, page: 1, limit: 6 };
+
+function setup(serverAssets: unknown = noAssets, routes: Record<string, unknown> = {}) {
+  const server = jsonFetch({ '/api/v1/assets': serverAssets, ...routes });
+  vi.stubGlobal('fetch', vi.fn(server));
   const f = fakeUploadClient();
   const store = createUploadStore(f.client, { unloadTarget: null });
   renderPage(<UploadPage store={store} />);
-  return { f, store };
+  return { f, store, server };
 }
+
+/** The final text of a counting number; its animated copy is hidden from assistive tech. */
+const shownNumber = (text: string) =>
+  screen.getAllByText(text).find((el) => el.classList.contains('sr-only'));
 
 const video = (name = 'my_trip-video.mp4', size = 20 * 1024 * 1024) =>
   new File([new Uint8Array(size)], name, { type: 'video/mp4', lastModified: 1700000000000 });
 
-const dropZone = () => screen.getByRole('button', { name: /choose a video/i });
+const dropZone = () => screen.getByRole('button', { name: /choose video files/i });
 
 async function startUpload(file = video()) {
   fireEvent.drop(dropZone(), { dataTransfer: { files: [file] } });
@@ -57,11 +72,11 @@ describe('UploadPage', () => {
       expect.objectContaining({ title: 'my trip video', accessTier: 'public' }),
     );
     act(() => f.current().progress(10 * 1024 * 1024, 20 * 1024 * 1024));
-    expect(screen.getByText('50%')).toBeInTheDocument();
+    expect(shownNumber('50%')).toBeInTheDocument();
     expect(screen.getByText('1 of 3 chunks')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /pause/i })).toBeInTheDocument();
-    // no second upload while this one transfers
-    expect(screen.queryByRole('button', { name: /choose a video/i })).not.toBeInTheDocument();
+    // the drop zone stays, and says that new files wait their turn
+    expect(dropZone()).toHaveTextContent(/start when the current transfer is done/);
   });
 
   it('rejects files that are not video', async () => {
@@ -74,21 +89,102 @@ describe('UploadPage', () => {
     expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
   });
 
-  it('says when several dropped files were reduced to one', () => {
-    setup();
+  it('takes several dropped files and uploads them one after another', async () => {
+    const { f } = setup();
     fireEvent.drop(dropZone(), {
-      dataTransfer: { files: [video('a.mp4'), video('b.mp4'), video('c.mp4')] },
+      dataTransfer: { files: [video('a.mp4'), video('b_two.mp4'), video('c.mp4')] },
     });
-    expect(screen.getByLabelText('Title')).toHaveValue('a');
-    expect(
-      screen.getByText('Only one file uploads at a time, so 2 other files were not added.'),
-    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Title for b_two.mp4')).toHaveValue('b two');
+    await userEvent.click(screen.getByRole('button', { name: 'Leave out c.mp4' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Upload 2 videos' }));
+
+    expect(f.upload).toHaveBeenCalledTimes(1);
+    const queue = screen.getByRole('list', { name: 'Queued videos' });
+    expect(within(queue).getByText('b two')).toBeInTheDocument();
+
+    f.processing.mockResolvedValue(job());
+    act(() => {
+      f.current().resolveAsset('a1');
+      f.current().finish();
+    });
+    await waitFor(() => expect(f.upload).toHaveBeenCalledTimes(2));
+    expect(f.upload.mock.calls[1][1]).toMatchObject({ title: 'b two' });
+    await waitFor(() =>
+      expect(screen.queryByRole('list', { name: 'Queued videos' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('queues a file added while another transfers, and can take it back out', async () => {
+    const { f } = setup();
+    await startUpload(video('first.mp4'));
+    fireEvent.drop(dropZone(), { dataTransfer: { files: [video('second.mp4')] } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
+    expect(f.upload).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Remove second from the queue' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('list', { name: 'Queued videos' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('asks for a title inline instead of uploading an untitled video', async () => {
+    const { f } = setup();
+    fireEvent.drop(dropZone(), { dataTransfer: { files: [video()] } });
+    await userEvent.clear(screen.getByLabelText('Title'));
+    await userEvent.click(screen.getByRole('button', { name: /start upload/i }));
+    expect(screen.getByText(/Give the video a title/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Title')).toHaveFocus();
+    expect(f.upload).not.toHaveBeenCalled();
+  });
+
+  it('folds the transfer meter into one line once the bytes are in', async () => {
+    const { f } = setup();
+    f.processing.mockResolvedValue(job({ progressPercent: 30 }));
+    await startUpload();
+    act(() => {
+      f.current().resolveAsset('a1');
+      f.current().finish();
+    });
+    expect(await screen.findByText(/Uploaded 21\.0 MB|Uploaded 21 MB/)).toBeInTheDocument();
+    expect(screen.queryByText(/of 3 chunks/)).not.toBeInTheDocument();
+    expect(await screen.findByText('Transcoding')).toBeInTheDocument();
+  });
+
+  it('lists uploads the server is still processing that the page no longer tracks', async () => {
+    setup(
+      {
+        data: [
+          {
+            id: 'srv-1',
+            title: 'From before the reload',
+            status: 'processing',
+            created_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 6,
+      },
+      {
+        '/api/v1/assets/srv-1/processing': {
+          id: 'j1',
+          status: 'processing',
+          stage: 'upload',
+          progress_percent: 72,
+          created_at: new Date().toISOString(),
+        },
+      },
+    );
+    expect(await screen.findByText(/Storing on Sia, 72%/)).toBeInTheDocument();
+    expect(screen.getByText('From before the reload')).toHaveAttribute(
+      'href',
+      '/studio/assets/srv-1',
+    );
   });
 
   it('keeps the drop highlight while the pointer crosses child elements', () => {
     setup();
     const zone = dropZone();
-    const child = within(zone).getByText(/drop a video here/i);
+    const child = within(zone).getByText(/drop videos here/i);
     fireEvent.dragEnter(zone);
     fireEvent.dragEnter(child);
     fireEvent.dragLeave(zone);
@@ -107,7 +203,7 @@ describe('UploadPage', () => {
     });
 
     expect(await screen.findByRole('link', { name: 'View asset' })).toBeInTheDocument();
-    expect(dropZone()).toBeInTheDocument();
+    expect(dropZone()).not.toHaveTextContent(/start when the current transfer is done/);
     await startUpload(video('second.mp4'));
 
     const cards = screen.getAllByTestId('upload-card');
@@ -197,7 +293,7 @@ describe('UploadPage', () => {
     expect(screen.queryByRole('button', { name: /retry processing/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /view asset/i })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
-    expect(screen.queryByTestId('upload-card')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('upload-card')).not.toBeInTheDocument());
   });
 });
 
@@ -237,6 +333,7 @@ describe('UploadPage: unfinished uploads from an earlier page load', () => {
           },
         }),
       'DELETE /api/v1/uploads/up-1': reply(204),
+      '/api/v1/assets': noAssets,
     });
     vi.stubGlobal('fetch', vi.fn(fetchStub));
     return fetchStub;
@@ -291,6 +388,60 @@ describe('UploadPage: unfinished uploads from an earlier page load', () => {
   });
 });
 
+describe('UploadPage: resuming and steady progress', () => {
+  it('continues an unfinished upload when its file is dropped, skipping the form', async () => {
+    const storageKey =
+      'tus::tus-br-clip.mp4-video/mp4-1000-1700000000000-http://localhost:3000/api/v1/uploads-sluby-abc::1';
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        size: 1000,
+        uploadUrl: 'http://localhost:3000/api/v1/uploads/up-1',
+        metadata: { filename: 'clip.mp4', title: 'Holiday clip', accessTier: 'public' },
+      }),
+    );
+    const { f } = setup(noAssets, {
+      'HEAD /api/v1/uploads/up-1': () =>
+        new Response(null, {
+          status: 200,
+          headers: { 'Upload-Offset': '400', 'Upload-Length': '1000' },
+        }),
+    });
+    await screen.findByText('Holiday clip');
+    const same = new File([new Uint8Array(1000)], 'clip.mp4', {
+      type: 'video/mp4',
+      lastModified: 1700000000000,
+    });
+    fireEvent.drop(dropZone(), { dataTransfer: { files: [same] } });
+    expect(f.upload).toHaveBeenCalledWith(same, expect.objectContaining({ title: 'Holiday clip' }));
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
+    expect(await screen.findByText('Continuing Holiday clip from 40%')).toBeInTheDocument();
+  });
+
+  it('never moves the processing bar backwards within one attempt', async () => {
+    const { f } = setup();
+    f.processing
+      .mockResolvedValueOnce(job({ progressPercent: 60 }))
+      .mockResolvedValue(job({ progressPercent: 55 }));
+    await startUpload();
+    act(() => {
+      f.current().resolveAsset('a1');
+      f.current().finish();
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('progressbar', { name: 'Processing progress' })).toHaveAttribute(
+        'aria-valuenow',
+        '60',
+      ),
+    );
+    await waitFor(() => expect(f.processing).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    expect(screen.getByRole('progressbar', { name: 'Processing progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '60',
+    );
+  });
+});
+
 describe('stepStates', () => {
   const base: UploadState = {
     key: 'k',
@@ -311,6 +462,7 @@ describe('stepStates', () => {
     pollStopped: false,
     cleanup: null,
     notice: null,
+    activeMs: 0,
   };
   const withJob = (stage: string, logs: Array<{ stage: string }> = []) =>
     job({
@@ -339,6 +491,15 @@ describe('stepStates', () => {
       'pending',
       'pending',
       'pending',
+    ]);
+  });
+
+  it('shows a cancelled upload as cancelled, with nothing after it waiting', () => {
+    expect(stepStates({ ...base, phase: 'cancelled', job: null })).toEqual([
+      'cancelled',
+      'skipped',
+      'skipped',
+      'skipped',
     ]);
   });
 

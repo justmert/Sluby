@@ -184,3 +184,113 @@ describe('DeveloperPage webhooks', () => {
     expect(within(list).getByText('attempt 2')).toBeInTheDocument();
   });
 });
+
+function holdDialogExits() {
+  const style = document.createElement('style');
+  style.textContent =
+    '[role=dialog][data-state=closed],[role=alertdialog][data-state=closed]{animation-name:exit}';
+  document.head.append(style);
+  return () => style.remove();
+}
+
+describe('DeveloperPage polish', () => {
+  it('keeps the signing secret on screen while its dialog closes', async () => {
+    const release = holdDialogExits();
+    try {
+      renderPage(<DeveloperPage />);
+      await userEvent.click(await screen.findByRole('button', { name: /add webhook/i }));
+      const form = await screen.findByRole('dialog');
+      await userEvent.type(within(form).getByLabelText('Endpoint URL'), 'https://example.com/h');
+      await userEvent.click(within(form).getByRole('button', { name: 'Add webhook' }));
+      const secret = await screen.findByTestId('webhook-secret');
+      const dialog = secret.closest('[role=dialog]') as HTMLElement;
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+      expect(dialog).toHaveAttribute('data-state', 'closed');
+      expect(secret).toHaveTextContent('a'.repeat(64));
+    } finally {
+      release();
+    }
+  });
+
+  it('offers a snippet picker that fits a phone', async () => {
+    renderPage(<DeveloperPage />);
+    const picker = screen.getByRole('combobox', { name: 'Snippet' });
+    await userEvent.click(picker);
+    await userEvent.click(await screen.findByRole('option', { name: 'Search the library' }));
+    expect(screen.getByText(/sluby\.assets\.list\(\{/)).toBeInTheDocument();
+  });
+
+  it('checks the endpoint url inline before sending', async () => {
+    renderPage(<DeveloperPage />);
+    await userEvent.click(await screen.findByRole('button', { name: /add webhook/i }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Endpoint URL'), 'ftp://example.com/x');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add webhook' }));
+    expect(within(dialog).getByText(/must start with https:\/\/ or http:\/\//)).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.filter(([, i]) => (i as RequestInit)?.method === 'POST'),
+    ).toHaveLength(0);
+  });
+
+  it('removes a webhook at once and restores it when the server refuses', async () => {
+    hooks = [hook];
+    let answer!: (r: Response) => void;
+    const base = fetchMock.getMockImplementation() as typeof fetch;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/v1/webhooks/w1' && init?.method === 'DELETE') {
+        return new Promise<Response>((r) => (answer = r));
+      }
+      return base(input, init);
+    });
+    renderPage(<DeveloperPage />);
+    await screen.findByText(hook.url);
+    await userEvent.click(screen.getByRole('button', { name: `Remove webhook ${hook.url}` }));
+    const confirm = await screen.findByRole('alertdialog');
+    expect(within(confirm).getByText(hook.url)).toBeInTheDocument();
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(screen.queryByText(hook.url)).not.toBeInTheDocument());
+
+    answer(json({ error: 'database is down' }, 500));
+    expect(await screen.findByText(hook.url)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Could not remove the webhook: database is down/),
+    ).toBeInTheDocument();
+  });
+
+  it('opens the delivery log after a test send and shows the new delivery', async () => {
+    hooks = [hook];
+    renderPage(<DeveloperPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Send test' }));
+    const list = await screen.findByRole('list', { name: 'Recent deliveries' });
+    expect(within(list).getByText('webhook.test')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deliveries' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
+  it('keeps the last response, marked busy, while a new request runs', async () => {
+    let answer!: (r: Response) => void;
+    let first = true;
+    const base = fetchMock.getMockImplementation() as typeof fetch;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).startsWith('/api/v1/assets')) return base(input, init);
+      if (first) {
+        first = false;
+        return json({ ok: 1 });
+      }
+      return new Promise<Response>((r) => (answer = r));
+    });
+    renderPage(<DeveloperPage />);
+    await userEvent.click(screen.getByRole('button', { name: /send/i }));
+    const response = await screen.findByTestId('explorer-response');
+    await userEvent.click(screen.getByRole('button', { name: /send/i }));
+    expect(screen.getByRole('button', { name: /sending/i })).toBeDisabled();
+    expect(response).toHaveAttribute('aria-busy', 'true');
+    answer(json({ ok: 2 }));
+    await waitFor(() =>
+      expect(screen.getByTestId('explorer-response')).not.toHaveAttribute('aria-busy'),
+    );
+    expect(screen.getByTestId('explorer-response')).toHaveTextContent('"ok": 2');
+  });
+});

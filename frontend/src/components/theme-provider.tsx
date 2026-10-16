@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { durationMs } from '@/lib/motion';
 import { THEME_STORAGE_KEY, ThemeContext, parseTheme, resolveTheme, type Theme } from '@/lib/theme';
 
 const systemQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
@@ -18,6 +19,16 @@ function readStoredTheme(): Theme {
   }
 }
 
+let switchTimer: number | undefined;
+
+// eases colors for one switch; see .theme-switching in index.css
+function markThemeSwitch() {
+  const root = document.documentElement;
+  root.classList.add('theme-switching');
+  window.clearTimeout(switchTimer);
+  switchTimer = window.setTimeout(() => root.classList.remove('theme-switching'), durationMs.slow);
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(readStoredTheme);
   // follows the os, including changes after load
@@ -31,6 +42,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [resolvedTheme]);
 
   const setTheme = useCallback((next: Theme) => {
+    markThemeSwitch();
     setThemeState(next);
     try {
       localStorage.setItem(THEME_STORAGE_KEY, next);

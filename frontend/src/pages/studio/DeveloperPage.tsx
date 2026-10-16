@@ -1,8 +1,19 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { ChevronDown, ExternalLink, Plus, Send, Trash2, Webhook } from 'lucide-react';
+import * as m from 'motion/react-m';
+import {
+  AlertTriangle,
+  ChevronDown,
+  ExternalLink,
+  Plus,
+  Send,
+  Trash2,
+  Webhook,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
+import { AnimatedItem, AnimatedList, Collapse, FadeSwap } from '@/components/motion';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CodeBlock } from '@/components/shared/CodeBlock';
 import { CopyButton } from '@/components/shared/CopyButton';
 import {
@@ -41,7 +52,14 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field';
+import {
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -54,6 +72,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -65,10 +84,19 @@ import {
   type CreatedWebhook,
   type WebhookRecord,
 } from '@/hooks/useWebhooks';
+import { useFrozen } from '@/hooks/useFrozen';
 import { REQUEST_TEMPLATES, type RequestTemplate } from '@/lib/explorer-templates';
 import { formatRelativeTime } from '@/lib/formatters';
+import { fadeUp } from '@/lib/motion';
 import { buildSnippets } from '@/lib/snippets';
 import { cn } from '@/lib/utils';
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+// a spinner inside a button that already says what is happening in words
+const ButtonSpinner = () => <Spinner role={undefined} aria-hidden="true" />;
+
+const DEFAULT_EVENTS = ['asset.ready', 'asset.errored'];
 
 const WEBHOOK_EVENTS = [
   { value: 'upload.started', detail: 'tus upload created' },
@@ -98,7 +126,20 @@ function Snippets() {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 lg:grid-cols-[220px_1fr]">
-        <nav aria-label="Snippets" className="flex gap-1 overflow-x-auto lg:flex-col">
+        {/* ten tasks do not fit across a phone, so below lg they are a picker */}
+        <Select value={active} onValueChange={setActive}>
+          <SelectTrigger className="w-full lg:hidden" aria-label="Snippet">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {snippets.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.title}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <nav aria-label="Snippets" className="hidden flex-col gap-1 lg:flex">
           {snippets.map((s) => (
             <button
               key={s.id}
@@ -106,17 +147,26 @@ function Snippets() {
               onClick={() => setActive(s.id)}
               aria-current={s.id === active ? 'true' : undefined}
               className={cn(
-                'shrink-0 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
-                s.id === active ? 'bg-muted font-medium' : 'text-muted-foreground',
+                'relative shrink-0 rounded-md px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-muted/60',
+                s.id === active ? 'font-medium' : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {s.title}
+              {/* the highlight slides to the picked task instead of jumping */}
+              {s.id === active && (
+                <m.span
+                  layoutId="snippet-active"
+                  aria-hidden="true"
+                  className="absolute inset-0 rounded-md bg-muted"
+                  transition={{ type: 'spring', visualDuration: 0.25, bounce: 0.1 }}
+                />
+              )}
+              <span className="relative">{s.title}</span>
             </button>
           ))}
         </nav>
-        <div className="min-w-0">
+        <FadeSwap swapKey={snippet.id}>
           <p className="mb-3 text-sm text-muted-foreground">{snippet.description}</p>
-          <Tabs defaultValue="js" key={snippet.id}>
+          <Tabs defaultValue="js">
             <TabsList>
               <TabsTrigger value="js">JavaScript</TabsTrigger>
               <TabsTrigger value="curl">curl</TabsTrigger>
@@ -128,10 +178,25 @@ function Snippets() {
               <CodeBlock code={snippet.curl} label={`${snippet.title} curl`} />
             </TabsContent>
           </Tabs>
-        </div>
+        </FadeSwap>
       </CardContent>
     </Card>
   );
+}
+
+function urlProblem(raw: string): string | null {
+  const url = raw.trim();
+  if (url === '') return 'Enter the URL that should receive the events.';
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return 'This is not a full URL. It looks like https://example.com/sluby-hook.';
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return 'The URL must start with https:// or http://.';
+  }
+  return null;
 }
 
 function CreateWebhookDialog({
@@ -145,54 +210,84 @@ function CreateWebhookDialog({
 }) {
   const create = useCreateWebhook();
   const [url, setUrl] = useState('');
-  const [events, setEvents] = useState<string[]>(['asset.ready', 'asset.errored']);
+  const [events, setEvents] = useState<string[]>(DEFAULT_EVENTS);
+  const [touched, setTouched] = useState({ url: false, events: false });
+  const [wasOpen, setWasOpen] = useState(open);
+
+  // each open starts clean instead of showing the last endpoint's choices
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setUrl('');
+      setEvents(DEFAULT_EVENTS);
+      setTouched({ url: false, events: false });
+    }
+  }
+
+  const urlError = touched.url ? urlProblem(url) : null;
+  const eventsError = touched.events && events.length === 0 ? 'Pick at least one event.' : null;
+
+  const close = (o: boolean) => {
+    if (!o) create.reset();
+    onOpenChange(o);
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (urlProblem(url) || events.length === 0) {
+      setTouched({ url: true, events: true });
+      document.getElementById(urlProblem(url) ? 'hook-url' : 'ev-upload.started')?.focus();
+      return;
+    }
     try {
       const created = await create.mutateAsync({ url: url.trim(), events });
       // the secret now lives only in the dialog that shows it once
       create.reset();
       onOpenChange(false);
-      setUrl('');
       onCreated(created);
-    } catch (err) {
-      toast.error(`Could not add webhook: ${err instanceof Error ? err.message : String(err)}`);
+    } catch {
+      // shown in the dialog, where the url can be fixed
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent>
-        <form onSubmit={submit} className="flex flex-col gap-4">
+        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <DialogHeader>
             <DialogTitle>Add webhook</DialogTitle>
             <DialogDescription>Events for your account's assets are POSTed here.</DialogDescription>
           </DialogHeader>
           <FieldGroup>
-            <Field>
+            <Field data-invalid={!!urlError || undefined}>
               <FieldLabel htmlFor="hook-url">Endpoint URL</FieldLabel>
               <Input
                 id="hook-url"
                 type="url"
-                required
+                inputMode="url"
+                autoComplete="off"
                 placeholder="https://example.com/sluby-hook"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
+                onBlur={() => setTouched((t) => ({ ...t, url: url.trim() !== '' || t.url }))}
+                aria-invalid={!!urlError || undefined}
+                aria-describedby={urlError ? 'hook-url-error' : undefined}
               />
+              <FieldError id="hook-url-error">{urlError}</FieldError>
             </Field>
-            <FieldSet>
+            <FieldSet data-invalid={!!eventsError || undefined}>
               <FieldLegend variant="label">Events</FieldLegend>
               {WEBHOOK_EVENTS.map((ev) => (
                 <Field key={ev.value} orientation="horizontal">
                   <Checkbox
                     id={`ev-${ev.value}`}
                     checked={events.includes(ev.value)}
-                    onCheckedChange={(on) =>
+                    onCheckedChange={(on) => {
+                      setTouched((t) => ({ ...t, events: true }));
                       setEvents((prev) =>
                         on === true ? [...prev, ev.value] : prev.filter((x) => x !== ev.value),
-                      )
-                    }
+                      );
+                    }}
                   />
                   <Label htmlFor={`ev-${ev.value}`} className="font-normal">
                     <span className="font-mono">{ev.value}</span>
@@ -200,14 +295,23 @@ function CreateWebhookDialog({
                   </Label>
                 </Field>
               ))}
+              <FieldError>{eventsError}</FieldError>
             </FieldSet>
           </FieldGroup>
+          {create.isError && (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertTitle>Could not add the webhook</AlertTitle>
+              <AlertDescription>{create.error.message}</AlertDescription>
+            </Alert>
+          )}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => close(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!url.trim() || events.length === 0 || create.isPending}>
-              Add webhook
+            <Button type="submit" disabled={create.isPending}>
+              {create.isPending && <ButtonSpinner />}
+              {create.isPending ? 'Adding...' : 'Add webhook'}
             </Button>
           </DialogFooter>
         </form>
@@ -216,9 +320,26 @@ function CreateWebhookDialog({
   );
 }
 
-function Deliveries({ id }: { id: string }) {
+/** A tint that fades out once, so a delivery that just arrived is easy to spot. */
+function ArrivalFlash() {
+  return (
+    <m.span
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 rounded-md bg-primary/10"
+      initial={{ opacity: 1 }}
+      animate={{ opacity: 0 }}
+      transition={{ duration: 1.6, delay: 0.4, ease: 'easeOut' }}
+    />
+  );
+}
+
+function Deliveries({ id, freshAfter }: { id: string; freshAfter: number | null }) {
   const deliveries = useWebhookDeliveries(id, true);
   const rows = deliveries.data?.data ?? [];
+  // what was already listed when the log opened; anything after that is new
+  const [known, setKnown] = useState<Set<string> | null>(null);
+  if (known === null && deliveries.data) setKnown(new Set(rows.map((d) => d.id)));
+
   if (deliveries.isPending) return <Skeleton className="h-12" />;
   if (deliveries.isError) {
     return (
@@ -230,10 +351,21 @@ function Deliveries({ id }: { id: string }) {
   if (rows.length === 0) {
     return <p className="text-xs text-muted-foreground">Nothing sent to this endpoint yet.</p>;
   }
+  const fresh = (d: (typeof rows)[number]) =>
+    (known !== null && !known.has(d.id)) ||
+    (freshAfter !== null && Date.parse(d.created_at) >= freshAfter);
   return (
-    <ul className="flex flex-col divide-y text-xs" aria-label="Recent deliveries">
+    <AnimatedList
+      as="ul"
+      className="flex max-h-72 flex-col divide-y overflow-y-auto overscroll-contain pr-1 text-xs"
+      aria-label="Recent deliveries"
+    >
       {rows.map((d) => (
-        <li key={d.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
+        <AnimatedItem
+          key={d.id}
+          className="relative flex flex-wrap items-center gap-x-2 gap-y-1 px-1 py-1.5"
+        >
+          {fresh(d) && <ArrivalFlash />}
           <Badge variant={d.delivered ? 'success' : 'destructive'}>
             {d.status_code ?? 'no answer'}
           </Badge>
@@ -241,17 +373,21 @@ function Deliveries({ id }: { id: string }) {
           {d.attempt > 1 && <span className="text-muted-foreground">attempt {d.attempt}</span>}
           <span className="ml-auto text-muted-foreground">{formatRelativeTime(d.created_at)}</span>
           {d.error && <span className="w-full break-words text-destructive">{d.error}</span>}
-        </li>
+        </AnimatedItem>
       ))}
-    </ul>
+    </AnimatedList>
   );
 }
 
 function WebhookRow({ hook: w, onDelete }: { hook: WebhookRecord; onDelete: () => void }) {
   const test = useTestWebhook();
   const [open, setOpen] = useState(false);
+  // deliveries stamped after this moment came from the test just sent; a few
+  // seconds of slack covers a server clock that runs behind
+  const [freshAfter, setFreshAfter] = useState<number | null>(null);
 
   const sendTest = async () => {
+    setFreshAfter(Date.now() - 5_000);
     try {
       const result = await test.mutateAsync(w.id);
       if (result.delivered) {
@@ -259,17 +395,27 @@ function WebhookRow({ hook: w, onDelete }: { hook: WebhookRecord; onDelete: () =
       } else {
         toast.error(`Test not delivered: ${result.error ?? 'no reason given'}`);
       }
+      // the mutation refreshed the log; open it so the new attempt is in view
+      setOpen(true);
     } catch (err) {
-      toast.error(`Could not send a test: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`Could not send a test: ${errorText(err)}`);
     }
   };
 
+  const panelId = `deliveries-${w.id}`;
+
   return (
-    <div className="flex flex-col gap-2 rounded-lg border p-3">
+    <div className="flex flex-col gap-2 rounded-lg border p-3" aria-busy={w.pending || undefined}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="font-mono text-sm break-all">{w.url}</p>
           <div className="mt-1.5 flex flex-wrap gap-1">
+            {w.pending && (
+              <Badge variant="secondary">
+                <ButtonSpinner />
+                Adding
+              </Badge>
+            )}
             {!w.is_active && <Badge variant="warning">Inactive</Badge>}
             {w.events.map((e) => (
               <Badge key={e} variant="secondary" className="font-mono">
@@ -277,14 +423,17 @@ function WebhookRow({ hook: w, onDelete }: { hook: WebhookRecord; onDelete: () =
               </Badge>
             ))}
           </div>
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            Added {formatRelativeTime(w.created_at)}
-          </p>
+          {!w.pending && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Added {formatRelativeTime(w.created_at)}
+            </p>
+          )}
         </div>
         <Button
           variant="ghost"
           size="icon-sm"
           aria-label={`Remove webhook ${w.url}`}
+          disabled={w.pending}
           onClick={onDelete}
         >
           <Trash2 />
@@ -295,17 +444,28 @@ function WebhookRow({ hook: w, onDelete }: { hook: WebhookRecord; onDelete: () =
           variant="outline"
           size="sm"
           onClick={() => void sendTest()}
-          disabled={test.isPending}
+          disabled={test.isPending || w.pending}
         >
-          <Send />
+          {test.isPending ? <ButtonSpinner /> : <Send />}
           {test.isPending ? 'Sending...' : 'Send test'}
         </Button>
-        <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-          <ChevronDown className={cn('transition-transform', open && 'rotate-180')} />
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-expanded={open}
+          aria-controls={panelId}
+          disabled={w.pending}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <ChevronDown
+            className={cn('transition-transform duration-200 ease-out-soft', open && 'rotate-180')}
+          />
           Deliveries
         </Button>
       </div>
-      {open && <Deliveries id={w.id} />}
+      <Collapse open={open} id={panelId}>
+        <Deliveries id={w.id} freshAfter={freshAfter} />
+      </Collapse>
     </div>
   );
 }
@@ -315,18 +475,21 @@ function Webhooks() {
   const remove = useDeleteWebhook();
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedWebhook | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const shownCreated = useFrozen(created, created !== null);
+  const [deleting, setDeleting] = useState<WebhookRecord | null>(null);
+  const shownDeleting = useFrozen(deleting, deleting !== null);
   const rows = hooks.data?.data ?? [];
 
   const confirmDelete = async () => {
-    const id = deleting;
+    const target = deleting;
     setDeleting(null);
-    if (!id) return;
+    if (!target) return;
+    // the row leaves now; a failure brings it back and says why
     try {
-      await remove.mutateAsync(id);
-      toast.success('Webhook removed');
+      await remove.mutateAsync(target.id);
+      toast.success('Webhook removed. No more events go to it.');
     } catch (err) {
-      toast.error(`Could not remove: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`Could not remove the webhook: ${errorText(err)}`);
     }
   };
 
@@ -334,24 +497,29 @@ function Webhooks() {
     <Card>
       <CardHeader>
         <CardTitle>Webhooks</CardTitle>
-        <CardDescription>
+        <CardDescription className="max-sm:col-span-2">
           Signed with HMAC-SHA256 over the timestamp and body in{' '}
           <code className="font-mono">X-Sluby-Signature-V1</code>. The Receive webhooks snippet
           shows how to verify them. Send test posts a signed{' '}
           <code className="font-mono">webhook.test</code> event.
         </CardDescription>
-        <CardAction>
+        {/* on a phone the button sits under the text instead of squeezing it */}
+        <CardAction className="max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:mt-2 max-sm:justify-self-start">
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus />
             Add webhook
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-col gap-2">
+      <CardContent>
         {hooks.isLoading ? (
-          <Skeleton className="h-16" />
+          <Skeleton className="h-28" />
         ) : hooks.isError ? (
-          <p className="text-sm text-destructive">{hooks.error.message}</p>
+          <Alert variant="destructive">
+            <AlertTriangle />
+            <AlertTitle>Could not load webhooks</AlertTitle>
+            <AlertDescription>{hooks.error.message}</AlertDescription>
+          </Alert>
         ) : rows.length === 0 ? (
           <Empty className="border-0 p-4">
             <EmptyHeader>
@@ -363,7 +531,13 @@ function Webhooks() {
             </EmptyHeader>
           </Empty>
         ) : (
-          rows.map((w) => <WebhookRow key={w.id} hook={w} onDelete={() => setDeleting(w.id)} />)
+          <AnimatedList as="div" className="flex flex-col gap-2">
+            {rows.map((w) => (
+              <AnimatedItem key={w.id} as="div">
+                <WebhookRow hook={w} onDelete={() => setDeleting(w)} />
+              </AnimatedItem>
+            ))}
+          </AnimatedList>
         )}
       </CardContent>
 
@@ -377,15 +551,28 @@ function Webhooks() {
               Copy the signing secret now. It is not shown again.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-3">
+          <m.div
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 sm:flex-row sm:items-center"
+          >
             <code
               className="min-w-0 flex-1 font-mono text-xs break-all"
               data-testid="webhook-secret"
             >
-              {created?.secret}
+              {shownCreated?.secret}
             </code>
-            {created && <CopyButton value={created.secret} label="Copy signing secret" />}
-          </div>
+            {shownCreated && (
+              <CopyButton
+                value={shownCreated.secret}
+                label="Copy signing secret"
+                withText
+                variant="outline"
+                className="min-w-24 self-start sm:self-auto"
+              />
+            )}
+          </m.div>
           <DialogFooter>
             <Button onClick={() => setCreated(null)}>Done</Button>
           </DialogFooter>
@@ -400,6 +587,9 @@ function Webhooks() {
               Events stop being delivered to it right away.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <p className="rounded-md bg-muted/60 px-3 py-2 font-mono text-xs break-all">
+            {shownDeleting?.url}
+          </p>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={() => void confirmDelete()}>
@@ -418,6 +608,8 @@ interface ExplorerResponse {
   ms: number;
   headers: Array<[string, string]>;
   body: string;
+  /** When it arrived, so each new response fades in. */
+  at: number;
 }
 
 const SHOWN_HEADERS = [
@@ -475,6 +667,7 @@ function ApiExplorer() {
           return v ? [[h, v] as [string, string]] : [];
         }),
         body: pretty,
+        at: Date.now(),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -541,9 +734,13 @@ function ApiExplorer() {
             onChange={(e) => setPath(e.target.value)}
             className="font-mono text-xs"
           />
-          <Button onClick={() => void send()} disabled={sending || unfilled || !sendable}>
-            <Send />
-            Send
+          <Button
+            onClick={() => void send()}
+            disabled={sending || unfilled || !sendable}
+            className="min-w-24"
+          >
+            {sending ? <ButtonSpinner /> : <Send />}
+            {sending ? 'Sending...' : 'Send'}
           </Button>
         </div>
         {unfilled && (
@@ -561,7 +758,18 @@ function ApiExplorer() {
         )}
         {error && <p className="text-sm text-destructive">Request failed: {error}</p>}
         {response && (
-          <div className="flex flex-col gap-2">
+          <m.div
+            key={response.at}
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            data-testid="explorer-response"
+            aria-busy={sending || undefined}
+            className={cn(
+              'flex flex-col gap-2 transition-opacity duration-150',
+              sending && 'opacity-60',
+            )}
+          >
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Badge
                 variant={
@@ -586,7 +794,7 @@ function ApiExplorer() {
               label="response"
               className="max-h-96 overflow-auto"
             />
-          </div>
+          </m.div>
         )}
       </CardContent>
     </Card>
@@ -602,7 +810,7 @@ export default function DeveloperPage() {
       />
       <div className="flex flex-col gap-4">
         <Snippets />
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid items-start gap-4 lg:grid-cols-2">
           <Webhooks />
           <ApiExplorer />
         </div>

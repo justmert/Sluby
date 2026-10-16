@@ -1,7 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router';
-import { lazy, Suspense } from 'react';
+import { lazy } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
-import { Skeleton } from '@/components/ui/skeleton';
+import { RouteSuspense } from '@/components/layout/RouteSuspense';
+import { PageTransition } from '@/components/motion/PageTransition';
 
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
@@ -14,34 +15,29 @@ const StudioDeveloper = lazy(() => import('@/pages/studio/DeveloperPage'));
 const StudioAnalytics = lazy(() => import('@/pages/studio/AnalyticsPage'));
 const StudioSettings = lazy(() => import('@/pages/studio/SettingsPage'));
 
-function PageFallback() {
-  return (
-    <div className="flex flex-col items-center justify-center h-64 gap-3">
-      <Skeleton className="h-5 w-32" />
-      <Skeleton className="h-3 w-48" />
-    </div>
-  );
-}
-
 export function App() {
   return (
     <AppShell>
-      <Suspense fallback={<PageFallback />}>
-        <Routes>
-          <Route path="/" element={<Navigate to="/studio" replace />} />
+      {/* inside suspense, so a lazy page fades in once it has loaded rather
+          than the fallback fading in and the page popping in after it */}
+      <RouteSuspense>
+        <PageTransition>
+          <Routes>
+            <Route path="/" element={<Navigate to="/studio" replace />} />
 
-          <Route path="/studio" element={<StudioDashboard />} />
-          <Route path="/studio/upload" element={<StudioUpload />} />
-          <Route path="/studio/assets" element={<StudioAssets />} />
-          <Route path="/studio/assets/:id" element={<StudioAssetDetail />} />
-          <Route path="/studio/player" element={<StudioPlayer />} />
-          <Route path="/studio/developer" element={<StudioDeveloper />} />
-          <Route path="/studio/analytics" element={<StudioAnalytics />} />
-          <Route path="/studio/settings" element={<StudioSettings />} />
+            <Route path="/studio" element={<StudioDashboard />} />
+            <Route path="/studio/upload" element={<StudioUpload />} />
+            <Route path="/studio/assets" element={<StudioAssets />} />
+            <Route path="/studio/assets/:id" element={<StudioAssetDetail />} />
+            <Route path="/studio/player" element={<StudioPlayer />} />
+            <Route path="/studio/developer" element={<StudioDeveloper />} />
+            <Route path="/studio/analytics" element={<StudioAnalytics />} />
+            <Route path="/studio/settings" element={<StudioSettings />} />
 
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </Suspense>
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </PageTransition>
+      </RouteSuspense>
     </AppShell>
   );
 }

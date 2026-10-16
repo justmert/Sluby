@@ -1,8 +1,16 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
+import { MotionGlobalConfig } from 'motion/react';
 import { toast } from 'sonner';
 import { afterEach } from 'vitest';
 import { unmockedRequests } from './unmocked';
+
+// the one switch for motion in tests: every motion animation jumps straight
+// to its end state (enter, exit, layout, NumberTicker counts), so assertions
+// see final values and leaving elements unmount without waiting on frames.
+// components under test still need motion features, which renderPage and
+// renderWithMotion supply synchronously through MotionProvider.
+MotionGlobalConfig.skipAnimations = true;
 
 afterEach(() => {
   cleanup();

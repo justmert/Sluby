@@ -8,7 +8,10 @@
 @custom-variant dark (&:is(.dark *));
 
 /* shadcn/ui semantic tokens. light is the base, .dark overrides; the theme
-   provider puts the class on <html>. primary is Sia orange in both. */
+   provider puts the class on <html>. primary is Sia orange in both; the
+   light one is a deeper shade so white button text and orange text on light
+   surfaces clear 4.5:1 (4.90 on primary, 4.70 on muted/50). the ring and
+   chart keep the brighter orange, which only needs 3:1 as a non-text mark. */
 :root {
   --radius: 0.625rem;
   --background: oklch(0.99 0.002 285);
@@ -17,7 +20,7 @@
   --card-foreground: oklch(0.18 0.012 285);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.18 0.012 285);
-  --primary: oklch(0.663 0.177 47.7);
+  --primary: oklch(0.555 0.177 47.7);
   --primary-foreground: oklch(0.99 0.002 285);
   --secondary: oklch(0.96 0.004 285);
   --secondary-foreground: oklch(0.22 0.012 285);
@@ -40,7 +43,7 @@
   --chart-5: oklch(0.6 0.2 293);
   --sidebar: oklch(0.975 0.003 285);
   --sidebar-foreground: oklch(0.18 0.012 285);
-  --sidebar-primary: oklch(0.663 0.177 47.7);
+  --sidebar-primary: oklch(0.555 0.177 47.7);
   --sidebar-primary-foreground: oklch(0.99 0.002 285);
   --sidebar-accent: oklch(0.94 0.006 285);
   --sidebar-accent-foreground: oklch(0.18 0.012 285);
@@ -132,6 +135,45 @@
   --radius-2xl: calc(var(--radius) * 1.8);
 }
 
+/* motion tokens; the same values live in src/lib/motion.ts for motion.
+   durations use the stock duration-150 / 200 / 300 utilities. */
+@theme {
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-status-pulse: status-pulse 1.6s ease-in-out infinite;
+
+  @keyframes shimmer {
+    to {
+      translate: 100% 0;
+    }
+  }
+
+  @keyframes status-pulse {
+    50% {
+      opacity: 0.6;
+    }
+  }
+}
+
+/* padding that keeps content clear of notches and the home indicator; the
+   viewport meta opts into drawing under them with viewport-fit=cover */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+@utility px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -139,12 +181,28 @@
   html {
     @apply font-sans;
     color-scheme: light;
+    /* the scrollbar keeps its space whether or not a page scrolls, so
+       moving between a short and a long page does not shift the layout */
+    scrollbar-gutter: stable;
+  }
+  /* radix pads the body by the scrollbar width when it locks scrolling for a
+     dialog or menu; with a stable gutter that space is already kept, so the
+     padding would shift the page instead. layered !important beats the
+     unlayered rule radix injects. */
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
   }
   html.dark {
     color-scheme: dark;
   }
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background text-foreground antialiased px-safe;
+  }
+  /* a visible ring for anything focusable that does not draw its own; the
+     shadcn parts set outline-none plus a ring utility, which wins over this */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
   h1,
   h2,
@@ -156,6 +214,82 @@
   }
 }
 
+/* ResponsiveTable below sm: each row becomes a small card. the header stays
+   in the accessibility tree but leaves the screen; cells stack in the first
+   column with their label in front, and the actions cell takes the top of
+   the second column so it is always reachable. unlayered on purpose, so it
+   beats the padding and nowrap utilities on TableCell. */
+@media (width < 40rem) {
+  table[data-responsive] {
+    display: block;
+  }
+  table[data-responsive] > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table[data-responsive] > tbody {
+    display: block;
+  }
+  table[data-responsive] > tbody > tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: calc(var(--spacing) * 3);
+    row-gap: calc(var(--spacing) * 1);
+    padding-block: calc(var(--spacing) * 3);
+  }
+  table[data-responsive] > tbody > tr > td {
+    grid-column: 1;
+    display: flex;
+    align-items: baseline;
+    gap: calc(var(--spacing) * 2);
+    min-width: 0;
+    padding: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  table[data-responsive] > tbody > tr > td[data-label]::before {
+    content: attr(data-label);
+    flex: none;
+    min-width: 5.5rem;
+    color: var(--muted-foreground);
+    font-size: var(--text-xs);
+  }
+  table[data-responsive] > tbody > tr > td[data-cell='primary'] {
+    font-weight: 500;
+  }
+  table[data-responsive] > tbody > tr > td[data-cell='actions'] {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+  }
+}
+
+/* the theme provider sets this class for one transition when the user picks a
+   theme, so colors ease over instead of snapping. it is never on at first
+   paint, so loading the page does not animate the theme in. */
+@media (prefers-reduced-motion: no-preference) {
+  html.theme-switching,
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after {
+    transition-property:
+      color, background-color, border-color, outline-color, fill, stroke, box-shadow !important;
+    transition-duration: 300ms !important;
+    transition-timing-function: var(--ease-out-soft) !important;
+  }
+}
+
+/* sonner drives its own toast timing in js, so only the curve is aligned */
+[data-sonner-toaster] [data-sonner-toast] {
+  transition-timing-function: var(--ease-out-soft);
+}
+
+/* the last word on motion: css animations and transitions collapse to a
+   single frame. motion components are handled by MotionConfig in js. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

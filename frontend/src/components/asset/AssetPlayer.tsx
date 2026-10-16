@@ -55,7 +55,9 @@ export function AssetPlayer({ assetId, signed }: AssetPlayerProps) {
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      {/* the row fills in as the player learns its levels and delivery; its
+          height is held from the start so the page below does not move */}
+      <div className="flex min-h-8 flex-wrap items-center gap-3">
         {levels.length > 0 && (
           <ToggleGroup
             type="single"
@@ -77,19 +79,22 @@ export function AssetPlayer({ assetId, signed }: AssetPlayerProps) {
             ))}
           </ToggleGroup>
         )}
-        {current && (
-          <span className="text-sm text-muted-foreground" aria-live="polite">
-            Playing {current.name} ({current.width}x{current.height},{' '}
-            {formatBitrate(current.bitrate)}){pinned === AUTO && ', chosen adaptively'}
-          </span>
-        )}
         {delivery && (
-          <Badge variant="outline" className="ml-auto">
+          <Badge variant="outline" className="ml-auto animate-in duration-200 fade-in">
             {delivery === 'sia' ? <Cloud /> : <Server />}
             {delivery === 'sia' ? 'Streaming direct from Sia' : 'Streaming via gateway'}
           </Badge>
         )}
       </div>
+      {/* what is playing gets its own line, held open from the start */}
+      <p className="min-h-5 text-sm text-muted-foreground" aria-live="polite">
+        {current && (
+          <span className="animate-in duration-200 fade-in">
+            Playing {current.name} ({current.width}x{current.height},{' '}
+            {formatBitrate(current.bitrate)}){pinned === AUTO && ', chosen adaptively'}
+          </span>
+        )}
+      </p>
       {error && <p className="text-sm text-destructive">Playback error: {error}</p>}
     </div>
   );

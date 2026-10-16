@@ -1,10 +1,12 @@
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { domMax } from 'motion/react';
+import { MotionProvider } from '@/components/motion/MotionProvider';
 import { unmockedRequests } from './unmocked';
 
 /** Render a page with a fresh query client, an in-memory router and the toaster. */
@@ -16,15 +18,26 @@ export function renderPage(ui: ReactElement, { route = '/' }: { route?: string }
     client,
     ...render(
       <ThemeProvider>
-        <QueryClientProvider client={client}>
-          <TooltipProvider>
-            <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
-            <Toaster />
-          </TooltipProvider>
-        </QueryClientProvider>
+        <MotionProvider features={domMax}>
+          <QueryClientProvider client={client}>
+            <TooltipProvider>
+              <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
+              <Toaster />
+            </TooltipProvider>
+          </QueryClientProvider>
+        </MotionProvider>
       </ThemeProvider>,
     ),
   };
+}
+
+function Motion({ children }: { children: ReactNode }) {
+  return <MotionProvider features={domMax}>{children}</MotionProvider>;
+}
+
+/** Render a component that uses motion, with its features loaded up front. */
+export function renderWithMotion(ui: ReactElement) {
+  return render(ui, { wrapper: Motion });
 }
 
 export interface RecordedCall {

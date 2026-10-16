@@ -53,11 +53,31 @@ export interface UploadState {
   cleanup: 'pending' | 'done' | 'failed' | 'nothing' | null;
   /** Something the user should know that is not an error. */
   notice: string | null;
+  /**
+   * Time spent actually sending bytes, pauses left out. It grows while the
+   * transfer runs and stays put once the bytes are all sent.
+   */
+  activeMs: number;
+}
+
+/** A file waiting for the running transfer to finish. */
+export interface QueuedUpload {
+  key: string;
+  fileName: string;
+  title: string;
+  bytesTotal: number;
 }
 
 export interface UploadsState {
   /** Newest first. At most one of them is transferring. */
   uploads: UploadState[];
+  /** Files waiting their turn, in the order they will start. */
+  queued: QueuedUpload[];
+  /**
+   * The queue stopped because a transfer failed; it starts again when that
+   * upload is resumed or dismissed, or on `continueQueue`.
+   */
+  queueHeld: boolean;
   /**
    * Bumps whenever an upload changed what the asset lists show (an asset was
    * created, became ready, failed or was removed), so cached lists can refetch.
@@ -96,6 +116,15 @@ interface Task {
   // bumps whenever polling stops or restarts, so an old poll's result is dropped
   pollGen: number;
   jobWaitSince: number | null;
+  // active transfer time from earlier stretches, and when the current one began
+  activeBase: number;
+  segmentStart: number | null;
+}
+
+interface QueuedTask {
+  entry: QueuedUpload;
+  file: File;
+  options: StartOptions;
 }
 
 const TRANSFERRING: readonly UploadPhase[] = ['uploading', 'paused', 'finishing'];
@@ -130,6 +159,34 @@ const sameOptions = (a: StartOptions, b: StartOptions) =>
 
 let keySeq = 0;
 
+/** What a compact progress indicator needs to know about all uploads at once. */
+export interface UploadSummary {
+  /** The upload sending bytes right now (or paused, or finishing), if any. */
+  transferring: UploadState | null;
+  /** Percent of the running transfer's bytes sent, 0 to 100, or null without one. */
+  percent: number | null;
+  /** Uploads whose bytes are in and that the server is still processing. */
+  processing: number;
+  queued: number;
+  failed: number;
+}
+
+export function summarizeUploads(state: UploadsState): UploadSummary {
+  const transferring = state.uploads.find(isTransferring) ?? null;
+  return {
+    transferring,
+    percent:
+      transferring && transferring.bytesTotal > 0
+        ? Math.min(100, (transferring.bytesUploaded / transferring.bytesTotal) * 100)
+        : transferring
+          ? 0
+          : null,
+    processing: state.uploads.filter((u) => u.phase === 'processing').length,
+    queued: state.queued.length,
+    failed: state.uploads.filter((u) => u.phase === 'failed').length,
+  };
+}
+
 /**
  * The studio's uploads, kept outside react so they survive navigating between
  * studio pages: the tus transfer and the processing polls keep going and the
@@ -144,8 +201,10 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       : typeof window !== 'undefined'
         ? window
         : null;
-  let state: UploadsState = { uploads: [], assetVersion: 0 };
+  let state: UploadsState = { uploads: [], queued: [], queueHeld: false, assetVersion: 0 };
   const tasks = new Map<string, Task>();
+  const waiting: QueuedTask[] = [];
+  let advancing = false;
   const listeners = new Set<() => void>();
   let guarding = false;
 
@@ -158,7 +217,9 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
 
   const syncUnloadGuard = () => {
     if (!unloadTarget) return;
-    const needed = state.uploads.some((u) => isTransferring(u) || u.cleanup === 'pending');
+    const needed =
+      state.queued.length > 0 ||
+      state.uploads.some((u) => isTransferring(u) || u.cleanup === 'pending');
     if (needed === guarding) return;
     guarding = needed;
     if (needed) unloadTarget.addEventListener('beforeunload', onBeforeUnload);
@@ -168,7 +229,22 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
   const emit = () => {
     syncUnloadGuard();
     listeners.forEach((l) => l());
+    advance();
   };
+
+  /** Start the next queued file once nothing is transferring. */
+  function advance() {
+    if (advancing || state.queueHeld || waiting.length === 0) return;
+    if (state.uploads.some((u) => isTransferring(u) || u.authFailed)) return;
+    advancing = true;
+    try {
+      const next = waiting.shift()!;
+      state = { ...state, queued: state.queued.filter((q) => q.key !== next.entry.key) };
+      begin(next.file, next.options, next.entry.key);
+    } finally {
+      advancing = false;
+    }
+  }
 
   const get = (key: string) => state.uploads.find((u) => u.key === key);
 
@@ -311,20 +387,36 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
     task.pollTimer = setTimeout(() => void poll(key, gen), POLL_MS);
   }
 
+  /** Close the running stretch of transfer time, e.g. on pause, failure or the last byte. */
+  const closeSegment = (key: string) => {
+    const task = tasks.get(key);
+    if (!task || task.segmentStart === null) return;
+    task.activeBase += now() - task.segmentStart;
+    task.segmentStart = null;
+    set(key, { activeMs: task.activeBase });
+  };
+
+  const openSegment = (key: string) => {
+    const task = tasks.get(key);
+    if (task && task.segmentStart === null) task.segmentStart = now();
+  };
+
   const recordProgress = (key: string, bytes: number, total: number) => {
     const task = tasks.get(key)!;
     const t = now();
+    const activeMs = task.activeBase + (task.segmentStart === null ? 0 : t - task.segmentStart);
     task.samples.push({ at: t, bytes });
     // a short sliding window keeps the speed responsive without jitter
     task.samples = task.samples.filter((s) => t - s.at <= 5_000);
     const first = task.samples[0];
     const elapsed = (t - first.at) / 1000;
     const speed = elapsed > 0 ? (bytes - first.bytes) / elapsed : (get(key)?.speed ?? 0);
-    set(key, { bytesUploaded: bytes, bytesTotal: total, speed: Math.max(0, speed) });
+    set(key, { bytesUploaded: bytes, bytesTotal: total, speed: Math.max(0, speed), activeMs });
   };
 
   /** All bytes are on the server: wait for the asset id, then follow processing. */
   async function transferred(key: string, attempt: Attempt, notice: string | null = null) {
+    closeSegment(key);
     set(key, {
       phase: 'finishing',
       bytesUploaded: get(key)?.bytesTotal ?? 0,
@@ -359,6 +451,8 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
   function runAttempt(key: string) {
     const task = tasks.get(key)!;
     task.samples = [];
+    task.segmentStart = null;
+    openSegment(key);
     const h = client.uploads.upload(task.file, {
       title: task.options.title,
       description: task.options.description,
@@ -395,10 +489,13 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       (err: unknown) => {
         if (task.attempt !== attempt || attempt.cancelled) return;
         task.attempt = null;
+        closeSegment(key);
         if (statusOf(err) === 401) {
           authFailed(key, { phase: 'failed', failedDuring: 'upload' });
           return;
         }
+        // whatever broke this transfer would likely break the next one too
+        if (state.queued.length > 0) state = { ...state, queueHeld: true };
         set(key, {
           phase: 'failed',
           failedDuring: 'upload',
@@ -447,7 +544,43 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       pollStopped: false,
       cleanup: null,
       notice: null,
+      activeMs: 0,
     };
+  }
+
+  function begin(file: File, options: StartOptions, key?: string): string {
+    // the sdk resumes an unfinished upload of the same file and metadata, so
+    // a failed card for it would describe the same upload twice
+    const replaced = state.uploads.filter((u) => {
+      const t = tasks.get(u.key);
+      return (
+        u.phase === 'failed' &&
+        u.failedDuring === 'upload' &&
+        t &&
+        sameFile(t.file, file) &&
+        sameOptions(t.options, options)
+      );
+    });
+    for (const u of replaced) tasks.delete(u.key);
+    const entry = { ...blank(file, options), ...(key ? { key } : {}) };
+    tasks.set(entry.key, {
+      file,
+      options,
+      attempt: null,
+      samples: [],
+      pollTimer: undefined,
+      pollGen: 0,
+      jobWaitSince: null,
+      activeBase: 0,
+      segmentStart: null,
+    });
+    state = {
+      ...state,
+      uploads: [entry, ...state.uploads.filter((u) => !replaced.includes(u))],
+    };
+    emit();
+    runAttempt(entry.key);
+    return entry.key;
   }
 
   return {
@@ -468,36 +601,44 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       if (state.uploads.some(isTransferring)) {
         throw new Error('An upload is already in progress');
       }
-      // the sdk resumes an unfinished upload of the same file and metadata, so
-      // a failed card for it would describe the same upload twice
-      const replaced = state.uploads.filter((u) => {
-        const t = tasks.get(u.key);
-        return (
-          u.phase === 'failed' &&
-          u.failedDuring === 'upload' &&
-          t &&
-          sameFile(t.file, file) &&
-          sameOptions(t.options, options)
-        );
-      });
-      for (const u of replaced) tasks.delete(u.key);
-      const entry = blank(file, options);
-      tasks.set(entry.key, {
-        file,
-        options,
-        attempt: null,
-        samples: [],
-        pollTimer: undefined,
-        pollGen: 0,
-        jobWaitSince: null,
-      });
-      state = {
-        ...state,
-        uploads: [entry, ...state.uploads.filter((u) => !replaced.includes(u))],
+      return begin(file, options);
+    },
+
+    /**
+     * Start a transfer now, or line it up behind the running one. Returns
+     * the key the upload will have, queued or not.
+     */
+    enqueue(file: File, options: StartOptions): string {
+      if (!state.uploads.some(isTransferring) && waiting.length === 0 && !state.queueHeld) {
+        return begin(file, options);
+      }
+      const entry: QueuedUpload = {
+        key: `upload-${++keySeq}`,
+        fileName: file.name,
+        title: options.title,
+        bytesTotal: file.size,
       };
+      waiting.push({ entry, file, options });
+      state = { ...state, queued: [...state.queued, entry] };
       emit();
-      runAttempt(entry.key);
       return entry.key;
+    },
+
+    /** Take a file out of the queue before it started. */
+    removeQueued(key: string) {
+      const i = waiting.findIndex((w) => w.entry.key === key);
+      if (i < 0) return;
+      waiting.splice(i, 1);
+      const queued = state.queued.filter((q) => q.key !== key);
+      state = { ...state, queued, queueHeld: queued.length > 0 && state.queueHeld };
+      emit();
+    },
+
+    /** Let a queue that stopped on a failed transfer go on. */
+    continueQueue() {
+      if (!state.queueHeld) return;
+      state = { ...state, queueHeld: false };
+      emit();
     },
 
     async pause(key: string) {
@@ -509,6 +650,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       if (task.attempt !== attempt || attempt.cancelled || attempt.succeeded) return;
       if (get(key)?.phase !== 'uploading') return;
       task.samples = [];
+      closeSegment(key);
       set(key, { phase: 'paused', speed: 0 });
       await showCommittedBytes(key, attempt);
     },
@@ -517,6 +659,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       const attempt = tasks.get(key)?.attempt;
       if (!attempt || get(key)?.phase !== 'paused') return;
       attempt.handle.resume();
+      openSegment(key);
       set(key, { phase: 'uploading' });
     },
 
@@ -527,6 +670,7 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       const phase = get(key)?.phase;
       if (!attempt || (phase !== 'uploading' && phase !== 'paused')) return;
       attempt.cancelled = true;
+      closeSegment(key);
       set(key, { phase: 'cancelled', speed: 0, cleanup: 'pending', error: null });
       try {
         await attempt.handle.abort();
@@ -601,6 +745,8 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       const u = get(key);
       if (!u || u.phase !== 'failed' || u.failedDuring !== 'upload' || !u.canResume) return;
       if (state.uploads.some(isTransferring)) throw new Error('An upload is already in progress');
+      // the queue goes on after this one, the way it would have without the failure
+      state = { ...state, queueHeld: false };
       set(key, { phase: 'uploading', failedDuring: null, error: null, canResume: false, speed: 0 });
       runAttempt(key);
     },
@@ -644,7 +790,10 @@ export function createUploadStore(client: SlubyClient, opts: UploadStoreOptions 
       if (!u || isTransferring(u) || u.cleanup === 'pending') return;
       stopPolling(key);
       tasks.delete(key);
-      state = { ...state, uploads: state.uploads.filter((x) => x.key !== key) };
+      const uploads = state.uploads.filter((x) => x.key !== key);
+      // dismissing the failure that held the queue lets it go on
+      const held = uploads.some((x) => x.phase === 'failed' && x.failedDuring === 'upload');
+      state = { ...state, uploads, queueHeld: state.queueHeld && held };
       emit();
     },
   };

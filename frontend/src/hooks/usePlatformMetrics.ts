@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { failedForGood } from './asset-queries';
 import {
   ratePerSecond,
   snapshotFromResponse,
@@ -8,6 +9,10 @@ import {
 } from '@/lib/metrics';
 
 const POLL_MS = 10_000;
+// a rate needs two samples and a line two rates, so the first few come
+// quickly and the throughput chart shows within seconds instead of 20 s
+const SEED_MS = 2_000;
+const SEED_SAMPLES = 3;
 const KEEP = 60; // ten minutes of samples
 const KEY = ['metrics'];
 
@@ -51,7 +56,11 @@ export function usePlatformMetrics(enabled: boolean) {
       return { latest: snap, samples };
     },
     enabled,
-    refetchInterval: POLL_MS,
+    refetchInterval: (query) => {
+      // a 403 (not an operator) or other client error stays that way
+      if (failedForGood(query)) return false;
+      return (query.state.data?.samples.length ?? 0) < SEED_SAMPLES ? SEED_MS : POLL_MS;
+    },
   });
   return { ...query, snapshot: query.data?.latest, rates: toRates(query.data?.samples ?? []) };
 }

@@ -1,14 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+import { PageState } from '@/components/layout/PageState';
 import { reloadPage } from '@/lib/navigation';
 
 // how chromium, firefox and safari word a dynamic import that failed, and
@@ -77,30 +70,23 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (!error) return this.props.children;
     const chunk = isChunkLoadError(error);
     return (
-      <Empty className="min-h-[60vh]">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <AlertTriangle className="text-destructive" />
-          </EmptyMedia>
-          <EmptyTitle>
-            {chunk ? 'This page could not be loaded' : 'Something went wrong'}
-          </EmptyTitle>
-          <EmptyDescription>
-            {chunk
-              ? 'The Studio may have been updated since this tab opened. Reload to get the new version.'
-              : 'Reload the page, or open another page from the menu.'}
-          </EmptyDescription>
-          <EmptyDescription className="break-all font-mono text-xs">
-            {error.message}
-          </EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent>
+      <PageState
+        icon={AlertTriangle}
+        tone="error"
+        title={chunk ? 'This page could not be loaded' : 'Something went wrong'}
+        description={
+          chunk
+            ? 'The Studio may have been updated since this tab opened. Reload to get the new version.'
+            : 'Reload the page, or open another page from the menu.'
+        }
+        detail={error.message}
+        actions={
           <Button onClick={reloadPage}>
             <RotateCcw />
             Reload
           </Button>
-        </EmptyContent>
-      </Empty>
+        }
+      />
     );
   }
 }

@@ -26,4 +26,13 @@ describe('CopyButton', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('Copy failed: clipboard unavailable');
   });
+
+  it('says Copied on the button when it shows text', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    render(<CopyButton value="abc" label="Copy API key" withText />);
+    expect(screen.getByRole('button')).toHaveTextContent('Copy');
+    await act(async () => screen.getByRole('button').click());
+    expect(screen.getByRole('button')).toHaveTextContent('Copied');
+    expect(screen.getByRole('button')).toHaveAccessibleName('Copy API key');
+  });
 });

@@ -41,7 +41,10 @@ export function UserMenu() {
           ) : (
             <UserRound className="size-3.5" />
           )}
-          <span className="max-w-[140px] truncate font-mono text-xs" title={session.username}>
+          <span
+            className="max-w-[140px] truncate font-mono text-xs max-sm:sr-only"
+            title={session.username}
+          >
             {session.username}
           </span>
           {session.operator && <span className="sr-only">, operator</span>}

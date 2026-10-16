@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Route, Routes, useLocation } from 'react-router';
+import { Route, Routes, useLocation, useNavigate } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jsonFetch, renderPage, reply, type RecordedCall } from '@/test/render';
 import AssetsPage from './AssetsPage';
@@ -11,7 +11,7 @@ function asset(id: string, title: string, status = 'ready') {
     title,
     description: '',
     manifest_object_id: 'm',
-    thumbnail_object_ids: [],
+    thumbnail_object_ids: [] as string[],
     duration_ms: 90_000,
     resolution: '1280x720',
     status,
@@ -71,7 +71,18 @@ const deletes = (server: ReturnType<typeof library>) =>
 
 function Where() {
   const location = useLocation();
-  return <output data-testid="where">{location.search}</output>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-testid="where">{location.search}</output>
+      <button type="button" onClick={() => navigate('/studio/assets?q=Bunny')}>
+        open a bunny search
+      </button>
+      <button type="button" onClick={() => navigate(-1)}>
+        history back
+      </button>
+    </>
+  );
 }
 
 function renderLibrary(route = '/studio/assets') {
@@ -222,5 +233,243 @@ describe('AssetsPage', () => {
     renderLibrary();
     const title = await screen.findByText('A very long title that the card truncates');
     expect(title).toHaveAttribute('title', 'A very long title that the card truncates');
+  });
+
+  it('keeps the delete dialog title while it closes instead of "Delete undefined videos?"', async () => {
+    library();
+    renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Big Buck Bunny' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Sintel' }));
+    await userEvent.click(screen.getByRole('button', { name: /delete selected/i }));
+    const dialog = await screen.findByRole('alertdialog');
+
+    // every text the page showed on the way out, including frames that only
+    // live until the dialog unmounts
+    const seen: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const r of records) {
+        const node = r.target.nodeType === Node.TEXT_NODE ? r.target.parentElement : r.target;
+        if (node instanceof Element) seen.push(node.textContent ?? '');
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    observer.disconnect();
+
+    expect(seen.join('\n')).not.toContain('undefined');
+  });
+
+  it('gives the card checkbox a visible backing and a 24px target', async () => {
+    library([bunny]);
+    renderLibrary();
+    const box = await screen.findByRole('checkbox', { name: 'Select Big Buck Bunny' });
+    const target = box.closest('[data-slot="select-target"]');
+    expect(target).not.toBeNull();
+    expect(target!.className).toMatch(/\bsize-(6|7|8|9|10)\b/);
+    expect(target!.className).toMatch(/bg-background\b/);
+  });
+
+  it('does not request thumbnails of private assets and marks them private', async () => {
+    library([{ ...asset('p1', 'Secret'), access_tier: 'private', thumbnail_object_ids: ['t1'] }]);
+    renderLibrary();
+    await screen.findByText('Secret');
+    expect(document.querySelector('img[src*="/v1/objects/"]')).toBeNull();
+    expect(screen.getByLabelText('Private video, no preview')).toBeInTheDocument();
+  });
+
+  it('shows card shaped skeletons with a 16:9 thumb while loading', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {})),
+    );
+    renderLibrary();
+    const skeletons = await screen.findAllByTestId('asset-card-skeleton');
+    expect(skeletons.length).toBeGreaterThan(0);
+    expect(skeletons[0].querySelector('.aspect-video')).not.toBeNull();
+  });
+
+  it('takes deleted cards off at once, before the server answers', async () => {
+    let release!: () => void;
+    const server = library();
+    const answered = new Promise<void>((r) => (release = r));
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (init?.method === 'DELETE') await answered;
+      return base(input, init);
+    });
+    renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for Big Buck Bunny' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    await userEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }),
+    );
+
+    await waitFor(() => expect(screen.queryByText('Big Buck Bunny')).not.toBeInTheDocument());
+    // the delete is still waiting on the server
+    expect(deletes(server)).toEqual([]);
+    expect(screen.getByText('2 videos')).toBeInTheDocument();
+    release();
+    expect(await screen.findByText('Deleting 1 video from Sia')).toBeInTheDocument();
+  });
+
+  it('puts a card back when its delete fails', async () => {
+    library();
+    renderLibrary();
+    await screen.findByText('Sintel');
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for Sintel' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    await userEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }),
+    );
+    expect(
+      await screen.findByText('Could not delete "Sintel": Asset is locked'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Sintel')).toBeInTheDocument();
+    expect(screen.getByText('3 videos')).toBeInTheDocument();
+  });
+
+  it('shows the bulk actions only once something is selected', async () => {
+    library();
+    renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    expect(screen.queryByRole('toolbar', { name: 'Selected videos' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Sintel' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected videos' });
+    expect(within(bar).getByText('1 of 3 selected')).toBeInTheDocument();
+    await userEvent.click(within(bar).getByRole('button', { name: 'Clear' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('toolbar', { name: 'Selected videos' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('focuses the search on "/" and lets go of a selection on escape', async () => {
+    library();
+    renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    const search = screen.getByRole('textbox', { name: 'Search assets' });
+
+    await userEvent.keyboard('/');
+    expect(search).toHaveFocus();
+    expect(search).toHaveValue('');
+    await userEvent.type(search, 'abc');
+    await userEvent.keyboard('{Escape}');
+    expect(search).toHaveValue('');
+
+    search.blur();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Sintel' }));
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByRole('checkbox', { name: 'Select Sintel' })).not.toBeChecked();
+  });
+
+  it('puts the search box back in step with the url on back and forward', async () => {
+    library();
+    renderLibrary('/studio/assets?q=Sintel');
+    await screen.findByText('Sintel');
+    const search = screen.getByRole('textbox', { name: 'Search assets' });
+    expect(search).toHaveValue('Sintel');
+
+    await userEvent.click(screen.getByRole('button', { name: 'open a bunny search' }));
+    await waitFor(() => expect(search).toHaveValue('Bunny'));
+    await userEvent.click(screen.getByRole('button', { name: 'history back' }));
+    await waitFor(() => expect(search).toHaveValue('Sintel'));
+    // and the debounced box does not push its old value back over the url
+    await new Promise((r) => setTimeout(r, 400));
+    expect(screen.getByTestId('where')).toHaveTextContent('?q=Sintel');
+  });
+
+  it('says it is searching while the next results are on their way', async () => {
+    library();
+    renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search assets' }), 'S');
+    expect(screen.getByRole('status', { name: 'Searching' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('status', { name: 'Searching' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('shows the shared page state with one heading when the library does not load, and retries', async () => {
+    let fail = true;
+    const server = jsonFetch({
+      '/api/v1/assets': () =>
+        fail ? reply(503, { error: 'Database unavailable' }) : page([bunny]),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    renderLibrary('/studio/assets?status=ready');
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Could not load assets' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByText('Database unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
+
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Big Buck Bunny')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Assets' })).toBeInTheDocument();
+  });
+
+  it('keeps the rows on screen when a later poll fails', async () => {
+    let fail = false;
+    const server = jsonFetch({
+      '/api/v1/assets': () =>
+        fail ? reply(503, { error: 'Database unavailable' }) : page([bunny]),
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { client } = renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    fail = true;
+    await act(() => client.refetchQueries({ queryKey: ['assets', 'list'] }));
+    await waitFor(() =>
+      expect(client.getQueryCache().findAll({ queryKey: ['assets', 'list'] })[0].state.status).toBe(
+        'error',
+      ),
+    );
+    expect(screen.getByText('Big Buck Bunny')).toBeInTheDocument();
+    expect(screen.queryByText('Could not load assets')).not.toBeInTheDocument();
+  });
+
+  it('keeps bulk deleted cards hidden when a list poll lands mid-delete with them still in it', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const server = jsonFetch({
+      // the server has not processed the deletes yet, so every poll still lists them
+      '/api/v1/assets': () => page([bunny, sintel, failedOne]),
+      'DELETE /api/v1/assets/a1': async () => {
+        await held;
+        return { success: true };
+      },
+      'DELETE /api/v1/assets/f1': async () => {
+        await held;
+        return { success: true };
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(server));
+    const { client } = renderLibrary();
+    await screen.findByText('Big Buck Bunny');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Big Buck Bunny' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select Broken upload' }));
+    await userEvent.click(screen.getByRole('button', { name: /delete selected/i }));
+    await userEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }),
+    );
+    await waitFor(() => expect(screen.queryByText('Big Buck Bunny')).not.toBeInTheDocument());
+    expect(screen.queryByText('Broken upload')).not.toBeInTheDocument();
+
+    // a stale poll answers while both deletes are still on their way
+    await act(() => client.refetchQueries({ queryKey: ['assets', 'list'] }));
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(screen.queryByText('Big Buck Bunny')).not.toBeInTheDocument();
+    expect(screen.queryByText('Broken upload')).not.toBeInTheDocument();
+    expect(screen.getByText('Sintel')).toBeInTheDocument();
+    expect(screen.getByText('1 video')).toBeInTheDocument();
+
+    release();
+    expect(await screen.findByText('Deleting 2 videos from Sia')).toBeInTheDocument();
   });
 });
