@@ -26,29 +26,29 @@
     "@tus/server": "^2.4.5",
     "bullmq": "^5.34.0",
     "cors": "^2.8.5",
-    "dotenv": "^18.0.6",
+    "dotenv": "^18.0.7",
     "drizzle-orm": "^0.45.4",
-    "express": "^5.2.1",
+    "express": "^5.3.0",
     "lru-cache": "^11.0.0",
     "nanoid": "^6.0.2",
     "pino": "^10.4.0",
     "pino-pretty": "^13.2.0",
     "postgres": "^3.4.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@scalar/api-reference": "1.73.1",
+    "@scalar/api-reference": "1.74.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.6",
     "@types/node": "^24.19.1",
     "@types/supertest": "^7.2.1",
-    "@vitest/coverage-v8": "^5.0.3",
+    "@vitest/coverage-v8": "^5.0.4",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "drizzle-kit": "^0.31.11",
     "supertest": "^7.2.2",
     "tsx": "^4.19.0",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.4"
   }
 }
