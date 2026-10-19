@@ -40,6 +40,11 @@ export interface PipelineProgressProps {
   size?: 'sm' | 'md';
   /** The progressbar's name, such as "<title>, processing progress". */
   label: string;
+  /**
+   * Before anything runs (the upload form): the empty bar only shows what is
+   * to come, so it is no progressbar and the steps carry no state.
+   */
+  preview?: boolean;
   className?: string;
 }
 
@@ -55,6 +60,7 @@ export function PipelineProgress({
   moving = false,
   size = 'md',
   label,
+  preview = false,
   className,
 }: PipelineProgressProps) {
   const states = PIPELINE_STEPS.map((_, i) => steps[i] ?? 'pending');
@@ -71,11 +77,15 @@ export function PipelineProgress({
   return (
     <div className={cn('flex flex-col', size === 'sm' ? 'gap-1.5' : 'gap-2.5', className)}>
       <div
-        role="progressbar"
-        aria-label={label}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={overall}
+        {...(preview
+          ? { 'aria-hidden': true }
+          : {
+              role: 'progressbar',
+              'aria-label': label,
+              'aria-valuemin': 0,
+              'aria-valuemax': 100,
+              'aria-valuenow': overall,
+            })}
         className={cn('grid grid-cols-4', size === 'sm' ? 'gap-1' : 'gap-1.5')}
       >
         {states.map((state, i) => (
@@ -110,7 +120,7 @@ export function PipelineProgress({
         ))}
       </div>
       <ol
-        aria-label="Processing steps"
+        aria-label={preview ? label : 'Processing steps'}
         className={cn('grid grid-cols-4', size === 'sm' ? 'gap-1' : 'gap-1.5')}
       >
         {states.map((state, i) => (
@@ -131,7 +141,7 @@ export function PipelineProgress({
             )}
           >
             {PIPELINE_STEPS[i].label}
-            <span className="sr-only">, {SPOKEN[state]}</span>
+            {!preview && <span className="sr-only">, {SPOKEN[state]}</span>}
           </li>
         ))}
       </ol>

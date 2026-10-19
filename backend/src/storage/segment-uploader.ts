@@ -1,6 +1,11 @@
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { uploadAndPinPacked, pruneSlabs, type PackedSource } from './sia-client.js';
+import {
+  encodedUploadBytes,
+  uploadAndPinPacked,
+  pruneSlabs,
+  type PackedSource,
+} from './sia-client.js';
 import type { ObjectLedger } from './object-ledger.js';
 import {
   rewriteVariantPlaylist,
@@ -35,7 +40,8 @@ export interface UploadSegmentsOptions {
    * packed batch as the variant data files.
    */
   thumbnailPaths?: string[];
-  onProgress?: (uploaded: number, total: number) => void;
+  /** How far the uploads are, 0 to 1; never goes back, also across retries. */
+  onProgress?: (fraction: number) => void;
   /**
    * Gets every object id before its pin, and back the ones this upload pinned
    * when it fails or is stopped, so no pinned object goes unrecorded.
@@ -45,8 +51,10 @@ export interface UploadSegmentsOptions {
   checkpoint?: () => Promise<void>;
 }
 
-/** Packed uploads that make up one asset, used as the progress total. */
-const UPLOAD_STAGES = 3;
+// how the progress splits over the three uploads: the media batch is nearly
+// all of the time, the two playlist uploads are a slab each
+const DATA_SHARE = 0.8;
+const PLAYLISTS_DONE = 0.9;
 const DATA_UPLOAD_ATTEMPTS = 5;
 
 /**
@@ -69,20 +77,22 @@ export async function uploadSegments(
   const { thumbnailPaths = [], ledger } = options;
   const { masterContent, variants } = await readTranscodeOutput(outputDir);
 
-  let uploadedStages = 0;
-  const stageDone = () => {
-    uploadedStages += 1;
-    options.onProgress?.(uploadedStages, UPLOAD_STAGES);
+  let reported = 0;
+  const report = (fraction: number) => {
+    if (fraction <= reported) return;
+    reported = fraction;
+    options.onProgress?.(fraction);
   };
   const allObjectIds: string[] = [];
   // every id handed to the ledger, including ones whose pin then failed
   const recorded: string[] = [];
 
   const checkpoint = async () => options.checkpoint?.();
-  const upload = async (items: PackedSource[]) => {
+  const upload = async (items: PackedSource[], onShardStored?: (bytes: number) => void) => {
     let attemptIds: string[] = [];
     try {
       return await uploadAndPinPacked(items, {
+        onShardStored,
         beforePin: async (ids) => {
           await ledger.record(ids);
           attemptIds = ids;
@@ -106,13 +116,25 @@ export async function uploadSegments(
       { variants: variants.length, thumbnails: thumbnailPaths.length },
       'Uploading variant data and thumbnails to Sia',
     );
-    const dataResults = await withRetries('variant data upload', checkpoint, () =>
-      upload(dataSources),
+    // the media batch takes minutes on a slow uplink, so it moves the bar
+    // shard by shard instead of only when it is done
+    const dataBytes = (await Promise.all(dataSources.map((d) => stat(d.path)))).reduce(
+      (n, st) => n + st.size,
+      0,
     );
+    const encoded = encodedUploadBytes(dataBytes);
+    const dataResults = await withRetries('variant data upload', checkpoint, () => {
+      let stored = 0;
+      return upload(dataSources, (bytes) => {
+        stored += bytes;
+        // short of the end: the pin after the last shard still takes a moment
+        report(DATA_SHARE * Math.min(0.99, stored / encoded));
+      });
+    });
     allObjectIds.push(...dataResults.map((r) => r.objectId));
     const variantData = dataResults.slice(0, variants.length);
     const thumbnailResults = dataResults.slice(variants.length);
-    stageDone();
+    report(DATA_SHARE);
 
     // then the playlists, which the master names in turn
     const rewrittenPlaylists = variants.map((v, i) =>
@@ -127,7 +149,7 @@ export async function uploadSegments(
     await checkpoint();
     const playlistResults = await upload(rewrittenPlaylists);
     allObjectIds.push(...playlistResults.map((r) => r.objectId));
-    stageDone();
+    report(PLAYLISTS_DONE);
 
     const variantObjectMap = new Map<string, string>();
     variants.forEach((v, i) => {
@@ -149,7 +171,7 @@ export async function uploadSegments(
     await checkpoint();
     const [masterResult] = await upload([masterBytes]);
     allObjectIds.push(masterResult.objectId);
-    stageDone();
+    report(1);
     // renditions are segmented identically, so the asset's segment count is
     // the per-rendition count, not the sum across renditions
     const totalSegments = Math.max(0, ...variants.map((v) => v.segmentCount));

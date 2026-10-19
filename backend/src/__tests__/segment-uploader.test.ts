@@ -114,19 +114,21 @@ afterEach(async () => {
 describe('uploadSegments', () => {
   it('uploads data and thumbnails, then playlists, then the master: three uploads', async () => {
     const { ledger, uploading, pinnedWhenRecorded } = memoryLedger();
-    const progress: Array<[number, number]> = [];
+    const progress: number[] = [];
     const result = await uploadSegments(dir, {
       thumbnailPaths: thumbs,
       ledger,
-      onProgress: (done, total) => progress.push([done, total]),
+      onProgress: (fraction) => progress.push(fraction),
     });
 
     expect(fake.calls.finalize).toBe(3);
-    expect(progress).toEqual([
-      [1, 3],
-      [2, 3],
-      [3, 3],
-    ]);
+    // the media batch moves the bar shard by shard, then each playlist upload
+    // takes its step, and it never goes back
+    expect(progress.slice(-3)).toEqual([0.8, 0.9, 1]);
+    const duringData = progress.slice(0, -3);
+    expect(duringData.length).toBeGreaterThan(1);
+    expect(duringData.every((f) => f > 0 && f < 0.8)).toBe(true);
+    expect(progress).toEqual([...progress].sort((a, b) => a - b));
     // recorded before pinned, every batch
     expect(pinnedWhenRecorded).toEqual([0, 0, 0]);
     expect(fake.pinnedIds()).toEqual([...result.allObjectIds].sort());

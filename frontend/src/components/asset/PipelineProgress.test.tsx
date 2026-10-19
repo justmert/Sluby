@@ -76,4 +76,24 @@ describe('PipelineProgress', () => {
     expect(document.querySelectorAll('[data-moving]')).toHaveLength(0);
     expect(screen.getByText('Transcode')).toHaveTextContent('Transcode, failed');
   });
+
+  it('previews the steps without a progressbar or states before anything runs', () => {
+    render(
+      <PipelineProgress
+        preview
+        steps={['pending', 'pending', 'pending', 'pending']}
+        label="What happens next"
+      />,
+    );
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    const items = within(screen.getByRole('list', { name: 'What happens next' })).getAllByRole(
+      'listitem',
+    );
+    expect(items.map((li) => li.textContent)).toEqual([
+      'Upload',
+      'Transcode',
+      'Store on Sia',
+      'Publish',
+    ]);
+  });
 });
