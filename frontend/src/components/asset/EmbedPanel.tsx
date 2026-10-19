@@ -16,6 +16,7 @@ import {
   EMBED_INSTALL,
   embedSamples,
   needsSigning,
+  watchUrl,
   type EmbedBy,
 } from '@/lib/embed';
 import { tokenize, type CodeLanguage, type TokenType } from '@/lib/highlight';
@@ -221,11 +222,28 @@ export function EmbedPanel({
             />
           </>
         )}
+        {!signed && (
+          <a
+            href={watchUrl(
+              baseUrl ?? window.location.origin,
+              by === 'video' ? asset.id : by.playbackId,
+            )}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto rounded-sm font-semibold text-primary hover:text-primary-hover"
+          >
+            Open watch page
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        )}
         <a
           href={API_REFERENCE_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="ml-auto rounded-sm font-semibold text-primary hover:text-primary-hover"
+          className={cn(
+            'rounded-sm font-semibold text-primary hover:text-primary-hover',
+            signed && 'ml-auto',
+          )}
         >
           API reference
           <span className="sr-only"> (opens in a new tab)</span>

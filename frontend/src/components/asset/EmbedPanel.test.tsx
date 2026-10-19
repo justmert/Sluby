@@ -36,14 +36,25 @@ const code = () => screen.getByRole('tabpanel').textContent ?? '';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('EmbedPanel', () => {
-  it('offers React, HTML and the stream URL for a public video, with this video ID', async () => {
+  it('starts a public video on the iframe, with this video ID, and offers the rest', async () => {
     server();
     renderPage(<EmbedPanel asset={publicVideo} />);
     expect(screen.getByRole('combobox', { name: 'Play by' })).toHaveTextContent('Video ID');
-    expect(tabs()).toEqual(['React', 'HTML', 'Stream URL']);
+    expect(tabs()).toEqual(['Iframe', 'Link', 'React', 'HTML', 'Stream URL']);
+    expect(code()).toContain(`<iframe src="${ORIGIN}/watch/a1"`);
+    // nothing to install for an iframe
+    expect(screen.queryByText('npm install @sluby/player @sluby/sdk')).toBeNull();
+    expect(screen.getByText('Public video: anyone with the code can play it.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open watch page/ })).toHaveAttribute(
+      'href',
+      `${ORIGIN}/watch/a1`,
+    );
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Link' }));
+    expect(code()).toBe(`${ORIGIN}/watch/a1`);
+    await userEvent.click(screen.getByRole('tab', { name: 'React' }));
     expect(code()).toContain("sluby.playback.streamUrl('a1')");
     expect(screen.getByText('npm install @sluby/player @sluby/sdk')).toBeInTheDocument();
-    expect(screen.getByText('Public video: anyone with the code can play it.')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Stream URL' }));
     expect(code()).toBe(`${ORIGIN}/v1/stream/a1/master.m3u8`);
@@ -54,8 +65,10 @@ describe('EmbedPanel', () => {
   it('starts a private video on the server code that signs its URLs', () => {
     server();
     renderPage(<EmbedPanel asset={privateVideo} />);
-    expect(tabs()).toEqual(['Server', 'React', 'HTML']);
+    expect(tabs()).toEqual(['Server', 'Iframe', 'React', 'HTML']);
     expect(code()).toContain("sluby.playback.getSignedUrl('a1'");
+    // a signed video has no open page to link to
+    expect(screen.queryByRole('link', { name: /Open watch page/ })).toBeNull();
     expect(code()).toContain('process.env.SLUBY_API_KEY');
     expect(
       screen.getByText(
@@ -75,12 +88,12 @@ describe('EmbedPanel', () => {
       `${PB_SIGNED} · Signed URL`,
     ]);
     await userEvent.click(screen.getByRole('option', { name: 'Site embed' }));
-    expect(code()).toContain(`sluby.playback.streamUrl('${PB_OPEN}')`);
-    expect(tabs()).toEqual(['React', 'HTML', 'Stream URL']);
+    expect(code()).toContain(`/watch/${PB_OPEN}"`);
+    expect(tabs()).toEqual(['Iframe', 'Link', 'React', 'HTML', 'Stream URL']);
 
     await userEvent.click(screen.getByRole('combobox', { name: 'Play by' }));
     await userEvent.click(await screen.findByRole('option', { name: `${PB_SIGNED} · Signed URL` }));
-    expect(tabs()).toEqual(['Server', 'React', 'HTML']);
+    expect(tabs()).toEqual(['Server', 'Iframe', 'React', 'HTML']);
     expect(code()).toContain(`getSignedUrl('${PB_SIGNED}'`);
     expect(
       screen.getByText(/This playback ID plays only through signed URLs\./),
@@ -133,7 +146,7 @@ describe('EmbedPanel', () => {
     expect(within(alert).getByText('Could not load playback IDs')).toBeInTheDocument();
     // the reader's sentence on the main line; the server's own words only under Details
     expect(within(alert).getByText(/The server ran into a problem/)).toBeInTheDocument();
-    expect(code()).toContain("streamUrl('a1')");
+    expect(code()).toContain(`/watch/a1"`);
   });
 
   it('links the API reference in a new tab', () => {

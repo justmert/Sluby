@@ -46,6 +46,7 @@ export default defineConfig({
         items: [
           { text: 'React', link: '/guide/react' },
           { text: 'Plain JavaScript', link: '/guide/javascript' },
+          { text: 'Share and embed', link: '/guide/share' },
         ],
       },
       {

@@ -5,7 +5,7 @@ import type { PlaybackId, VideoAsset } from '@sluby/sdk';
 // @sluby/sdk and @sluby/player in embed.test.ts, and the html one against
 // hls.js, so a renamed api breaks the build instead of a reader's page.
 
-export type EmbedKind = 'react' | 'html' | 'stream-url' | 'server';
+export type EmbedKind = 'iframe' | 'link' | 'react' | 'html' | 'stream-url' | 'server';
 
 /** Play by the video ID, or by one of its playback IDs. */
 export type EmbedBy = 'video' | Pick<PlaybackId, 'playbackId' | 'policy'>;
@@ -14,7 +14,7 @@ export type EmbedAsset = Pick<VideoAsset, 'id' | 'accessTier'>;
 
 export interface EmbedCode {
   kind: EmbedKind;
-  /** The tab label: "React", "HTML", "Stream URL", "Server". */
+  /** The tab label: "Iframe", "Link", "React", "HTML", "Stream URL", "Server". */
   label: string;
   /** For CodeBlock. */
   language: 'tsx' | 'ts' | 'html' | 'text';
@@ -40,6 +40,8 @@ export const HLS_CDN_URL = 'https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.m
 export const SIGNED_URL_PATH = '/signed-video-url';
 
 const LABEL: Record<EmbedKind, string> = {
+  iframe: 'Iframe',
+  link: 'Link',
   react: 'React',
   html: 'HTML',
   'stream-url': 'Stream URL',
@@ -55,13 +57,24 @@ export function needsSigning(asset: EmbedAsset, by: EmbedBy = 'video'): boolean 
   return asset.accessTier === 'private' || (by !== 'video' && by.policy === 'signed');
 }
 
-/** The samples that apply, in tab order: open ones play with no key, signed ones start on the server. */
+/**
+ * The samples that apply, in tab order. An open video starts with the iframe,
+ * which plays on any page with nothing to install, and its watch page link;
+ * a signed one starts on the server, which has to sign the link first.
+ */
 export function embedKinds(asset: EmbedAsset, by: EmbedBy = 'video'): EmbedKind[] {
-  return needsSigning(asset, by) ? ['server', 'react', 'html'] : ['react', 'html', 'stream-url'];
+  return needsSigning(asset, by)
+    ? ['server', 'iframe', 'react', 'html']
+    : ['iframe', 'link', 'react', 'html', 'stream-url'];
 }
 
 const trimBase = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
 const idOf = (asset: EmbedAsset, by: EmbedBy) => (by === 'video' ? asset.id : by.playbackId);
+
+/** The video's own page on this server, which the iframe shows. */
+export function watchUrl(baseUrl: string, id: string): string {
+  return `${trimBase(baseUrl)}/watch/${encodeURIComponent(id)}`;
+}
 
 /** The master playlist URL, built the way the sdk's playback.streamUrl builds it. */
 export function streamUrl(baseUrl: string, id: string): string {
@@ -86,19 +99,29 @@ export function embedCode(
   const id = idOf(asset, by);
   const signed = needsSigning(asset, by);
   const code =
-    kind === 'stream-url'
-      ? streamUrl(base, id)
-      : kind === 'server'
-        ? serverSample(base, id)
-        : kind === 'react'
-          ? signed
-            ? reactSignedSample()
-            : reactPublicSample(base, id)
-          : signed
-            ? htmlSample(null)
-            : htmlSample(streamUrl(base, id));
+    kind === 'iframe'
+      ? iframeSample(watchUrl(base, id), signed)
+      : kind === 'link'
+        ? watchUrl(base, id)
+        : kind === 'stream-url'
+          ? streamUrl(base, id)
+          : kind === 'server'
+            ? serverSample(base, id)
+            : kind === 'react'
+              ? signed
+                ? reactSignedSample()
+                : reactPublicSample(base, id)
+              : signed
+                ? htmlSample(null)
+                : htmlSample(streamUrl(base, id));
   const language =
-    kind === 'react' ? 'tsx' : kind === 'server' ? 'ts' : kind === 'html' ? 'html' : 'text';
+    kind === 'react'
+      ? 'tsx'
+      : kind === 'server'
+        ? 'ts'
+        : kind === 'html' || kind === 'iframe'
+          ? 'html'
+          : 'text';
   return { kind, label: LABEL[kind], language, code };
 }
 
@@ -107,8 +130,27 @@ export function embedSamples(asset: EmbedAsset, options: EmbedOptions = {}): Emb
   return embedKinds(asset, options.by).map((kind) => embedCode(asset, { ...options, kind }));
 }
 
+const IFRAME_ATTRS = `title="Video" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen
+  style="width: 100%; aspect-ratio: 16 / 9; border: 0"`;
+
+/** The watch page in an iframe; a signed one gets its link from the reader's server. */
+function iframeSample(page: string, signed: boolean): string {
+  if (!signed) return `<iframe src="${page}" ${IFRAME_ATTRS}></iframe>`;
+  return `<iframe id="video" ${IFRAME_ATTRS}></iframe>
+<script>
+  // your server's route from the server sample; the api key stays there.
+  // the watch page takes the signed url's expires and sig as they are
+  fetch(${q(SIGNED_URL_PATH)})
+    .then((res) => res.json())
+    .then(({ signedUrl }) => {
+      const iframe = /** @type {HTMLIFrameElement} */ (document.getElementById('video'));
+      iframe.src = ${q(page)} + new URL(signedUrl).search;
+    });
+</script>`;
+}
+
 /**
- * What "Copy embed code" copies: the react player for a public video, and
+ * What "Copy embed code" copies: the iframe for a public video, and
  * for a private one the server code that signs its URL, since that has to
  * exist before any page can play it.
  */

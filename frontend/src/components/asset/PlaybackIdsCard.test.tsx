@@ -120,7 +120,7 @@ describe('PlaybackIdsCard', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Actions for Site embed' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Copy embed code' }));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
-    expect(writeText.mock.calls[0][0]).toContain(`sluby.playback.streamUrl('${PB_A}')`);
+    expect(writeText.mock.calls[0][0]).toContain(`/watch/${PB_A}"`);
     expect(await screen.findByText('Embed code copied')).toBeInTheDocument();
   });
 

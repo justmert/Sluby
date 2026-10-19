@@ -11,6 +11,7 @@ import {
   primaryEmbed,
   SIGNED_URL_PATH,
   streamUrl,
+  watchUrl,
   type EmbedCode,
 } from './embed';
 
@@ -49,7 +50,8 @@ function typecheck() {
   for (const [name, c] of all) {
     if (c.language === 'tsx' || c.language === 'ts') {
       files.set(path.join(frontendDir, `__embed_${name}.${c.language}`), c.code);
-    } else if (c.language === 'html') {
+    } else if (c.language === 'html' && c.code.includes('<script>\n')) {
+      // an open iframe is markup alone, with no script to check
       files.set(path.join(frontendDir, `__embed_${name}.js`), inlineScript(c.code));
     }
   }
@@ -100,20 +102,39 @@ function typecheck() {
 describe('embed code', () => {
   it('typechecks every sample against the real sdk, player and hls.js', () => {
     const errors = typecheck();
-    // react and html for the two open cases, plus server for the two signed ones, and the hls global
-    expect(errors.size).toBe(11);
+    // react and html for the two open cases; server, the iframe's script, react
+    // and html for the two signed ones; and the hls global
+    expect(errors.size).toBe(13);
     for (const [file, messages] of errors)
       expect({ file, messages }).toEqual({ file, messages: [] });
   });
 
-  it('offers react, html and the stream url for an open video, server code first for a signed one', () => {
-    expect(embedKinds(publicVideo)).toEqual(['react', 'html', 'stream-url']);
-    expect(embedKinds(publicVideo, openId)).toEqual(['react', 'html', 'stream-url']);
-    expect(embedKinds(privateVideo)).toEqual(['server', 'react', 'html']);
-    expect(embedKinds(privateVideo, openId)).toEqual(['server', 'react', 'html']);
-    expect(embedKinds(publicVideo, signedId)).toEqual(['server', 'react', 'html']);
+  it('offers the iframe first for an open video, server code first for a signed one', () => {
+    const open = ['iframe', 'link', 'react', 'html', 'stream-url'];
+    const signed = ['server', 'iframe', 'react', 'html'];
+    expect(embedKinds(publicVideo)).toEqual(open);
+    expect(embedKinds(publicVideo, openId)).toEqual(open);
+    expect(embedKinds(privateVideo)).toEqual(signed);
+    expect(embedKinds(privateVideo, openId)).toEqual(signed);
+    expect(embedKinds(publicVideo, signedId)).toEqual(signed);
     expect(needsSigning(publicVideo, signedId)).toBe(true);
     expect(needsSigning(publicVideo)).toBe(false);
+  });
+
+  it('embeds the watch page, and links to it by the chosen id', () => {
+    expect(watchUrl(base, 'pb_open123')).toBe('https://video.example.com/watch/pb_open123');
+    expect(embedCode(publicVideo, { kind: 'link', baseUrl: base, by: openId }).code).toBe(
+      'https://video.example.com/watch/pb_open123',
+    );
+    const iframe = embedCode(publicVideo, { kind: 'iframe', baseUrl: base }).code;
+    expect(iframe).toContain(`<iframe src="https://video.example.com/watch/${publicVideo.id}"`);
+    expect(iframe).toContain('allowfullscreen');
+    expect(iframe).not.toContain('<script>');
+    // a signed page takes the signed url's query as it is
+    expect(embedCode(privateVideo, { kind: 'iframe', baseUrl: base }).code).toContain(
+      `iframe.src = 'https://video.example.com/watch/${privateVideo.id}' + new URL(signedUrl).search;`,
+    );
+    expect(() => embedCode(privateVideo, { kind: 'link', baseUrl: base })).toThrow(RangeError);
   });
 
   it('builds the stream url the way the sdk does', async () => {
@@ -155,7 +176,7 @@ describe('embed code', () => {
   it('has the browser samples of a signed video ask the server sample for the url', () => {
     const server = embedCode(privateVideo, { kind: 'server', baseUrl: base }).code;
     expect(server).toContain(`req.url !== '${SIGNED_URL_PATH}'`);
-    for (const kind of ['react', 'html'] as const) {
+    for (const kind of ['iframe', 'react', 'html'] as const) {
       expect(embedCode(privateVideo, { kind, baseUrl: base }).code).toContain(
         `fetch('${SIGNED_URL_PATH}')`,
       );
@@ -166,11 +187,11 @@ describe('embed code', () => {
     );
   });
 
-  it('copies react for a public video and the server code for a private one', () => {
+  it('copies the iframe for a public video and the server code for a private one', () => {
     expect(primaryEmbed(publicVideo, { baseUrl: base })).toMatchObject({
-      kind: 'react',
-      label: 'React',
-      language: 'tsx',
+      kind: 'iframe',
+      label: 'Iframe',
+      language: 'html',
     });
     expect(primaryEmbed(privateVideo, { baseUrl: base })).toMatchObject({
       kind: 'server',
@@ -187,7 +208,10 @@ describe('embed code', () => {
   });
 
   it('uses this origin by default and never a hardcoded host', () => {
-    expect(primaryEmbed(publicVideo).code).toContain(`baseUrl: '${window.location.origin}'`);
+    expect(primaryEmbed(publicVideo).code).toContain(`src="${window.location.origin}/watch/`);
+    expect(embedCode(publicVideo, { kind: 'react' }).code).toContain(
+      `baseUrl: '${window.location.origin}'`,
+    );
     for (const [, c] of all) expect(c.code).not.toMatch(/localhost|api\.sluby\.app/);
   });
 
