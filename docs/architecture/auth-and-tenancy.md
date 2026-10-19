@@ -192,7 +192,7 @@ There are no per-member limits on how many videos someone uploads, how much they
 Older versions gave each account its own library (`creator_address` `user:<account id>`, or `github:<login>` before accounts existed), let in whoever `GITHUB_ALLOWED_USERS` admitted, and gave the accounts in `OPERATOR_USERS` the operations data. Migration `0022_team_workspace` (`backend/drizzle`) moves an install to one workspace:
 
 - every asset, key, webhook endpoint and upload session moves to the owner `workspace`, so every member sees every library that existed;
-- a key owned by `user:<id>` gets that account as its `created_by`; keys of other owners (`github:<login>`, the bootstrap key's `platform`, the old platform address) get no creator and act as admins;
+- a key owned by `user:<id>` gets that account as its `created_by`; keys made from the server (the bootstrap key's `platform`, the old platform address) get no creator and act as admins; keys a person held whose account no longer exists, and `github:<login>` keys nobody claimed, are deactivated, since with no creator they would act as admins;
 - the local dev account becomes an admin and every other account a member;
 - `legacy_owner_claims` is dropped. Sessions and GitHub identities stay, so GitHub members keep signing in as before.
 

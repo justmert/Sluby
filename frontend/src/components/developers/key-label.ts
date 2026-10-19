@@ -1,5 +1,4 @@
 import type { ApiKeyRecord } from '@/hooks/useApiKeys';
-import { NO_VALUE } from '@/lib/formatters';
 
 /**
  * How a key is named in sentences: “Production” (sluby_AbC123…). After a
@@ -20,12 +19,10 @@ export const maskKey = (key: string) =>
   key.length > 16 ? `${key.slice(0, 10)}…${key.slice(-4)}` : key;
 
 /**
- * Who made a key, for its Created by cell: the member's name, Server for a
- * key made on the server's command line (no member), or nothing when the
- * listing did not say. `known` is false for the two that name no person.
+ * Who made a key, for its Created by cell: the member's name, or Server for a
+ * key made on the server's command line (no member). `known` is false then.
  */
 export function keyCreator(k: Pick<ApiKeyRecord, 'createdBy'>): { text: string; known: boolean } {
-  if (k.createdBy === undefined) return { text: NO_VALUE, known: false };
   if (k.createdBy === null) return { text: 'Server', known: false };
   return { text: k.createdBy.name, known: true };
 }

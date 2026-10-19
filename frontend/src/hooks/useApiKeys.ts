@@ -4,13 +4,8 @@ import { statusOf } from '@/lib/api-client';
 import { sluby } from '@/lib/sluby';
 
 export type KeyScope = ApiKeyScope;
-/** The member who made a key. */
-export type KeyCreator = { id: string; name: string };
-/**
- * A key as listed. `createdBy` is null for a key made from the command line,
- * and undefined when the sdk in use does not pass the field on.
- */
-export type ApiKeyRecord = ApiKey & { createdBy?: KeyCreator | null };
+/** A key as listed. `createdBy` is null for a key made from the command line. */
+export type ApiKeyRecord = ApiKey;
 /** This server's limits on keys, to check a new key against. */
 export type KeyLimits = ApiKeyPage['limits'];
 /** A key right after creation or rotation: the listing plus its secret, shown once. */
