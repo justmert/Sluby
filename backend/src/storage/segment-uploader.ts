@@ -51,10 +51,6 @@ export interface UploadSegmentsOptions {
   checkpoint?: () => Promise<void>;
 }
 
-// how the progress splits over the three uploads: the media batch is nearly
-// all of the time, the two playlist uploads are a slab each
-const DATA_SHARE = 0.8;
-const PLAYLISTS_DONE = 0.9;
 const DATA_UPLOAD_ATTEMPTS = 5;
 
 /**
@@ -88,6 +84,26 @@ export async function uploadSegments(
   const recorded: string[] = [];
 
   const checkpoint = async () => options.checkpoint?.();
+  // every upload puts whole slabs on the wire, so the progress is the bytes
+  // stored out of what the three uploads send: the media batch, then the
+  // playlists and the master, a slab each however small they are
+  let total = 0;
+  let before = 0;
+  const stage = (encoded: number) => {
+    let stored = 0;
+    return {
+      // short of the end: the pin after the last shard still takes a moment
+      shard: (bytes: number) => {
+        stored += bytes;
+        report((before + Math.min(stored, encoded * 0.99)) / total);
+      },
+      done: () => {
+        before += encoded;
+        report(before / total);
+      },
+    };
+  };
+
   const upload = async (items: PackedSource[], onShardStored?: (bytes: number) => void) => {
     let attemptIds: string[] = [];
     try {
@@ -116,25 +132,21 @@ export async function uploadSegments(
       { variants: variants.length, thumbnails: thumbnailPaths.length },
       'Uploading variant data and thumbnails to Sia',
     );
-    // the media batch takes minutes on a slow uplink, so it moves the bar
-    // shard by shard instead of only when it is done
     const dataBytes = (await Promise.all(dataSources.map((d) => stat(d.path)))).reduce(
       (n, st) => n + st.size,
       0,
     );
-    const encoded = encodedUploadBytes(dataBytes);
-    const dataResults = await withRetries('variant data upload', checkpoint, () => {
-      let stored = 0;
-      return upload(dataSources, (bytes) => {
-        stored += bytes;
-        // short of the end: the pin after the last shard still takes a moment
-        report(DATA_SHARE * Math.min(0.99, stored / encoded));
-      });
-    });
+    const slab = encodedUploadBytes(1);
+    const dataEncoded = encodedUploadBytes(dataBytes);
+    total = dataEncoded + 2 * slab;
+    // a retry starts its shard count over; report never goes back
+    const dataResults = await withRetries('variant data upload', checkpoint, () =>
+      upload(dataSources, stage(dataEncoded).shard),
+    );
+    stage(dataEncoded).done();
     allObjectIds.push(...dataResults.map((r) => r.objectId));
     const variantData = dataResults.slice(0, variants.length);
     const thumbnailResults = dataResults.slice(variants.length);
-    report(DATA_SHARE);
 
     // then the playlists, which the master names in turn
     const rewrittenPlaylists = variants.map((v, i) =>
@@ -147,9 +159,10 @@ export async function uploadSegments(
       ),
     );
     await checkpoint();
-    const playlistResults = await upload(rewrittenPlaylists);
+    const playlists = stage(slab);
+    const playlistResults = await upload(rewrittenPlaylists, playlists.shard);
+    playlists.done();
     allObjectIds.push(...playlistResults.map((r) => r.objectId));
-    report(PLAYLISTS_DONE);
 
     const variantObjectMap = new Map<string, string>();
     variants.forEach((v, i) => {
@@ -169,9 +182,10 @@ export async function uploadSegments(
       rewriteMasterPlaylist(masterContent, variantObjectMap, ''),
     );
     await checkpoint();
-    const [masterResult] = await upload([masterBytes]);
+    const master = stage(slab);
+    const [masterResult] = await upload([masterBytes], master.shard);
+    master.done();
     allObjectIds.push(masterResult.objectId);
-    report(1);
     // renditions are segmented identically, so the asset's segment count is
     // the per-rendition count, not the sum across renditions
     const totalSegments = Math.max(0, ...variants.map((v) => v.segmentCount));

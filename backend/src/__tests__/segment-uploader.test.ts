@@ -122,12 +122,13 @@ describe('uploadSegments', () => {
     });
 
     expect(fake.calls.finalize).toBe(3);
-    // the media batch moves the bar shard by shard, then each playlist upload
-    // takes its step, and it never goes back
-    expect(progress.slice(-3)).toEqual([0.8, 0.9, 1]);
-    const duringData = progress.slice(0, -3);
-    expect(duringData.length).toBeGreaterThan(1);
-    expect(duringData.every((f) => f > 0 && f < 0.8)).toBe(true);
+    // each upload is one slab on the wire for these small files, so each is
+    // a third of the bar; it moves shard by shard within each and never goes back
+    expect(progress).toContain(1 / 3);
+    expect(progress).toContain(2 / 3);
+    expect(progress.at(-1)).toBe(1);
+    expect(progress.filter((f) => f < 1 / 3).length).toBeGreaterThan(1);
+    expect(progress.filter((f) => f > 2 / 3 && f < 1).length).toBeGreaterThan(1);
     expect(progress).toEqual([...progress].sort((a, b) => a - b));
     // recorded before pinned, every batch
     expect(pinnedWhenRecorded).toEqual([0, 0, 0]);
