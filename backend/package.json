@@ -15,6 +15,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:push": "drizzle-kit push",
     "db:seed-key": "tsx src/db/seed-api-key.ts",
+    "admin:reset-link": "tsx src/db/reset-link.ts",
     "provision-viewer": "node scripts/provision-viewer.mjs",
     "connect-indexer": "node scripts/connect-indexer.mjs",
     "openapi:export": "tsx scripts/export-openapi.ts"

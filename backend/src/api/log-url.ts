@@ -18,14 +18,22 @@ const LOGGABLE_QUERY_KEYS = new Set([
   'access_tier',
 ]);
 
-/** A request url fit for the logs: the path, and the query with unknown values redacted. */
+// the token of an invite or reset link is the whole capability, and it
+// travels in the path
+const LINK_TOKEN_PATH = /(\/auth\/invites\/)[^/?]+/i;
+
+/**
+ * A request url fit for the logs: the path with link tokens redacted, and the
+ * query with unknown values redacted.
+ */
 export function loggableUrl(url: string): string {
   const q = url.indexOf('?');
-  if (q === -1) return url;
+  const path = (q === -1 ? url : url.slice(0, q)).replace(LINK_TOKEN_PATH, '$1[redacted]');
+  if (q === -1) return path;
   const params = new URLSearchParams(url.slice(q + 1));
   const kept: string[] = [];
   for (const [key, value] of params) {
     kept.push(`${key}=${LOGGABLE_QUERY_KEYS.has(key) ? value : '[redacted]'}`);
   }
-  return `${url.slice(0, q)}?${kept.join('&')}`;
+  return `${path}?${kept.join('&')}`;
 }

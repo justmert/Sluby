@@ -43,3 +43,17 @@ export function ignoredSettingWarnings(opts: {
   }
   return warnings;
 }
+
+/**
+ * The startup line that lets whoever runs the server claim a fresh install:
+ * where the setup screen is and the code it asks for (see setup-code.ts).
+ * Only logged while no admin can sign in, so the code is useless by the time
+ * anyone else reads old logs.
+ */
+export function setupCodeNotice(opts: { publicUrl: string; code: string }): string {
+  const studio = `${opts.publicUrl.replace(/\/+$/, '')}/studio`;
+  return (
+    `No admin can sign in yet. Open ${studio} and set up the first admin with the setup ` +
+    `code ${opts.code}.`
+  );
+}

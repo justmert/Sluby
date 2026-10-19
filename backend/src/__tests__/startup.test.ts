@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ignoredSettingWarnings } from '../api/auth/startup.js';
+import { ignoredSettingWarnings, setupCodeNotice } from '../api/auth/startup.js';
 
 describe('ignoredSettingWarnings', () => {
   it('says nothing when neither old access setting is set', () => {
@@ -17,5 +17,14 @@ describe('ignoredSettingWarnings', () => {
     expect(ignoredSettingWarnings({ githubAllowedUsers: '', operatorUsers: 'github:a' })).toEqual([
       expect.stringContaining('OPERATOR_USERS'),
     ]);
+  });
+});
+
+describe('setupCodeNotice', () => {
+  it('says where to set up the first admin and gives the code', () => {
+    expect(setupCodeNotice({ publicUrl: 'https://video.example.com/', code: 'ABCDE-FGHJK' })).toBe(
+      'No admin can sign in yet. Open https://video.example.com/studio and set up the first ' +
+        'admin with the setup code ABCDE-FGHJK.',
+    );
   });
 });

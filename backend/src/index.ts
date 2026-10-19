@@ -19,8 +19,10 @@ import { pruneEndedStudioSessions } from './db/queries/sessions.js';
 import { pruneWebhookDeliveries } from './db/queries/webhooks.js';
 import { WEBHOOK_DELIVERY_RETENTION_MS } from './webhooks/delivery.js';
 import { ENDED_SESSION_RETENTION_MS } from './api/routes/auth.js';
-import { ignoredSettingWarnings, signInWarnings } from './api/auth/startup.js';
+import { ignoredSettingWarnings, setupCodeNotice, signInWarnings } from './api/auth/startup.js';
 import { adoptLegacyAccess } from './api/auth/adopt-legacy.js';
+import { setupCode } from './api/auth/setup-code.js';
+import { hasSignInAdmin } from './db/queries/accounts.js';
 import { seedBootstrapApiKey } from './db/api-key-seeding.js';
 import { getClient } from './storage/sia-client.js';
 import {
@@ -126,6 +128,22 @@ for (const warning of ignoredSettingWarnings({
   operatorUsers: env.OPERATOR_USERS,
 })) {
   logger.warn(warning);
+}
+
+// a fresh install, or one whose admins are all gone, is claimed on the
+// setup screen with a code only the server's logs show
+if (!env.AUTH_DISABLED) {
+  try {
+    if (!(await hasSignInAdmin())) {
+      logger.warn(
+        setupCodeNotice({ publicUrl: env.PUBLIC_URL, code: setupCode(env.SESSION_SECRET) }),
+      );
+    }
+  } catch (err) {
+    logger.fatal({ err }, 'Could not check whether this install has an admin');
+    await closeDatabase().catch(() => {});
+    process.exit(1);
+  }
 }
 
 // Make a plaintext session cookie explicit rather than silent.
