@@ -67,6 +67,10 @@ async function sessionFor(userId: string, identityId: string) {
 const liveSessions = (userId: string) =>
   accounts.sessions.filter((s) => s.userId === userId && !s.revokedAt);
 
+// every case runs real scrypt (32 MiB, about 100 ms a hash); a busy runner
+// stretches a case with several of them past the 5 s default
+vi.setConfig({ testTimeout: 20_000 });
+
 describe('GET /auth/config', () => {
   it('asks for setup while no admin can sign in, and lists the methods', async () => {
     const server = app();

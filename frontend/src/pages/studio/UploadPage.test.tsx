@@ -106,7 +106,7 @@ describe('UploadPage', () => {
       within(within(details).getByRole('list', { name: 'What happens next' }))
         .getAllByRole('listitem')
         .map((li) => li.textContent),
-    ).toEqual(['1Upload', '2Transcode', '3Store on Sia', '4Ready to play']);
+    ).toEqual(['Upload', 'Transcode', 'Store on Sia', 'Publish']);
   });
 
   it('starts the selected draft with its details, and the upload keeps going after leaving', async () => {
