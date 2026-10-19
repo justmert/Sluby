@@ -34,12 +34,12 @@
     "@arethetypeswrong/cli": "^0.18.5",
     "@eslint/js": "^10.0.1",
     "esbuild": "^0.28.2",
-    "eslint": "^10.0.0",
+    "eslint": "^10.13.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "prettier": "^3.8.1",
+    "prettier": "^3.9.10",
     "publint": "^0.3.25",
-    "typescript-eslint": "^8.56.0"
+    "typescript-eslint": "^8.71.2"
   },
   "overrides": {
     "typescript": "6.0.3"
