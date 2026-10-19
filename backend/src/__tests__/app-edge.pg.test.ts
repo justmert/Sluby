@@ -74,7 +74,7 @@ describe.skipIf(!hasTestDatabase)('app edge: cors, limits and headers (postgres)
     Object.assign(env, defaults());
   });
 
-  async function newKey(scopes = ['upload', 'read', 'manage'], owner = 'github:alice') {
+  async function newKey(scopes = ['upload', 'read', 'manage'], owner = 'workspace') {
     const { rawKey } = await keys.createApiKey({ name: 'k', scopes, creatorAddress: owner });
     return rawKey;
   }
@@ -291,7 +291,7 @@ describe.skipIf(!hasTestDatabase)('app edge: cors, limits and headers (postgres)
       const { rawKey } = await keys.createApiKey({
         name: 'greedy',
         scopes: ['read'],
-        creatorAddress: 'github:alice',
+        creatorAddress: 'workspace',
         rateLimit: 1_000_000_000,
       });
       const a = app();
@@ -313,7 +313,7 @@ describe.skipIf(!hasTestDatabase)('app edge: cors, limits and headers (postgres)
       expect(res.status).toBe(400);
     });
 
-    it('caps the keys one account holds, even under parallel creation', async () => {
+    it('caps the keys the workspace holds, even under parallel creation', async () => {
       env.API_KEYS_PER_ACCOUNT_MAX = 3;
       const key = await newKey();
       const a = app();
@@ -329,7 +329,7 @@ describe.skipIf(!hasTestDatabase)('app edge: cors, limits and headers (postgres)
       expect(created).toBe(2);
       expect(results.filter((r) => r.status === 409)).toHaveLength(4);
       const rows =
-        await tdb.sql`select count(*)::int as n from api_keys where creator_address = 'github:alice'`;
+        await tdb.sql`select count(*)::int as n from api_keys where creator_address = 'workspace'`;
       expect(rows[0].n).toBe(3);
     });
   });

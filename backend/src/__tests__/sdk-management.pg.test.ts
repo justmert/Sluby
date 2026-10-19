@@ -20,8 +20,10 @@ import type * as AssetQueries from '../db/queries/assets.js';
 import type * as StorageQueries from '../db/queries/storage-records.js';
 import type * as EnvModule from '../config/env.js';
 
-const ALICE = 'github:alice';
-const BOB = 'github:bob';
+// one workspace; alice and bob are two members, each with a key of their own
+const ALICE = 'workspace';
+const BOB = 'workspace';
+const NONE = '00000000-0000-4000-8000-000000000000';
 const ALICE_KEY = `sluby_${'a'.repeat(40)}`;
 const BOB_KEY = `sluby_${'b'.repeat(40)}`;
 
@@ -245,14 +247,17 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
 
   beforeEach(async () => {
     await tdb.truncate();
-    for (const [creatorAddress, rawKey] of [
-      [ALICE, ALICE_KEY],
-      [BOB, BOB_KEY],
+    for (const [name, rawKey] of [
+      ['alice', ALICE_KEY],
+      ['bob', BOB_KEY],
     ]) {
+      const [member] =
+        await tdb.sql`insert into users (display_name) values (${name}) returning id`;
       await keys.createApiKey({
         name: 'sdk',
         scopes: ['upload', 'read', 'manage'],
-        creatorAddress,
+        creatorAddress: 'workspace',
+        createdBy: member.id,
         rawKey,
       });
     }
@@ -269,12 +274,12 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
     });
     expect(created.key).toMatch(/^sluby_/);
 
-    // two keys (the seeded one and the new one), one per page, newest first
-    const first = await alice.keys.list({ limit: 1 });
-    expect(first.data.map((k) => k.id)).toEqual([created.id]);
+    // three keys (the two seeded ones and the new one), two per page, newest first
+    const first = await alice.keys.list({ limit: 2 });
+    expect(first.data[0].id).toBe(created.id);
     expect(first.hasMore).toBe(true);
     expect(first.nextCursor).not.toBeNull();
-    const second = await alice.keys.list({ limit: 1, cursor: first.nextCursor! });
+    const second = await alice.keys.list({ limit: 2, cursor: first.nextCursor! });
     expect(second.data).toHaveLength(1);
     expect(second.data[0].name).toBe('sdk');
     expect(second.hasMore).toBe(false);
@@ -291,9 +296,9 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
     expect(listed.find((k) => k.id === created.id)?.expiresAt).toBe(rotated.previousKeyExpiresAt);
     await expect(alice.keys.rotate(created.id)).rejects.toBeInstanceOf(sdk.ConflictError);
 
-    // another account cannot see or revoke it
-    await expect(bob.keys.revoke(rotated.id)).rejects.toBeInstanceOf(sdk.NotFoundError);
-    expect((await bob.keys.list()).data.map((k) => k.id)).not.toContain(rotated.id);
+    // another member sees it too; an unknown key is a NotFoundError
+    expect((await bob.keys.list()).data.map((k) => k.id)).toContain(rotated.id);
+    await expect(bob.keys.revoke(NONE)).rejects.toBeInstanceOf(sdk.NotFoundError);
 
     const withNewKey = new sdk.SlubyClient({ apiKey: rotated.key, baseUrl });
     await expect(withNewKey.assets.stats()).resolves.toMatchObject({ total: 0 });
@@ -329,7 +334,7 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
           lastDeliveryOk: null,
         },
       ]);
-      expect(await bob.webhookEndpoints.list()).toEqual([]);
+      expect(await bob.webhookEndpoints.list()).toEqual(listed);
 
       const tested = await alice.webhookEndpoints.test(created.id);
       expect(tested).toEqual({ delivered: true, statusCode: 204, error: null });
@@ -347,15 +352,12 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
         error: null,
         attempt: 1,
       });
-      await expect(bob.webhookEndpoints.deliveries(created.id)).rejects.toBeInstanceOf(
-        sdk.NotFoundError,
-      );
-      await expect(bob.webhookEndpoints.test(created.id)).rejects.toBeInstanceOf(sdk.NotFoundError);
+      await expect(bob.webhookEndpoints.deliveries(NONE)).rejects.toBeInstanceOf(sdk.NotFoundError);
+      await expect(bob.webhookEndpoints.test(NONE)).rejects.toBeInstanceOf(sdk.NotFoundError);
 
-      await expect(bob.webhookEndpoints.delete(created.id)).rejects.toBeInstanceOf(
-        sdk.NotFoundError,
-      );
-      await alice.webhookEndpoints.delete(created.id);
+      await expect(bob.webhookEndpoints.delete(NONE)).rejects.toBeInstanceOf(sdk.NotFoundError);
+      // any member may remove an endpoint another member registered
+      await bob.webhookEndpoints.delete(created.id);
       expect(await alice.webhookEndpoints.list()).toEqual([]);
     } finally {
       envModule.env.WEBHOOK_ALLOWED_NETWORKS = previous;
@@ -376,13 +378,12 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
     expect(listed.map((p) => p.playbackId).sort()).toEqual(
       [signed.playbackId, plain.playbackId].sort(),
     );
-    await expect(bob.playbackIds.list(asset.id)).rejects.toBeInstanceOf(sdk.NotFoundError);
-    await expect(bob.playbackIds.create(asset.id)).rejects.toBeInstanceOf(sdk.NotFoundError);
-    await expect(bob.playbackIds.delete(signed.playbackId)).rejects.toBeInstanceOf(
-      sdk.NotFoundError,
-    );
+    expect(await bob.playbackIds.list(asset.id)).toEqual(listed);
+    await expect(bob.playbackIds.list(NONE)).rejects.toBeInstanceOf(sdk.NotFoundError);
+    await expect(bob.playbackIds.create(NONE)).rejects.toBeInstanceOf(sdk.NotFoundError);
+    await expect(bob.playbackIds.delete('pb_nothing')).rejects.toBeInstanceOf(sdk.NotFoundError);
 
-    await alice.playbackIds.delete(signed.playbackId);
+    await bob.playbackIds.delete(signed.playbackId);
     expect((await alice.playbackIds.list(asset.id)).map((p) => p.playbackId)).toEqual([
       plain.playbackId,
     ]);
@@ -430,7 +431,7 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
     });
     expect(outcome.outcome).toBe('ready');
     const pending = await assets.createVideoAsset({ title: 'new', creatorAddress: ALICE });
-    // another account's asset counts only for that account
+    // bob's upload counts for the whole workspace
     await assets.createVideoAsset({ title: 'bob', creatorAddress: BOB });
 
     expect(await alice.assets.renditions(ready.id)).toEqual([
@@ -456,16 +457,17 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
       },
     ]);
     expect(await alice.assets.renditions(pending.id)).toEqual([]);
-    await expect(bob.assets.renditions(ready.id)).rejects.toBeInstanceOf(sdk.NotFoundError);
+    expect(await bob.assets.renditions(ready.id)).toHaveLength(2);
+    await expect(bob.assets.renditions(NONE)).rejects.toBeInstanceOf(sdk.NotFoundError);
 
     expect(await alice.assets.stats()).toEqual({
-      total: 2,
-      byStatus: { created: 1, uploading: 0, processing: 0, ready: 1, failed: 0 },
+      total: 3,
+      byStatus: { created: 2, uploading: 0, processing: 0, ready: 1, failed: 0 },
       storedBytes: 4260,
       readyDurationMs: 4000,
       objectCount: 6,
     });
-    expect((await bob.assets.stats()).total).toBe(1);
+    expect((await bob.assets.stats()).total).toBe(3);
   });
 
   it('renames a key, and reports its prefix, last use and the key limits', async () => {
@@ -477,9 +479,7 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
 
     const renamed = await alice.keys.update(created.id, { name: 'deploy bot' });
     expect(renamed).toMatchObject({ id: created.id, name: 'deploy bot', prefix: created.prefix });
-    await expect(bob.keys.update(created.id, { name: 'x' })).rejects.toBeInstanceOf(
-      sdk.NotFoundError,
-    );
+    await expect(bob.keys.update(NONE, { name: 'x' })).rejects.toBeInstanceOf(sdk.NotFoundError);
 
     await new sdk.SlubyClient({ apiKey: created.key, baseUrl }).assets.stats();
     // the use is written after the request answers
@@ -502,7 +502,8 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
       const got = await alice.webhookEndpoints.get(created.id);
       expect(got).toMatchObject({ id: created.id, isActive: true, lastDeliveryOk: true });
       expect(got.lastDeliveryAt).not.toBeNull();
-      await expect(bob.webhookEndpoints.get(created.id)).rejects.toBeInstanceOf(sdk.NotFoundError);
+      expect(await bob.webhookEndpoints.get(created.id)).toMatchObject({ id: created.id });
+      await expect(bob.webhookEndpoints.get(NONE)).rejects.toBeInstanceOf(sdk.NotFoundError);
 
       const [delivery] = await alice.webhookEndpoints.deliveries(created.id);
       expect(delivery.manual).toBe(false);
@@ -518,9 +519,9 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
       await expect(
         alice.webhookEndpoints.redeliver(created.id, delivery.id),
       ).rejects.toBeInstanceOf(sdk.ConflictError);
-      await expect(
-        bob.webhookEndpoints.update(created.id, { isActive: true }),
-      ).rejects.toBeInstanceOf(sdk.NotFoundError);
+      await expect(bob.webhookEndpoints.update(NONE, { isActive: true })).rejects.toBeInstanceOf(
+        sdk.NotFoundError,
+      );
 
       const rotated = await alice.webhookEndpoints.rotateSecret(created.id);
       expect(rotated.id).toBe(created.id);
@@ -570,7 +571,7 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
     expect(usage.days).toHaveLength(3);
     expect(usage.days[2]).toEqual({ date: today, plays: 2 });
     expect(usage.total).toBe(2);
-    expect((await bob.assets.usage()).total).toBe(0);
+    expect((await bob.assets.usage()).total).toBe(2);
     expect((await alice.assets.get(asset.id)).playCount).toBe(2);
 
     const failed = await assets.createVideoAsset({
@@ -590,7 +591,7 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
     });
   });
 
-  it('reads the storage check with the video of each missing object, scoped to the account', async () => {
+  it('reads the storage check with the video of each missing object in the workspace', async () => {
     const mine = await assets.createVideoAsset({
       title: 'Mine',
       creatorAddress: ALICE,
@@ -610,13 +611,13 @@ describe.skipIf(!hasTestDatabase)('sdk management calls against the backend (pos
 
     const report = await alice.reconciliation.latest();
     expect(report).toMatchObject({ scope: 'account', status: 'drift' });
-    expect(report.missingObjects).toEqual([
+    const missing = [
       { objectId: 'a1'.repeat(32), videoAssetId: mine.id, title: 'Mine' },
-    ]);
-    expect((await bob.reconciliation.latest()).missingObjects).toEqual([
       { objectId: 'b1'.repeat(32), videoAssetId: theirs.id, title: 'Theirs' },
-    ]);
-    // starting a check is for the platform identity and operators
+    ];
+    expect(report.missingObjects).toEqual(missing);
+    expect((await bob.reconciliation.latest()).missingObjects).toEqual(missing);
+    // starting a check is for admins
     await expect(alice.reconciliation.run()).rejects.toBeInstanceOf(sdk.PermissionError);
   });
 });

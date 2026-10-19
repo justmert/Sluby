@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { requireOperations, requireScope } from '../middleware/api-key.js';
+import { requireAdmin, requireScope } from '../middleware/api-key.js';
 import { AppError } from '../middleware/error-handler.js';
 import { seesOperations } from '../ownership.js';
 
@@ -35,7 +35,7 @@ export interface ReconciliationRouteDeps {
   triggerRun: () => Promise<{ enqueued: boolean }>;
 }
 
-// the deployment-wide figures, for the platform identity and operators
+// the deployment-wide figures, for admins
 function formatAggregates(r: ReconciliationRunRecord) {
   return {
     id: r.id,
@@ -54,14 +54,13 @@ function formatAggregates(r: ReconciliationRunRecord) {
 
 /**
  * Reconciliation reporting. Surfaces the latest background run comparing
- * PostgreSQL's tracked objects against the indexer's inventory, and lets the
- * platform identity or an operator trigger a run on demand. Both require
- * `manage`.
+ * PostgreSQL's tracked objects against the indexer's inventory, and lets an
+ * admin trigger a run on demand. Both require `manage`.
  *
- * A run covers every tenant. The platform identity and operators get all of
- * it; a tenant gets only the drift of its own assets (the missing objects
- * among them), since the deployment-wide counts, orphans and failure text
- * describe other tenants and the deployment's setup.
+ * A run covers the whole deployment. Admins get all of it; a member gets
+ * only the drift of the workspace's assets (the missing objects among them),
+ * since the deployment-wide counts, orphans and failure text describe the
+ * deployment's setup.
  */
 /**
  * Each missing id with the video it belongs to, in the order of `ids`, so
@@ -127,7 +126,7 @@ export function createReconciliationRoutes(deps: ReconciliationRouteDeps): Route
   router.post(
     '/reconciliation/run',
     requireScope('manage'),
-    requireOperations(),
+    requireAdmin(),
     async (_req: Request, res: Response) => {
       const { enqueued } = await deps.triggerRun();
       res.status(202).json({ enqueued, already_pending: !enqueued });

@@ -16,7 +16,6 @@ import {
   type FindSession,
 } from '../auth/session.js';
 import type { Account } from '../auth/access.js';
-import { isOperatorAccount, operatorAllowlist } from '../auth/operators.js';
 import { getProvider, SignInError, type SignInProvider } from '../auth/providers/index.js';
 import type { SignInInput, SignInResult } from '../../db/queries/accounts.js';
 
@@ -32,9 +31,10 @@ const DEFAULT_LANDING = '/studio';
 
 /**
  * Why a sign-in did not finish, as the Studio reads it from `signin_error`:
- * the handshake expired or came from another browser, the account is not on
- * the allowlist, the person cancelled at the provider, the provider failed,
- * or the provider is not configured on this server.
+ * the handshake expired or came from another browser, the person is not a
+ * member of this workspace (or was removed), the person cancelled at the
+ * provider, the provider failed, or the provider is not configured on this
+ * server.
  */
 export type SignInFailure =
   'expired_handshake' | 'not_allowed' | 'cancelled' | 'provider_failed' | 'not_configured';
@@ -145,7 +145,7 @@ export interface StudioSessionRecord {
 }
 
 export interface AuthRouteDeps {
-  /** Apply the allowlist, find or create the account and claim legacy data, see signInIdentity. */
+  /** Sign in a member's identity, refusing anyone else, see signInIdentity. */
   signIn: (input: SignInInput) => Promise<SignInResult>;
   getAccount: (userId: string) => Promise<Account | null>;
   /** The local dev account AUTH_DISABLED runs as, created on first use. */
@@ -240,8 +240,8 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
   /**
    * GET /api/v1/auth/:provider/callback
    * Finishes a sign-in started in this browser: checks the state against the
-   * handshake cookie, lets the provider verify the person, applies the
-   * allowlist, signs the account in and redirects into the Studio.
+   * handshake cookie, lets the provider verify the person, signs the member
+   * in and redirects into the Studio.
    */
   router.get('/:provider/callback', async (req: Request, res: Response) => {
     const provider = providerOf(req, res);
@@ -276,27 +276,21 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
         callbackUrl: callbackUrl(provider),
       });
 
-      const allowlist = provider.allowlist();
-      const operators = operatorAllowlist(provider);
       const result = await deps.signIn({
         provider: provider.id,
         subject: profile.subject,
         username: profile.username,
         displayName: profile.displayName,
-        legacyAddress: provider.legacyOwnerAddress?.(profile),
-        decide: (pins) => {
-          const decision = allowlist.atSignIn(profile.subject, profile.username, pins);
-          if (!decision.allowed) return decision;
-          // an operator handle entry is pinned the same way, in the same
-          // table; both lists normalise the handle alike, so it is one entry
-          const operatorPin = operators?.atSignIn(profile.subject, profile.username, pins).pin;
-          return { allowed: true, pin: decision.pin ?? operatorPin };
-        },
       });
       if (result.status === 'refused') {
         logger.warn(
-          { provider: provider.id, subject: profile.subject, username: profile.username },
-          'Sign-in refused by the allowlist',
+          {
+            provider: provider.id,
+            subject: profile.subject,
+            username: profile.username,
+            reason: result.reason,
+          },
+          'Sign-in refused',
         );
         signInFailed(res, 'not_allowed', { handle: profile.username, next: handshake.next });
         return;
@@ -335,9 +329,9 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
   /**
    * GET /api/v1/auth/me
    * The signed-in account: its id and display name, the provider and handle
-   * the browser signed in with, and whether it is an operator. 401 when not
-   * signed in. The Studio calls this on load to decide whether to show the
-   * sign-in screen, and which operator views to show.
+   * the browser signed in with, and its role. 401 when not signed in. The
+   * Studio calls this on load to decide whether to show the sign-in screen,
+   * and which admin views to show.
    */
   router.get('/me', async (req: Request, res: Response) => {
     // snake_case and an ISO expiry like the rest of the api; the camelCase
@@ -352,6 +346,8 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
         provider_label: 'Local',
         auth_disabled: true,
         // the one local user runs the deployment, as resolveCaller treats it
+        role: 'admin',
+        // deprecated alias of role === 'admin', kept one release for older studios
         operator: true,
         expires_at: null,
         providerLabel: 'Local',
@@ -371,7 +367,9 @@ export function createAuthRoutes(deps: AuthRouteDeps): Router {
       provider: identity?.provider ?? null,
       provider_label: providerLabel,
       auth_disabled: false,
-      operator: isOperatorAccount(account),
+      role: account.role,
+      // deprecated alias of role === 'admin', kept one release for older studios
+      operator: account.role === 'admin',
       expires_at: session.expiresAt.toISOString(),
       providerLabel,
       expiresAt: Math.floor(session.expiresAt.getTime() / 1000),

@@ -25,7 +25,10 @@ const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0
 
 export function memoryAccounts() {
   let seq = 0;
-  const users = new Map<string, { id: string; displayName: string }>();
+  const users = new Map<
+    string,
+    { id: string; displayName: string; role: 'admin' | 'member'; disabledAt: Date | null }
+  >();
   const identities: Array<{
     id: string;
     userId: string;
@@ -33,8 +36,6 @@ export function memoryAccounts() {
     subject: string;
     username: string;
   }> = [];
-  const pins = new Map<string, string>(); // `${provider}\n${entry}` -> subject
-  const claims = new Map<string, string>(); // legacy address -> user id
   const sessions: StoredSession[] = [];
   const keys = new Map<string, StoredApiKey>(); // hash -> key
 
@@ -46,6 +47,8 @@ export function memoryAccounts() {
     return {
       id: user.id,
       displayName: user.displayName,
+      role: user.role,
+      disabledAt: user.disabledAt,
       identities: identities
         .filter((i) => i.userId === userId)
         .map((i) => ({
@@ -53,42 +56,34 @@ export function memoryAccounts() {
           provider: i.provider,
           subject: i.subject,
           username: i.username,
-          pinnedEntries: [...pins]
-            .filter(([k, subject]) => k.startsWith(`${i.provider}\n`) && subject === i.subject)
-            .map(([k]) => k.split('\n')[1]),
         })),
     };
   };
 
-  const createIdentity = (provider: string, subject: string, username: string, name: string) => {
-    const user = { id: uuid(++seq), displayName: name };
+  const createIdentity = (
+    provider: string,
+    subject: string,
+    username: string,
+    name: string,
+    role: 'admin' | 'member' = 'member',
+  ) => {
+    const user = { id: uuid(++seq), displayName: name, role, disabledAt: null as Date | null };
     users.set(user.id, user);
     const identity = { id: uuid(++seq), userId: user.id, provider, subject, username };
     identities.push(identity);
     return identity;
   };
 
+  // only members sign in: an identity nobody added is refused, as is a removed member
   const signIn = async (input: SignInInput): Promise<SignInResult> => {
-    const providerPins = new Map(
-      [...pins]
-        .filter(([k]) => k.startsWith(`${input.provider}\n`))
-        .map(([k, s]) => [k.split('\n')[1], s]),
-    );
-    const decision = input.decide(providerPins);
-    if (!decision.allowed) return { status: 'refused' };
-    if (decision.pin) pins.set(`${input.provider}\n${decision.pin}`, input.subject);
-    let identity = identities.find(
+    const identity = identities.find(
       (i) => i.provider === input.provider && i.subject === input.subject,
     );
-    if (identity) {
-      identity.username = input.username;
-      users.get(identity.userId)!.displayName = input.displayName;
-    } else {
-      identity = createIdentity(input.provider, input.subject, input.username, input.displayName);
-      if (input.legacyAddress && !claims.has(input.legacyAddress)) {
-        claims.set(input.legacyAddress, identity.userId);
-      }
-    }
+    if (!identity) return { status: 'refused', reason: 'not_a_member' };
+    const user = users.get(identity.userId)!;
+    if (user.disabledAt) return { status: 'refused', reason: 'disabled' };
+    identity.username = input.username;
+    user.displayName = input.displayName;
     return {
       status: 'signed_in',
       userId: identity.userId,
@@ -100,7 +95,7 @@ export function memoryAccounts() {
   let dev: { userId: string; username: string; displayName: string } | undefined;
   const localDevAccount = async () => {
     if (!dev) {
-      const identity = createIdentity('local', 'dev', 'dev', 'Local developer');
+      const identity = createIdentity('local', 'dev', 'dev', 'Local developer', 'admin');
       dev = { userId: identity.userId, username: 'dev', displayName: 'Local developer' };
     }
     return dev;
@@ -108,8 +103,6 @@ export function memoryAccounts() {
 
   const callerDeps: CallerDeps = {
     getAccount,
-    findLegacyClaim: async (address) => claims.get(address) ?? null,
-    isAllowlistEntryPinned: async (provider, entry) => pins.has(`${provider}\n${entry}`),
     findApiKeyByHash: async (hash) => keys.get(hash) ?? null,
     recordKeyUse: () => {},
     findActiveSession: async (id) => {
@@ -174,25 +167,36 @@ export function memoryAccounts() {
   return {
     users,
     identities,
-    pins,
-    claims,
     sessions,
     callerDeps,
     authDeps,
-    /** An account signed in once through `provider`, without the allowlist. */
-    addAccount(provider: string, subject: string, username: string) {
-      return createIdentity(provider, subject, username, username);
+    /** A member of the workspace who signs in through `provider`. */
+    addAccount(
+      provider: string,
+      subject: string,
+      username: string,
+      role: 'admin' | 'member' = 'member',
+    ) {
+      return createIdentity(provider, subject, username, username, role);
     },
-    pin(provider: string, entry: string, subject: string) {
-      pins.set(`${provider}\n${entry}`, subject);
+    /** Remove a member, as an admin does: their sessions and keys stop. */
+    disable(userId: string) {
+      users.get(userId)!.disabledAt = new Date();
     },
-    addKey(raw: string, key: Partial<StoredApiKey> & { creatorAddress: string }) {
+    restore(userId: string) {
+      users.get(userId)!.disabledAt = null;
+    },
+    setRole(userId: string, role: 'admin' | 'member') {
+      users.get(userId)!.role = role;
+    },
+    addKey(raw: string, key: Partial<StoredApiKey> = {}) {
       const stored: StoredApiKey = {
         id: key.id ?? `key-${++seq}`,
         name: key.name ?? 'test key',
         scopes: key.scopes ?? ['upload', 'read', 'manage'],
         rateLimit: key.rateLimit ?? 100,
-        creatorAddress: key.creatorAddress,
+        creatorAddress: key.creatorAddress ?? 'workspace',
+        createdBy: key.createdBy ?? null,
         isActive: key.isActive ?? true,
         expiresAt: key.expiresAt ?? null,
         lastUsedAt: key.lastUsedAt ?? null,

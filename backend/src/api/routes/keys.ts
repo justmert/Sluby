@@ -25,10 +25,12 @@ export interface ApiKeyRecord {
   /** Null for keys created before prefixes were stored. */
   prefix: string | null;
   lastUsedAt: Date | null;
+  /** The member who made the key, null for keys made from the server or by such a key. */
+  createdBy: { id: string; name: string } | null;
 }
 
 export interface KeyRouteDeps {
-  /** Null when the account already holds `maxKeys` usable keys. */
+  /** Null when the workspace already holds `maxKeys` usable keys. */
   createApiKey: (
     data: {
       keyHash: string;
@@ -37,12 +39,13 @@ export interface KeyRouteDeps {
       scopes: string[];
       rateLimit: number;
       creatorAddress: string;
+      createdBy: string | null;
     },
     maxKeys: number,
   ) => Promise<ApiKeyRecord | null>;
   /**
    * One page of active, unexpired keys, newest first (keys inside a rotation
-   * grace period included). `owner` undefined lists every account.
+   * grace period included). `owner` undefined lists every owner.
    */
   listApiKeys: (
     owner: string | undefined,
@@ -64,7 +67,8 @@ export interface KeyRouteDeps {
   rotateApiKey: (
     id: string,
     owner: string | undefined,
-    replacement: { keyHash: string; prefix: string },
+    /** `createdBy` is the member rotating the key, who makes the replacement. */
+    replacement: { keyHash: string; prefix: string; createdBy: string | null },
     retireAt: Date,
   ) => Promise<
     | { status: 'rotated'; replacement: ApiKeyRecord; retiredAt: Date }
@@ -75,7 +79,7 @@ export interface KeyRouteDeps {
 
 const VALID_SCOPES = ['upload', 'read', 'manage'] as const;
 // high enough that the Studio, which does not page, sees every key of any
-// realistic account; has_more says when it does not
+// realistic workspace; has_more says when it does not
 const LIST_LIMIT_MAX = 1000;
 // a week is enough to roll a key out to every deployment that holds it
 const MAX_GRACE_SECONDS = 7 * 24 * 60 * 60;
@@ -91,6 +95,7 @@ function formatKey(k: ApiKeyRecord) {
     expires_at: k.expiresAt ? k.expiresAt.toISOString() : null,
     prefix: k.prefix,
     last_used_at: k.lastUsedAt ? k.lastUsedAt.toISOString() : null,
+    created_by: k.createdBy ? { id: k.createdBy.id, name: k.createdBy.name } : null,
   };
 }
 
@@ -122,7 +127,7 @@ const listQuerySchema = z.object({
 export interface KeyLimits {
   /** The highest rate_limit a new key may ask for. */
   rateLimitMax: number;
-  /** How many usable keys one account may hold. */
+  /** How many usable keys the workspace may hold. */
   keysPerAccountMax: number;
 }
 
@@ -137,7 +142,8 @@ export function createKeyRoutes(
 
   /**
    * POST /api/v1/keys
-   * Create an API key for the caller's account. The raw key is returned once.
+   * Create an API key in the workspace, made by the calling member. The raw
+   * key is returned once.
    */
   router.post('/', requireScope('manage'), async (req: Request, res: Response) => {
     const body = parseOrThrow(createBodySchema, req.body ?? {});
@@ -158,13 +164,15 @@ export function createKeyRoutes(
         scopes,
         rateLimit,
         creatorAddress: req.apiKey!.creatorAddress,
+        // the key acts with this member's role and stops while they are removed
+        createdBy: req.apiKey!.userId,
       },
       limits.keysPerAccountMax,
     );
     if (!created) {
       throw new AppError(
         409,
-        `This account already has ${limits.keysPerAccountMax} API keys, the most allowed. ` +
+        `This workspace already has ${limits.keysPerAccountMax} API keys, the most allowed. ` +
           'Revoke one you no longer use, then try again.',
       );
     }
@@ -175,9 +183,9 @@ export function createKeyRoutes(
 
   /**
    * GET /api/v1/keys
-   * The caller's usable keys, newest first. A key being rotated out stays
-   * listed, with its expires_at, until its grace period ends. The platform
-   * identity lists every account's keys, as it can rotate and delete them.
+   * The workspace's usable keys, newest first, with who made each. A key
+   * being rotated out stays listed, with its expires_at, until its grace
+   * period ends.
    */
   router.get('/', requireScope('manage'), async (req: Request, res: Response) => {
     const q = parseOrThrow(listQuerySchema, req.query);
@@ -222,7 +230,7 @@ export function createKeyRoutes(
     const result = await deps.rotateApiKey(
       id,
       ownerFilter(req.apiKey!.creatorAddress),
-      { keyHash: hash, prefix },
+      { keyHash: hash, prefix, createdBy: req.apiKey!.userId },
       new Date(Date.now() + grace * 1000),
     );
     if (result.status === 'not_found') {
@@ -257,7 +265,7 @@ export function createKeyRoutes(
 
   /**
    * DELETE /api/v1/keys/:id
-   * Revoke a key now. Scoped to the caller's account.
+   * Revoke a key now. Any member with the manage scope may revoke any key.
    */
   router.delete('/:id', requireScope('manage'), async (req: Request, res: Response) => {
     const deleted = await deps.deleteApiKey(

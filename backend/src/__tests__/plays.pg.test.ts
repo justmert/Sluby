@@ -59,9 +59,10 @@ vi.mock('../delivery/share-urls.js', async (importOriginal) => ({
   }),
 }));
 
-const A = 'github:alice';
-const B = 'github:bob';
-const PLATFORM = `0x${'0'.repeat(64)}`;
+// every row belongs to the one workspace; alice's and bob's videos differ
+// only by who would have uploaded them
+const A = 'workspace';
+const B = 'workspace';
 const KEYS = {
   a: `sluby_${'a'.repeat(40)}`,
   b: `sluby_${'b'.repeat(40)}`,
@@ -147,7 +148,7 @@ describe.skipIf(!hasTestDatabase)('plays (postgres, the real gateway)', () => {
     await keys.createApiKey({
       name: 'p',
       scopes: ['read'],
-      creatorAddress: PLATFORM,
+      creatorAddress: A,
       rawKey: KEYS.p,
     });
     pub = await readyAsset(A, MASTER, 'public');
@@ -254,7 +255,7 @@ describe.skipIf(!hasTestDatabase)('plays (postgres, the real gateway)', () => {
     expect((await playCount(priv.id)).play_count).toBe(1);
   });
 
-  it('keeps plays and usage to the account, zero-filled, and every account for the platform', async () => {
+  it('counts plays and usage across the workspace, zero-filled, the same for every key', async () => {
     await request(app).get(`/v1/stream/${pub.id}/master.m3u8`).set(viewer('v1'));
     await request(app).get(`/v1/stream/${pub.id}/master.m3u8`).set(viewer('v2'));
     await request(app).get(`/v1/share/${bobs.id}`).set(viewer('v1'));
@@ -268,17 +269,14 @@ describe.skipIf(!hasTestDatabase)('plays (postgres, the real gateway)', () => {
       ).body as { days: Array<{ date: string; plays: number }>; total: number };
     const alice = await usage('a', 7);
     expect(alice.days).toHaveLength(7);
-    expect(alice.days[6]).toEqual({ date: new Date().toISOString().slice(0, 10), plays: 2 });
+    expect(alice.days[6]).toEqual({ date: new Date().toISOString().slice(0, 10), plays: 3 });
     expect(alice.days.slice(0, 6).every((d) => d.plays === 0)).toBe(true);
-    expect(alice.total).toBe(2);
-    expect((await usage('b')).total).toBe(1);
+    expect(alice.total).toBe(3);
+    expect((await usage('b')).total).toBe(3);
     expect((await usage('p')).total).toBe(3);
 
-    // another account's video is a 404, whatever its plays
-    const foreign = await request(app)
-      .get(`/api/v1/assets/${bobs.id}`)
-      .set('Authorization', `Bearer ${KEYS.a}`);
-    expect(foreign.status).toBe(404);
+    // any key reads the plays of any of the workspace's videos
+    expect((await playCount(bobs.id, 'a')).play_count).toBe(1);
     expect((await playCount(bobs.id, 'b')).play_count).toBe(1);
   });
 

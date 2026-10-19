@@ -160,13 +160,24 @@ describe('SessionManager', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null for another tenant’s session (owner mismatch)', async () => {
+    it('returns null to an owner filter that is not the workspace', async () => {
       vi.mocked(deps.getSession).mockResolvedValue(
-        createMockSession({ metadata: { apiKeyId: 'key-1', creatorAddress: '0xowner' } }),
+        createMockSession({ metadata: { apiKeyId: 'key-1', creatorAddress: 'workspace' } }),
       );
 
       const result = await manager.getStatus('session-1', '0xattacker');
       expect(result).toBeNull();
+    });
+
+    it('shows the workspace a session an older version stamped with a per-account owner', async () => {
+      vi.mocked(deps.getSession).mockResolvedValue(
+        createMockSession({ metadata: { apiKeyId: 'key-1', creatorAddress: 'user:old' } }),
+      );
+      expect(await manager.getStatus('session-1', 'workspace')).not.toBeNull();
+      expect(await manager.cancel('session-1', 'workspace')).toEqual({
+        status: 'cancelled',
+        videoAssetId: 'asset-1',
+      });
     });
 
     it('should return session status with progress', async () => {
@@ -307,9 +318,9 @@ describe('SessionManager', () => {
       expect(logger.info).not.toHaveBeenCalledWith(expect.anything(), 'Removed source upload');
     });
 
-    it('does not cancel another tenant’s session (owner mismatch)', async () => {
+    it('does not cancel for an owner filter that is not the workspace', async () => {
       vi.mocked(deps.getSession).mockResolvedValue(
-        createMockSession({ metadata: { apiKeyId: 'key-1', creatorAddress: '0xowner' } }),
+        createMockSession({ metadata: { apiKeyId: 'key-1', creatorAddress: 'workspace' } }),
       );
 
       const result = await manager.cancel('session-1', '0xattacker');
@@ -320,7 +331,7 @@ describe('SessionManager', () => {
 
     it('scopes an empty owner to that owner rather than to every session', async () => {
       vi.mocked(deps.getSession).mockResolvedValue(
-        createMockSession({ metadata: { apiKeyId: 'key-1', creatorAddress: '0xowner' } }),
+        createMockSession({ metadata: { apiKeyId: 'key-1', creatorAddress: 'workspace' } }),
       );
       expect(await manager.cancel('session-1', '')).toEqual({ status: 'not_found' });
       expect(await manager.getStatus('session-1', '')).toBeNull();

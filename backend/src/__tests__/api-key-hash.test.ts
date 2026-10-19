@@ -53,8 +53,6 @@ describe('a minted key authenticates through the bearer middleware', () => {
       markSessionSeen: () => {},
       findSession: async () => undefined,
       getAccount: async () => null,
-      findLegacyClaim: async () => null,
-      isAllowlistEntryPinned: async () => false,
       localDevAccount: async () => {
         throw new Error('auth is enabled in this test');
       },
@@ -66,7 +64,8 @@ describe('a minted key authenticates through the bearer middleware', () => {
           name: 'k',
           scopes: ['read'],
           rateLimit: 10,
-          creatorAddress: 'acct',
+          creatorAddress: 'workspace',
+          createdBy: null,
           isActive: true,
           expiresAt: null,
           lastUsedAt: null,

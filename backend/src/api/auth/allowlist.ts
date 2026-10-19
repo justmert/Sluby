@@ -1,11 +1,14 @@
 /**
- * Who may use the Studio, for one sign-in provider. Provider neutral: a
- * provider hands in its raw setting (github: GITHUB_ALLOWED_USERS) and how to
- * normalise its handles, and gets the same rules as every other provider.
+ * Who could use the Studio, for one sign-in provider, in versions before
+ * membership. Only read now to adopt such an install once: the setting and
+ * the pins it recorded decide which existing accounts stay members. Provider
+ * neutral: a provider hands in its raw setting (github: GITHUB_ALLOWED_USERS)
+ * and how to normalise its handles, and gets the same rules as every other
+ * provider.
  *
  * A comma-separated list of entries:
  * - `*` opens sign-up to every account of the provider. An empty list does too
- *   (older deployments relied on that), and the server warns at startup.
+ *   (older deployments relied on that).
  * - `id:<subject>` admits the account with that stable provider id (github:
  *   the numeric account id), whatever its handle is now or later.
  * - anything else is a handle (github: a login), matched case-insensitively
@@ -81,17 +84,5 @@ export class Allowlist {
   allows(subject: string, pinnedEntries: readonly string[]): boolean {
     if (this.open || this.subjects.has(subject)) return true;
     return pinnedEntries.some((e) => this.handles.has(e));
-  }
-
-  /**
-   * The decision for an owner address older versions wrote from a handle
-   * (github:<login>), whose data no account has claimed yet. It names a handle
-   * only, so it passes only while that handle is listed and not pinned: once
-   * an account holds the entry, an unclaimed address cannot show it is that
-   * account.
-   */
-  allowsUnclaimedHandle(handle: string, entryPinned: boolean): boolean {
-    if (this.open) return true;
-    return this.handles.has(this.normalizeHandle(handle)) && !entryPinned;
   }
 }

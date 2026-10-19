@@ -56,8 +56,6 @@ function makeDeps(world: Omit<World, 'deps'>): TusServerDeps {
       findApiKeyByHash: vi.fn(async () => null),
       recordKeyUse: vi.fn(),
       getAccount: vi.fn(async () => null),
-      findLegacyClaim: vi.fn(async () => null),
-      isAllowlistEntryPinned: vi.fn(async () => false),
       localDevAccount: vi.fn(async () => ({
         userId: '00000000-0000-4000-8000-0000000000de',
         username: 'dev',

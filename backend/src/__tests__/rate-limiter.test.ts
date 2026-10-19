@@ -23,7 +23,15 @@ function nextId(): string {
 }
 
 function apiKey(rateLimit: number, id = `key-${nextId()}`): NonNullable<Request['apiKey']> {
-  return { id, name: 'test', scopes: [], rateLimit, creatorAddress: '0x1', operator: false };
+  return {
+    id,
+    name: 'test',
+    scopes: [],
+    rateLimit,
+    creatorAddress: 'workspace',
+    admin: false,
+    userId: null,
+  };
 }
 
 function mockReq(over: Partial<Request> = {}): Request {

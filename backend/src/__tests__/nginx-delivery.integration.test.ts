@@ -736,7 +736,7 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
     let base: string;
     let closeDatabase: () => Promise<void>;
     let sharedWindowSec: number;
-    const OWNER = 'github:nginx-itest';
+    const OWNER = 'workspace';
     const KEY = `sluby_${'f'.repeat(40)}`;
     const auth = { Authorization: `Bearer ${KEY}` };
 

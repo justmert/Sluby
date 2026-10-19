@@ -163,18 +163,18 @@ export const envSchema = z.object({
   /** GitHub OAuth app client secret. */
   GITHUB_CLIENT_SECRET: z.string().optional(),
 
-  /** Who may sign in with GitHub, comma-separated: logins (case-insensitive,
-   *  each pinned to the account that first signs in with it), `id:<numeric
-   *  github id>` entries, or `*` for open sign-up. Empty also leaves sign-up
-   *  open, with a warning at startup. See api/auth/allowlist.ts. */
+  /** Who could sign in with GitHub before membership, comma-separated:
+   *  logins (case-insensitive, each pinned to the account that first signed in
+   *  with it), `id:<numeric github id>` entries, or `*`. It no longer decides
+   *  who signs in; it is only read to adopt an install that used it. See
+   *  api/auth/allowlist.ts. */
   GITHUB_ALLOWED_USERS: z.string().default(''),
 
-  /** Accounts that see deployment-wide operations data (full system status,
-   *  metrics, the whole reconciliation report and starting a run), never other
-   *  accounts' data. Comma-separated `<provider>:<entry>`, the entry written
-   *  as in that provider's allowlist: `github:id:583231`, `github:octocat`
-   *  (pinned like an allowlist login), `github:*`. Empty: no operators. See
-   *  api/auth/operators.ts. */
+  /** Accounts that saw deployment-wide operations data before roles.
+   *  Comma-separated `<provider>:<entry>`, the entry written as in that
+   *  provider's allowlist: `github:id:583231`, `github:octocat`, `github:*`.
+   *  It no longer makes anyone an admin; it is only read to adopt an install
+   *  that used it. See api/auth/operator-list.ts. */
   OPERATOR_USERS: z
     .string()
     .default('')

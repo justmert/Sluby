@@ -27,7 +27,7 @@ export interface SiaInfoArtifact {
 }
 
 export interface SiaInfoRouteDeps {
-  /** `owner` scopes the lookup to the caller's tenant (undefined = platform key). */
+  /** `owner` scopes the lookup to the caller's owner, the workspace (undefined = every owner). */
   getAssetWithSiaIds: (id: string, owner?: string) => Promise<SiaInfoAssetRecord | null>;
   /** Every stored object of the asset with its role, from the artifacts table. */
   getAssetArtifacts: (assetId: string) => Promise<SiaInfoArtifact[]>;

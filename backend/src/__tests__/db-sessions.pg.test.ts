@@ -38,6 +38,7 @@ describe.skipIf(!hasTestDatabase)('studio session queries (postgres)', () => {
           subject: `id-${login}`,
           username: login,
           displayName: login,
+          role: 'member',
         }),
       );
     }

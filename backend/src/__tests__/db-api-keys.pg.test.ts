@@ -35,7 +35,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
   // a replacement key's stored form, as the rotate route builds it
   const fresh = () => {
     const g = generateApiKey();
-    return { keyHash: g.hash, prefix: g.prefix };
+    return { keyHash: g.hash, prefix: g.prefix, createdBy: null };
   };
 
   const newKey = (overrides: Partial<Parameters<typeof q.createApiKey>[0]> = {}) =>
@@ -184,7 +184,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       const rotated = await q.rotateApiKey(
         made.apiKey.id,
         'alice',
-        { keyHash: next.hash, prefix: next.prefix },
+        { keyHash: next.hash, prefix: next.prefix, createdBy: null },
         new Date(),
       );
       if (rotated.status !== 'rotated') throw new Error('not rotated');
@@ -226,6 +226,49 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
     });
   });
 
+  describe('creators', () => {
+    it('names the member who made each key, and nobody for keys with no creator', async () => {
+      const [u] = await tdb.sql`insert into users (display_name) values ('Mia') returning id`;
+      const mine = await newKey({ createdBy: u.id });
+      const seeded = await newKey();
+      const listed = await q.withCreators([mine.apiKey, seeded.apiKey]);
+      expect(listed.map((k) => k.creator)).toEqual([{ id: u.id, name: 'Mia' }, null]);
+    });
+
+    it('makes the rotating member the creator of the replacement', async () => {
+      const [admin] = await tdb.sql`
+        insert into users (display_name, role) values ('Ada', 'admin') returning id`;
+      const [member] = await tdb.sql`insert into users (display_name) values ('Mia') returning id`;
+      const old = await newKey({ createdBy: admin.id });
+      const result = await q.rotateApiKey(
+        old.apiKey.id,
+        'alice',
+        { ...fresh(), createdBy: member.id },
+        new Date(),
+      );
+      if (result.status !== 'rotated') throw new Error('not rotated');
+      expect(result.replacement.createdBy).toBe(member.id);
+    });
+
+    it('caps usable keys per owner, so the workspace shares one cap', async () => {
+      const make = (n: number) =>
+        q.createApiKeyWithinCap(
+          {
+            ...fresh(),
+            name: `k${n}`,
+            scopes: ['read'],
+            rateLimit: 10,
+            creatorAddress: 'workspace',
+            createdBy: null,
+          },
+          2,
+        );
+      expect(await make(1)).not.toBeNull();
+      expect(await make(2)).not.toBeNull();
+      expect(await make(3)).toBeNull();
+    });
+  });
+
   describe('rotateApiKey', () => {
     it('mints a replacement with the same settings and retires the old key at the given time', async () => {
       const old = await newKey({ name: 'ci', scopes: ['read', 'upload'], rateLimit: 42 });
@@ -235,7 +278,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       const result = await q.rotateApiKey(
         old.apiKey.id,
         'alice',
-        { keyHash: next.hash, prefix: next.prefix },
+        { keyHash: next.hash, prefix: next.prefix, createdBy: null },
         retireAt,
       );
       if (result.status !== 'rotated') throw new Error(`not rotated: ${result.status}`);
@@ -351,7 +394,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
         q.rotateApiKey(
           a.apiKey.id,
           'alice',
-          { keyHash: b.apiKey.keyHash, prefix: 'sluby_x' },
+          { keyHash: b.apiKey.keyHash, prefix: 'sluby_x', createdBy: null },
           new Date(),
         ),
       ).rejects.toMatchObject({ cause: { code: '23505' } });
@@ -362,7 +405,7 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
   });
 
   describe('bootstrap key seeding', () => {
-    it('creates the BOOTSTRAP_API_KEY as a full-scope platform key that validates', async () => {
+    it('creates the BOOTSTRAP_API_KEY as a full-scope workspace key with no creator', async () => {
       expect(await seeding.seedBootstrapApiKey(database.db, 'sluby_bootstrap_secret')).toBe(
         'created',
       );
@@ -371,7 +414,8 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
         name: 'bootstrap',
         scopes: ['upload', 'read', 'manage'],
         rateLimit: 1000,
-        creatorAddress: 'platform',
+        creatorAddress: 'workspace',
+        createdBy: null,
         isActive: true,
         expiresAt: null,
       });
@@ -444,18 +488,16 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
   });
 
   describe('cli admin key seeding', () => {
-    it('mints a full-scope key for the given account and returns it once', async () => {
-      const { id, rawKey } = await seeding.createAdminApiKey({
-        name: 'ops',
-        creatorAddress: `0x${'0'.repeat(64)}`,
-      });
+    it('mints a full-scope workspace key with no creator and returns it once', async () => {
+      const { id, rawKey } = await seeding.createAdminApiKey({ name: 'ops' });
       expect(rawKey).toMatch(/^sluby_[A-Za-z0-9_-]{43}$/);
       expect(await usable(rawKey)).toMatchObject({
         id,
         name: 'ops',
         scopes: ['upload', 'read', 'manage'],
         rateLimit: 1000,
-        creatorAddress: `0x${'0'.repeat(64)}`,
+        creatorAddress: 'workspace',
+        createdBy: null,
       });
     });
   });
@@ -471,8 +513,6 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
         findApiKeyByHash: async (hash) => (await q.getApiKeyByHash(hash)) ?? null,
         recordKeyUse: () => {},
         getAccount: accounts.getAccount,
-        findLegacyClaim: accounts.findLegacyClaim,
-        isAllowlistEntryPinned: accounts.isAllowlistEntryPinned,
         localDevAccount: async () => {
           throw new Error('auth is enabled in this test');
         },
@@ -497,17 +537,45 @@ describe.skipIf(!hasTestDatabase)('api key queries and seeding (postgres)', () =
       return { passed, status, body, apiKey: req.apiKey };
     }
 
-    it('authenticates keys from every minting path', async () => {
-      const created = await newKey();
-      await seeding.seedBootstrapApiKey(database.db, 'sluby_boot');
-      const admin = await seeding.createAdminApiKey({
-        name: 'a',
-        creatorAddress: 'ops',
-      });
+    async function memberRow(role: 'admin' | 'member', disabled = false) {
+      const [u] = await tdb.sql`
+        insert into users (display_name, role, disabled_at)
+        values (${role}, ${role}, ${disabled ? new Date() : null}) returning id`;
+      return u.id as string;
+    }
 
-      expect((await authenticate(created.rawKey)).apiKey?.creatorAddress).toBe('alice');
-      expect((await authenticate('sluby_boot')).apiKey?.creatorAddress).toBe('platform');
-      expect((await authenticate(admin.rawKey)).apiKey?.creatorAddress).toBe('ops');
+    it('authenticates keys from every minting path as workspace callers', async () => {
+      const mia = await memberRow('member');
+      const created = await newKey({ createdBy: mia });
+      await seeding.seedBootstrapApiKey(database.db, 'sluby_boot');
+      const admin = await seeding.createAdminApiKey({ name: 'a' });
+
+      expect((await authenticate(created.rawKey)).apiKey).toMatchObject({
+        creatorAddress: 'workspace',
+        admin: false,
+        userId: mia,
+      });
+      for (const raw of ['sluby_boot', admin.rawKey]) {
+        expect((await authenticate(raw)).apiKey).toMatchObject({
+          creatorAddress: 'workspace',
+          admin: true,
+          userId: null,
+        });
+      }
+    });
+
+    it("refuses the key of a removed member, and acts as admin once the member's row is deleted", async () => {
+      const gone = await memberRow('member', true);
+      const made = await newKey({ createdBy: gone });
+      expect(await authenticate(made.rawKey)).toMatchObject({
+        passed: false,
+        status: 401,
+        body: { reason: 'not_allowed' },
+      });
+      // the foreign key clears created_by, and a key with no creator was made
+      // by someone with server access
+      await tdb.sql`delete from users where id = ${gone}`;
+      expect((await authenticate(made.rawKey)).apiKey).toMatchObject({ admin: true, userId: null });
     });
 
     it('answers 401 with the reason for unknown, deactivated and expired keys', async () => {

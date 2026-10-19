@@ -1,108 +1,63 @@
-import { LOCAL_PROVIDER, SIGN_IN_PROVIDERS, getProvider } from './providers/index.js';
-import { userAddress, userIdFromAddress } from '../ownership.js';
-import { isOperatorAccount } from './operators.js';
+import { LOCAL_PROVIDER } from './providers/index.js';
 
-/** An account with every identity it signs in with and the allowlist entries pinned to each. */
+export type Role = 'admin' | 'member';
+
+/** A member of the workspace with every identity they sign in with. */
 export interface Account {
   id: string;
   displayName: string;
+  role: Role;
+  /** When an admin removed the account, null while it is a member. */
+  disabledAt: Date | null;
   identities: Array<{
     id: string;
     provider: string;
     subject: string;
     username: string;
-    pinnedEntries: string[];
   }>;
 }
 
 /**
- * Whether an account may use the server now: one of its identities must pass
- * its provider's allowlist. The local dev account (AUTH_DISABLED) has no
- * allowlist; its keys keep working after sign-in is turned on, like keys an
- * operator seeds.
+ * Whether an account may use the server now: it was not removed. The local
+ * dev account (AUTH_DISABLED) is always allowed, so its keys keep working
+ * after sign-in is turned on, like keys made from the server.
  */
 export function isAccountAllowed(account: Account): boolean {
-  return account.identities.some((identity) => {
-    if (identity.provider === LOCAL_PROVIDER) return true;
-    const provider = getProvider(identity.provider);
-    if (!provider) return false;
-    return provider.allowlist().allows(identity.subject, identity.pinnedEntries);
-  });
+  if (account.identities.some((i) => i.provider === LOCAL_PROVIDER)) return true;
+  return account.disabledAt === null;
 }
 
 export interface OwnerAccessDeps {
   getAccount: (userId: string) => Promise<Account | null>;
-  /** The account that claimed a legacy owner address, or null while it is unclaimed. */
-  findLegacyClaim: (address: string) => Promise<string | null>;
-  isAllowlistEntryPinned: (provider: string, entry: string) => Promise<boolean>;
 }
 
 export interface KeyOwner {
   allowed: boolean;
-  /** The address the key acts as. */
-  address: string;
-  /** Whether the key's account is an operator now, see operators.ts. */
-  operator: boolean;
-}
-
-// a key acts for its account, so it carries the account's decisions as they
-// stand at this request
-function ownedByAccount(account: Account | null, address: string): KeyOwner {
-  if (!account || !isAccountAllowed(account)) return { allowed: false, address, operator: false };
-  return { allowed: true, address, operator: isOperatorAccount(account) };
+  /** Whether the key acts as an admin now. */
+  admin: boolean;
+  /** The member the key acts for, null for a key with no creator. */
+  userId: string | null;
 }
 
 /**
- * Whether the owner of an API key may still act, the address it acts as, and
- * whether it is an operator. Keys follow their account: taking a person off
- * the allowlist stops their keys on the next request, and putting them back
- * restores them; the operator list works the same way.
+ * Whether an API key may still act, and with which role. A key follows its
+ * creator as they stand at this request: removing the member stops their
+ * keys on the next request, restoring them brings the keys back, and a role
+ * change applies at once.
  *
- * - `user:<id>`: the account's allowlist and operator decisions.
- * - a legacy address (github:<login>) some account claimed: that account,
- *   acting as its own address (a key written under the old address while the
- *   claim ran still lands in the right place).
- * - an unclaimed legacy address: allowed while its handle is listed and not
- *   pinned to an account, or the provider is open. Never an operator: it names
- *   a handle only, no stable identity.
- * - anything else is an operator-made owner (the bootstrap key's `platform`,
- *   the platform address, `db:seed-key --address`): no allowlist applies, and
- *   no operator role (the platform address has its own, wider access).
+ * A key with no creator was made from the server (the bootstrap key,
+ * `db:seed-key`) by someone who could do anything there anyway, so it acts as
+ * an admin. A creator whose row is gone counts the same: the foreign key
+ * clears created_by when a user row is deleted, and a lookup that races that
+ * delete sees what the key will look like a moment later.
  */
-export async function resolveKeyOwner(owner: string, deps: OwnerAccessDeps): Promise<KeyOwner> {
-  const userId = userIdFromAddress(owner);
-  if (userId) return ownedByAccount(await deps.getAccount(userId), owner);
-
-  for (const provider of SIGN_IN_PROVIDERS) {
-    const handle = provider.legacyHandle?.(owner);
-    if (handle == null) continue;
-    const claimant = await deps.findLegacyClaim(owner);
-    if (claimant) return ownedByAccount(await deps.getAccount(claimant), userAddress(claimant));
-    const allowlist = provider.allowlist();
-    if (allowlist.open) return { allowed: true, address: owner, operator: false };
-    const pinned = await deps.isAllowlistEntryPinned(provider.id, handle);
-    return {
-      allowed: allowlist.allowsUnclaimedHandle(handle, pinned),
-      address: owner,
-      operator: false,
-    };
-  }
-
-  return { allowed: true, address: owner, operator: false };
-}
-
-/**
- * The address that owns what was stored under `owner` now: a claimed legacy
- * address maps to its account's address, every other address to itself. For
- * owners written outside the database before a claim, such as an unfinished
- * tus upload's metadata on disk.
- */
-export async function currentOwnerAddress(
-  owner: string,
-  deps: Pick<OwnerAccessDeps, 'findLegacyClaim'>,
-): Promise<string> {
-  if (userIdFromAddress(owner)) return owner;
-  if (!SIGN_IN_PROVIDERS.some((p) => p.legacyHandle?.(owner) != null)) return owner;
-  const claimant = await deps.findLegacyClaim(owner);
-  return claimant ? userAddress(claimant) : owner;
+export async function resolveKeyOwner(
+  key: { createdBy: string | null },
+  deps: OwnerAccessDeps,
+): Promise<KeyOwner> {
+  if (key.createdBy === null) return { allowed: true, admin: true, userId: null };
+  const account = await deps.getAccount(key.createdBy);
+  if (!account) return { allowed: true, admin: true, userId: null };
+  if (!isAccountAllowed(account)) return { allowed: false, admin: false, userId: account.id };
+  return { allowed: true, admin: account.role === 'admin', userId: account.id };
 }

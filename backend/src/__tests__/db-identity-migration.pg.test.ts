@@ -1,15 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { hasTestDatabase, createTestDatabase, type TestDatabase } from './helpers/pg.js';
-import { Allowlist } from '../api/auth/allowlist.js';
-import type * as AccountQueries from '../db/queries/accounts.js';
-import type * as Database from '../config/database.js';
 
 // a database at the last migration before accounts, filled the way the
-// login-keyed versions wrote it, then upgraded
+// login-keyed versions wrote it, then upgraded to the version that brought
+// accounts in (0022 later moved every row to the workspace, see
+// db-team-migration.pg.test.ts)
 describe.skipIf(!hasTestDatabase)('upgrade to accounts and identities (postgres)', () => {
   let tdb: TestDatabase;
-  let q: typeof AccountQueries;
-  let database: typeof Database;
   const PLATFORM = `0x${'0'.repeat(64)}`;
   const OWNERS = ['github:alice', 'github:bob', 'github:dev', 'platform', PLATFORM];
 
@@ -45,13 +42,10 @@ describe.skipIf(!hasTestDatabase)('upgrade to accounts and identities (postgres)
       insert into studio_sessions (login, expires_at)
       values ('alice', now() + interval '1 day'), ('dev', now() + interval '1 day')`;
 
-    await tdb.migrateToLatest();
-    q = await import('../db/queries/accounts.js');
-    database = await import('../config/database.js');
+    await tdb.migrateThrough('0021_backfill_unreadable_not_retryable');
   }, 120_000);
 
   afterAll(async () => {
-    await database?.closeDatabase();
     await tdb?.drop();
   });
 
@@ -89,21 +83,11 @@ describe.skipIf(!hasTestDatabase)('upgrade to accounts and identities (postgres)
 
   it('claims github:dev for the local dev account, so no github user named dev can take it', async () => {
     const dev = await devAccount();
-    expect(await q.findLegacyClaim('github:dev')).toBe(dev);
+    const [claim] = await tdb.sql`
+      select user_id from legacy_owner_claims where address = 'github:dev'`;
+    expect(claim.user_id).toBe(dev);
     const [user] = await tdb.sql`select display_name from users where id = ${dev!}`;
     expect(user.display_name).toBe('Local developer');
-
-    const githubDev = await q.signInIdentity({
-      provider: 'github',
-      subject: '424242',
-      username: 'dev',
-      displayName: 'dev',
-      legacyAddress: 'github:dev',
-      decide: () => ({ allowed: true }),
-    });
-    expect(githubDev.status).toBe('signed_in');
-    expect((await ownerCounts())[`user:${dev}`]).toBe(6);
-    expect(await q.findLegacyClaim('github:dev')).toBe(dev);
   });
 
   it('ends the old login-keyed sessions', async () => {
@@ -122,29 +106,5 @@ describe.skipIf(!hasTestDatabase)('upgrade to accounts and identities (postgres)
     expect(names).toContain('error');
     const [{ n }] = await tdb.sql`select count(*)::int as n from webhook_deliveries`;
     expect(n).toBe(5);
-  });
-
-  it("hands alice's data to the account that signs in as alice, at its first sign-in", async () => {
-    const list = new Allowlist('alice,bob', (h) => h.toLowerCase());
-    const r = await q.signInIdentity({
-      provider: 'github',
-      subject: '1001',
-      username: 'Alice',
-      displayName: 'Alice A.',
-      legacyAddress: 'github:alice',
-      decide: (pins) => list.atSignIn('1001', 'Alice', pins),
-    });
-    if (r.status !== 'signed_in') throw new Error('refused');
-    const counts = await ownerCounts();
-    expect(counts[`user:${r.userId}`]).toBe(6);
-    expect(counts['github:alice']).toBeUndefined();
-    // bob has not signed in: his rows stay where they were, still reachable by his key
-    expect(counts['github:bob']).toBe(6);
-    expect(await q.isAllowlistEntryPinned('github', 'alice')).toBe(true);
-
-    // the key alice made before the upgrade now belongs to her account
-    const [key] =
-      await tdb.sql`select creator_address from api_keys where key_hash = 'hash-github-alice'`;
-    expect(key.creator_address).toBe(`user:${r.userId}`);
   });
 });

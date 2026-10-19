@@ -1,7 +1,7 @@
 /**
- * The syntax of OPERATOR_USERS, the accounts that see deployment-wide
- * operations data (full system status, process metrics, the whole
- * reconciliation report and starting a run) without the platform key.
+ * The syntax of OPERATOR_USERS, the accounts that saw deployment-wide
+ * operations data in versions before roles. Only read now to adopt such an
+ * install once: the accounts it lists become admins.
  *
  * One setting serves every sign-in provider, so each entry names its provider:
  * `<provider>:<entry>`, where `<entry>` is written exactly as in that

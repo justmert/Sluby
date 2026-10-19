@@ -20,7 +20,7 @@ import { pruneWebhookDeliveries } from './db/queries/webhooks.js';
 import { WEBHOOK_DELIVERY_RETENTION_MS } from './webhooks/delivery.js';
 import { ENDED_SESSION_RETENTION_MS } from './api/routes/auth.js';
 import { signInWarnings } from './api/auth/startup.js';
-import { BOOTSTRAP_CREATOR_ADDRESS, seedBootstrapApiKey } from './db/api-key-seeding.js';
+import { seedBootstrapApiKey } from './db/api-key-seeding.js';
 import { getClient } from './storage/sia-client.js';
 import {
   scheduleReconciliation,
@@ -86,7 +86,7 @@ if (env.BOOTSTRAP_API_KEY) {
   try {
     const outcome = await seedBootstrapApiKey(db, env.BOOTSTRAP_API_KEY);
     if (outcome === 'created') {
-      logger.info({ platformAddress: BOOTSTRAP_CREATOR_ADDRESS }, 'Bootstrap API key seeded');
+      logger.info('Bootstrap API key seeded');
     } else if (outcome === 'retired') {
       logger.warn(
         'BOOTSTRAP_API_KEY was deleted or rotated away earlier and is not seeded again. ' +
@@ -100,7 +100,7 @@ if (env.BOOTSTRAP_API_KEY) {
   }
 }
 
-// Make an open Studio or a plaintext session cookie explicit rather than silent.
+// Make a plaintext session cookie explicit rather than silent.
 for (const warning of signInWarnings({
   authDisabled: env.AUTH_DISABLED,
   publicUrl: env.PUBLIC_URL,

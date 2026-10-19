@@ -30,8 +30,8 @@ const EMPTY_BY_STATUS = (): Record<AssetStatus, number> =>
   >;
 
 /**
- * Library-wide totals for one tenant (`owner`), or every tenant when it is
- * undefined (platform key). Soft-deleted assets are excluded everywhere.
+ * Library-wide totals for one owner (the workspace), or every owner when it
+ * is undefined. Soft-deleted assets are excluded everywhere.
  */
 export async function getAssetStats(owner?: string): Promise<AssetStats> {
   const scope: SQL[] = [isNull(videoAssets.deletedAt)];

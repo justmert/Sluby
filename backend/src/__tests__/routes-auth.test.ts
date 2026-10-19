@@ -56,8 +56,6 @@ let accounts: ReturnType<typeof memoryAccounts>;
 beforeEach(() => {
   env.GITHUB_CLIENT_ID = 'client-123';
   env.GITHUB_CLIENT_SECRET = 'secret-456';
-  env.GITHUB_ALLOWED_USERS = '';
-  env.OPERATOR_USERS = '';
   env.PUBLIC_URL = 'http://localhost:3000';
   env.SESSION_SECRET = SECRET;
   env.AUTH_DISABLED = false;
@@ -79,7 +77,6 @@ function app() {
 async function signedIn(username = 'octocat', subject = '1', ttlSec = 3600, secret = SECRET) {
   let identity = accounts.identities.find((i) => i.provider === 'github' && i.subject === subject);
   identity ??= accounts.addAccount('github', subject, username);
-  accounts.pin('github', username.toLowerCase(), subject);
   const { id } = await accounts.authDeps.createSession({
     userId: identity.userId,
     identityId: identity.id,
@@ -247,8 +244,14 @@ describe('safeRedirectPath', () => {
   });
 });
 
+/** The member the github fake signs in as (id 1), added as an admin would. */
+function octocatMember() {
+  return accounts.addAccount('github', '1', 'octocat');
+}
+
 describe('GET /auth/github/callback', () => {
-  it('exchanges the code, signs the account in and redirects to next', async () => {
+  it('exchanges the code, signs the member in and redirects to next', async () => {
+    octocatMember();
     const res = await signInThroughGithub('/studio/settings');
 
     expect(res.status).toBe(302);
@@ -266,6 +269,7 @@ describe('GET /auth/github/callback', () => {
     expect(github.tokenSignals).toHaveLength(1);
 
     // the account is keyed on github's numeric id, the login is display only
+    // and follows what github reports now
     expect(accounts.identities).toEqual([
       expect.objectContaining({ provider: 'github', subject: '1', username: 'Octocat' }),
     ]);
@@ -287,19 +291,40 @@ describe('GET /auth/github/callback', () => {
     );
   });
 
-  it('claims the legacy github:<login> data on the first sign-in of an id, and only once', async () => {
-    await signInThroughGithub();
-    const first = accounts.identities[0].userId;
-    expect(accounts.claims.get('github:octocat')).toBe(first);
+  it('turns away a github account that is not a member, naming the login, with no account', async () => {
+    const res = await signInThroughGithub();
+    expectSignInError(res, 'not_allowed', 'Octocat');
+    expect(accounts.identities).toEqual([]);
+    expect(accounts.sessions).toEqual([]);
+  });
 
-    // a different account now holding the login (the first one renamed)
+  it('turns away a new owner of a member login (a recycled github name)', async () => {
+    octocatMember();
     github.userReply = { status: 200, body: { login: 'octocat', id: 99 } };
-    await signInThroughGithub();
-    expect(accounts.identities).toHaveLength(2);
-    expect(accounts.claims.get('github:octocat')).toBe(first);
+    const res = await signInThroughGithub();
+    expectSignInError(res, 'not_allowed', 'octocat');
+    expect(accounts.identities.map((i) => i.subject)).toEqual(['1']);
+  });
+
+  it('turns away a removed member, and lets them in again once restored', async () => {
+    const member = octocatMember();
+    accounts.disable(member.userId);
+    expectSignInError(await signInThroughGithub(), 'not_allowed', 'Octocat');
+    expect(accounts.sessions).toEqual([]);
+    accounts.restore(member.userId);
+    expect((await signInThroughGithub()).headers.location).toBe('/studio');
+  });
+
+  it('keeps letting a member in after they rename on github', async () => {
+    octocatMember();
+    github.userReply = { status: 200, body: { login: 'octocat-renamed', id: 1 } };
+    const res = await signInThroughGithub();
+    expect(res.headers.location).toBe('/studio');
+    expect(accounts.identities[0].username).toBe('octocat-renamed');
   });
 
   it('lands on /studio by default', async () => {
+    octocatMember();
     const res = await signInThroughGithub();
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/studio');
@@ -307,6 +332,7 @@ describe('GET /auth/github/callback', () => {
 
   it('marks both cookies Secure behind https', async () => {
     env.PUBLIC_URL = 'https://video.example.com';
+    octocatMember();
     const res = await signInThroughGithub();
     const cookies = setCookies(res);
     expect(cookies).toHaveLength(2);
@@ -372,6 +398,7 @@ describe('GET /auth/github/callback', () => {
   it('still accepts a handshake right at the ten minute mark', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    octocatMember();
     const { state, cookie } = await startLogin();
 
     vi.setSystemTime(new Date('2026-01-01T00:10:00Z'));
@@ -380,6 +407,7 @@ describe('GET /auth/github/callback', () => {
       .query({ code: 'c', state })
       .set('Cookie', cookie);
     expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/studio');
   });
 
   it('sends the browser back with expired_handshake without a state', async () => {
@@ -472,83 +500,6 @@ describe('GET /auth/github/callback', () => {
     expectSignInError(res, 'provider_failed');
     expect(accounts.identities).toEqual([]);
   });
-
-  describe('with an allowlist', () => {
-    beforeEach(() => {
-      env.GITHUB_ALLOWED_USERS = ' alice , OctoCat ,';
-    });
-
-    it('lets a listed login in, case-insensitively, and pins the entry to its id', async () => {
-      const res = await signInThroughGithub();
-      expect(res.status).toBe(302);
-      expect(accounts.pins.get('github\noctocat')).toBe('1');
-    });
-
-    it('turns away anyone else, naming the login, with no account', async () => {
-      github.userReply = { status: 200, body: { login: 'mallory', id: 2 } };
-      const res = await signInThroughGithub();
-      expectSignInError(res, 'not_allowed', 'mallory');
-      expect(accounts.identities).toEqual([]);
-      expect(accounts.claims.size).toBe(0);
-    });
-
-    it('turns away a new owner of a pinned login (a recycled github name)', async () => {
-      await signInThroughGithub();
-      github.userReply = { status: 200, body: { login: 'octocat', id: 99 } };
-      const res = await signInThroughGithub();
-      expectSignInError(res, 'not_allowed', 'octocat');
-      expect(accounts.identities.map((i) => i.subject)).toEqual(['1']);
-    });
-
-    it('keeps letting the pinned account in after it renames', async () => {
-      await signInThroughGithub();
-      github.userReply = { status: 200, body: { login: 'octocat-renamed', id: 1 } };
-      const res = await signInThroughGithub();
-      expect(res.status).toBe(302);
-      expect(accounts.identities[0].username).toBe('octocat-renamed');
-    });
-
-    it('admits an id entry whatever the login', async () => {
-      env.GITHUB_ALLOWED_USERS = 'id:42';
-      github.userReply = { status: 200, body: { login: 'anyone', id: 42 } };
-      expect((await signInThroughGithub()).status).toBe(302);
-    });
-
-    it('opens sign-up with *', async () => {
-      env.GITHUB_ALLOWED_USERS = '*';
-      github.userReply = { status: 200, body: { login: 'anyone', id: 42 } };
-      expect((await signInThroughGithub()).status).toBe(302);
-    });
-  });
-
-  describe('with operator handles', () => {
-    it('pins an operator login at sign-in even when sign-up is open', async () => {
-      env.GITHUB_ALLOWED_USERS = '*';
-      env.OPERATOR_USERS = 'github:OctoCat';
-      expect((await signInThroughGithub()).status).toBe(302);
-      expect(accounts.pins.get('github\noctocat')).toBe('1');
-    });
-
-    it('never makes the next owner of a pinned operator login an operator', async () => {
-      env.OPERATOR_USERS = 'github:octocat';
-      await signInThroughGithub();
-      github.userReply = { status: 200, body: { login: 'octocat', id: 99 } };
-      const res = await signInThroughGithub();
-      expect(res.status).toBe(302);
-      expect(accounts.pins.get('github\noctocat')).toBe('1');
-      const cookie = `${SESSION_COOKIE_NAME}=${cookieValue(setCookies(res), SESSION_COOKIE_NAME)}`;
-      const me = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
-      expect(me.body.username).toBe('octocat');
-      expect(me.body.operator).toBe(false);
-    });
-
-    it('does not pin anything for an account the sign-in allowlist refuses', async () => {
-      env.GITHUB_ALLOWED_USERS = 'alice';
-      env.OPERATOR_USERS = 'github:octocat';
-      expectSignInError(await signInThroughGithub(), 'not_allowed', 'Octocat');
-      expect(accounts.pins.size).toBe(0);
-    });
-  });
 });
 
 describe('GET /auth/me', () => {
@@ -569,6 +520,7 @@ describe('GET /auth/me', () => {
       provider: 'github',
       provider_label: 'GitHub',
       auth_disabled: false,
+      role: 'member',
       operator: false,
       providerLabel: 'GitHub',
     });
@@ -638,6 +590,7 @@ describe('GET /auth/me', () => {
       provider: 'local',
       provider_label: 'Local',
       auth_disabled: true,
+      role: 'admin',
       operator: true,
       expires_at: null,
       providerLabel: 'Local',
@@ -647,45 +600,16 @@ describe('GET /auth/me', () => {
   });
 });
 
-describe('GET /auth/me operator', () => {
-  it('reports an operator listed by id, and stops on the next request once unlisted', async () => {
-    const { cookie } = await signedIn('octocat', '7');
+describe('GET /auth/me role', () => {
+  it('reports an admin, with operator kept as an alias, and follows a role change', async () => {
+    const { cookie, userId } = await signedIn('octocat', '7');
     const me = () => request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
-    env.OPERATOR_USERS = 'github:id:7';
-    expect((await me()).body.operator).toBe(true);
-    env.OPERATOR_USERS = 'github:id:8';
+    accounts.setRole(userId, 'admin');
+    expect((await me()).body).toMatchObject({ role: 'admin', operator: true });
+    accounts.setRole(userId, 'member');
     const after = await me();
     expect(after.status).toBe(200);
-    expect(after.body.operator).toBe(false);
-  });
-
-  it('reports an operator listed by a login pinned to the account, through a rename', async () => {
-    const { cookie } = await signedIn('octocat', '7');
-    env.OPERATOR_USERS = 'github:OCTOCAT';
-    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).body.operator).toBe(
-      true,
-    );
-    accounts.identities[0].username = 'octocat-renamed';
-    const renamed = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
-    expect(renamed.body.username).toBe('octocat-renamed');
-    expect(renamed.body.operator).toBe(true);
-  });
-
-  it('does not take a login entry by the current login alone, without the pin', async () => {
-    const { cookie } = await signedIn('octocat', '7');
-    accounts.pins.clear();
-    env.OPERATOR_USERS = 'github:octocat';
-    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).body.operator).toBe(
-      false,
-    );
-  });
-
-  it('ignores entries of another provider', async () => {
-    const { cookie } = await signedIn('octocat', '7');
-    env.OPERATOR_USERS = 'gitlab:id:7,gitlab:octocat';
-    expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).body.operator).toBe(
-      false,
-    );
+    expect(after.body).toMatchObject({ role: 'member', operator: false });
   });
 });
 
@@ -698,11 +622,10 @@ describe('server-side session state', () => {
     expect(res.body).toEqual({ error: 'Not signed in', reason: 'revoked' });
   });
 
-  it('ends existing sessions of an account taken off the allowlist', async () => {
-    env.GITHUB_ALLOWED_USERS = 'octocat';
-    const { cookie } = await signedIn('octocat');
+  it('ends existing sessions of a removed member', async () => {
+    const { cookie, userId } = await signedIn('octocat');
     expect((await request(app()).get('/api/v1/auth/me').set('Cookie', cookie)).status).toBe(200);
-    env.GITHUB_ALLOWED_USERS = 'alice';
+    accounts.disable(userId);
     const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
     expect(res.status).toBe(401);
     expect(res.body.reason).toBe('not_allowed');

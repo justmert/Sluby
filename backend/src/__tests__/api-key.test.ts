@@ -2,11 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
   createApiKeyMiddleware,
-  requireOperations,
+  requireAdmin,
   requireScope,
   type ApiKeyMiddlewareDeps,
 } from '../api/middleware/api-key.js';
-import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import type { Request } from 'express';
 import { logger } from '../config/logger.js';
 import { env } from '../config/env.js';
@@ -46,7 +45,7 @@ function createMockRes(): Response & { _status: number; _json: unknown } {
   return res as any;
 }
 
-/** Middleware deps with no accounts, no claims and no pins, overridden per test. */
+/** Middleware deps with no accounts, overridden per test. */
 function keyDeps(overrides: Partial<ApiKeyMiddlewareDeps>): ApiKeyMiddlewareDeps {
   return {
     findActiveSession: vi.fn(async () => undefined),
@@ -55,8 +54,6 @@ function keyDeps(overrides: Partial<ApiKeyMiddlewareDeps>): ApiKeyMiddlewareDeps
     findApiKeyByHash: vi.fn(),
     recordKeyUse: vi.fn(),
     getAccount: vi.fn(async () => null),
-    findLegacyClaim: vi.fn(async () => null),
-    isAllowlistEntryPinned: vi.fn(async () => false),
     localDevAccount: vi.fn(async () => {
       throw new Error('not in dev mode');
     }),
@@ -73,7 +70,8 @@ describe('api-key middleware', () => {
     name: 'Test Key',
     scopes: ['read', 'upload'],
     rateLimit: 100,
-    creatorAddress: '0xabc123',
+    creatorAddress: 'workspace',
+    createdBy: null,
     isActive: true,
     expiresAt: null,
     lastUsedAt: null,
@@ -179,8 +177,10 @@ describe('api-key middleware', () => {
         name: 'Test Key',
         scopes: ['read', 'upload'],
         rateLimit: 100,
-        creatorAddress: '0xabc123',
-        operator: false,
+        creatorAddress: 'workspace',
+        // made from the server, so it acts as an admin
+        admin: true,
+        userId: null,
       });
     });
 
@@ -268,8 +268,6 @@ describe('api-key middleware', () => {
     beforeEach(() => {
       env.SESSION_SECRET = SECRET;
       env.AUTH_DISABLED = false;
-      env.GITHUB_ALLOWED_USERS = '';
-      env.OPERATOR_USERS = '';
       accounts = memoryAccounts();
     });
     afterEach(() => {
@@ -284,9 +282,12 @@ describe('api-key middleware', () => {
       return { req, res, next };
     }
 
-    async function sessionCookie(subject = '1', login = 'octocat') {
-      const identity = accounts.addAccount('github', subject, login);
-      accounts.pin('github', login, subject);
+    async function sessionCookie(
+      subject = '1',
+      login = 'octocat',
+      role: 'admin' | 'member' = 'member',
+    ) {
+      const identity = accounts.addAccount('github', subject, login, role);
       const { id } = await accounts.authDeps.createSession({
         userId: identity.userId,
         identityId: identity.id,
@@ -300,7 +301,7 @@ describe('api-key middleware', () => {
       };
     }
 
-    it('turns a Studio session cookie into a full-scope caller owning user:<id>', async () => {
+    it('turns a member session cookie into a full-scope workspace caller that is not an admin', async () => {
       const { userId, cookie } = await sessionCookie();
       const { req, next } = await run({ cookie });
       expect(next).toHaveBeenCalled();
@@ -309,16 +310,26 @@ describe('api-key middleware', () => {
         name: 'Studio session (octocat)',
         scopes: ['upload', 'read', 'manage'],
         rateLimit: 1000,
-        creatorAddress: `user:${userId}`,
-        operator: false,
+        creatorAddress: 'workspace',
+        admin: false,
+        userId,
       });
+    });
+
+    it('makes an admin session an admin, and follows a role change on the next request', async () => {
+      const { userId, cookie } = await sessionCookie('2', 'root', 'admin');
+      expect((await run({ cookie })).req.apiKey).toMatchObject({ admin: true, userId });
+      accounts.setRole(userId, 'member');
+      const after = await run({ cookie });
+      expect(after.next).toHaveBeenCalled();
+      expect(after.req.apiKey?.admin).toBe(false);
     });
 
     it('lets the session win when a cookie and a bearer key are both sent', async () => {
       const { userId, cookie } = await sessionCookie();
-      accounts.addKey('sluby_other', { creatorAddress: 'platform' });
+      accounts.addKey('sluby_other');
       const { req } = await run({ cookie, authorization: 'Bearer sluby_other' });
-      expect(req.apiKey?.creatorAddress).toBe(`user:${userId}`);
+      expect(req.apiKey?.id).toBe(`session:${userId}`);
     });
 
     it('says why the session ended when a browser sends no key', async () => {
@@ -335,151 +346,116 @@ describe('api-key middleware', () => {
       });
     });
 
+    it('ends the session of a removed member with not_allowed, and lets it back once restored', async () => {
+      const { userId, cookie } = await sessionCookie();
+      accounts.disable(userId);
+      const { res, next } = await run({ cookie });
+      expect(next).not.toHaveBeenCalled();
+      expect(res._status).toBe(401);
+      expect(res._json).toEqual({
+        error: 'This account was removed from this workspace',
+        reason: 'not_allowed',
+      });
+      accounts.restore(userId);
+      expect((await run({ cookie })).next).toHaveBeenCalled();
+    });
+
     it('falls back to the bearer key when the cookie is not a live session', async () => {
-      accounts.addKey('sluby_other', { creatorAddress: 'platform' });
+      const key = accounts.addKey('sluby_other');
       const { req } = await run({
         cookie: `${SESSION_COOKIE_NAME}=garbage.sig`,
         authorization: 'Bearer sluby_other',
       });
-      expect(req.apiKey?.creatorAddress).toBe('platform');
+      expect(req.apiKey?.id).toBe(key.id);
     });
 
-    it('runs every request as the local dev account when auth is disabled, ignoring keys', async () => {
+    it('runs every request as the local dev account, an admin, when auth is disabled, ignoring keys', async () => {
       env.AUTH_DISABLED = true;
-      accounts.addKey('sluby_other', { creatorAddress: 'platform' });
+      accounts.addKey('sluby_other');
       const a = await run({});
       const b = await run({ authorization: 'Bearer sluby_other' });
       const dev = accounts.identities.find((i) => i.provider === 'local')!;
       for (const { req, next } of [a, b]) {
         expect(next).toHaveBeenCalled();
-        expect(req.apiKey?.creatorAddress).toBe(`user:${dev.userId}`);
-        expect(req.apiKey?.scopes).toEqual(['upload', 'read', 'manage']);
+        expect(req.apiKey).toMatchObject({
+          id: `session:${dev.userId}`,
+          creatorAddress: 'workspace',
+          admin: true,
+          userId: dev.userId,
+          scopes: ['upload', 'read', 'manage'],
+        });
       }
-      // one account, and never the github:dev address a github user could own
       expect(accounts.identities.filter((i) => i.provider === 'local')).toHaveLength(1);
     });
 
-    it('refuses a key of an account taken off the allowlist, and accepts it again once restored', async () => {
-      const mallory = accounts.addAccount('github', '666', 'mallory');
-      accounts.pin('github', 'mallory', '666');
-      accounts.addKey('sluby_mallory', { creatorAddress: `user:${mallory.userId}` });
+    it('makes a key with no creator an admin', async () => {
+      const key = accounts.addKey('sluby_seed');
+      const { req, next } = await run({ authorization: 'Bearer sluby_seed' });
+      expect(next).toHaveBeenCalled();
+      expect(req.apiKey).toMatchObject({
+        id: key.id,
+        creatorAddress: 'workspace',
+        admin: true,
+        userId: null,
+      });
+    });
 
-      env.GITHUB_ALLOWED_USERS = 'alice';
+    it("gives a key its creator's current role", async () => {
+      const member = accounts.addAccount('github', '5', 'mia');
+      accounts.addKey('sluby_mia', { createdBy: member.userId });
+      const bearer = { authorization: 'Bearer sluby_mia' };
+      expect((await run(bearer)).req.apiKey).toMatchObject({
+        creatorAddress: 'workspace',
+        admin: false,
+        userId: member.userId,
+      });
+      accounts.setRole(member.userId, 'admin');
+      expect((await run(bearer)).req.apiKey?.admin).toBe(true);
+    });
+
+    it('refuses the key of a removed member with not_allowed, and accepts it again once restored', async () => {
+      const mallory = accounts.addAccount('github', '666', 'mallory', 'admin');
+      accounts.addKey('sluby_mallory', { createdBy: mallory.userId });
+      accounts.disable(mallory.userId);
       const refused = await run({ authorization: 'Bearer sluby_mallory' });
       expect(refused.res._status).toBe(401);
       expect(refused.res._json).toEqual({
-        error: "API key's account is not allowed on this server",
+        error: "This API key's creator was removed from this workspace",
+        reason: 'not_allowed',
       });
       expect(refused.next).not.toHaveBeenCalled();
 
-      env.GITHUB_ALLOWED_USERS = 'alice,mallory';
+      accounts.restore(mallory.userId);
       expect((await run({ authorization: 'Bearer sluby_mallory' })).next).toHaveBeenCalled();
     });
 
-    it('refuses a legacy github:<login> key of a login removed from the allowlist', async () => {
-      accounts.addKey('sluby_legacy', { creatorAddress: 'github:mallory' });
-      env.GITHUB_ALLOWED_USERS = 'alice';
-      expect((await run({ authorization: 'Bearer sluby_legacy' })).res._status).toBe(401);
-      env.GITHUB_ALLOWED_USERS = 'alice,mallory';
-      const ok = await run({ authorization: 'Bearer sluby_legacy' });
-      expect(ok.next).toHaveBeenCalled();
-      expect(ok.req.apiKey?.creatorAddress).toBe('github:mallory');
+    it('treats a key whose creator row is gone like a key with no creator', async () => {
+      accounts.addKey('sluby_orphan', { createdBy: '00000000-0000-4000-8000-00000000ffff' });
+      const { req, next } = await run({ authorization: 'Bearer sluby_orphan' });
+      expect(next).toHaveBeenCalled();
+      expect(req.apiKey).toMatchObject({ admin: true, userId: null });
     });
 
-    it('acts as the claiming account for a legacy key left under a claimed address', async () => {
-      const alice = accounts.addAccount('github', '1', 'alice');
-      accounts.claims.set('github:alice', alice.userId);
-      accounts.addKey('sluby_straggler', { creatorAddress: 'github:alice' });
-      const { req } = await run({ authorization: 'Bearer sluby_straggler' });
-      expect(req.apiKey?.creatorAddress).toBe(`user:${alice.userId}`);
-    });
-
-    it('keeps keys of operator-made owners working whatever the allowlist says', async () => {
-      env.GITHUB_ALLOWED_USERS = 'alice';
-      accounts.addKey('sluby_platform', { creatorAddress: 'platform' });
-      expect((await run({ authorization: 'Bearer sluby_platform' })).next).toHaveBeenCalled();
-    });
-
-    describe('the operator role', () => {
-      it('makes a session of a listed account an operator, and drops it on the next request once unlisted', async () => {
-        const { cookie } = await sessionCookie('7', 'octocat');
-        env.OPERATOR_USERS = 'github:id:7';
-        expect((await run({ cookie })).req.apiKey?.operator).toBe(true);
-        env.OPERATOR_USERS = '';
-        const after = await run({ cookie });
-        expect(after.next).toHaveBeenCalled();
-        expect(after.req.apiKey?.operator).toBe(false);
-      });
-
-      it('gives a key its account’s operator role at use, and drops it once unlisted', async () => {
-        const octo = accounts.addAccount('github', '7', 'octocat');
-        accounts.pin('github', 'octocat', '7');
-        accounts.addKey('sluby_octo', { creatorAddress: `user:${octo.userId}` });
-        const bearer = { authorization: 'Bearer sluby_octo' };
-
-        env.OPERATOR_USERS = 'github:octocat';
-        const listed = await run(bearer);
-        expect(listed.req.apiKey).toMatchObject({
-          creatorAddress: `user:${octo.userId}`,
-          operator: true,
-        });
-        env.OPERATOR_USERS = 'github:someone-else';
-        const unlisted = await run(bearer);
-        expect(unlisted.next).toHaveBeenCalled();
-        expect(unlisted.req.apiKey?.operator).toBe(false);
-      });
-
-      it('gives a straggler key under a claimed legacy address its claimant’s role', async () => {
-        const octo = accounts.addAccount('github', '7', 'octocat');
-        accounts.claims.set('github:octocat', octo.userId);
-        accounts.addKey('sluby_old', { creatorAddress: 'github:octocat' });
-        env.OPERATOR_USERS = 'github:id:7';
-        expect((await run({ authorization: 'Bearer sluby_old' })).req.apiKey?.operator).toBe(true);
-      });
-
-      it('never makes an unclaimed legacy key an operator, since it names a login only', async () => {
-        accounts.addKey('sluby_legacy', { creatorAddress: 'github:octocat' });
-        env.OPERATOR_USERS = 'github:octocat,github:*';
-        const { req, next } = await run({ authorization: 'Bearer sluby_legacy' });
-        expect(next).toHaveBeenCalled();
-        expect(req.apiKey?.operator).toBe(false);
-      });
-
-      it('makes nobody an operator through the platform or bootstrap owners', async () => {
-        env.OPERATOR_USERS = 'github:*';
-        accounts.addKey('sluby_platform', { creatorAddress: PLATFORM_ADDRESS });
-        accounts.addKey('sluby_bootstrap', { creatorAddress: 'platform' });
-        for (const raw of ['sluby_platform', 'sluby_bootstrap']) {
-          expect((await run({ authorization: `Bearer ${raw}` })).req.apiKey?.operator).toBe(false);
-        }
-      });
-
-      it('makes the local dev account an operator while auth is disabled', async () => {
-        env.AUTH_DISABLED = true;
-        expect((await run({})).req.apiKey?.operator).toBe(true);
-      });
-
-      it('does not keep the dev account an operator once sign-in is on', async () => {
-        env.AUTH_DISABLED = true;
-        const dev = (await run({})).req.apiKey!;
-        env.AUTH_DISABLED = false;
-        env.OPERATOR_USERS = 'github:*';
-        accounts.addKey('sluby_dev', { creatorAddress: dev.creatorAddress });
-        const { req, next } = await run({ authorization: 'Bearer sluby_dev' });
-        expect(next).toHaveBeenCalled();
-        expect(req.apiKey?.operator).toBe(false);
-      });
+    it('keeps the dev account an admin through its keys once sign-in is on', async () => {
+      env.AUTH_DISABLED = true;
+      const dev = (await run({})).req.apiKey!;
+      env.AUTH_DISABLED = false;
+      accounts.addKey('sluby_dev', { createdBy: dev.userId });
+      const { req, next } = await run({ authorization: 'Bearer sluby_dev' });
+      expect(next).toHaveBeenCalled();
+      expect(req.apiKey).toMatchObject({ admin: true, userId: dev.userId });
     });
   });
 
-  describe('requireOperations', () => {
-    const caller = (creatorAddress: string, operator: boolean) => ({
+  describe('requireAdmin', () => {
+    const caller = (admin: boolean) => ({
       id: 'key-1',
       name: 'Test',
       scopes: ['read'],
       rateLimit: 100,
-      creatorAddress,
-      operator,
+      creatorAddress: 'workspace',
+      admin,
+      userId: null,
     });
 
     function guard(apiKey: ReturnType<typeof caller> | undefined) {
@@ -487,24 +463,25 @@ describe('api-key middleware', () => {
       req.apiKey = apiKey;
       const res = createMockRes();
       const next = vi.fn();
-      requireOperations()(req, res as any, next);
+      requireAdmin()(req, res as any, next);
       return { res, next };
     }
 
-    it('admits the platform identity and an operator', () => {
-      expect(guard(caller(PLATFORM_ADDRESS, false)).next).toHaveBeenCalled();
-      expect(guard(caller('user:x', true)).next).toHaveBeenCalled();
+    it('admits an admin', () => {
+      expect(guard(caller(true)).next).toHaveBeenCalled();
     });
 
-    it('refuses an ordinary tenant and an unauthenticated request with 403', () => {
-      for (const apiKey of [caller('user:x', false), caller('platform', false), undefined]) {
+    it('refuses a member and an unauthenticated request with 403', () => {
+      for (const apiKey of [caller(false), undefined]) {
         const { res, next } = guard(apiKey);
         expect(res._status).toBe(403);
-        expect(res._json).toEqual({
-          error: 'Only the platform identity or an operator may use this endpoint',
-        });
+        expect(res._json).toEqual({ error: 'Only an admin may use this endpoint' });
         expect(next).not.toHaveBeenCalled();
       }
+    });
+
+    it('is tagged for the openapi drift test', () => {
+      expect(requireAdmin().requiredIdentity).toBe('admin');
     });
   });
 
@@ -530,8 +507,9 @@ describe('api-key middleware', () => {
         name: 'Test',
         scopes: ['read', 'upload'],
         rateLimit: 100,
-        creatorAddress: '0x1',
-        operator: false,
+        creatorAddress: 'workspace',
+        admin: false,
+        userId: null,
       };
       const res = createMockRes();
       const next = vi.fn();
@@ -551,8 +529,9 @@ describe('api-key middleware', () => {
         name: 'Test',
         scopes: ['read', 'upload'],
         rateLimit: 100,
-        creatorAddress: '0x1',
-        operator: false,
+        creatorAddress: 'workspace',
+        admin: false,
+        userId: null,
       };
       const res = createMockRes();
       const next = vi.fn();
@@ -570,8 +549,9 @@ describe('api-key middleware', () => {
         name: 'Test',
         scopes: [],
         rateLimit: 100,
-        creatorAddress: '0x1',
-        operator: false,
+        creatorAddress: 'workspace',
+        admin: false,
+        userId: null,
       };
       const res = createMockRes();
       const next = vi.fn();

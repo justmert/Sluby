@@ -1,6 +1,6 @@
 /**
  * The real express app (app.ts) over a real Postgres database, with two
- * tenants, a platform key and narrower keys. Queues, the webhook dispatcher
+ * members' keys, an admin key and narrower keys, all in the one workspace. Queues, the webhook dispatcher
  * and the reconcile trigger are in-memory stand-ins; everything else (routes,
  * adapters, queries, tus) is the shipped code. Every response is checked
  * against the OpenAPI document, and the last test fails if an operation in
@@ -25,19 +25,20 @@ import type * as AssetQueries from '../db/queries/assets.js';
 import type * as KeyQueries from '../db/queries/api-keys.js';
 import type { WebhookJobData } from '../webhooks/delivery.js';
 
-const A = 'github:alice';
-const B = 'github:bob';
-const PLATFORM = `0x${'0'.repeat(64)}`;
+// one install is one workspace: every row has this owner, whoever made it
+const W = 'workspace';
 const PUBLIC_URL = 'https://sluby.test';
 
-type Who = 'a' | 'b' | 'aUpload' | 'aRead' | 'platform' | 'none';
+// a and b are keys of two members (aUpload and aRead narrower keys of a's),
+// admin a key made from the server, which has no creator and acts as admin
+type Who = 'a' | 'b' | 'aUpload' | 'aRead' | 'admin' | 'none';
 
 const RAW_KEYS: Record<Exclude<Who, 'none'>, string> = {
   a: `sluby_${'a'.repeat(40)}`,
   b: `sluby_${'b'.repeat(40)}`,
   aUpload: `sluby_${'c'.repeat(40)}`,
   aRead: `sluby_${'d'.repeat(40)}`,
-  platform: `sluby_${'e'.repeat(40)}`,
+  admin: `sluby_${'e'.repeat(40)}`,
 };
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
@@ -46,7 +47,7 @@ const tusMetadata = (fields: Record<string, string>) =>
     .map(([k, v]) => `${k} ${b64(v)}`)
     .join(',');
 
-describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => {
+describe.skipIf(!hasTestDatabase)('api contract (postgres, one workspace)', () => {
   let tdb: TestDatabase;
   let app: Express;
   let appModule: typeof AppModule;
@@ -123,6 +124,8 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     rmSync(outputDir, { recursive: true, force: true });
   });
 
+  let aliceId: string;
+  let bobId: string;
   let assetA: { id: string };
   let assetAFailed: { id: string };
   let assetADeleted: { id: string };
@@ -137,30 +140,25 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     mkdirSync(uploadDir, { recursive: true });
 
     const all = ['upload', 'read', 'manage'];
-    await keys.createApiKey({ name: 'a', scopes: all, creatorAddress: A, rawKey: RAW_KEYS.a });
-    await keys.createApiKey({ name: 'b', scopes: all, creatorAddress: B, rawKey: RAW_KEYS.b });
+    [{ id: aliceId }] = await tdb.sql`
+      insert into users (display_name) values ('alice') returning id`;
+    [{ id: bobId }] = await tdb.sql`insert into users (display_name) values ('bob') returning id`;
+    const memberKey = (name: string, scopes: string[], createdBy: string, rawKey: string) =>
+      keys.createApiKey({ name, scopes, creatorAddress: W, createdBy, rawKey });
+    await memberKey('a', all, aliceId, RAW_KEYS.a);
+    await memberKey('b', all, bobId, RAW_KEYS.b);
+    await memberKey('a upload', ['upload'], aliceId, RAW_KEYS.aUpload);
+    await memberKey('a read', ['read'], aliceId, RAW_KEYS.aRead);
     await keys.createApiKey({
-      name: 'a upload',
-      scopes: ['upload'],
-      creatorAddress: A,
-      rawKey: RAW_KEYS.aUpload,
-    });
-    await keys.createApiKey({
-      name: 'a read',
-      scopes: ['read'],
-      creatorAddress: A,
-      rawKey: RAW_KEYS.aRead,
-    });
-    await keys.createApiKey({
-      name: 'platform',
+      name: 'admin',
       scopes: all,
-      creatorAddress: PLATFORM,
-      rawKey: RAW_KEYS.platform,
+      creatorAddress: W,
+      rawKey: RAW_KEYS.admin,
     });
 
     assetA = await assets.createVideoAsset({
       title: 'alice ready',
-      creatorAddress: A,
+      creatorAddress: W,
       status: 'ready',
       manifestObjectId: 'a1'.repeat(32),
       thumbnailObjectIds: ['a2'.repeat(32)],
@@ -169,19 +167,19 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
     assetAFailed = await assets.createVideoAsset({
       title: 'alice failed',
-      creatorAddress: A,
+      creatorAddress: W,
       status: 'failed',
     });
     assetADeleted = await assets.createVideoAsset({
       title: 'alice deleted',
-      creatorAddress: A,
+      creatorAddress: W,
       status: 'ready',
       manifestObjectId: 'a3'.repeat(32),
     });
-    await assets.softDeleteVideoAsset(assetADeleted.id, A);
+    await assets.softDeleteVideoAsset(assetADeleted.id, W);
     assetB = await assets.createVideoAsset({
       title: 'bob ready',
-      creatorAddress: B,
+      creatorAddress: W,
       status: 'ready',
       manifestObjectId: 'b1'.repeat(32),
     });
@@ -244,7 +242,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       await keys.createApiKey({
         name: 'slow',
         scopes: ['read'],
-        creatorAddress: A,
+        creatorAddress: W,
         rawKey: `sluby_${'f'.repeat(40)}`,
         rateLimit: 1,
       });
@@ -264,36 +262,25 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
   // assets
 
   describe('assets', () => {
-    it('lists only the caller’s live assets', async () => {
-      const res = await call('GET', '/api/v1/assets', 'a');
-      check('GET', '/api/v1/assets', res);
-      expect(res.status).toBe(200);
-      const ids = res.body.data.map((x: { id: string }) => x.id).sort();
-      expect(ids).toEqual([assetA.id, assetAFailed.id].sort());
-      expect(res.body.total).toBe(2);
+    it('lists every live asset of the workspace, whichever member made it', async () => {
+      for (const who of ['a', 'b', 'admin'] as const) {
+        const res = await call('GET', '/api/v1/assets', who);
+        check('GET', '/api/v1/assets', res);
+        expect(res.status).toBe(200);
+        const ids = res.body.data.map((x: { id: string }) => x.id).sort();
+        expect(ids).toEqual([assetA.id, assetAFailed.id, assetB.id].sort());
+        expect(res.body.total).toBe(3);
+      }
     });
 
-    it('lists every tenant’s assets for the platform key', async () => {
-      const res = await call('GET', '/api/v1/assets', 'platform');
-      expect(res.status).toBe(200);
-      expect(res.body.total).toBe(3);
-    });
-
-    it('scopes a key with an empty address to nothing, not to everything', async () => {
-      const raw = `sluby_${'9'.repeat(40)}`;
-      await keys.createApiKey({
-        name: 'blank',
-        scopes: ['read', 'manage'],
-        creatorAddress: '',
-        rawKey: raw,
-      });
-      const as = (method: 'get' | 'patch', url: string) =>
-        request(app)[method](url).set('Authorization', `Bearer ${raw}`);
-      expect((await as('get', '/api/v1/assets')).body.total).toBe(0);
-      expect((await as('get', `/api/v1/assets/${assetA.id}`)).status).toBe(404);
-      expect((await as('get', '/api/v1/stats')).body.total).toBe(0);
-      const listed = await as('get', '/api/v1/keys');
-      expect(listed.body.data.map((k: { name: string }) => k.name)).toEqual(['blank']);
+    it('lets a member read and edit what another member made', async () => {
+      const read = await call('GET', `/api/v1/assets/${assetB.id}`, 'a');
+      check('GET', '/api/v1/assets/{id}', read);
+      expect(read.status).toBe(200);
+      const edited = await call('PATCH', `/api/v1/assets/${assetB.id}`, 'a', { title: 'shared' });
+      check('PATCH', '/api/v1/assets/{id}', edited);
+      expect(edited.status).toBe(200);
+      expect((await assetRow(assetB.id)).title).toBe('shared');
     });
 
     it('reports an unknown duration and resolution as null', async () => {
@@ -358,11 +345,16 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(second.status).toBe(200);
       expect(second.body.page).toBeNull();
       expect(second.body.data[0].id).not.toBe(first.body.data[0].id);
-      expect(second.body.has_more).toBe(false);
+      const third = await call(
+        'GET',
+        `/api/v1/assets?limit=1&cursor=${second.body.next_cursor}`,
+        'a',
+      );
+      expect(third.body.has_more).toBe(false);
     });
 
-    it('hides another tenant’s and soft-deleted assets behind 404 on every by-id route', async () => {
-      for (const id of [assetB.id, assetADeleted.id]) {
+    it('hides soft-deleted assets behind 404 on every by-id route', async () => {
+      for (const id of [assetADeleted.id]) {
         const routes: Array<[string, string, string, unknown?]> = [
           ['GET', `/api/v1/assets/${id}`, '/api/v1/assets/{id}'],
           ['PATCH', `/api/v1/assets/${id}`, '/api/v1/assets/{id}', { title: 'taken' }],
@@ -389,8 +381,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
           expect(res.status, `${method} ${url}`).toBe(404);
         }
       }
-      // the rows themselves are untouched
-      expect((await assetRow(assetB.id)).title).toBe('bob ready');
+      // the row itself is untouched
       expect((await assetRow(assetADeleted.id)).title).toBe('alice deleted');
     });
 
@@ -455,17 +446,12 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(retried.status).toBe(200);
       expect(retried.body.title).toBe('tab two');
 
-      // another tenant's asset is a 404 whatever the version
-      const foreign = await call('PATCH', `/api/v1/assets/${assetB.id}`, 'a', {
-        title: 'x',
+      // another member's edit of an old version is refused the same way
+      const byAdmin = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'admin', {
+        title: 'admin edit',
       }).set('If-Match', etag);
-      check('PATCH', '/api/v1/assets/{id}', foreign);
-      expect(foreign.status).toBe(404);
-      const byPlatform = await call('PATCH', `/api/v1/assets/${assetB.id}`, 'platform', {
-        title: 'platform edit',
-      }).set('If-Match', '"1"');
-      check('PATCH', '/api/v1/assets/{id}', byPlatform);
-      expect(byPlatform.status).toBe(412);
+      check('PATCH', '/api/v1/assets/{id}', byAdmin);
+      expect(byAdmin.status).toBe(412);
       const badHeader = await call('PATCH', `/api/v1/assets/${assetA.id}`, 'a', {
         title: 'x',
       }).set('If-Match', 'nope');
@@ -538,8 +524,9 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       // a final failure (a file that is not a readable video)
       await tdb.sql`update processing_jobs set retryable = false where id = ${job.id}`;
       expect(await retryable()).toBe(false);
+      // another member sees the same answer
       const byB = await call('GET', `/api/v1/assets/${assetAFailed.id}/processing`, 'b');
-      expect(byB.status).toBe(404);
+      expect(byB.body.retryable).toBe(false);
       // a manual retry starts a new run, which may be retried again
       await tdb.sql`update processing_jobs set retryable = true where id = ${job.id}`;
       const retried = await call('POST', `/api/v1/assets/${assetAFailed.id}/retry`, 'a');
@@ -610,7 +597,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(share.status).toBe(502);
     });
 
-    it('creates, lists and deletes playback ids, scoped to the owner', async () => {
+    it('creates, lists and deletes playback ids, shared by the workspace', async () => {
       const created = await call('POST', `/api/v1/assets/${assetA.id}/playback-ids`, 'a', {
         policy: 'signed',
         name: 'embed',
@@ -634,12 +621,13 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(list.body.data).toHaveLength(1);
 
       const pb = created.body.playback_id;
+      // any member may remove a playback id another member made
       const byB = await call('DELETE', `/api/v1/playback-ids/${pb}`, 'b');
       check('DELETE', '/api/v1/playback-ids/{playbackId}', byB);
-      expect(byB.status).toBe(404);
-      const byA = await call('DELETE', `/api/v1/playback-ids/${pb}`, 'a');
-      check('DELETE', '/api/v1/playback-ids/{playbackId}', byA);
-      expect(byA.status).toBe(200);
+      expect(byB.status).toBe(200);
+      const again = await call('DELETE', `/api/v1/playback-ids/${pb}`, 'a');
+      check('DELETE', '/api/v1/playback-ids/{playbackId}', again);
+      expect(again.status).toBe(404);
     });
   });
 
@@ -657,6 +645,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(res.body.key).toMatch(/^sluby_/);
       expect(res.body.prefix).toBe(res.body.key.slice(0, 12));
       expect(res.body.last_used_at).toBeNull();
+      expect(res.body.created_by).toEqual({ id: aliceId, name: 'alice' });
 
       const list = await call('GET', '/api/v1/keys', 'a');
       check('GET', '/api/v1/keys', list);
@@ -702,29 +691,27 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       }
     });
 
-    it('answers 409 once the account holds the most keys allowed', async () => {
-      // 97 plus the three fixture keys of alice is the default cap of 100
-      for (let i = 0; i < 97; i++) {
-        await keys.createApiKey({ name: `k${i}`, scopes: ['read'], creatorAddress: A });
+    it('answers 409 once the workspace holds the most keys allowed, for every member', async () => {
+      // 95 plus the five fixture keys is the default cap of 100
+      for (let i = 0; i < 95; i++) {
+        await keys.createApiKey({ name: `k${i}`, scopes: ['read'], creatorAddress: W });
       }
-      const full = await call('POST', '/api/v1/keys', 'a', { name: 'one too many' });
-      check('POST', '/api/v1/keys', full);
-      expect(full.status).toBe(409);
-      // another account is not held to alice's count
-      const other = await call('POST', '/api/v1/keys', 'b', { name: 'fine' });
-      check('POST', '/api/v1/keys', other);
-      expect(other.status).toBe(201);
+      for (const who of ['a', 'b'] as const) {
+        const full = await call('POST', '/api/v1/keys', who, { name: 'one too many' });
+        check('POST', '/api/v1/keys', full);
+        expect(full.status).toBe(409);
+      }
     });
 
-    it('lists every key of an account with 55 keys, and pages them', async () => {
+    it('lists every key of a workspace with 55 more keys, and pages them', async () => {
       for (let i = 0; i < 55; i++) {
-        await keys.createApiKey({ name: `k${i}`, scopes: ['read'], creatorAddress: A });
+        await keys.createApiKey({ name: `k${i}`, scopes: ['read'], creatorAddress: W });
       }
       const all = await call('GET', '/api/v1/keys', 'a');
       check('GET', '/api/v1/keys', all);
       expect(all.body.limits).toEqual({ max_keys: 100, max_rate_limit: 10000 });
-      // 55 plus the three fixture keys of alice
-      expect(all.body.data).toHaveLength(58);
+      // 55 plus the five fixture keys
+      expect(all.body.data).toHaveLength(60);
       expect(all.body.has_more).toBe(false);
 
       const seen = new Set<string>();
@@ -737,7 +724,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         for (const k of page.body.data) seen.add(k.id);
         cursor = page.body.next_cursor;
       } while (cursor);
-      expect(seen.size).toBe(58);
+      expect(seen.size).toBe(60);
 
       const badCursor = await call('GET', '/api/v1/keys?cursor=garbage', 'a');
       check('GET', '/api/v1/keys', badCursor);
@@ -746,55 +733,81 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(badLimit.status).toBe(400);
     });
 
-    it('lists, rotates and deletes across tenants only for the platform key', async () => {
-      const bKeys = await call('GET', '/api/v1/keys', 'b');
-      const bKeyId = bKeys.body.data[0].id;
+    it("lists every member's keys with their creator, and lets any member manage them", async () => {
+      const listed = await call('GET', '/api/v1/keys', 'a');
+      const byName = new Map<string, { id: string; created_by: unknown }>(
+        listed.body.data.map((k: { name: string; id: string; created_by: unknown }) => [k.name, k]),
+      );
+      expect(byName.get('b')?.created_by).toEqual({ id: bobId, name: 'bob' });
+      expect(byName.get('admin')?.created_by).toBeNull();
+      const bKeyId = byName.get('b')!.id;
+      const adminKeyId = byName.get('admin')!.id;
 
-      const listA = await call('GET', '/api/v1/keys', 'a');
-      expect(listA.body.data.map((k: { id: string }) => k.id)).not.toContain(bKeyId);
-      const platformList = await call('GET', '/api/v1/keys', 'platform');
-      expect(platformList.body.data.map((k: { id: string }) => k.id)).toContain(bKeyId);
-
-      const rotate = await call('POST', `/api/v1/keys/${bKeyId}/rotate`, 'a', {});
-      check('POST', '/api/v1/keys/{id}/rotate', rotate);
-      expect(rotate.status).toBe(404);
-      const del = await call('DELETE', `/api/v1/keys/${bKeyId}`, 'a');
-      check('DELETE', '/api/v1/keys/{id}', del);
-      expect(del.status).toBe(404);
-
-      const rotated = await call('POST', `/api/v1/keys/${bKeyId}/rotate`, 'platform', {
+      const rotated = await call('POST', `/api/v1/keys/${bKeyId}/rotate`, 'a', {
         grace_period_seconds: 60,
       });
       check('POST', '/api/v1/keys/{id}/rotate', rotated);
       expect(rotated.status).toBe(201);
-      const twice = await call('POST', `/api/v1/keys/${bKeyId}/rotate`, 'platform', {});
+      // the member who rotates makes the replacement
+      expect(rotated.body.created_by).toEqual({ id: aliceId, name: 'alice' });
+      const twice = await call('POST', `/api/v1/keys/${bKeyId}/rotate`, 'admin', {});
       check('POST', '/api/v1/keys/{id}/rotate', twice);
       expect(twice.status).toBe(409);
-      const badGrace = await call('POST', `/api/v1/keys/${bKeyId}/rotate`, 'platform', {
+      const badGrace = await call('POST', `/api/v1/keys/${bKeyId}/rotate`, 'admin', {
         grace_period_seconds: -1,
       });
       check('POST', '/api/v1/keys/{id}/rotate', badGrace);
       expect(badGrace.status).toBe(400);
+      const unknown = await call(
+        'POST',
+        '/api/v1/keys/00000000-0000-4000-8000-000000000000/rotate',
+        'a',
+        {},
+      );
+      check('POST', '/api/v1/keys/{id}/rotate', unknown);
+      expect(unknown.status).toBe(404);
 
-      const renameByA = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'a', { name: 'mine now' });
-      check('PATCH', '/api/v1/keys/{id}', renameByA);
-      expect(renameByA.status).toBe(404);
-      const renamed = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'b', { name: ' bob ci ' });
+      // a member who rotates the admin key gets a key with a member's role,
+      // never an admin secret
+      const fromAdmin = await call('POST', `/api/v1/keys/${adminKeyId}/rotate`, 'a', {});
+      expect(fromAdmin.status).toBe(201);
+      const status = await request(app)
+        .get('/api/v1/metrics')
+        .set('Authorization', `Bearer ${fromAdmin.body.key}`);
+      expect(status.status).toBe(403);
+
+      const renamed = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'a', { name: ' bob ci ' });
       check('PATCH', '/api/v1/keys/{id}', renamed);
       expect(renamed.status).toBe(200);
       expect(renamed.body).toMatchObject({ id: bKeyId, name: 'bob ci' });
       const badName = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'b', { name: '' });
       check('PATCH', '/api/v1/keys/{id}', badName);
       expect(badName.status).toBe(400);
-      const byPlatform = await call('PATCH', `/api/v1/keys/${bKeyId}`, 'platform', {
-        name: 'renamed by the platform',
-      });
-      check('PATCH', '/api/v1/keys/{id}', byPlatform);
-      expect(byPlatform.status).toBe(200);
+      const missing = await call(
+        'PATCH',
+        '/api/v1/keys/00000000-0000-4000-8000-000000000000',
+        'b',
+        { name: 'x' },
+      );
+      check('PATCH', '/api/v1/keys/{id}', missing);
+      expect(missing.status).toBe(404);
 
-      const deleted = await call('DELETE', `/api/v1/keys/${rotated.body.id}`, 'platform');
+      const deleted = await call('DELETE', `/api/v1/keys/${rotated.body.id}`, 'b');
       check('DELETE', '/api/v1/keys/{id}', deleted);
       expect(deleted.status).toBe(200);
+      const again = await call('DELETE', `/api/v1/keys/${rotated.body.id}`, 'b');
+      check('DELETE', '/api/v1/keys/{id}', again);
+      expect(again.status).toBe(404);
+    });
+
+    it("stops a removed member's keys, and brings them back once restored", async () => {
+      await tdb.sql`update users set disabled_at = now() where id = ${aliceId}`;
+      const refused = await call('GET', '/api/v1/assets', 'a');
+      expect(refused.status).toBe(401);
+      expect(refused.body.reason).toBe('not_allowed');
+      expect((await call('GET', '/api/v1/assets', 'b')).status).toBe(200);
+      await tdb.sql`update users set disabled_at = null where id = ${aliceId}`;
+      expect((await call('GET', '/api/v1/assets', 'a')).status).toBe(200);
     });
   });
 
@@ -829,11 +842,13 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         check('GET', '/api/v1/webhooks', list);
         expect(list.body.data).toHaveLength(1);
         expect(list.body.data[0]).toMatchObject({ last_delivery_at: null, last_delivery_ok: null });
-        const oneByB = await call('GET', `/api/v1/webhooks/${created.body.id}`, 'b');
+        // an id that names no endpoint is a 404 on every route
+        const NO_HOOK = '00000000-0000-4000-8000-000000000000';
+        const oneByB = await call('GET', `/api/v1/webhooks/${NO_HOOK}`, 'b');
         check('GET', '/api/v1/webhooks/{id}', oneByB);
         expect(oneByB.status).toBe(404);
 
-        const testedByB = await call('POST', `/api/v1/webhooks/${created.body.id}/test`, 'b');
+        const testedByB = await call('POST', `/api/v1/webhooks/${NO_HOOK}/test`, 'b');
         check('POST', '/api/v1/webhooks/{id}/test', testedByB);
         expect(testedByB.status).toBe(404);
         const tested = await call('POST', `/api/v1/webhooks/${created.body.id}/test`, 'a');
@@ -847,11 +862,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         expect(one.body).toMatchObject({ id: created.body.id, last_delivery_ok: true });
         expect(Date.parse(one.body.last_delivery_at)).toBeGreaterThan(Date.now() - 60_000);
 
-        const deliveriesByB = await call(
-          'GET',
-          `/api/v1/webhooks/${created.body.id}/deliveries`,
-          'b',
-        );
+        const deliveriesByB = await call('GET', `/api/v1/webhooks/${NO_HOOK}/deliveries`, 'b');
         check('GET', '/api/v1/webhooks/{id}/deliveries', deliveriesByB);
         expect(deliveriesByB.status).toBe(404);
         const deliveries = await call('GET', `/api/v1/webhooks/${created.body.id}/deliveries`, 'a');
@@ -865,7 +876,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         const redeliverPath = '/api/v1/webhooks/{id}/deliveries/{deliveryId}/redeliver';
         const resendByB = await call(
           'POST',
-          `/api/v1/webhooks/${created.body.id}/deliveries/${first.id}/redeliver`,
+          `/api/v1/webhooks/${NO_HOOK}/deliveries/${first.id}/redeliver`,
           'b',
         );
         check('POST', redeliverPath, resendByB);
@@ -927,11 +938,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         check('POST', redeliverPath, unknownDelivery);
         expect(unknownDelivery.status).toBe(404);
 
-        const rotateByB = await call(
-          'POST',
-          `/api/v1/webhooks/${created.body.id}/rotate-secret`,
-          'b',
-        );
+        const rotateByB = await call('POST', `/api/v1/webhooks/${NO_HOOK}/rotate-secret`, 'b');
         check('POST', '/api/v1/webhooks/{id}/rotate-secret', rotateByB);
         expect(rotateByB.status).toBe(404);
         const rotated = await call(
@@ -946,7 +953,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
           await tdb.sql`select secret from webhook_endpoints where id = ${created.body.id}`;
         expect(stored.secret).toBe(rotated.body.secret);
 
-        const pauseByB = await call('PATCH', `/api/v1/webhooks/${created.body.id}`, 'b', {
+        const pauseByB = await call('PATCH', `/api/v1/webhooks/${NO_HOOK}`, 'b', {
           is_active: false,
         });
         check('PATCH', '/api/v1/webhooks/{id}', pauseByB);
@@ -981,14 +988,14 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         });
         expect(resumed.body.is_active).toBe(true);
 
+        // any member manages the endpoints another member made
         const byB = await call('DELETE', `/api/v1/webhooks/${created.body.id}`, 'b');
         check('DELETE', '/api/v1/webhooks/{id}', byB);
-        expect(byB.status).toBe(404);
+        expect(byB.status).toBe(200);
         const byA = await call('DELETE', `/api/v1/webhooks/${created.body.id}`, 'a');
         check('DELETE', '/api/v1/webhooks/{id}', byA);
-        expect(byA.status).toBe(200);
+        expect(byA.status).toBe(404);
 
-        // the platform key works on any tenant's endpoints, like on keys and assets
         const other = await call('POST', '/api/v1/webhooks', 'a', {
           url: `http://127.0.0.1:${port}/sluby`,
           events: ['asset.ready'],
@@ -996,25 +1003,25 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         expect(other.status).toBe(201);
         const listB = await call('GET', '/api/v1/webhooks', 'b');
         check('GET', '/api/v1/webhooks', listB);
-        expect(listB.body.data).toEqual([]);
-        const listP = await call('GET', '/api/v1/webhooks', 'platform');
+        expect(listB.body.data.map((w: { id: string }) => w.id)).toEqual([other.body.id]);
+        const listP = await call('GET', '/api/v1/webhooks', 'admin');
         check('GET', '/api/v1/webhooks', listP);
         expect(listP.body.data.map((w: { id: string }) => w.id)).toEqual([other.body.id]);
-        const oneByP = await call('GET', `/api/v1/webhooks/${other.body.id}`, 'platform');
+        const oneByP = await call('GET', `/api/v1/webhooks/${other.body.id}`, 'admin');
         check('GET', '/api/v1/webhooks/{id}', oneByP);
         expect(oneByP.status).toBe(200);
-        const testedByP = await call('POST', `/api/v1/webhooks/${other.body.id}/test`, 'platform');
+        const testedByP = await call('POST', `/api/v1/webhooks/${other.body.id}/test`, 'admin');
         check('POST', '/api/v1/webhooks/{id}/test', testedByP);
         expect(testedByP.status).toBe(200);
         const deliveriesByP = await call(
           'GET',
           `/api/v1/webhooks/${other.body.id}/deliveries`,
-          'platform',
+          'admin',
         );
         check('GET', '/api/v1/webhooks/{id}/deliveries', deliveriesByP);
         expect(deliveriesByP.status).toBe(200);
         expect(deliveriesByP.body.data).toHaveLength(1);
-        const pausedByP = await call('PATCH', `/api/v1/webhooks/${other.body.id}`, 'platform', {
+        const pausedByP = await call('PATCH', `/api/v1/webhooks/${other.body.id}`, 'admin', {
           is_active: false,
         });
         check('PATCH', '/api/v1/webhooks/{id}', pausedByP);
@@ -1022,26 +1029,24 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         const rotatedByP = await call(
           'POST',
           `/api/v1/webhooks/${other.body.id}/rotate-secret`,
-          'platform',
+          'admin',
         );
         check('POST', '/api/v1/webhooks/{id}/rotate-secret', rotatedByP);
         expect(rotatedByP.status).toBe(200);
         const pDeliveries = await call(
           'GET',
           `/api/v1/webhooks/${other.body.id}/deliveries`,
-          'platform',
+          'admin',
         );
         const resendByP = await call(
           'POST',
           `/api/v1/webhooks/${other.body.id}/deliveries/${pDeliveries.body.data[0].id}/redeliver`,
-          'platform',
+          'admin',
         );
         check('POST', redeliverPath, resendByP);
         // paused just above
         expect(resendByP.status).toBe(409);
-        const byBAgain = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'b');
-        expect(byBAgain.status).toBe(404);
-        const byP = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'platform');
+        const byP = await call('DELETE', `/api/v1/webhooks/${other.body.id}`, 'admin');
         check('DELETE', '/api/v1/webhooks/{id}', byP);
         expect(byP.status).toBe(200);
         expect((await call('GET', '/api/v1/webhooks', 'a')).body.data).toEqual([]);
@@ -1119,9 +1124,17 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       `;
       expect(row.upload_url).toBe(location);
 
-      const otherTenant = await call('GET', `/api/v1/uploads/${id}`, 'b');
-      check('GET', '/api/v1/uploads/{id}', otherTenant);
-      expect(otherTenant.status).toBe(404);
+      // every member follows the workspace's uploads
+      const byB = await call('GET', `/api/v1/uploads/${id}`, 'b');
+      check('GET', '/api/v1/uploads/{id}', byB);
+      expect(byB.status).toBe(200);
+      const unknown = await call(
+        'GET',
+        '/api/v1/uploads/00000000-0000-4000-8000-000000000000',
+        'b',
+      );
+      check('GET', '/api/v1/uploads/{id}', unknown);
+      expect(unknown.status).toBe(404);
 
       const head = await request(app)
         .head(`/api/v1/uploads/${id}`)
@@ -1137,7 +1150,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       const started = events.filter((e) => e.event === 'upload.started');
       expect(started).toHaveLength(1);
       expect(started[0].data.upload_id).toBe(id);
-      expect(started[0].owner).toBe(A);
+      expect(started[0].owner).toBe(W);
       expect(existsSync(path.join(uploadDir, id))).toBe(true);
     });
 
@@ -1158,13 +1171,14 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       }
       expect(events.filter((e) => e.event === 'upload.started')).toHaveLength(0);
       const list = await call('GET', '/api/v1/assets', 'a');
-      expect(list.body.total).toBe(2);
+      // the three fixture assets, nothing from the failed creation
+      expect(list.body.total).toBe(3);
       const [session] = await tdb.sql<{ status: string }[]>`select status from upload_sessions`;
       expect(session.status).toBe('failed');
     });
 
     it('validates the creation metadata with 400 and creates nothing', async () => {
-      const before = await countAssets(A);
+      const before = await countAssets(W);
       const cases: Array<[Record<string, string>, number | string]> = [
         [{ ...video, accessTier: 'bogus' }, 10],
         [{ ...video, accessTier: 'Private' }, 10],
@@ -1192,7 +1206,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       const tooBig = await tusCreate('a', video, 20 * 1024 ** 4);
       check('POST', '/api/v1/uploads', tooBig);
       expect(tooBig.status).toBe(413);
-      expect(await countAssets(A)).toBe(before);
+      expect(await countAssets(W)).toBe(before);
     });
 
     it('accepts private uploads through either metadata spelling', async () => {
@@ -1215,11 +1229,16 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(progress.body).toMatchObject({ uploaded_bytes: 4, progress_percent: 40 });
       const assetId = progress.body.video_asset_id;
 
-      const byB = await call('DELETE', `/api/v1/uploads/${id}`, 'b');
-      check('DELETE', '/api/v1/uploads/{id}', byB);
-      expect(byB.status).toBe(404);
+      const unknown = await call(
+        'DELETE',
+        '/api/v1/uploads/00000000-0000-4000-8000-000000000000',
+        'b',
+      );
+      check('DELETE', '/api/v1/uploads/{id}', unknown);
+      expect(unknown.status).toBe(404);
 
-      const res = await call('DELETE', `/api/v1/uploads/${id}`, 'a');
+      // another member may cancel it, as they may delete the asset
+      const res = await call('DELETE', `/api/v1/uploads/${id}`, 'b');
       check('DELETE', '/api/v1/uploads/{id}', res);
       expect(res.status).toBe(200);
       expect((await call('GET', `/api/v1/assets/${assetId}`, 'a')).status).toBe(404);
@@ -1270,13 +1289,15 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(jobs.filter((j) => j.queue === 'deletion')).toHaveLength(0);
     });
 
-    it('lets the uploader terminate its own unfinished upload through tus', async () => {
+    it('lets any member with the upload scope resume or terminate an unfinished upload through tus', async () => {
       const created = await tusCreate('aUpload', video);
       const id = (created.headers.location as string).split('/').pop()!;
       const assetId = (await call('GET', `/api/v1/uploads/${id}`, 'a')).body.video_asset_id;
-      const byB = await tusDelete('b', id);
-      expect(byB.status).toBe(404);
-      const res = await tusDelete('aUpload', id);
+      const resumed = await tusPatch('b', id, 0, Buffer.alloc(4));
+      expect(resumed.status).toBe(204);
+      const readOnly = await tusDelete('aRead', id);
+      expect(readOnly.status).toBe(403);
+      const res = await tusDelete('b', id);
       expect(res.status).toBe(204);
       expect((await call('GET', `/api/v1/assets/${assetId}`, 'a')).status).toBe(404);
       expect((await call('GET', `/api/v1/uploads/${id}`, 'a')).body.status).toBe('cancelled');
@@ -1309,9 +1330,9 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
     });
   });
 
-  // operator data: tenants get a health summary only
+  // operations data: members get a health summary only
 
-  describe('operator data', () => {
+  describe('operations data', () => {
     beforeEach(async () => {
       await tdb.sql`
         insert into reconciliation_runs
@@ -1322,7 +1343,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       `;
     });
 
-    it('gives a tenant a status summary without deployment data', async () => {
+    it('gives a member a status summary without deployment data', async () => {
       const res = await call('GET', '/api/v1/system/status', 'a');
       check('GET', '/api/v1/system/status', res);
       expect(res.status).toBe(200);
@@ -1339,8 +1360,8 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(JSON.stringify(res.body)).not.toContain('127.0.0.1');
     });
 
-    it('gives the platform key the full status', async () => {
-      const res = await call('GET', '/api/v1/system/status', 'platform');
+    it('gives an admin key the full status', async () => {
+      const res = await call('GET', '/api/v1/system/status', 'admin');
       check('GET', '/api/v1/system/status', res);
       expect(res.status).toBe(200);
       expect(res.body.scope).toBe('deployment');
@@ -1351,27 +1372,29 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(typeof res.body.uptime_seconds).toBe('number');
     });
 
-    it('keeps the process metrics to the platform key', async () => {
-      const tenant = await call('GET', '/api/v1/metrics', 'a');
-      check('GET', '/api/v1/metrics', tenant);
-      expect(tenant.status).toBe(403);
-      const platform = await call('GET', '/api/v1/metrics', 'platform');
-      check('GET', '/api/v1/metrics', platform);
-      expect(platform.status).toBe(200);
+    it('keeps the process metrics to admins', async () => {
+      const member = await call('GET', '/api/v1/metrics', 'a');
+      check('GET', '/api/v1/metrics', member);
+      expect(member.status).toBe(403);
+      expect(member.body.error).toBe('Only an admin may use this endpoint');
+      const admin = await call('GET', '/api/v1/metrics', 'admin');
+      check('GET', '/api/v1/metrics', admin);
+      expect(admin.status).toBe(200);
     });
 
-    it('gives a tenant only its own drift, and the platform key the whole run', async () => {
-      const tenant = await call('GET', '/api/v1/reconciliation', 'a');
-      check('GET', '/api/v1/reconciliation', tenant);
-      expect(tenant.status).toBe(200);
-      expect(tenant.body).toMatchObject({
+    it("gives a member the workspace's drift without the run's figures, and an admin the whole run", async () => {
+      const missing = [
+        { object_id: 'a1'.repeat(32), video_asset_id: assetA.id, title: 'alice ready' },
+        { object_id: 'b1'.repeat(32), video_asset_id: assetB.id, title: 'bob ready' },
+      ];
+      const member = await call('GET', '/api/v1/reconciliation', 'a');
+      check('GET', '/api/v1/reconciliation', member);
+      expect(member.status).toBe(200);
+      expect(member.body).toMatchObject({
         scope: 'account',
         status: 'drift',
-        missing_count: 1,
-        missing_ids: ['a1'.repeat(32)],
-        missing_objects: [
-          { object_id: 'a1'.repeat(32), video_asset_id: assetA.id, title: 'alice ready' },
-        ],
+        missing_count: 2,
+        missing_objects: missing,
       });
       for (const field of [
         'db_object_count',
@@ -1381,36 +1404,28 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         'orphaned_ids',
         'error_message',
       ]) {
-        expect(tenant.body[field], field).toBeUndefined();
+        expect(member.body[field], field).toBeUndefined();
       }
 
-      const platform = await call('GET', '/api/v1/reconciliation', 'platform');
-      check('GET', '/api/v1/reconciliation', platform);
-      expect(platform.body).toMatchObject({
+      const admin = await call('GET', '/api/v1/reconciliation', 'admin');
+      check('GET', '/api/v1/reconciliation', admin);
+      expect(admin.body).toMatchObject({
         scope: 'deployment',
         missing_count: 2,
         orphan_count: 1,
         orphaned_ids: ['ff'.repeat(32)],
-        missing_objects: [
-          { object_id: 'a1'.repeat(32), video_asset_id: assetA.id, title: 'alice ready' },
-          { object_id: 'b1'.repeat(32), video_asset_id: assetB.id, title: 'bob ready' },
-        ],
+        missing_objects: missing,
       });
-      const bob = await call('GET', '/api/v1/reconciliation', 'b');
-      check('GET', '/api/v1/reconciliation', bob);
-      expect(bob.body.missing_objects).toEqual([
-        { object_id: 'b1'.repeat(32), video_asset_id: assetB.id, title: 'bob ready' },
-      ]);
     });
 
-    it('lets only the platform key start a deployment-wide run', async () => {
-      const tenant = await call('POST', '/api/v1/reconciliation/run', 'a');
-      check('POST', '/api/v1/reconciliation/run', tenant);
-      expect(tenant.status).toBe(403);
+    it('lets only an admin start a deployment-wide run', async () => {
+      const member = await call('POST', '/api/v1/reconciliation/run', 'a');
+      check('POST', '/api/v1/reconciliation/run', member);
+      expect(member.status).toBe(403);
       expect(reconcileTriggers).toBe(0);
-      const platform = await call('POST', '/api/v1/reconciliation/run', 'platform');
-      check('POST', '/api/v1/reconciliation/run', platform);
-      expect(platform.status).toBe(202);
+      const admin = await call('POST', '/api/v1/reconciliation/run', 'admin');
+      check('POST', '/api/v1/reconciliation/run', admin);
+      expect(admin.status).toBe(202);
       expect(reconcileTriggers).toBe(1);
     });
 
@@ -1421,14 +1436,14 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(res.status).toBe(404);
     });
 
-    it('scopes library stats to the tenant', async () => {
+    it('counts the whole workspace in the library stats', async () => {
       const res = await call('GET', '/api/v1/stats', 'a');
       check('GET', '/api/v1/stats', res);
       expect(res.status).toBe(200);
-      expect(res.body.total).toBe(2);
+      expect(res.body.total).toBe(3);
     });
 
-    it('scopes plays per day to the tenant, and gives the platform key every account', async () => {
+    it('counts plays per day across the workspace, the same for every caller', async () => {
       const today = new Date().toISOString().slice(0, 10);
       await tdb.sql`
         insert into asset_plays_daily (video_asset_id, day, plays)
@@ -1442,11 +1457,11 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(a.status).toBe(200);
       expect(a.body.days).toEqual([
         { date: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10), plays: 0 },
-        { date: today, plays: 3 },
+        { date: today, plays: 7 },
       ]);
-      expect(a.body.total).toBe(3);
-      expect((await usage('b')).body.total).toBe(4);
-      expect((await usage('platform')).body.total).toBe(7);
+      expect(a.body.total).toBe(7);
+      expect((await usage('b')).body.total).toBe(7);
+      expect((await usage('admin')).body.total).toBe(7);
       expect((await usage('aRead')).status).toBe(200);
       expect((await usage('aUpload')).status).toBe(403);
       expect((await usage('a', '?days=91')).status).toBe(400);
@@ -1458,57 +1473,50 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(list.body.data.find((x: { id: string }) => x.id === assetA.id).play_count).toBe(3);
     });
 
-    describe('an operator (OPERATOR_USERS)', () => {
-      const OPERATOR_KEY = `sluby_${'o'.repeat(40)}`;
-      let env: typeof import('../config/env.js').env;
-      let savedOperators: string;
-      let operator: { userId: string; cookie: string };
+    describe('an admin member', () => {
+      const ADMIN_KEY = `sluby_${'o'.repeat(40)}`;
+      let admin: { userId: string; cookie: string };
 
       beforeEach(async () => {
-        ({ env } = await import('../config/env.js'));
-        savedOperators = env.OPERATOR_USERS;
+        const { env } = await import('../config/env.js');
         const { createStudioSession } = await import('../db/queries/sessions.js');
-        const { ensureIdentityAccount } = await import('../db/queries/accounts.js');
         const { signSession, SESSION_COOKIE_NAME } = await import('../api/auth/session.js');
-        const account = await ensureIdentityAccount({
-          provider: 'github',
-          subject: '583231',
-          username: 'octocat',
-          displayName: 'octocat',
-        });
+        const [user] = await tdb.sql`
+          insert into users (display_name, role) values ('octocat', 'admin') returning id`;
+        const [identity] = await tdb.sql`
+          insert into user_identities (user_id, provider, subject, username)
+          values (${user.id}, 'github', '583231', 'octocat') returning id`;
         const row = await createStudioSession({
-          ...account,
+          userId: user.id,
+          identityId: identity.id,
           expiresAt: new Date(Date.now() + 3600_000),
           userAgent: 'contract-test',
         });
-        operator = {
-          userId: account.userId,
-          cookie: `${SESSION_COOKIE_NAME}=${signSession(row.id, account.userId, env.SESSION_SECRET)}`,
+        admin = {
+          userId: user.id,
+          cookie: `${SESSION_COOKIE_NAME}=${signSession(row.id, user.id, env.SESSION_SECRET)}`,
         };
         await keys.createApiKey({
-          name: 'operator',
+          name: 'admin member',
           scopes: ['upload', 'read', 'manage'],
-          creatorAddress: `user:${account.userId}`,
-          rawKey: OPERATOR_KEY,
+          creatorAddress: W,
+          createdBy: user.id,
+          rawKey: ADMIN_KEY,
         });
-        env.OPERATOR_USERS = 'github:id:583231';
-      });
-      afterEach(() => {
-        env.OPERATOR_USERS = savedOperators;
       });
 
       const asSession = (method: string, url: string) =>
-        request(app)[method.toLowerCase() as 'get'](url).set('Cookie', operator.cookie);
+        request(app)[method.toLowerCase() as 'get'](url).set('Cookie', admin.cookie);
       const asKey = (method: string, url: string) =>
         request(app)
           [method.toLowerCase() as 'get'](url)
-          .set('Authorization', `Bearer ${OPERATOR_KEY}`);
+          .set('Authorization', `Bearer ${ADMIN_KEY}`);
 
-      it('says so on /auth/me', async () => {
+      it('says so on /auth/me, with operator kept as an alias', async () => {
         const me = await asSession('GET', '/api/v1/auth/me');
         check('GET', '/api/v1/auth/me', me);
         expect(me.status).toBe(200);
-        expect(me.body.operator).toBe(true);
+        expect(me.body).toMatchObject({ role: 'admin', operator: true });
       });
 
       for (const [label, send] of [
@@ -1541,53 +1549,9 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
           expect(reconcileTriggers).toBe(1);
         });
 
-        it(`gets no other tenant's data through a ${label}`, async () => {
-          const other = await send('GET', `/api/v1/assets/${assetB.id}`);
-          check('GET', '/api/v1/assets/{id}', other);
-          expect(other.status).toBe(404);
-
-          const list = await send('GET', '/api/v1/assets');
-          check('GET', '/api/v1/assets', list);
-          expect(list.body.data).toEqual([]);
-
-          const stats = await send('GET', '/api/v1/stats');
-          check('GET', '/api/v1/stats', stats);
-          expect(stats.body.total).toBe(0);
-
-          const keyList = await send('GET', '/api/v1/keys');
-          check('GET', '/api/v1/keys', keyList);
-          expect(keyList.body.data.map((k: { name: string }) => k.name)).toEqual(['operator']);
-
-          // operators see the deployment, never other tenants' endpoints
-          const { createWebhookEndpoint } = await import('../db/queries/webhooks.js');
-          const hook = await createWebhookEndpoint({
-            creatorAddress: B,
-            url: 'https://hooks.example.com/b',
-            events: ['asset.ready'],
-            secret: 'b'.repeat(64),
-          });
-          const hooks = await send('GET', '/api/v1/webhooks');
-          check('GET', '/api/v1/webhooks', hooks);
-          expect(hooks.body.data).toEqual([]);
-          const hookDeliveries = await send('GET', `/api/v1/webhooks/${hook.id}/deliveries`);
-          check('GET', '/api/v1/webhooks/{id}/deliveries', hookDeliveries);
-          expect(hookDeliveries.status).toBe(404);
-          const hookTest = await send('POST', `/api/v1/webhooks/${hook.id}/test`);
-          check('POST', '/api/v1/webhooks/{id}/test', hookTest);
-          expect(hookTest.status).toBe(404);
-          const hookDelete = await send('DELETE', `/api/v1/webhooks/${hook.id}`);
-          check('DELETE', '/api/v1/webhooks/{id}', hookDelete);
-          expect(hookDelete.status).toBe(404);
-
-          const deleteOther = await send('DELETE', `/api/v1/assets/${assetB.id}`);
-          check('DELETE', '/api/v1/assets/{id}', deleteOther);
-          expect(deleteOther.status).toBe(404);
-          expect((await assetRow(assetB.id)).deleted_at).toBeNull();
-        });
-
-        it(`loses the role on the next request through a ${label} once unlisted`, async () => {
+        it(`loses the role on the next request through a ${label} once demoted`, async () => {
           expect((await send('GET', '/api/v1/metrics')).status).toBe(200);
-          env.OPERATOR_USERS = '';
+          await tdb.sql`update users set role = 'member' where id = ${admin.userId}`;
 
           const metrics = await send('GET', '/api/v1/metrics');
           check('GET', '/api/v1/metrics', metrics);
@@ -1603,14 +1567,22 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
           expect(trigger.status).toBe(403);
           expect(reconcileTriggers).toBe(0);
         });
+
+        it(`is turned away through a ${label} once removed`, async () => {
+          await tdb.sql`update users set disabled_at = now() where id = ${admin.userId}`;
+          const res = await send('GET', '/api/v1/assets');
+          check('GET', '/api/v1/assets', res);
+          expect(res.status).toBe(401);
+          expect(res.body.reason).toBe('not_allowed');
+        });
       }
 
-      it('is no longer reported on /auth/me once unlisted', async () => {
-        env.OPERATOR_USERS = 'github:id:1';
+      it('is reported as a member on /auth/me once demoted', async () => {
+        await tdb.sql`update users set role = 'member' where id = ${admin.userId}`;
         const me = await asSession('GET', '/api/v1/auth/me');
         check('GET', '/api/v1/auth/me', me);
         expect(me.status).toBe(200);
-        expect(me.body.operator).toBe(false);
+        expect(me.body).toMatchObject({ role: 'member', operator: false });
       });
     });
   });
@@ -1628,6 +1600,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
         subject: `id-${login}`,
         username: login,
         displayName: login,
+        role: 'member',
       });
       const row = await createStudioSession({
         ...account,
@@ -1652,6 +1625,7 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, two tenants)', () => 
       expect(me.body.username).toBe('alice');
       expect(me.body.provider).toBe('github');
       expect(me.body.auth_disabled).toBe(false);
+      expect(me.body.role).toBe('member');
       expect(me.body.operator).toBe(false);
       expect(Number.isNaN(Date.parse(me.body.expires_at))).toBe(false);
     });

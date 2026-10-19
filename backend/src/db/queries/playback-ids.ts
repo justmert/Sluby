@@ -7,8 +7,8 @@ import { generatePlaybackId, isPlaybackId } from '../../api/playback-id.js';
  * Confirm an asset exists and, when `owner` is given, that it belongs to that
  * tenant. Playback ids are keyed off an asset, so every management operation
  * gates on this first: without it a caller could manage playback ids on
- * another tenant's asset by guessing its UUID. `owner` is undefined for a
- * platform key, which is allowed to act across tenants.
+ * an asset of another owner by guessing its UUID. `owner` is undefined for
+ * internal callers only.
  */
 async function assetIsOwned(assetId: string, owner?: string): Promise<boolean> {
   const asset = await db.query.videoAssets.findFirst({

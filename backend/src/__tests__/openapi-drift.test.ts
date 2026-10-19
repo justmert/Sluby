@@ -128,7 +128,7 @@ describe('OpenAPI drift guard', () => {
     ).toEqual([]);
   });
 
-  it('marks exactly the platform-only routes with x-required-identity', () => {
+  it('marks exactly the admin-only routes with x-required-identity', () => {
     const routes = listRoutes(createApiRouter(stub), '/api/v1');
     const mismatches: string[] = [];
     for (const route of routes) {

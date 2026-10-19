@@ -70,9 +70,9 @@ function withHealth(row: {
 }
 
 /**
- * List an account's webhook endpoints, paused ones included, newest first.
- * `creatorAddress` undefined lists every account's (the platform identity,
- * see ownerFilter).
+ * List an owner's webhook endpoints, paused ones included, newest first.
+ * `creatorAddress` undefined lists every owner's (internal callers, see
+ * ownerFilter).
  */
 export async function listWebhookEndpointsByOwner(
   creatorAddress: string | undefined,
@@ -180,9 +180,8 @@ export async function setWebhookSecret(
 /**
  * Permanently delete a webhook endpoint and all its delivery records.
  *
- * `creatorAddress` constrains the delete to the owning account so one caller
- * cannot remove another's webhook by guessing its UUID; undefined is the
- * platform identity (see ownerFilter).
+ * `creatorAddress` constrains the delete to the owner, as every owner-scoped
+ * lookup does; undefined is for internal callers (see ownerFilter).
  */
 export async function deleteWebhookEndpoint(
   id: string,

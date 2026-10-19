@@ -1,13 +1,12 @@
 import { env } from '../../../config/env.js';
 import { logger } from '../../../config/logger.js';
-import { Allowlist } from '../allowlist.js';
 import { SignInError, type ProviderProfile, type SignInProvider } from './types.js';
 
 /**
  * Sign-in with a GitHub OAuth app. Everything GitHub specific lives here: the
- * endpoints, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET and GITHUB_ALLOWED_USERS,
- * the numeric account id as the stable subject, and the `github:<login>`
- * owner addresses older versions wrote.
+ * endpoints, GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, and the numeric
+ * account id as the stable subject. It only signs members in; who is a member
+ * is decided by the workspace, not by GitHub.
  */
 
 const AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
@@ -16,8 +15,6 @@ const USER_URL = 'https://api.github.com/user';
 
 // a hung github must not hold the callback (and the browser) forever
 const GITHUB_TIMEOUT_MS = 10_000;
-
-const LEGACY_PREFIX = 'github:';
 
 // github logins are case-insensitive
 const normalizeLogin = (login: string) => login.trim().toLowerCase();
@@ -113,14 +110,5 @@ export const githubProvider: SignInProvider = {
     return fetchUser(token);
   },
 
-  allowlist: () => new Allowlist(env.GITHUB_ALLOWED_USERS, normalizeLogin),
-
   normalizeHandle: normalizeLogin,
-
-  legacyOwnerAddress: (profile) => `${LEGACY_PREFIX}${normalizeLogin(profile.username)}`,
-
-  legacyHandle: (address) =>
-    address.startsWith(LEGACY_PREFIX) && address.length > LEGACY_PREFIX.length
-      ? address.slice(LEGACY_PREFIX.length)
-      : null,
 };

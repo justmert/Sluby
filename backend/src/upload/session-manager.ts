@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { logger } from '../config/logger.js';
 import { removeSourceUpload } from './source-files.js';
+import { WORKSPACE_ADDRESS } from '../api/ownership.js';
 
 export interface UploadSessionRecord {
   id: string;
@@ -22,6 +23,12 @@ export interface SessionManagerDeps {
   getSession: (id: string) => Promise<UploadSessionRecord | null>;
   updateSession: (id: string, data: Partial<UploadSessionRecord>) => Promise<void>;
 }
+
+// every session belongs to the workspace, whatever owner an older version
+// stamped in its metadata; only an owner filter that is not the workspace
+// (such as a stray empty address) finds nothing
+const sessionVisibleTo = (owner: string | undefined) =>
+  owner === undefined || owner === WORKSPACE_ADDRESS;
 
 export class SessionManager {
   constructor(private deps: SessionManagerDeps) {}
@@ -71,11 +78,7 @@ export class SessionManager {
     videoAssetId: string | null;
   } | null> {
     const session = await this.deps.getSession(sessionId);
-    // Owner-scope: a session belongs to the tenant whose address is stamped in
-    // its metadata. Return null (404) for another tenant so ids are not probeable.
-    if (!session || (owner !== undefined && session.metadata.creatorAddress !== owner)) {
-      return null;
-    }
+    if (!session || !sessionVisibleTo(owner)) return null;
 
     const progressPercent =
       session.fileSize > 0 ? Math.round((session.uploadedBytes / session.fileSize) * 100) : 0;
@@ -107,9 +110,7 @@ export class SessionManager {
     | { status: 'not_uploading'; sessionStatus: string }
   > {
     const session = await this.deps.getSession(sessionId);
-    if (!session || (owner !== undefined && session.metadata.creatorAddress !== owner)) {
-      return { status: 'not_found' };
-    }
+    if (!session || !sessionVisibleTo(owner)) return { status: 'not_found' };
     if (session.status !== 'uploading') {
       return { status: 'not_uploading', sessionStatus: session.status };
     }

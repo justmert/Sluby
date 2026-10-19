@@ -276,20 +276,21 @@ describe('webhook routes', () => {
       expect(deps.listWebhooks).toHaveBeenCalledWith('0xabc123');
     });
 
-    it('lists every account for the platform identity, through ownerFilter', async () => {
+    it("scopes an admin's calls to the workspace like anyone else's, through ownerFilter", async () => {
       const app = withApiKey(createTestApp(createWebhookRoutes(deps)), {
         ...defaultApiKey,
-        creatorAddress: `0x${'0'.repeat(64)}`,
+        creatorAddress: 'workspace',
+        admin: true,
       });
       await request(app).get('/');
       await request(app).delete('/wh-1');
       await request(app).post('/wh-1/test');
       await request(app).get('/wh-1/deliveries');
 
-      expect(deps.listWebhooks).toHaveBeenCalledWith(undefined);
-      expect(deps.deleteWebhook).toHaveBeenCalledWith('wh-1', undefined);
-      expect(deps.testWebhook).toHaveBeenCalledWith('wh-1', undefined);
-      expect(deps.listWebhookDeliveries).toHaveBeenCalledWith('wh-1', undefined, 50);
+      expect(deps.listWebhooks).toHaveBeenCalledWith('workspace');
+      expect(deps.deleteWebhook).toHaveBeenCalledWith('wh-1', 'workspace');
+      expect(deps.testWebhook).toHaveBeenCalledWith('wh-1', 'workspace');
+      expect(deps.listWebhookDeliveries).toHaveBeenCalledWith('wh-1', 'workspace', 50);
     });
 
     it('should return empty data array when no webhooks', async () => {

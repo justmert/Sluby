@@ -12,9 +12,9 @@ export interface PlaybackIdRecord {
   createdAt: Date;
 }
 
-// `owner` is the caller's creatorAddress (undefined for a platform key).
-// Every operation is scoped to the asset's owner so a caller cannot create,
-// list, or revoke playback ids on another tenant's asset.
+// `owner` is the caller's creatorAddress (the workspace). Every operation is
+// scoped to the asset's owner, so playback ids of an asset with any other
+// owner cannot be created, listed or revoked.
 export interface PlaybackIdRouteDeps {
   /** Create a playback id for an asset the caller owns; resolves null if the
    *  asset is unknown or not owned by the caller. */

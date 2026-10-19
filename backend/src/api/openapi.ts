@@ -10,9 +10,8 @@
  *
  * `x-required-scope` on an operation records the API-key scope its
  * middleware enforces (`upload` | `read` | `manage`); `x-required-identity:
- * operations` marks operations only the platform identity or an operator
- * (OPERATOR_USERS) may use. Auth
- * endpoints and the public spec/docs carry `security: []`.
+ * admin` marks operations only an admin may use. Auth endpoints and the public
+ * spec/docs carry `security: []`.
  */
 
 const bearerAuth = [{ bearerAuth: [] as string[] }];
@@ -89,12 +88,13 @@ export const openapiDocument = {
       'REST API and delivery gateway for Sluby, decentralized video streaming on ' +
       'the Sia network. Programmatic access uses a scoped API key sent as a ' +
       '`Bearer` token; the Studio UI uses a session cookie.\n\n' +
-      'Every resource belongs to the account (`creator_address`) of the key that made ' +
-      'it, and a by-id request for another account’s resource answers 404, as for one ' +
-      'that does not exist. A key with the all-zero platform address acts across ' +
-      'accounts. Deployment-wide operations data is for that key and for operators, ' +
-      'the accounts listed in OPERATOR_USERS and their keys, who see the deployment ' +
-      'but still only their own account’s resources.\n\n' +
+      'One server is one team’s workspace: every asset, key, webhook and upload belongs ' +
+      'to the workspace, and every member and key works with all of them. Members are ' +
+      '`admin` or `member`; a key acts with the current role of the member who made it ' +
+      'and stops while that member is removed, and a key made from the server ' +
+      '(`BOOTSTRAP_API_KEY`, `npm run db:seed-key`) has no creator and acts as an admin. ' +
+      'Deployment-wide operations data (full system status, metrics, the whole ' +
+      'reconciliation run) is for admins only.\n\n' +
       'Errors are JSON `{ "error": "...", "details": [...] }`; `details` lists the ' +
       'invalid fields of a 400. Every response of a key-checked operation carries ' +
       '`X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`; over the ' +
@@ -177,8 +177,8 @@ export const openapiDocument = {
       Unauthorized: errorWith(
         'No valid API key or session. Without a key, `reason` says why the session ended.',
       ),
-      Forbidden: errorWith('The key lacks the scope (or identity) the operation needs.'),
-      NotFound: errorWith('No such resource in the caller’s account.'),
+      Forbidden: errorWith('The key lacks the scope (or the admin role) the operation needs.'),
+      NotFound: errorWith('No such resource in the workspace.'),
       TooManyRequests: {
         description:
           'Over the rate limit of the key or session, or of the client address for a call without valid credentials.',
@@ -224,8 +224,8 @@ export const openapiDocument = {
             description:
               'On a 401 to a request without an API key (a browser session): `missing` (no ' +
               'session cookie, or one this server did not sign), `expired`, `revoked` (signed ' +
-              'out, here or from another browser) or `not_allowed` (the account is no longer on ' +
-              'the allowlist).',
+              'out, here or from another browser) or `not_allowed` (an admin removed the ' +
+              'account). A key whose creator was removed also answers `not_allowed`.',
           },
         },
         required: ['error'],
@@ -484,10 +484,9 @@ export const openapiDocument = {
       },
       ReconciliationRun: {
         description:
-          'The latest run. Its shape depends on `scope`: the platform identity and ' +
-          'operators (`deployment`) get the whole run; any other caller (`account`) gets only the ' +
-          'drift of its own assets, because the deployment-wide counts, orphans and failure ' +
-          'text describe other accounts and the operator’s setup. Objects the indexer ' +
+          'The latest run. Its shape depends on `scope`: admins (`deployment`) get the whole ' +
+          'run; members (`account`) get only the drift of the workspace’s assets, because the ' +
+          'deployment-wide counts, orphans and failure text describe the server’s setup. Objects the indexer ' +
           'pinned or unpinned within the hour before the run are work in progress and in ' +
           'neither list, so the in-sync count plus the orphan or missing count can be lower ' +
           'than the indexer or database count.',
@@ -572,12 +571,12 @@ export const openapiDocument = {
             type: 'string',
             enum: ['ok', 'drift', 'failed'],
             description:
-              '`drift` when objects of the caller’s assets are missing, `failed` when the ' +
+              '`drift` when objects of the workspace’s assets are missing, `failed` when the ' +
               'run itself could not complete.',
           },
           missing_count: {
             type: 'integer',
-            description: 'Missing objects of the caller’s assets.',
+            description: 'Missing objects of the workspace’s assets.',
           },
           missing_ids: { type: 'array', items: { type: 'string' } },
           missing_objects: {
@@ -662,8 +661,8 @@ export const openapiDocument = {
       },
       SystemStatus: {
         description:
-          'Live status. Its shape depends on `scope`: the platform identity and operators ' +
-          '(`deployment`) get the full report; any other caller (`account`) gets a health summary without ' +
+          'Live status. Its shape depends on `scope`: admins (`deployment`) get the full ' +
+          'report; members (`account`) get a health summary without ' +
           'the indexer account, the indexer url, probe error text, process uptime, the ' +
           'delivery cache or the deployment-wide reconciliation result.',
         oneOf: [
@@ -821,6 +820,7 @@ export const openapiDocument = {
           'expires_at',
           'prefix',
           'last_used_at',
+          'created_by',
         ],
         properties: {
           id: { type: 'string', format: 'uuid' },
@@ -845,6 +845,19 @@ export const openapiDocument = {
               'When the key last authenticated a request, to the minute: it is written at most ' +
               'once a minute per key. Null if never used since this was recorded.',
           }),
+          created_by: {
+            type: ['object', 'null'],
+            description:
+              'The member who made the key; it acts with their current role and stops while ' +
+              'they are removed. Null for a key made from the server (`BOOTSTRAP_API_KEY`, ' +
+              '`npm run db:seed-key`), made by such a key, or whose maker was deleted: it acts ' +
+              'as an admin.',
+            required: ['id', 'name'],
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              name: { type: 'string', description: 'Display name.' },
+            },
+          },
         },
       },
       ApiKeyList: {
@@ -862,7 +875,7 @@ export const openapiDocument = {
               max_keys: {
                 type: 'integer',
                 description:
-                  'How many usable keys one account may hold (`API_KEYS_PER_ACCOUNT_MAX`).',
+                  'How many usable keys the workspace may hold (`API_KEYS_PER_ACCOUNT_MAX`).',
               },
               max_rate_limit: {
                 type: 'integer',
@@ -951,6 +964,7 @@ export const openapiDocument = {
           'provider',
           'provider_label',
           'auth_disabled',
+          'role',
           'operator',
           'expires_at',
         ],
@@ -970,13 +984,18 @@ export const openapiDocument = {
             description:
               'True when the server runs with AUTH_DISABLED and this is the local dev account.',
           },
+          role: {
+            type: 'string',
+            enum: ['admin', 'member'],
+            description:
+              'Admins also see deployment-wide operations data (the full system status, ' +
+              'metrics and the whole reconciliation report) and manage members. Always ' +
+              '`admin` for the local dev account, the one user of an AUTH_DISABLED server.',
+          },
           operator: {
             type: 'boolean',
-            description:
-              'Whether the account is an operator (OPERATOR_USERS) and sees deployment-wide ' +
-              'operations data: the full system status, metrics and the whole reconciliation ' +
-              'report. Always true for the local dev account, the one user of an AUTH_DISABLED ' +
-              'server.',
+            deprecated: true,
+            description: 'Use `role`. True when `role` is `admin`.',
           },
           expires_at: nullable('string', { format: 'date-time' }),
           providerLabel: {
@@ -1261,7 +1280,8 @@ export const openapiDocument = {
           '(GitHub: the numeric account id), never the login. A failure redirects to the ' +
           'page the sign-in started from (or `/studio` once the handshake is lost) with ' +
           '`signin_error=<code>` added: `expired_handshake` (expired, or started in another ' +
-          'browser), `not_allowed` (with `&handle=<login>`, the account is not on the allowlist), ' +
+          'browser), `not_allowed` (with `&handle=<login>`, the account is not a member of this ' +
+          'workspace, or was removed), ' +
           '`cancelled` (the person declined at the provider), `provider_failed` (the provider ' +
           'refused the code or could not be reached) or `not_configured`.',
         security: [],
@@ -1290,9 +1310,9 @@ export const openapiDocument = {
         summary: 'The signed-in account.',
         description:
           'The account id and display name, plus the provider, provider label and handle the ' +
-          'browser signed in with, whether the account is an operator, and the session expiry. ' +
+          'browser signed in with, its role, and the session expiry. ' +
           'With AUTH_DISABLED it is the local dev account (`provider: "local"`, ' +
-          '`auth_disabled: true`, `operator: true`).',
+          '`auth_disabled: true`, `role: "admin"`).',
         security: [{ cookieAuth: [] }],
         responses: {
           '200': jsonResponse('AuthMe', 'The signed-in account, or the local dev account.'),
@@ -1407,7 +1427,7 @@ export const openapiDocument = {
           '400': textResponse('Invalid tus headers.'),
           '401': textResponse('No valid API key or session.'),
           '403': textResponse('The key lacks the upload scope.'),
-          '404': textResponse('No such upload in the caller’s account.'),
+          '404': textResponse('No such upload in the workspace.'),
           '409': textResponse('Upload-Offset does not match the bytes received so far.'),
           '410': textResponse('The upload expired.'),
           '413': textResponse('More bytes than the declared Upload-Length.'),
@@ -1426,7 +1446,7 @@ export const openapiDocument = {
           '200': { description: 'Upload-Offset and Upload-Metadata headers.' },
           '401': { description: 'No valid API key or session.' },
           '403': { description: 'The key lacks the upload scope.' },
-          '404': { description: 'No such upload in the caller’s account.' },
+          '404': { description: 'No such upload in the workspace.' },
           '410': { description: 'The upload expired.' },
         },
       },
@@ -1848,8 +1868,10 @@ export const openapiDocument = {
         tags: ['Keys'],
         summary: 'Create an API key.',
         description:
-          'The key belongs to the caller’s account. The answer has the shape of a listed key ' +
-          'plus `key`, the secret, which is never shown again.',
+          'The key belongs to the workspace and is made by the calling member, whose role it ' +
+          'acts with (`created_by`); a key with no creator makes keys with no creator. The ' +
+          'answer has the shape of a listed key plus `key`, the secret, which is never shown ' +
+          'again.',
         'x-required-scope': 'manage',
         requestBody: {
           content: {
@@ -1890,7 +1912,7 @@ export const openapiDocument = {
           '201': jsonResponse('ApiKeyCreated', 'Created (the secret is shown once).'),
           '400': ref('BadRequest'),
           '409': errorWith(
-            'The account already holds the most usable keys allowed (`API_KEYS_PER_ACCOUNT_MAX`).',
+            'The workspace already holds the most usable keys allowed (`API_KEYS_PER_ACCOUNT_MAX`).',
           ),
           ...authFailures,
         },
@@ -1899,8 +1921,8 @@ export const openapiDocument = {
         tags: ['Keys'],
         summary: 'List API keys.',
         description:
-          'Usable keys of the caller’s account, newest first, including rotated-out keys still ' +
-          'in their grace period. The platform identity lists every account’s keys. Pages hold ' +
+          'Usable keys of the workspace, newest first, with who made each, including ' +
+          'rotated-out keys still in their grace period. Pages hold ' +
           'up to 1000 keys; follow next_cursor while has_more is true.',
         'x-required-scope': 'manage',
         parameters: [
@@ -1958,8 +1980,8 @@ export const openapiDocument = {
         tags: ['Keys'],
         summary: 'Rename an API key.',
         description:
-          'Changes only the name; the secret, scopes and rate limit stay. A key of another ' +
-          'account, a revoked key and a key past its grace period answer 404.',
+          'Changes only the name; the secret, scopes and rate limit stay. An unknown key, a ' +
+          'revoked key and a key past its grace period answer 404.',
         'x-required-scope': 'manage',
         parameters: [idParam('id', 'Key id.')],
         requestBody: {
@@ -2006,9 +2028,9 @@ export const openapiDocument = {
     '/api/v1/webhooks': {
       post: {
         tags: ['Webhooks'],
-        summary: 'Register a webhook endpoint for your account.',
+        summary: 'Register a webhook endpoint for the workspace.',
         description:
-          'Events are delivered only for assets owned by the same account. Each request carries ' +
+          'Events are delivered for the workspace’s assets. Each request carries ' +
           'X-Sluby-Event, X-Sluby-Delivery (the same on every retry of one delivery), ' +
           'X-Sluby-Timestamp (Unix seconds, per attempt) and X-Sluby-Signature-V1, the hex ' +
           'HMAC-SHA256 of `<timestamp>.<raw body>` with the endpoint secret; receivers should ' +
@@ -2063,7 +2085,7 @@ export const openapiDocument = {
         tags: ['Webhooks'],
         summary: 'List webhook endpoints.',
         description:
-          'Every endpoint of the account, paused ones included, newest first. Needs `manage`, ' +
+          'Every endpoint of the workspace, paused ones included, newest first. Needs `manage`, ' +
           'like creating them: receiver URLs often carry credentials.',
         'x-required-scope': 'manage',
         responses: {
@@ -2324,11 +2346,8 @@ export const openapiDocument = {
         tags: ['Reconciliation'],
         summary: 'Latest reconciliation run.',
         description:
-          'The platform identity and operators get the whole run, orphaned ids included; any ' +
-          'other caller gets only the missing objects of its own assets (see ' +
-          'ReconciliationRun). The platform identity is a key with the all-zero address, as ' +
-          '`npm run db:seed-key -- --platform` mints; operators are the accounts in ' +
-          'OPERATOR_USERS, their Studio sessions and their keys.',
+          'Admins get the whole run, orphaned ids included; members get only the missing ' +
+          'objects of the workspace’s assets (see ReconciliationRun).',
         'x-required-scope': 'manage',
         responses: {
           '200': jsonResponse('ReconciliationRun', 'Latest run.'),
@@ -2342,12 +2361,11 @@ export const openapiDocument = {
         tags: ['Reconciliation'],
         summary: 'Trigger a reconciliation run.',
         description:
-          'A run scans the whole deployment, so only the platform identity or an operator may ' +
-          'start one. It ' +
+          'A run scans the whole deployment, so only an admin may start one. It ' +
           'is queued unless one, manual or scheduled, is already waiting or running, so ' +
           'repeated calls never stack runs.',
         'x-required-scope': 'manage',
-        'x-required-identity': 'operations',
+        'x-required-identity': 'admin',
         responses: {
           '202': jsonResponse('ReconciliationTrigger', 'Queued, or a run was already pending.'),
           ...authFailures,
@@ -2358,10 +2376,8 @@ export const openapiDocument = {
     '/api/v1/stats': {
       get: {
         tags: ['Ops'],
-        summary: "Library totals for the caller's account.",
-        description:
-          'The platform identity gets the totals of every account. An operator gets its own, ' +
-          'like any other account.',
+        summary: 'Library totals for the workspace.',
+        description: 'The same totals for every member and key.',
         'x-required-scope': 'read',
         responses: { '200': jsonResponse('AssetStats', 'Totals.'), ...authFailures },
       },
@@ -2369,11 +2385,11 @@ export const openapiDocument = {
     '/api/v1/stats/usage': {
       get: {
         tags: ['Ops'],
-        summary: 'Plays per day of your videos.',
+        summary: 'Plays per day of the workspace’s videos.',
         description:
-          'Plays of the caller’s videos per UTC day for the last `days` days, today included, ' +
+          'Plays of the workspace’s videos per UTC day for the last `days` days, today included, ' +
           'oldest first, with days without plays as 0. What counts as a play is described on ' +
-          '`play_count` of an asset. The platform identity gets every account together.',
+          '`play_count` of an asset.',
         'x-required-scope': 'read',
         parameters: [
           {
@@ -2414,9 +2430,7 @@ export const openapiDocument = {
       get: {
         tags: ['Ops'],
         summary: 'Live platform status: database, redis, Sia indexer, reconciliation, cache.',
-        description:
-          'The platform identity and operators get the full report; any other caller a health summary ' +
-          '(see SystemStatus).',
+        description: 'Admins get the full report; members a health summary (see SystemStatus).',
         'x-required-scope': 'read',
         responses: { '200': jsonResponse('SystemStatus', 'Status report.'), ...authFailures },
       },
@@ -2425,11 +2439,9 @@ export const openapiDocument = {
       get: {
         tags: ['Ops'],
         summary: 'Platform metrics (prometheus registry as JSON).',
-        description:
-          'The registry counts the whole process, so only the platform identity or an operator ' +
-          'may read it.',
+        description: 'The registry counts the whole process, so only an admin may read it.',
         'x-required-scope': 'read',
-        'x-required-identity': 'operations',
+        'x-required-identity': 'admin',
         responses: { '200': jsonResponse('Metrics', 'Metrics.'), ...authFailures },
       },
     },

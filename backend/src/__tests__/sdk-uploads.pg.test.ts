@@ -18,7 +18,7 @@ import { hasTestDatabase, createTestDatabase, type TestDatabase } from './helper
 import type * as AppModule from '../app.js';
 import type * as KeyQueries from '../db/queries/api-keys.js';
 
-const OWNER = 'github:alice';
+const OWNER = 'workspace';
 const RAW_KEY = `sluby_${'a'.repeat(40)}`;
 
 // the sdk is loaded from its source at run time: the backend's tsconfig keeps

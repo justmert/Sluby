@@ -8,12 +8,16 @@ vi.mock('../config/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
 
+const ALICE = '00000000-0000-4000-8000-0000000000a1';
+
 const caller = {
-  id: 'session:alice',
-  name: 'GitHub session (alice)',
+  id: `session:${ALICE}`,
+  name: 'Studio session (alice)',
   scopes: ['upload', 'read', 'manage'],
   rateLimit: 1000,
-  creatorAddress: 'github:alice',
+  creatorAddress: 'workspace',
+  admin: false,
+  userId: ALICE as string | null,
 };
 
 const record = (over: Partial<ApiKeyRecord> = {}): ApiKeyRecord => ({
@@ -26,6 +30,7 @@ const record = (over: Partial<ApiKeyRecord> = {}): ApiKeyRecord => ({
   expiresAt: null,
   prefix: 'sluby_abcdef',
   lastUsedAt: null,
+  createdBy: null,
   ...over,
 });
 
@@ -41,6 +46,7 @@ describe('key routes', () => {
           scopes: data.scopes,
           rateLimit: data.rateLimit,
           prefix: data.prefix,
+          createdBy: data.createdBy ? { id: data.createdBy, name: 'alice' } : null,
         }),
       ),
       listApiKeys: vi.fn().mockResolvedValue({ data: [], hasMore: false, nextCursor: null }),
@@ -52,7 +58,7 @@ describe('key routes', () => {
 
   const app = (who = caller) => withApiKey(createTestApp(createKeyRoutes(deps)), who);
 
-  it('creates a key owned by the caller and returns the secret once', async () => {
+  it('creates a workspace key made by the calling member and returns the secret once', async () => {
     const res = await request(app())
       .post('/')
       .send({ name: ' ci ', scopes: ['read'], rate_limit: 60 });
@@ -69,6 +75,7 @@ describe('key routes', () => {
       expires_at: null,
       prefix: res.body.key.slice(0, 12),
       last_used_at: null,
+      created_by: { id: ALICE, name: 'alice' },
       key: expect.stringMatching(/^sluby_/),
     });
     // only the hash and the first 12 characters are stored
@@ -79,10 +86,20 @@ describe('key routes', () => {
         name: 'ci',
         scopes: ['read'],
         rateLimit: 60,
-        creatorAddress: 'github:alice',
+        creatorAddress: 'workspace',
+        createdBy: ALICE,
       },
       100,
     );
+  });
+
+  it('records no creator for a key made by a key with no creator', async () => {
+    const res = await request(app({ ...caller, id: 'key-seed', admin: true, userId: null }))
+      .post('/')
+      .send({ name: 'ci' });
+    expect(res.status).toBe(201);
+    expect(res.body.created_by).toBeNull();
+    expect(vi.mocked(deps.createApiKey).mock.calls[0][0].createdBy).toBeNull();
   });
 
   it.each([
@@ -111,7 +128,7 @@ describe('key routes', () => {
     expect(vi.mocked(deps.createApiKey).mock.calls[0][0].scopes).toEqual(['read', 'upload']);
   });
 
-  it('refuses a key once the account holds the maximum', async () => {
+  it('refuses a key once the workspace holds the maximum', async () => {
     vi.mocked(deps.createApiKey).mockResolvedValue(null);
     const limited = withApiKey(
       createTestApp(createKeyRoutes(deps, { rateLimitMax: 500, keysPerAccountMax: 2 })),
@@ -126,19 +143,21 @@ describe('key routes', () => {
     expect(list.body.limits).toEqual({ max_keys: 2, max_rate_limit: 500 });
   });
 
-  it('lists keys with their expiry', async () => {
+  it('lists keys with their expiry and who made them', async () => {
     vi.mocked(deps.listApiKeys).mockResolvedValue({
       data: [
         record({
           expiresAt: new Date('2026-10-03T10:00:00Z'),
           lastUsedAt: new Date('2026-10-02T11:00:00Z'),
+          createdBy: { id: ALICE, name: 'alice' },
         }),
+        record({ id: 'key-seed' }),
       ],
       hasMore: false,
       nextCursor: null,
     });
     const res = await request(app()).get('/');
-    expect(deps.listApiKeys).toHaveBeenCalledWith('github:alice', { limit: 1000 });
+    expect(deps.listApiKeys).toHaveBeenCalledWith('workspace', { limit: 1000 });
     expect(res.body.has_more).toBe(false);
     expect(res.body.next_cursor).toBeNull();
     expect(res.body.limits).toEqual({ max_keys: 100, max_rate_limit: 10000 });
@@ -152,7 +171,9 @@ describe('key routes', () => {
       expires_at: '2026-10-03T10:00:00.000Z',
       prefix: 'sluby_abcdef',
       last_used_at: '2026-10-02T11:00:00.000Z',
+      created_by: { id: ALICE, name: 'alice' },
     });
+    expect(res.body.data[1].created_by).toBeNull();
   });
 
   describe('rotate', () => {
@@ -168,7 +189,7 @@ describe('key routes', () => {
 
       expect(res.status).toBe(201);
       const [id, owner, replacement, retireAt] = vi.mocked(deps.rotateApiKey).mock.calls[0];
-      expect([id, owner]).toEqual(['key-2', 'github:alice']);
+      expect([id, owner]).toEqual(['key-2', 'workspace']);
       expect(retireAt.toISOString()).toBe('2026-10-02T13:00:00.000Z');
       expect(res.body).toMatchObject({
         id: 'key-3',
@@ -177,6 +198,8 @@ describe('key routes', () => {
       });
       expect(replacement.keyHash).toBe(hashApiKey(res.body.key));
       expect(replacement.prefix).toBe(res.body.key.slice(0, 12));
+      // the member who rotates makes the replacement, so it carries their role
+      expect(replacement.createdBy).toBe(ALICE);
       vi.useRealTimers();
     });
 
@@ -221,7 +244,7 @@ describe('key routes', () => {
       const res = await request(app()).patch('/key-2').send({ name: ' deploy bot ' });
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ id: 'key-2', name: 'deploy bot' });
-      expect(deps.renameApiKey).toHaveBeenCalledWith('key-2', 'github:alice', 'deploy bot');
+      expect(deps.renameApiKey).toHaveBeenCalledWith('key-2', 'workspace', 'deploy bot');
     });
 
     it('answers 404 for a key the caller cannot rename', async () => {
@@ -241,10 +264,10 @@ describe('key routes', () => {
     );
   });
 
-  it('revokes only within the account', async () => {
+  it('revokes only within the workspace', async () => {
     vi.mocked(deps.deleteApiKey).mockResolvedValue(false);
     const res = await request(app()).delete('/key-2');
-    expect(deps.deleteApiKey).toHaveBeenCalledWith('key-2', 'github:alice');
+    expect(deps.deleteApiKey).toHaveBeenCalledWith('key-2', 'workspace');
     expect(res.status).toBe(404);
   });
 
