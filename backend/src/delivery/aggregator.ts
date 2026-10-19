@@ -522,9 +522,11 @@ deliveryRouter.get('/v1/objects/:objectId', async (req: Request, res: Response) 
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-interface ResolvedEntry {
+export interface ResolvedEntry {
   asset: {
     id: string;
+    title: string;
+    thumbnailObjectIds: string[];
     manifestObjectId: string | null;
     accessTier: string;
     status: string;
@@ -539,7 +541,7 @@ interface ResolvedEntry {
  * a pb_ playback id) and the policy of the handle used, or null when there is
  * no such live asset. Throws when the database cannot be read.
  */
-async function resolveEntry(param: string): Promise<ResolvedEntry | null> {
+export async function resolveEntry(param: string): Promise<ResolvedEntry | null> {
   let assetId = param;
   let policy = 'public';
   if (isPlaybackId(param)) {
@@ -554,7 +556,7 @@ async function resolveEntry(param: string): Promise<ResolvedEntry | null> {
   return asset ? { asset, policy } : null;
 }
 
-function signingStateOf(asset: ResolvedEntry['asset']): SigningState {
+export function signingStateOf(asset: ResolvedEntry['asset']): SigningState {
   return {
     generation: asset.signingGeneration,
     legacyUntilSec:

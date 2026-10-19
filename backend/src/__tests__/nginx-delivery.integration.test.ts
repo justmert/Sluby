@@ -151,6 +151,13 @@ http {
       default_type application/json;
       return 200 '{"status":"ok"}';
     }
+    # the watch page sends its own csp and nosniff, as the backend does
+    location /watch/ {
+      default_type text/html;
+      add_header Content-Security-Policy "frame-ancestors *" always;
+      add_header X-Content-Type-Options nosniff always;
+      return 200 "<p>watch page</p>";
+    }
   }
 }
 `;
@@ -557,6 +564,14 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       expect(headerValues(r.raw, 'x-content-type-options')).toEqual(['nosniff']);
       expect(headerValues(r.raw, 'x-frame-options')).toEqual(['DENY']);
       expect(headerValues(r.raw, 'content-security-policy')).toEqual([]);
+    });
+
+    it('sends the watch page to the backend, frameable, with one copy of its headers', async () => {
+      const r = await rawGet(`${base}/watch/pb_x`);
+      expect(r.body.toString()).toBe('<p>watch page</p>');
+      expect(headerValues(r.raw, 'x-frame-options')).toEqual([]);
+      expect(headerValues(r.raw, 'x-content-type-options')).toEqual(['nosniff']);
+      expect(headerValues(r.raw, 'content-security-policy')).toEqual(['frame-ancestors *']);
     });
 
     it('leaves the delivery responses to their own headers', async () => {

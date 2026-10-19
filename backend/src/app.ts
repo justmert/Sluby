@@ -15,6 +15,7 @@ import { SessionManager } from './upload/session-manager.js';
 import { buildSignedObjectQuery } from './delivery/signed-url.js';
 import { createAssetShareUrls } from './delivery/share-urls.js';
 import { deliveryRouter } from './delivery/aggregator.js';
+import { watchRouter } from './watch/watch-router.js';
 import { invalidateAssetAccess } from './delivery/access-control.js';
 import { setMetricSources } from './metrics/collector.js';
 import {
@@ -1051,6 +1052,8 @@ export function createApp(ctx: AppContext): {
   // mounts at root. It comes before the api cors because it answers its own:
   // any origin, never credentials, and Range allowed on preflight.
   mountRouter(app, '/', deliveryRouter);
+  // the public watch page: plain html any page may frame, no credentials
+  mountRouter(app, '/', watchRouter);
 
   app.get('/metrics', requireMetricsToken(env.METRICS_TOKEN), createPrometheusHandler(logger));
 
