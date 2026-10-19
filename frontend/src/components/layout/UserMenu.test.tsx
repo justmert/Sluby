@@ -79,11 +79,11 @@ describe('UserMenu', () => {
     expect(replacePage).not.toHaveBeenCalled();
   });
 
-  it('marks an operator and has no sign out when sign-in is off', async () => {
-    renderMenu({ operator: true, authDisabled: true, provider: 'local', username: 'dev' });
-    await userEvent.click(screen.getByRole('button', { name: /dev, operator/ }));
+  it('marks an admin and has no sign out when sign-in is off', async () => {
+    renderMenu({ admin: true, authDisabled: true, provider: 'local', username: 'dev' });
+    await userEvent.click(screen.getByRole('button', { name: /dev, admin/ }));
     expect(await screen.findByText('Sign-in is off on this server')).toBeInTheDocument();
-    expect(screen.getByText('Operator')).toBeInTheDocument();
+    expect(screen.getByText('Admin')).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: /sign out/i })).not.toBeInTheDocument();
   });
 
@@ -110,9 +110,9 @@ describe('UserMenu', () => {
 
   it('says sign-in is off in its name and keeps the theme (D-15, A11Y-39)', async () => {
     stubFetch(() => json({}));
-    renderMenu({ operator: true, authDisabled: true, provider: 'local', username: 'dev' });
+    renderMenu({ admin: true, authDisabled: true, provider: 'local', username: 'dev' });
     const trigger = screen.getByRole('button', {
-      name: 'Account menu, dev, operator, sign-in off',
+      name: 'Account menu, dev, admin, sign-in off',
     });
     await userEvent.click(trigger);
     expect(await screen.findByRole('menuitem', { name: 'Theme' })).toBeInTheDocument();

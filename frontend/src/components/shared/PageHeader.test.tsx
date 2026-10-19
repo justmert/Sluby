@@ -39,7 +39,7 @@ describe('PageHeader', () => {
 describe('SectionHeader', () => {
   it('is a 16px semibold h2 by default, h3 on request', () => {
     const { rerender } = render(
-      <SectionHeader title="Deployment" description="Only operators see this" />,
+      <SectionHeader title="Deployment" description="Only admins see this" />,
     );
     expect(screen.getByRole('heading', { level: 2, name: 'Deployment' })).toHaveClass(
       'text-heading',

@@ -279,7 +279,7 @@ describe('PlaybackIdsCard', () => {
     release();
     expect(
       await screen.findByText(
-        'Could not create the playback ID “Partner”. You do not have access to this. Ask an operator if you need it.',
+        'Could not create the playback ID “Partner”. You do not have access to this. Ask an admin if you need it.',
       ),
     ).toBeInTheDocument();
     // not shown in the new form, which asked for nothing yet

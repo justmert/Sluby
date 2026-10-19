@@ -87,7 +87,7 @@ function setup(routes: Record<string, unknown> = {}) {
   });
   vi.stubGlobal('fetch', vi.fn(server));
   const view = renderPage(
-    <WithSession operator>
+    <WithSession admin>
       <HealthPage />
     </WithSession>,
   );

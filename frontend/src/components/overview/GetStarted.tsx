@@ -18,7 +18,7 @@ import { doneCount, REQUIRED_STEPS, type StepId, type StepState } from './get-st
 
 interface GetStartedProps {
   steps: StepState[];
-  operator: boolean;
+  admin: boolean;
   status?: SystemStatus;
   /** the newest video still uploading or processing, for step 2's progress line */
   busy?: VideoAsset;
@@ -150,7 +150,7 @@ function Tile({
  */
 export function GetStarted({
   steps,
-  operator,
+  admin,
   status,
   busy,
   readyCount,
@@ -225,12 +225,12 @@ export function GetStarted({
           extra={siaFailing && <ErrorDetails detail={probeError} />}
           action={
             siaFailing &&
-            (operator ? (
+            (admin ? (
               <Button variant="link" className={ACTION} asChild>
                 <Link to={ROUTES.DEPLOYMENT}>Open health</Link>
               </Button>
             ) : (
-              <p className="text-muted-foreground">Ask the operator of this server.</p>
+              <p className="text-muted-foreground">Ask an admin.</p>
             ))
           }
         />

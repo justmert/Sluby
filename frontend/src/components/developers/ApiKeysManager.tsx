@@ -32,7 +32,7 @@ import { KEY_COLUMNS } from './columns';
 import { useCreateParam } from './create-param';
 import { CreateKeyDialog } from './CreateKeyDialog';
 import { emptyKeyForm, KEY_NAME_MAX, type KeyForm } from './forms';
-import { keyCopyButton, keyLabel } from './key-label';
+import { keyCopyButton, keyCreator, keyLabel } from './key-label';
 import { RotateKeyDialog } from './RotateKeyDialog';
 import { focusRowMenu, focusTargets, rowFocus, startRowEdit, type RowFocus } from './row-focus';
 import { KeyCreatedNotice, type CreatedKey } from './KeyCreatedNotice';
@@ -180,6 +180,18 @@ export function ApiKeysManager() {
         </time>
       ),
     created: (k) => <time dateTime={k.createdAt}>{formatDate(k.createdAt)}</time>,
+    'created-by': (k) => {
+      const { text, known } = keyCreator(k);
+      return known ? (
+        <span dir="auto" className="wrap-anywhere">
+          {text}
+        </span>
+      ) : (
+        <span title={text === 'Server' ? 'Made on the server, not by a member' : undefined}>
+          {text}
+        </span>
+      );
+    },
     status: (k) =>
       isReplaced(k) ? (
         <StatusBadge kind="key" status="replaced">

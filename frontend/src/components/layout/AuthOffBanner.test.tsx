@@ -15,11 +15,11 @@ const render = (authDisabled: boolean) =>
   );
 
 describe('AuthOffBanner (FLW-29, D-15)', () => {
-  it('warns that anyone who can open the address is an operator, with how to turn sign-in on', () => {
+  it('warns that anyone who can open the address is an admin, with how to turn sign-in on', () => {
     render(true);
     const banner = screen.getByRole('region', { name: 'Sign-in is off' });
     expect(banner).toHaveTextContent(
-      'Sign-in is off. Anyone who can open this address has operator access.',
+      'Sign-in is off. Anyone who can open this address has admin access.',
     );
     const link = screen.getByRole('link', { name: 'Turn on sign-in, opens in a new tab' });
     expect(link).toHaveAttribute(

@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { Link } from 'react-router';
-import { Plus } from 'lucide-react';
+import { Plus, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ROUTES } from '@/lib/constants';
 import { Icons } from '@/lib/icons';
@@ -52,6 +52,15 @@ export function AddWebhookButton(props: ButtonProps) {
     <Button {...props}>
       <Plus />
       Add webhook
+    </Button>
+  );
+}
+
+export function InviteButton(props: ButtonProps) {
+  return (
+    <Button {...props}>
+      <UserPlus />
+      Invite people
     </Button>
   );
 }

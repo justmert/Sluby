@@ -46,12 +46,12 @@ function CheckedLine({
   );
 }
 
-// operators only: App.tsx wraps the route in OperatorOnly
+// admins only: App.tsx wraps the route in AdminOnly
 export default function HealthPage() {
   const system = useSystemStatus({ poll: true });
   const status = system.data;
   const deployment = status?.scope === 'deployment' ? status : undefined;
-  // the server only sends the summary to an account that is not the platform identity
+  // the server sends a member only the summary
   const summaryOnly = status?.scope === 'account';
   const failed = system.isError && !status;
   const run = useReconciliation();

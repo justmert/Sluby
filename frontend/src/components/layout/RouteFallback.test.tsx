@@ -7,9 +7,9 @@ import { WithSession } from '@/test/session';
 import { HealthLoading } from '@/components/deployment/HealthLoading';
 import { RouteFallback } from './RouteFallback';
 
-const shapeAt = (route: string, operator = false) => {
+const shapeAt = (route: string, admin = false) => {
   const { container } = renderPage(
-    <WithSession operator={operator}>
+    <WithSession admin={admin}>
       <RouteFallback />
     </WithSession>,
     { route },
@@ -62,16 +62,16 @@ describe('RouteFallback', () => {
   });
 
   it('draws the dashboard and analytics with the pages own loading pieces', () => {
-    // 4 stats, recent videos and status, for members and operators alike (the
-    // operator cards live on Health)
-    for (const operator of [false, true]) {
-      const overview = shapeAt('/studio', operator);
+    // 4 stats, recent videos and status, for members and admins alike (the
+    // admin cards live on Health)
+    for (const admin of [false, true]) {
+      const overview = shapeAt('/studio', admin);
       expect(overview.querySelectorAll('[data-slot="stat-value"]')).toHaveLength(4);
       expect(overview).toHaveTextContent('Recent videos');
       expect(overview).toHaveTextContent('Status');
       expect(overview).not.toHaveTextContent('Sia account');
     }
-    // metrics: 8 server stats and the two 224px chart boxes (operators only reach it)
+    // metrics: 8 server stats and the two 224px chart boxes (admins only reach it)
     const metrics = shapeAt('/studio/deployment/metrics', true);
     expect(metrics.querySelectorAll('[data-slot="stat-value"]')).toHaveLength(8);
     expect(metrics.querySelectorAll('[data-slot="skeleton"].h-56')).toHaveLength(2);
@@ -97,9 +97,9 @@ describe('RouteFallback', () => {
     expect(shapeAt('/studio/settings')).toHaveClass('delay-150', 'fill-mode-backwards');
   });
 
-  it('draws settings as three sections, two with sign-in off', () => {
+  it('draws settings as four sections, two with sign-in off', () => {
     const on = shapeAt('/studio/settings');
-    expect(on.querySelectorAll('section[class]')).toHaveLength(3);
+    expect(on.querySelectorAll('section[class]')).toHaveLength(4);
     const view = renderPage(
       <WithSession authDisabled>
         <RouteFallback />
@@ -114,7 +114,7 @@ describe('RouteFallback', () => {
   it('draws Health with the page’s own first draw, under a header with its status badge', () => {
     const fallback = shapeAt('/studio/deployment', true);
     const { container } = renderPage(
-      <WithSession operator>
+      <WithSession admin>
         <HealthLoading />
       </WithSession>,
     );

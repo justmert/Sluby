@@ -10,8 +10,16 @@ describe('routes and nav', () => {
     expect(ROUTES.webhook('w1')).toBe('/studio/developers/webhooks/w1');
   });
 
-  it('hides the deployment group from members', () => {
-    expect(navItemsFor(false).map((i) => i.label)).not.toContain('Health');
+  it('hides the deployment group and Members from members', () => {
+    expect(navItemsFor(false).map((i) => i.label)).toEqual([
+      'Overview',
+      'Videos',
+      'Quickstart',
+      'API keys',
+      'Webhooks',
+      'API explorer',
+      'Settings',
+    ]);
     expect(navItemsFor(true).map((i) => i.label)).toEqual([
       'Overview',
       'Videos',
@@ -21,8 +29,10 @@ describe('routes and nav', () => {
       'API explorer',
       'Health',
       'Metrics',
+      'Members',
       'Settings',
     ]);
+    expect(ROUTES.MEMBERS).toBe('/studio/members');
   });
 
   it('matches exact items on their own path and list items on their detail pages', () => {

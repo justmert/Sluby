@@ -85,7 +85,7 @@ const KNOWN: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
     () => 'Could not start playback from Sia. Try again in a moment.',
   ],
   // api-key.ts:64
-  [/^Only the platform identity or an operator/i, () => 'Only operators can do this.'],
+  [/^Only an admin may use this endpoint/i, () => 'Only admins can do this.'],
   // uploads.ts:77
   [
     /^The upload is no longer in progress/i,
@@ -100,7 +100,7 @@ const KNOWN: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
 const OFFLINE = 'Could not reach the server. Check your connection and try again.';
 const TIMEOUT = 'The server did not answer in time. Try again in a moment.';
 const SIGNED_OUT = 'Your session ended. Sign in again to continue.';
-const FORBIDDEN = 'You do not have access to this. Ask an operator if you need it.';
+const FORBIDDEN = 'You do not have access to this. Ask an admin if you need it.';
 const GONE = 'It no longer exists. It may have been deleted.';
 const CONFLICT = 'This changed in the meantime. Refresh and try again.';
 const INVALID = 'Some details are not valid. Check them and try again.';

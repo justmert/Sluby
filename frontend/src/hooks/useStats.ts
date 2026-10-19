@@ -48,7 +48,7 @@ export interface IndexerAccount {
   last_used: string;
 }
 
-/** What operators and the platform identity see: the whole deployment. */
+/** What admins see: the whole deployment. */
 export interface DeploymentStatus extends StatusCommon {
   scope: 'deployment';
   uptime_seconds: number;
@@ -94,7 +94,7 @@ export interface AccountReconciliation extends RunTimes {
   scope: 'account';
 }
 
-/** The whole latest run, for operators and the platform identity. */
+/** The whole latest run, for admins. */
 export interface DeploymentReconciliation extends RunTimes {
   scope: 'deployment';
   db_object_count: number;
@@ -145,7 +145,7 @@ export function useReconciliation() {
   });
 }
 
-/** Queue a deployment-wide run now (operators only); false when one was already queued. */
+/** Queue a deployment-wide run now (admins only); false when one was already queued. */
 export function useRunReconciliation() {
   const qc = useQueryClient();
   return useMutation({

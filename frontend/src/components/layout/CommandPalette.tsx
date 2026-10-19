@@ -250,7 +250,7 @@ function PaletteBody({ close }: { close: () => void }) {
   const found = usePaletteVideos(term);
   const keys = useApiKeys();
   const navigate = useNavigate();
-  const { operator, authDisabled } = useSession();
+  const { admin, authDisabled } = useSession();
   const { resolvedTheme, setTheme } = useTheme();
   const { signOut } = useSignOut();
 
@@ -259,7 +259,7 @@ function PaletteBody({ close }: { close: () => void }) {
     void navigate(path);
   };
 
-  const pages: Entry[] = navItemsFor(operator).map((item) => ({
+  const pages: Entry[] = navItemsFor(admin).map((item) => ({
     id: `page-${item.path}`,
     label: item.label,
     icon: item.icon,

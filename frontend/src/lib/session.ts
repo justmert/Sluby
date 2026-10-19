@@ -2,6 +2,14 @@ import { createContext, useContext } from 'react';
 import { SlubyError } from '@sluby/sdk';
 import { ApiError } from './api-client';
 
+export type Role = 'admin' | 'member';
+
+/** One way an account signs in: `password` with the email, `github` with the login. */
+export interface SignInMethod {
+  provider: string;
+  username: string;
+}
+
 /** The signed-in account, from GET /auth/me. */
 export interface AuthSession {
   /** The account id. */
@@ -15,8 +23,14 @@ export interface AuthSession {
   providerLabel: string | null;
   /** True when the server runs with AUTH_DISABLED and everyone is the local account. */
   authDisabled: boolean;
-  /** Operators see deployment-wide status, metrics and reconciliation. */
-  operator: boolean;
+  role: Role;
+  /**
+   * Admins see deployment-wide status, metrics and reconciliation, and
+   * manage members and invites.
+   */
+  admin: boolean;
+  /** Every way the account signs in, such as its password email and GitHub login. */
+  signIn: SignInMethod[];
   /** When the session ends; null when sign-in is disabled. */
   expiresAt: string | null;
 }
@@ -29,12 +43,15 @@ export interface MeResponse {
   provider: string | null;
   provider_label: string | null;
   auth_disabled: boolean;
-  /** Absent on servers older than the operator role, which means no. */
-  operator?: boolean;
+  /** Absent on servers from before roles, which means member. */
+  role?: Role;
+  sign_in?: SignInMethod[];
   expires_at: string | null;
 }
 
 export function sessionFromMe(me: MeResponse): AuthSession {
+  // the deprecated `operator` alias is not read: role says the same
+  const role: Role = me.role === 'admin' ? 'admin' : 'member';
   return {
     id: me.id,
     name: me.name,
@@ -42,7 +59,9 @@ export function sessionFromMe(me: MeResponse): AuthSession {
     provider: me.provider,
     providerLabel: me.provider_label,
     authDisabled: me.auth_disabled === true,
-    operator: me.operator === true,
+    role,
+    admin: role === 'admin',
+    signIn: Array.isArray(me.sign_in) ? me.sign_in : [],
     expiresAt: me.expires_at ?? null,
   };
 }

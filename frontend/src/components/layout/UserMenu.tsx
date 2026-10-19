@@ -63,7 +63,7 @@ export function UserMenu({ className }: { className?: string }) {
   const { signOut, signingOut } = useSignOut();
   const name = [
     `Account menu, ${session.username}`,
-    session.operator && 'operator',
+    session.admin && 'admin',
     session.authDisabled && 'sign-in off',
   ]
     .filter(Boolean)
@@ -93,9 +93,9 @@ export function UserMenu({ className }: { className?: string }) {
         <DropdownMenuLabel dir="auto" className="font-mono text-xs wrap-anywhere">
           {session.username}
         </DropdownMenuLabel>
-        {session.operator && (
+        {session.admin && (
           <DropdownMenuLabel className="pt-0 text-xs font-normal text-muted-foreground">
-            Operator
+            Admin
           </DropdownMenuLabel>
         )}
         <DropdownMenuSeparator />

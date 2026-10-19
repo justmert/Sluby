@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { legacyRedirect, uploadParamRedirect } from './redirects';
 
-const at = (url: string, operator = false) => {
+const at = (url: string, admin = false) => {
   const u = new URL(url, 'https://studio.example.com');
-  return legacyRedirect({ pathname: u.pathname, search: u.search, hash: u.hash }, { operator });
+  return legacyRedirect({ pathname: u.pathname, search: u.search, hash: u.hash }, { admin });
 };
 
 describe('legacyRedirect', () => {
@@ -28,7 +28,7 @@ describe('legacyRedirect', () => {
     expect(at(from, true)).toBe(to);
   });
 
-  it('sends analytics to metrics for an operator and to the overview for a member', () => {
+  it('sends analytics to metrics for an admin and to the overview for a member', () => {
     expect(at('/studio/analytics', true)).toBe('/studio/deployment/metrics');
     expect(at('/studio/analytics')).toBe('/studio');
     expect(at('/studio/analytics?range=1h', true)).toBe('/studio/deployment/metrics?range=1h');

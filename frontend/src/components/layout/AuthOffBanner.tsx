@@ -25,7 +25,7 @@ function writeDismissed() {
   }
 }
 
-/** With AUTH_DISABLED, a warning over every page that anyone who can reach it is an operator (D-15). */
+/** With AUTH_DISABLED, a warning over every page that anyone who can reach it is an admin (D-15). */
 export function AuthOffBanner() {
   const { authDisabled } = useSession();
   const [dismissed, setDismissed] = useState(readDismissed);
@@ -48,7 +48,7 @@ export function AuthOffBanner() {
           <div className="flex min-w-0 flex-1 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
             <p className="min-w-0 flex-1 text-muted-foreground">
               <span className="font-semibold text-foreground">Sign-in is off.</span> Anyone who can
-              open this address has operator access.
+              open this address has admin access.
             </p>
             <Button variant="outline" size="sm" className="self-start sm:self-auto" asChild>
               <a href={LINKS.SIGN_IN_SETUP} target="_blank" rel="noopener noreferrer">

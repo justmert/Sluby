@@ -35,7 +35,7 @@ function sentence(names: string[]): string {
  */
 export function LiveAlerts() {
   const status = useSystemStatus({ poll: true });
-  const { operator } = useSession();
+  const { admin } = useSession();
   const navigate = useNavigate();
   // the verdict last told (or found on load), and the previous poll's
   const told = useRef<SystemStatus['status'] | null>(null);
@@ -53,7 +53,7 @@ export function LiveAlerts() {
     if (current === told.current || current !== before) return;
     told.current = current;
 
-    const action = operator
+    const action = admin
       ? { label: 'Open health', onClick: () => void navigate(ROUTES.DEPLOYMENT) }
       : undefined;
     const message = sentence(failing(status.data));

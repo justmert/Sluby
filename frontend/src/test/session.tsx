@@ -8,17 +8,25 @@ export const testSession: AuthSession = {
   provider: 'github',
   providerLabel: 'GitHub',
   authDisabled: false,
-  operator: false,
+  role: 'member',
+  admin: false,
+  signIn: [{ provider: 'github', username: 'alice' }],
   expiresAt: '2026-10-14T00:00:00.000Z',
 };
 
-/** Render `children` as signed in, the way the AuthGate does. */
+/**
+ * Render `children` as signed in, the way the AuthGate does. `admin` also
+ * sets the role, so `<WithSession admin>` is an admin session.
+ */
 export function WithSession({
   children,
   ...overrides
 }: Partial<AuthSession> & { children: ReactNode }) {
+  const role = overrides.role ?? (overrides.admin ? 'admin' : testSession.role);
   return (
-    <SessionContext.Provider value={{ ...testSession, ...overrides }}>
+    <SessionContext.Provider
+      value={{ ...testSession, ...overrides, role, admin: role === 'admin' }}
+    >
       {children}
     </SessionContext.Provider>
   );

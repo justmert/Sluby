@@ -18,7 +18,7 @@ const join = (pathname: string, params: URLSearchParams, hash: string) => {
  * the ones it consumes. `/studio/settings` itself is current; only its old
  * `?create=key` deep link moved.
  */
-export function legacyRedirect(place: Place, { operator }: { operator: boolean }): string | null {
+export function legacyRedirect(place: Place, { admin }: { admin: boolean }): string | null {
   const path = place.pathname.replace(/\/+$/, '') || '/';
   const params = new URLSearchParams(place.search);
   const { hash } = place;
@@ -50,7 +50,7 @@ export function legacyRedirect(place: Place, { operator }: { operator: boolean }
   // the server metrics were the only part of analytics a member could not
   // get elsewhere, and members cannot see them (FLW-57)
   if (path === '/studio/analytics') {
-    return operator ? join(ROUTES.METRICS, params, hash) : join(ROUTES.OVERVIEW, params, hash);
+    return admin ? join(ROUTES.METRICS, params, hash) : join(ROUTES.OVERVIEW, params, hash);
   }
 
   return null;

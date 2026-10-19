@@ -36,10 +36,19 @@ const sessions = [
 beforeEach(() => {
   vi.stubGlobal(
     'fetch',
-    async () =>
-      new Response(JSON.stringify({ data: sessions }), {
-        headers: { 'content-type': 'application/json' },
-      }),
+    async (input: RequestInfo | URL) =>
+      new Response(
+        JSON.stringify(
+          String(input).endsWith('/auth/config')
+            ? {
+                auth_disabled: false,
+                setup_required: false,
+                methods: { password: true, github: true },
+              }
+            : { data: sessions },
+        ),
+        { headers: { 'content-type': 'application/json' } },
+      ),
   );
 });
 afterEach(() => {
@@ -50,7 +59,15 @@ afterEach(() => {
 async function draw(width: number) {
   await (await browser()).page.viewport(width, 1000);
   renderPage(
-    <WithSession operator name="Mert Köklü" username="justmert">
+    <WithSession
+      admin
+      name="Mert Köklü"
+      username="justmert"
+      signIn={[
+        { provider: 'password', username: 'mert@example.com' },
+        { provider: 'github', username: 'justmert' },
+      ]}
+    >
       <SettingsPage />
     </WithSession>,
   );
@@ -68,7 +85,7 @@ const parts = (name: string) => {
 describe('Settings in a real browser', () => {
   it('puts each label column beside its content at 1440 px', async () => {
     await draw(1440);
-    for (const name of ['Account', 'Signed-in browsers', 'Appearance']) {
+    for (const name of ['Account', 'Sign-in methods', 'Signed-in browsers', 'Appearance']) {
       const { label, content } = parts(name);
       expect(Math.round(label.top)).toBe(Math.round(content.top));
       expect(label.right).toBeLessThanOrEqual(content.left);
@@ -84,7 +101,7 @@ describe('Settings in a real browser', () => {
 
   it('stacks the label over its content at phone width without scrolling sideways', async () => {
     await draw(390);
-    for (const name of ['Account', 'Signed-in browsers', 'Appearance']) {
+    for (const name of ['Account', 'Sign-in methods', 'Signed-in browsers', 'Appearance']) {
       const { label, content } = parts(name);
       expect(content.top).toBeGreaterThanOrEqual(label.bottom);
     }

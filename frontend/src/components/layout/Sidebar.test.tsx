@@ -35,11 +35,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const render = (operator: boolean, route = '/studio') => {
+const render = (admin: boolean, route = '/studio') => {
   server = jsonFetch(routes);
   vi.stubGlobal('fetch', server);
   return renderPage(
-    <WithSession operator={operator}>
+    <WithSession admin={admin}>
       <SidebarProvider>
         <AppSidebar />
         <Where />
@@ -89,9 +89,9 @@ describe('AppSidebar', () => {
     );
   });
 
-  it('shows health and metrics to an operator, under a group marked Operator (RDS-16)', async () => {
+  it('shows health and metrics to an admin, under a group marked Admin (RDS-16)', async () => {
     render(true);
-    const group = nav().getByRole('group', { name: 'Deployment, operators only' });
+    const group = nav().getByRole('group', { name: 'Deployment, admins only' });
     expect(await within(group).findByRole('link', { name: 'Health, operational' })).toHaveAttribute(
       'href',
       '/studio/deployment',
@@ -102,11 +102,23 @@ describe('AppSidebar', () => {
     );
   });
 
-  it('labels the deployment group as the design does, with operators only for screen readers', () => {
+  it('labels the deployment group as the design does, with admins only for screen readers', () => {
     render(true);
-    const group = nav().getByRole('group', { name: 'Deployment, operators only' });
-    expect(within(group).queryByText('Operator')).not.toBeInTheDocument();
-    expect(within(group).getByText(', operators only')).toHaveClass('sr-only');
+    const group = nav().getByRole('group', { name: 'Deployment, admins only' });
+    expect(within(group).queryByText('Admin')).not.toBeInTheDocument();
+    expect(within(group).getByText(', admins only')).toHaveClass('sr-only');
+  });
+
+  it('puts Members beside Settings for an admin only', () => {
+    render(true);
+    const members = nav().getByRole('link', { name: 'Members' });
+    expect(members).toHaveAttribute('href', '/studio/members');
+    expect(members.closest('[data-slot=sidebar-group]')).toBeNull();
+  });
+
+  it('leaves Members out for a member', () => {
+    render(false);
+    expect(nav().queryByRole('link', { name: 'Members' })).not.toBeInTheDocument();
   });
 
   it('puts Settings on its own at the bottom, after the groups', () => {

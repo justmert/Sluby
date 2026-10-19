@@ -56,8 +56,9 @@ function Who() {
   const s = useSession();
   return (
     <p>
-      {s.username} via {s.providerLabel}, operator {String(s.operator)}, auth off{' '}
-      {String(s.authDisabled)}, ends {s.expiresAt}
+      {s.username} via {s.providerLabel}, {s.role}, admin {String(s.admin)}, auth off{' '}
+      {String(s.authDisabled)}, ends {s.expiresAt}, signs in with{' '}
+      {s.signIn.map((m) => `${m.provider}:${m.username}`).join(' ') || 'nothing listed'}
     </p>
   );
 }
@@ -82,20 +83,39 @@ afterEach(() => {
 });
 
 describe('AuthGate', () => {
-  it('reads the snake_case session and treats a missing operator flag as false', async () => {
+  it('reads the snake_case session and treats a missing role as member', async () => {
     stub({ [ME]: me });
     renderGate();
     expect(
       await screen.findByText(
-        'alice via GitHub, operator false, auth off false, ends 2026-10-14T00:00:00.000Z',
+        'alice via GitHub, member, admin false, auth off false, ends 2026-10-14T00:00:00.000Z, signs in with nothing listed',
       ),
     ).toBeInTheDocument();
   });
 
-  it('passes the operator flag through', async () => {
+  it('reads the role and the ways the account signs in', async () => {
+    stub({
+      [ME]: {
+        ...me,
+        role: 'admin',
+        sign_in: [
+          { provider: 'password', username: 'alice@example.com' },
+          { provider: 'github', username: 'alice' },
+        ],
+      },
+    });
+    renderGate();
+    expect(
+      await screen.findByText(
+        /, admin, admin true,.*signs in with password:alice@example\.com github:alice/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('no longer reads the deprecated operator alias', async () => {
     stub({ [ME]: { ...me, operator: true } });
     renderGate();
-    expect(await screen.findByText(/operator true/)).toBeInTheDocument();
+    expect(await screen.findByText(/, member, admin false/)).toBeInTheDocument();
   });
 
   it('offers the password form and github on a 401', async () => {

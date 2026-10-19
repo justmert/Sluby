@@ -32,9 +32,9 @@ function Where() {
   return <p data-testid="where">{pathname + search + hash}</p>;
 }
 
-const renderAt = (route: string, operator = false) =>
+const renderAt = (route: string, admin = false) =>
   renderPage(
-    <WithSession operator={operator}>
+    <WithSession admin={admin}>
       <App />
     </WithSession>,
     { route },
@@ -65,14 +65,23 @@ describe('App routes', () => {
     expect(screen.getByTestId('where')).toHaveTextContent(route);
   });
 
-  it('serves the deployment pages to operators', async () => {
+  it('serves the deployment pages to admins', async () => {
     renderAt('/studio/deployment', true);
     expect(await screen.findByTestId('page')).toHaveTextContent('health');
   });
 
-  it('tells a member the deployment pages are for operators', async () => {
+  it('serves Members to admins and tells a member it is for admins', async () => {
+    const admin = renderAt('/studio/members', true);
+    expect(await screen.findByTestId('page')).toHaveTextContent('members');
+    admin.unmount();
+    renderAt('/studio/members');
+    expect(await screen.findByRole('heading', { name: 'For admins only' })).toBeInTheDocument();
+    expect(screen.queryByTestId('page')).not.toBeInTheDocument();
+  });
+
+  it('tells a member the deployment pages are for admins', async () => {
     renderAt('/studio/deployment/metrics');
-    expect(await screen.findByRole('heading', { name: 'For operators only' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'For admins only' })).toBeInTheDocument();
     expect(screen.queryByTestId('page')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Back to overview' })).toHaveAttribute(
       'href',
@@ -100,7 +109,7 @@ describe('App routes', () => {
     expect(screen.getByTestId('where')).toHaveTextContent(to);
   });
 
-  it('sends an operator from analytics to metrics', async () => {
+  it('sends an admin from analytics to metrics', async () => {
     renderAt('/studio/analytics', true);
     expect(await screen.findByTestId('page')).toHaveTextContent('metrics');
     expect(screen.getByTestId('where')).toHaveTextContent('/studio/deployment/metrics');

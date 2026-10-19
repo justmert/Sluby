@@ -92,8 +92,8 @@ function FailedRow({ video }: { video: VideoAsset }) {
   );
 }
 
-function ItemRow({ item, operator }: { item: AttentionItem; operator: boolean }) {
-  const openHealth = operator && (
+function ItemRow({ item, admin }: { item: AttentionItem; admin: boolean }) {
+  const openHealth = admin && (
     <Button variant="outline" size="sm" asChild>
       <Link to={ROUTES.DEPLOYMENT}>Open health</Link>
     </Button>
@@ -105,11 +105,7 @@ function ItemRow({ item, operator }: { item: AttentionItem; operator: boolean })
           tone="destructive"
           chip="Down"
           title={SERVICE[item.service].title}
-          why={
-            operator
-              ? SERVICE[item.service].why
-              : `${SERVICE[item.service].why} Ask the operator of this server.`
-          }
+          why={admin ? SERVICE[item.service].why : `${SERVICE[item.service].why} Ask an admin.`}
           action={openHealth}
         />
       );
@@ -224,12 +220,12 @@ export function AttentionFrame({ count, children }: { count?: number; children: 
 export function NeedsAttention({
   items,
   total,
-  operator,
+  admin,
   stagger,
 }: {
   items: AttentionItem[];
   total: number;
-  operator: boolean;
+  admin: boolean;
   stagger: boolean;
 }) {
   const shown = items.slice(0, ATTENTION_LIMIT);
@@ -248,7 +244,7 @@ export function NeedsAttention({
         >
           {shown.map((item) => (
             <AnimatedItem key={item.key}>
-              <ItemRow item={item} operator={operator} />
+              <ItemRow item={item} admin={admin} />
             </AnimatedItem>
           ))}
         </AnimatedList>

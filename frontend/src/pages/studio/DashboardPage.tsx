@@ -64,7 +64,7 @@ function useWaited(ms: number, skip: boolean): boolean {
 
 export default function DashboardPage() {
   const session = useSession();
-  const { operator } = session;
+  const { admin } = session;
 
   const stats = useAssetStats();
   const system = useSystemStatus({ poll: true });
@@ -103,7 +103,7 @@ export default function DashboardPage() {
   // the checklist
   const { hidden, hide } = useGetStartedHidden(session.id);
   const steps = stepStates({
-    operator,
+    admin,
     status: system.data,
     stats: s,
     usage: usage.data,
@@ -166,7 +166,7 @@ export default function DashboardPage() {
 
       {!ready ? (
         <div data-instant-skeletons={instant || undefined}>
-          <DashboardLoading operator={operator} />
+          <DashboardLoading admin={admin} />
         </div>
       ) : (
         <div className={DASH.page}>
@@ -176,7 +176,7 @@ export default function DashboardPage() {
             <Collapse open={showChecklist} className="pb-6">
               <GetStarted
                 steps={steps}
-                operator={operator}
+                admin={admin}
                 status={system.data}
                 busy={busyVideo(latest.data?.data)}
                 readyCount={s?.by_status.ready}
@@ -213,7 +213,7 @@ export default function DashboardPage() {
             <NeedsAttention
               items={attention}
               total={attentionCount}
-              operator={operator}
+              admin={admin}
               stagger={stagger}
             />
             <StatusCard
@@ -221,7 +221,7 @@ export default function DashboardPage() {
               error={system.error}
               onRetry={() => void system.refetch()}
               retrying={system.isFetching}
-              operator={operator}
+              admin={admin}
             />
           </div>
 

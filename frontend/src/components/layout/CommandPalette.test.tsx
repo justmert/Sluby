@@ -57,7 +57,7 @@ function Where() {
   return <p data-testid="where">{pathname + search}</p>;
 }
 
-function setup(operator = false, authDisabled = false) {
+function setup(admin = false, authDisabled = false) {
   const server = jsonFetch({
     'POST /api/v1/auth/logout': { success: true },
     '/api/v1/keys': keyList,
@@ -69,7 +69,7 @@ function setup(operator = false, authDisabled = false) {
   });
   vi.stubGlobal('fetch', vi.fn(server));
   renderPage(
-    <WithSession operator={operator} authDisabled={authDisabled}>
+    <WithSession admin={admin} authDisabled={authDisabled}>
       <CommandPalette />
       <Where />
     </WithSession>,
@@ -161,22 +161,31 @@ describe('CommandPalette', () => {
     expect(option.querySelector('kbd')).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('leaves out operator pages for a member', async () => {
+  it('leaves out admin pages for a member', async () => {
     setup(false);
     await openWithKeys();
     await screen.findByRole('dialog');
     expect(screen.queryByRole('option', { name: 'Health' })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Metrics' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Members' })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Videos' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'API keys' })).toBeInTheDocument();
   });
 
-  it('lists health and metrics for an operator', async () => {
+  it('lists health and metrics for an admin', async () => {
     setup(true);
     await openWithKeys();
     await userEvent.type(await screen.findByRole('combobox'), 'metrics');
     await userEvent.click(await screen.findByRole('option', { name: 'Metrics' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/studio/deployment/metrics');
+  });
+
+  it('opens Members for an admin', async () => {
+    setup(true);
+    await openWithKeys();
+    await userEvent.type(await screen.findByRole('combobox'), 'members');
+    await userEvent.click(await screen.findByRole('option', { name: 'Members' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/studio/members');
   });
 
   it('finds a video on the server and opens it with the keyboard', async () => {

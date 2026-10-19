@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router';
 import { type ReactNode } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
-import { OperatorOnly } from '@/components/layout/OperatorOnly';
+import { AdminOnly } from '@/components/layout/AdminOnly';
 import { RouteSuspense } from '@/components/layout/RouteSuspense';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { ROUTES } from '@/lib/constants';
@@ -22,6 +22,7 @@ const Webhook = lazyPage(PAGE_CHUNKS.webhook);
 const Explorer = lazyPage(PAGE_CHUNKS.explorer);
 const Health = lazyPage(PAGE_CHUNKS.health);
 const Metrics = lazyPage(PAGE_CHUNKS.metrics);
+const Members = lazyPage(PAGE_CHUNKS.members);
 const Settings = lazyPage(PAGE_CHUNKS.settings);
 
 /**
@@ -31,8 +32,8 @@ const Settings = lazyPage(PAGE_CHUNKS.settings);
  */
 function Moved({ fallback = null }: { fallback?: ReactNode }) {
   const location = useLocation();
-  const { operator } = useSession();
-  const to = legacyRedirect(location, { operator });
+  const { admin } = useSession();
+  const to = legacyRedirect(location, { admin });
   return to ? <Navigate to={to} replace /> : fallback;
 }
 
@@ -70,18 +71,28 @@ export function App() {
                 caseSensitive
                 path={ROUTES.DEPLOYMENT}
                 element={
-                  <OperatorOnly>
+                  <AdminOnly>
                     <Health />
-                  </OperatorOnly>
+                  </AdminOnly>
                 }
               />
               <Route
                 caseSensitive
                 path={ROUTES.METRICS}
                 element={
-                  <OperatorOnly>
+                  <AdminOnly>
                     <Metrics />
-                  </OperatorOnly>
+                  </AdminOnly>
+                }
+              />
+
+              <Route
+                caseSensitive
+                path={ROUTES.MEMBERS}
+                element={
+                  <AdminOnly>
+                    <Members />
+                  </AdminOnly>
                 }
               />
 
