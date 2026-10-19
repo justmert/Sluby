@@ -19,6 +19,7 @@ const key = (over: Key = {}): Key => ({
   expires_at: null,
   prefix: 'sluby_AbC123',
   last_used_at: new Date(Date.now() - 3 * 60_000).toISOString(),
+  created_by: { id: 'u1', name: 'Ada' },
   ...over,
 });
 
