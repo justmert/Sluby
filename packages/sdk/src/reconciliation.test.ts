@@ -56,7 +56,7 @@ describe('ReconciliationManager.latest()', () => {
     });
   });
 
-  it('maps the deployment figures for the platform identity', async () => {
+  it('maps the deployment figures for an admin', async () => {
     mockFetch.mockResolvedValueOnce(
       makeJsonResponse({
         ...times,

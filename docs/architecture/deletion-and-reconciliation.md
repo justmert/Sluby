@@ -72,7 +72,7 @@ The pipeline records every object id in `pending_objects` before it pins the obj
 
 ## Reconciliation
 
-The reconciliation worker (`backend/src/reconcile`) checks that the database and the indexer agree about which objects exist. It is report-only: it flags drift and never unpins or deletes anything, leaving cleanup to an operator.
+The reconciliation worker (`backend/src/reconcile`) checks that the database and the indexer agree about which objects exist. It is report-only: it flags drift and never unpins or deletes anything, leaving cleanup to whoever runs the server.
 
 ```mermaid
 flowchart TB
@@ -101,7 +101,7 @@ flowchart TB
 
 How a run works:
 
-- **When.** A scheduled job every `RECONCILE_INTERVAL_MS` (one hour by default, off with `RECONCILE_ENABLED=false`; see [sweep schedules](#sweep-schedules)), and on demand with `POST /api/v1/reconciliation/run` (scope `manage`, platform identity or an operator only, since a run scans the whole deployment). Only one run is ever pending, see [one run at a time](#one-run-at-a-time).
+- **When.** A scheduled job every `RECONCILE_INTERVAL_MS` (one hour by default, off with `RECONCILE_ENABLED=false`; see [sweep schedules](#sweep-schedules)), and on demand with `POST /api/v1/reconciliation/run` (scope `manage`, admins only, since a run scans the whole deployment). Only one run is ever pending, see [one run at a time](#one-run-at-a-time).
 - **The database side** is every object id in `artifacts` plus the ids stored on `video_assets`, for every asset of every owner, including soft-deleted ones whose objects have not been unpinned yet, and the pipeline's `pending_objects` (see [objects of uploads in progress](#objects-of-uploads-in-progress)). It is read first, before the indexer, so whatever an upload records or a deletion forgets while the run goes on shows up as a recent change on the indexer side.
 - **The indexer side.** The SDK has no call that lists all objects. The indexer keeps one event per object, its latest pin or delete, and serves them as a feed (`objectEvents`) ordered by time and id after a cursor. The worker keeps a copy of that inventory in `indexer_objects` and the cursor it read up to in `reconcile_feed`, so a run reads only the events since the previous one, page by page (`RECONCILE_PAGE_SIZE`, at most the indexer's maximum of 500), applies each page together with the new cursor in one transaction, and stops on a page shorter than the limit. The saved cursor stays an hour behind the newest events: the indexer stamps an event with the start of its transaction, so an event can arrive after later-stamped ones were read, and re-reading the last hour on each run picks it up. The copy belongs to one indexer URL and account key; a run against another one starts it over from the start of the feed, as does the first run after an upgrade.
 - **The grace window.** Objects the indexer pinned or unpinned within the hour before the run started are work in progress, not drift: an upload pins its objects during the Sia upload stage, minutes before finalize records them, and a deletion unpins objects moments before it forgets them. They are left out of the orphan and missing lists (the worker logs how many), and the next run looks at them again. Deleted objects are kept in `indexer_objects` only for that hour.
@@ -112,14 +112,14 @@ How a run works:
 
 ### What each caller sees
 
-A run covers every tenant's objects, but only the platform identity and operators see the whole of it. The deployment-wide counts, orphans and a failed run's error message describe other tenants and the operator's setup, so a tenant gets only what concerns its own assets:
+A run covers the whole deployment, but only admins see the whole of it. The deployment-wide counts, orphans and a failed run's error message describe the server's setup, so a member gets only what concerns the workspace's assets:
 
-- **A tenant** (any identity that is neither the platform address nor an operator, which includes every Studio session of an account not in `OPERATOR_USERS`) gets `scope: "account"`: the run's id and times, `missing_ids` with only the missing ids that belong to its own assets (found through the same sources the run reads: `artifacts` plus the ids on `video_assets`, soft-deleted assets included, matched on `creator_address`), `missing_count` as their number, and a `status` about its own assets: `failed` when the run could not complete, `drift` when some of its objects are missing, `ok` otherwise. No deployment counts, no orphans (an orphan is referenced by no asset, so it belongs to no tenant) and no error text.
-- **The platform identity** (an API key with the platform address, as `npm run db:seed-key -- --platform` mints, see [tenancy](./auth-and-tenancy#tenancy)) and **operators** (accounts in `OPERATOR_USERS`, their sessions and keys, see [operators](./auth-and-tenancy#operators)) get `scope: "deployment"` with the deployment-wide counts, the error message, and the full `missing_ids` and `orphaned_ids`.
+- **A member** (a Studio session of a member, or a key that acts with a member's role) gets `scope: "account"`: the run's id and times, `missing_ids` with only the missing ids that belong to the workspace's assets (found through the same sources the run reads: `artifacts` plus the ids on `video_assets`, soft-deleted assets included, matched on `creator_address`), `missing_count` as their number, and a `status` about those assets: `failed` when the run could not complete, `drift` when some of their objects are missing, `ok` otherwise. No deployment counts, no orphans (an orphan is referenced by no asset) and no error text.
+- **An admin** (a Studio session of an admin, a key an admin made, or a key with no creator such as `BOOTSTRAP_API_KEY` or one from `db:seed-key`, see [roles](./auth-and-tenancy#the-workspace)) gets `scope: "deployment"` with the deployment-wide counts, the error message, and the full `missing_ids` and `orphaned_ids`.
 
 The ownership of a missing id is looked up when the report is read, not when the run was made, so an asset deleted since the run no longer contributes its ids to anyone's list.
 
-Both scopes also answer `missing_objects`: each of `missing_ids`, in the same order, with `video_asset_id` and `title` of the video that holds it, so the Studio can link a missing object to its video. The video is found through the same sources (`artifacts` and the id columns of `video_assets`), within the caller's scope: a tenant's own videos, every account's for the platform identity and operators. Only live videos are named; an id whose video is being deleted, or that no video holds any more, keeps its place with `video_asset_id` and `title` null.
+Both scopes also answer `missing_objects`: each of `missing_ids`, in the same order, with `video_asset_id` and `title` of the video that holds it, so the Studio can link a missing object to its video. The video is found through the same sources (`artifacts` and the id columns of `video_assets`), within the caller's scope: the workspace's videos for a member, every video for an admin. Only live videos are named; an id whose video is being deleted, or that no video holds any more, keeps its place with `video_asset_id` and `title` null.
 
 ```json
 {

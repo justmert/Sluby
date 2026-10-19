@@ -66,7 +66,7 @@ export default defineConfig({
             link: '/architecture/deletion-and-reconciliation',
           },
           { text: 'Data model', link: '/architecture/data-model' },
-          { text: 'Auth and tenancy', link: '/architecture/auth-and-tenancy' },
+          { text: 'Accounts and roles', link: '/architecture/auth-and-tenancy' },
           { text: 'SDK integration patterns', link: '/architecture/sdk-patterns' },
         ],
       },

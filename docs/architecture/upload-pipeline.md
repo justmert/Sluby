@@ -35,7 +35,7 @@ The tus server (`backend/src/upload/tus-server.ts`, built on `@tus/server` with 
 
 Details worth knowing:
 
-- **Ownership comes from the caller, never from the metadata.** The asset's `creator_address` is the authenticated identity's address, even if the client puts a different one in `Upload-Metadata`. Requests on an existing upload by another tenant get a 404, the same answer as for an unknown id.
+- **Ownership comes from the caller, never from the metadata.** The asset's `creator_address` is the authenticated caller's address, `workspace`, even if the client puts a different one in `Upload-Metadata`. Every upload belongs to the workspace, so any caller with the `upload` scope may resume or cancel any unfinished upload, one begun before the upgrade to a workspace included.
 - **Metadata.** The SDK sends `filename`, `filetype`, `title`, `description` and `accessTier`. Uploads larger than `MAX_UPLOAD_SIZE` (10 GiB by default) are refused by tus.
 - **Asset id.** The asset and the upload session are created in the tus creation hook, and their ids are written back into the tus upload's metadata. The creation response only carries a `Location`, so the SDK sends one `HEAD` to read `videoAssetId` from `Upload-Metadata`; that is what resolves the `assetId` promise on the SDK's upload handle.
 - **Progress.** While an upload is in progress, `GET /api/v1/uploads/:id` reports the bytes the tus store holds on disk. The session's `uploaded_bytes` column is also updated from tus's post-receive event, but that event is throttled to once a second and dropped at the end of each `PATCH`, so the column alone lags behind.

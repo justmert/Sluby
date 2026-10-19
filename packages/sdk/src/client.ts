@@ -59,7 +59,7 @@ export class SlubyClient {
   /** Registered webhook endpoints: list, create, delete, test and deliveries. */
   readonly webhookEndpoints: WebhookEndpointManager;
 
-  /** The account's API keys: list, create, rename, rotate and revoke. */
+  /** The workspace's API keys: list, create, rename, rotate and revoke. */
   readonly keys: KeyManager;
 
   /** The browsers signed in to the Studio; needs a browser session, not a key. */

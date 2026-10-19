@@ -126,5 +126,5 @@ For reference, on an Apple M3 Pro with the base images already pulled, the backe
 
 ## Next steps
 
-- [Production deployment](./production): TLS, GitHub sign-in, and connecting to an indexer on mainnet or the Zen testnet.
+- [Production deployment](./production): TLS, sign-in with the first admin and invites, and connecting to an indexer on mainnet or the Zen testnet.
 - [Configuration](./configuration): every environment variable the stack reads.

@@ -163,7 +163,7 @@ interface ReconciliationReportBase {
   missingObjects: MissingObject[];
 }
 
-/** The whole deployment's check, for the platform identity and operators. */
+/** The whole deployment's check, for admins. */
 export interface ReconciliationReportDeployment extends ReconciliationReportBase {
   scope: 'deployment';
   dbObjectCount: number;
@@ -175,7 +175,7 @@ export interface ReconciliationReportDeployment extends ReconciliationReportBase
   errorMessage: string | null;
 }
 
-/** One account's part of the check: only its own missing objects. */
+/** A member's part of the check: only the missing objects of the workspace's videos. */
 export interface ReconciliationReportAccount extends ReconciliationReportBase {
   scope: 'account';
 }
@@ -231,12 +231,19 @@ export interface ApiKey {
   prefix: string | null;
   /** When the key last authenticated a request, to the minute; null if never since recorded. */
   lastUsedAt: string | null;
+  /**
+   * The member who made the key: it acts with their current role and stops
+   * while they are removed. Null for a key made from the server
+   * (`BOOTSTRAP_API_KEY`, `db:seed-key`), made by such a key, or whose maker
+   * was deleted; such a key acts as an admin.
+   */
+  createdBy: { id: string; name: string } | null;
 }
 
 /** A page of keys, with the server's limits on keys. */
 export interface ApiKeyPage extends CursorPage<ApiKey> {
   limits: {
-    /** How many usable keys one account may hold. */
+    /** How many usable keys the workspace may hold. */
     maxKeys: number;
     /** The highest `rateLimit` a key may have. */
     maxRateLimit: number;

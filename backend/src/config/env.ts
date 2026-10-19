@@ -148,9 +148,9 @@ export const envSchema = z.object({
 
   /** Optional bootstrap API key (raw sluby_ value). Seeded with every scope
    *  before the server listens, once: after it is deleted or rotated away it is
-   *  never seeded again (see db/api-key-seeding.ts). It belongs to its own
-   *  `platform` account, not to any Studio user. Production requires the
-   *  format of a generated key. */
+   *  never seeded again (see db/api-key-seeding.ts). It belongs to the
+   *  workspace with no creator, so it acts as an admin. Production requires
+   *  the format of a generated key. */
   BOOTSTRAP_API_KEY: z.string().optional(),
 
   /** Public base URL the browser sees (no trailing slash).
@@ -260,7 +260,7 @@ export const envSchema = z.object({
    *  are refused at creation, and older ones are held to this at use. */
   API_KEY_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10000),
 
-  /** How many usable API keys one account may hold. */
+  /** How many usable API keys the workspace may hold. */
   API_KEYS_PER_ACCOUNT_MAX: z.coerce.number().int().positive().default(100),
 
   /** When set, GET /metrics (Prometheus) needs `Authorization: Bearer <token>`.

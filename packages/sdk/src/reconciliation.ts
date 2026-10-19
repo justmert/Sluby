@@ -19,9 +19,9 @@ export class ReconciliationManager {
   }
 
   /**
-   * The latest finished check. The platform identity and operators get the
-   * whole deployment (`scope: 'deployment'`); any other caller gets only its
-   * own missing objects (`scope: 'account'`). Rejects with a `NotFoundError`
+   * The latest finished check. Admins get the whole deployment
+   * (`scope: 'deployment'`); members get only the missing objects of the
+   * workspace's videos (`scope: 'account'`). Rejects with a `NotFoundError`
    * before the first check has finished.
    */
   async latest(options?: RequestOptions): Promise<ReconciliationReport> {
@@ -52,7 +52,7 @@ export class ReconciliationManager {
     return { ...common, scope: 'account' };
   }
 
-  /** Queue a check now. Only the platform identity and operators may. */
+  /** Queue a check now. Only admins may. */
   async run(options?: RequestOptions): Promise<ReconciliationTrigger> {
     const res = await this._fetch('/api/v1/reconciliation/run', {
       method: 'POST',

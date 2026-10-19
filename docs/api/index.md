@@ -17,9 +17,9 @@ curl -H "Authorization: Bearer sluby_..." http://localhost:8080/api/v1/assets
 
 Keys start with `sluby_`. The server stores only a SHA-256 hash of each key, so the secret is shown once, when the key is created or rotated, and cannot be retrieved later.
 
-The Studio does not use a key. It signs in with GitHub and sends a session cookie, which the server checks before the `Authorization` header. When `AUTH_DISABLED=true` (the quickstart default), every request is treated as the local dev account and keys are not checked at all.
+The Studio does not use a key. Members sign in with an email and password, or with GitHub when the server has a GitHub app, and the Studio sends a session cookie, which the server checks before the `Authorization` header. When `AUTH_DISABLED=true` (the quickstart default), every request is treated as the local dev account and keys are not checked at all.
 
-A key belongs to an account and works only while that account may use the server: taking someone off the sign-in allowlist makes their keys answer `401` until they are put back (see [the allowlist](/architecture/auth-and-tenancy#the-allowlist)).
+A key belongs to the workspace and acts with the role of the member who created it, listed as `created_by`. Removing that member makes their keys answer `401` with `reason: "not_allowed"` until they are restored. A key with no creator (`BOOTSTRAP_API_KEY`, a key from `db:seed-key`) acts as an admin (see [API keys](/architecture/auth-and-tenancy#api-keys)).
 
 ### Creating a key
 
@@ -27,7 +27,7 @@ In the Studio, open **Settings** and find the **API keys** card. Click **Create 
 
 The same card rotates and revokes keys. Rotating issues a new secret with the same name, scopes and limit. The old secret stops working immediately or after a grace period of up to 7 days, which gives running clients time to switch. A key can be rotated once; to rotate again, rotate its replacement.
 
-Keys can also be managed through the API (`GET /api/v1/keys`, `POST /api/v1/keys`, `PATCH /api/v1/keys/{id}` to rename, `POST /api/v1/keys/{id}/rotate`, `DELETE /api/v1/keys/{id}`) with a key that has the `manage` scope, or with `client.keys` in `@sluby/sdk`. To get a first key without signing in to the Studio, set `BOOTSTRAP_API_KEY` to a `sluby_...` value of your choice before starting the backend. It is stored with all three scopes and a limit of 1000 requests per minute, once: deleted or rotated, it is never seeded again. A listed key shows its `prefix` (the first 12 characters) and `last_used_at` (to the minute), so you can tell which key a server holds and which old key is safe to revoke, and the list answers the server's `limits` (`max_keys`, `max_rate_limit`). In production the bootstrap key must look like a generated key (`sluby_` and at least 32 more letters, digits, `-` or `_`). See [Configuration](/guide/configuration).
+Keys can also be managed through the API (`GET /api/v1/keys`, `POST /api/v1/keys`, `PATCH /api/v1/keys/{id}` to rename, `POST /api/v1/keys/{id}/rotate`, `DELETE /api/v1/keys/{id}`) with a key that has the `manage` scope, or with `client.keys` in `@sluby/sdk`. To get a first key without signing in to the Studio, set `BOOTSTRAP_API_KEY` to a `sluby_...` value of your choice before starting the backend. It is stored with all three scopes, no creator (so it acts as an admin) and a limit of 1000 requests per minute, once: deleted or rotated, it is never seeded again. A listed key shows its `prefix` (the first 12 characters) and `last_used_at` (to the minute), so you can tell which key a server holds and which old key is safe to revoke, and the list answers the server's `limits` (`max_keys`, `max_rate_limit`). In production the bootstrap key must look like a generated key (`sluby_` and at least 32 more letters, digits, `-` or `_`). See [Configuration](/guide/configuration).
 
 ### Scopes
 
@@ -37,23 +37,22 @@ Each key carries one or more scopes, and every endpoint requires exactly one:
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `upload` | Uploading videos over tus at `/api/v1/uploads` and cancelling an upload.                                                                 |
 | `read`   | Listing and reading assets, renditions, processing state and Sia storage details, playback URLs, upload status, stats and system status. |
-| `manage` | Editing, deleting and retrying assets, playback ids, API keys, webhooks (listing them too) and reconciliation (see below).               |
+| `manage` | Editing, deleting and retrying assets, playback ids, API keys, webhooks (listing them too), reconciliation and members (see below).      |
 
-Scopes are checked independently: `manage` does not include `read`, so a key that should do both needs both. Keep every key on a server, a `read` key included: `read` mints signed URLs and share maps, so it plays every private asset of its account. A key without the required scope gets `403` with `Requires '<scope>' scope`. Each operation in the reference shows its scope as `x-required-scope`.
+Scopes are checked independently: `manage` does not include `read`, so a key that should do both needs both. Keep every key on a server, a `read` key included: `read` mints signed URLs and share maps, so it plays every private asset of the workspace. A key without the required scope gets `403` with `Requires '<scope>' scope`. Each operation in the reference shows its scope as `x-required-scope`.
 
-### Accounts
+### Members and roles
 
-Every resource belongs to the account that created it, and a request only reaches its own account's assets, keys, webhooks and playback ids. An id from another account answers `404`, the same as one that does not exist. The exception is a key with the platform address (`0x` followed by 64 zeros), which acts across all accounts (see [tenancy](/architecture/auth-and-tenancy#tenancy)).
+One install is one team's workspace: every asset, key, webhook and playback id belongs to the workspace, and every member reaches all of them through the same endpoints, whoever created them. An id that does not exist answers `404`.
 
-The platform key also lists, reads and changes the resources of every account, keys included, through the same endpoints.
+Members are `admin` or `member` (see [accounts and roles](/architecture/auth-and-tenancy)). A Studio session acts with its member's role, and a key with the role of the member who created it, read again on every request. Deployment-wide operations data is for admins:
 
-Deployment-wide operations data is for the platform key and for operators: the accounts listed in `OPERATOR_USERS` (see [operators](/architecture/auth-and-tenancy#operators)), through their Studio sessions and their API keys. An operator sees the deployment, but like any other account only its own assets, keys, webhooks and playback ids:
+- `GET /api/v1/system/status` answers every caller, but a member gets `"scope": "account"`: a health summary (whether the database, Redis and the indexer answer, and the size of the host pool), without the indexer account, the indexer URL, probe error text, uptime, the delivery cache or the last reconciliation. Admins get `"scope": "deployment"` and all of it.
+- `GET /api/v1/metrics` counts the whole process, so it answers `403` to anyone but an admin.
+- `GET /api/v1/reconciliation` gives a member `"scope": "account"`: the run's times, a `status` about the workspace's assets (`drift` when objects of its assets are missing, `failed` when the run itself failed), and `missing_count`, `missing_ids` and `missing_objects` (each missing id with the `video_asset_id` and `title` of its video, null when no live video holds it). Admins get `"scope": "deployment"` with the deployment-wide counts, the error text of a failed run, and the full `missing_ids`, `missing_objects` and `orphaned_ids`. `POST /api/v1/reconciliation/run` scans the whole deployment, so only an admin may start one; it queues a run only when none is already waiting or running, and says which happened in `enqueued` and `already_pending`. See [deletion and reconciliation](/architecture/deletion-and-reconciliation#what-each-caller-sees) for the details.
+- `/api/v1/members` and `/api/v1/invites` (scope `manage`) list members, change roles, remove and restore members, and make reset links and invites. See [members](/architecture/auth-and-tenancy#members).
 
-- `GET /api/v1/system/status` answers every caller, but an ordinary account gets `"scope": "account"`: a health summary (whether the database, Redis and the indexer answer, and the size of the host pool), without the indexer account, the indexer URL, probe error text, uptime, the delivery cache or the last reconciliation. The platform key and operators get `"scope": "deployment"` and all of it.
-- `GET /api/v1/metrics` counts the whole process, every account together, so it answers `403` to anyone but the platform key and operators.
-- `GET /api/v1/reconciliation` gives an ordinary account `"scope": "account"`: the run's times, a `status` about its own assets (`drift` when objects of its assets are missing, `failed` when the run itself failed), and `missing_count`, `missing_ids` and `missing_objects` (each missing id with the `video_asset_id` and `title` of its video, null when no live video holds it) for its own assets only. The platform key and operators get `"scope": "deployment"` with the deployment-wide counts, the error text of a failed run, and the full `missing_ids`, `missing_objects` and `orphaned_ids`. `POST /api/v1/reconciliation/run` scans the whole deployment, so only the platform key or an operator may start one; it queues a run only when none is already waiting or running, and says which happened in `enqueued` and `already_pending`. See [deletion and reconciliation](/architecture/deletion-and-reconciliation#what-each-caller-sees) for the details.
-
-A platform key is one created by `npm run db:seed-key --workspace=backend -- --platform` (in the container, `node dist/db/seed-api-key.js --platform`), which owns the platform address. The `BOOTSTRAP_API_KEY` belongs to its own `platform` account, which is an ordinary account in this respect. A Studio session is never the platform identity, so the Studio shows the health summary unless the account is an operator. `GET /api/v1/auth/me` says which with `operator`. With `AUTH_DISABLED` the local account is an operator. Operations-only endpoints are marked `x-required-identity: operations` in the reference.
+A key with no creator acts as an admin: `BOOTSTRAP_API_KEY`, and keys made with `npm run db:seed-key --workspace=backend` (in the container, `node dist/db/seed-api-key.js`), since only someone with access to the server can make them. `GET /api/v1/auth/me` reports the signed-in member's `role`; its `operator` field is a deprecated alias of `role === "admin"`. With `AUTH_DISABLED` the local account is an admin. Admin-only endpoints are marked `x-required-identity: admin` in the reference.
 
 ## Pagination
 
@@ -76,7 +75,7 @@ Cursor paging only works with the default order (`sort=created_at`, `order=desc`
 
 Every query parameter may be given once. A repeated parameter, a `limit` outside 1 to 100, a `page` that is not a whole number and similar mistakes answer `400` instead of being replaced by a default.
 
-`GET /api/v1/keys` pages the same way, newest first: `limit` (1 to 1000, default 1000) and `cursor`, with `has_more` and `next_cursor` in the answer. With the default limit one page holds every key of any ordinary account. `GET /api/v1/webhooks` and the playback ids of an asset return `{ "data": [...] }` without paging.
+`GET /api/v1/keys` pages the same way, newest first: `limit` (1 to 1000, default 1000) and `cursor`, with `has_more` and `next_cursor` in the answer. With the default limit one page holds every key, unless `API_KEYS_PER_ACCOUNT_MAX` is raised above 1000. `GET /api/v1/webhooks` and the playback ids of an asset return `{ "data": [...] }` without paging.
 
 ## Uploads
 
@@ -106,18 +105,18 @@ Errors are JSON with an `error` message. A `400` from a body or query that faile
 }
 ```
 
-| Status | Meaning                                                                                                                                                                                                                                                |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `400`  | Invalid input, such as an unknown filter value, a repeated query parameter, a bad request body or an id that is not a valid identifier (`Invalid identifier format`).                                                                                  |
-| `401`  | The `Authorization` header is missing, or the key is unknown, deactivated, expired or owned by an account no longer allowed in. Without a key the body adds `reason`: `missing`, `expired`, `revoked` or `not_allowed`, why the browser session ended. |
-| `403`  | The key lacks the scope the endpoint requires, the endpoint is for the platform identity and operators only, or a write came from another origin without an `Authorization` header.                                                                    |
-| `404`  | The resource does not exist or belongs to another account. Unknown routes also return `404`, with or without a key.                                                                                                                                    |
-| `409`  | The request conflicts with the resource's state, such as playing an asset that is not ready, cancelling a finished upload or resending to a paused webhook.                                                                                            |
-| `412`  | `PATCH /api/v1/assets/{id}` with `If-Match`: the asset changed since that version. Nothing was saved; the body's `current` is the asset as it is now.                                                                                                  |
-| `429`  | Rate limit exceeded (see below).                                                                                                                                                                                                                       |
-| `500`  | Server error. The details go to the backend log.                                                                                                                                                                                                       |
-| `502`  | The Sia indexer did not answer, for example while minting share URLs.                                                                                                                                                                                  |
-| `503`  | The database did not answer while minting share URLs.                                                                                                                                                                                                  |
+| Status | Meaning                                                                                                                                                                                                                                                                                            |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | Invalid input, such as an unknown filter value, a repeated query parameter, a bad request body or an id that is not a valid identifier (`Invalid identifier format`).                                                                                                                              |
+| `401`  | The `Authorization` header is missing, or the key is unknown, deactivated, expired or made by a member who was removed. Without a key the body adds `reason`: `missing`, `expired`, `revoked` or `not_allowed`, why the browser session ended; a key whose creator was removed gets `not_allowed`. |
+| `403`  | The key lacks the scope the endpoint requires, the endpoint is for admins only, or a write came from another origin without an `Authorization` header.                                                                                                                                             |
+| `404`  | The resource does not exist. Unknown routes also return `404`, with or without a key.                                                                                                                                                                                                              |
+| `409`  | The request conflicts with the resource's state, such as playing an asset that is not ready, cancelling a finished upload or resending to a paused webhook.                                                                                                                                        |
+| `412`  | `PATCH /api/v1/assets/{id}` with `If-Match`: the asset changed since that version. Nothing was saved; the body's `current` is the asset as it is now.                                                                                                                                              |
+| `429`  | Rate limit exceeded (see below).                                                                                                                                                                                                                                                                   |
+| `500`  | Server error. The details go to the backend log.                                                                                                                                                                                                                                                   |
+| `502`  | The Sia indexer did not answer, for example while minting share URLs.                                                                                                                                                                                                                              |
+| `503`  | The database did not answer while minting share URLs.                                                                                                                                                                                                                                              |
 
 ### Editing without lost updates
 
@@ -127,7 +126,7 @@ When the backend runs with `EXPOSE_ERROR_STACKS=true`, errors raised inside a ro
 
 ## Webhooks
 
-`POST /api/v1/webhooks` (scope `manage`) registers a receiver URL for some of the events listed under [webhooks and processing logs](/architecture/upload-pipeline#webhooks-and-processing-logs) and returns its signing secret once. Events are sent only for the account's own assets.
+`POST /api/v1/webhooks` (scope `manage`) registers a receiver URL for some of the events listed under [webhooks and processing logs](/architecture/upload-pipeline#webhooks-and-processing-logs) and returns its signing secret once. Events are sent for every asset of the workspace.
 
 The URL must be `http` or `https`, and its host must resolve only to public addresses. Loopback, private (RFC 1918), link-local and cloud metadata (`169.254.0.0/16`, `fd00:ec2::254`), unique local, CGNAT (`100.64.0.0/10`), unspecified, multicast and the other special-purpose ranges are refused, including IPv6 forms that carry such an IPv4 address (`::ffff:127.0.0.1`). The check runs at registration and again before every delivery, and the request then connects only to the addresses that were checked, so a DNS answer that changes in between cannot point it inside the deployment. Redirects are not followed. To deliver to receivers on your own network, list their networks in `WEBHOOK_ALLOWED_NETWORKS` (see [Configuration](/guide/configuration#webhooks)).
 
@@ -177,7 +176,7 @@ In `@sluby/sdk`, `client.webhookEndpoints` wraps these routes: `list`, `get`, `c
 
 ## Plays
 
-Every asset carries `play_count` (all time) and `last_played_at`, and `GET /api/v1/stats/usage?days=30` (scope `read`, 1 to 90 days) answers the account's plays per UTC day, zero-filled, with their `total`. A play is one player load the server saw: the gateway serving a video's master playlist, or `/v1/share/{id}` minting the share map a direct-from-Sia player needs. The same viewer loading a video again within 30 minutes counts once, and previews in the Studio, HEAD, 304 and range requests do not count. Counts reach the API within about 10 seconds. See [Playback](/architecture/playback#plays) for the details and limits.
+Every asset carries `play_count` (all time) and `last_played_at`, and `GET /api/v1/stats/usage?days=30` (scope `read`, 1 to 90 days) answers the workspace's plays per UTC day, zero-filled, with their `total`. A play is one player load the server saw: the gateway serving a video's master playlist, or `/v1/share/{id}` minting the share map a direct-from-Sia player needs. The same viewer loading a video again within 30 minutes counts once, and previews in the Studio, HEAD, 304 and range requests do not count. Counts reach the API within about 10 seconds. See [Playback](/architecture/playback#plays) for the details and limits.
 
 ## Rate limits
 
@@ -193,7 +192,9 @@ Over the limit, the server answers `429` with a `Retry-After` header in seconds 
 
 Calls under `/api/v1` that carry no valid key or session (the OpenAPI document, the reference page, sign-in, and any call whose authentication fails) are counted per client address instead, 600 a minute by default (`API_IP_RATE_LIMIT`). Calls that authenticate are not counted there. Counters live in the backend process's memory, so they reset when the backend restarts. In front of the backend, the web proxy also limits each client address on the delivery routes under `/v1` and on sign-in; see [configuration](/guide/configuration#web-proxy).
 
-An account can hold at most 100 usable keys by default (`API_KEYS_PER_ACCOUNT_MAX`); creating one more answers `409`.
+The workspace can hold at most 100 usable keys by default (`API_KEYS_PER_ACCOUNT_MAX`); creating one more answers `409`.
+
+Password sign-in, password changes, first-admin setup and invite links count attempts of their own and answer `429` with `Retry-After` and `retry_after` once a limit is reached (see [signing in](/architecture/auth-and-tenancy#email-and-password)).
 
 ## Trying requests
 

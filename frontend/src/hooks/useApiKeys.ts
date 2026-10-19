@@ -55,7 +55,7 @@ function listed(k: IssuedKey): ApiKeyRecord {
     expiresAt: k.expiresAt,
     prefix: k.prefix,
     lastUsedAt: k.lastUsedAt,
-    ...('createdBy' in k ? { createdBy: (k as ApiKeyRecord).createdBy } : {}),
+    createdBy: k.createdBy,
   };
 }
 

@@ -102,8 +102,11 @@ services:
       # so other web pages cannot use it. production refuses to start with it.
       AUTH_DISABLED: ${AUTH_DISABLED:-false}
       SESSION_SECRET: ${SESSION_SECRET:-}
+      # optional github sign-in for members and invited people
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      # settings of older versions, read once on the first start after the
+      # upgrade to members and roles, then ignored with a warning
       GITHUB_ALLOWED_USERS: ${GITHUB_ALLOWED_USERS:-}
       OPERATOR_USERS: ${OPERATOR_USERS:-}
       BOOTSTRAP_API_KEY: ${BOOTSTRAP_API_KEY:-}

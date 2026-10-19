@@ -18,13 +18,13 @@ This guide needs `@sluby/sdk` and `@sluby/player` 0.2.0. Version 0.1.0 predates 
 
 ## Where API keys may live
 
-Every API key belongs to one account and carries scopes:
+Every API key belongs to the workspace and carries scopes:
 
-| Scope    | Allows                                                                                                                            |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `upload` | Creating uploads through tus and cancelling them.                                                                                 |
-| `read`   | Listing and reading every asset of the account, processing status, playback URLs, signed URLs for private assets, Sia share maps. |
-| `manage` | Editing and deleting assets, retrying processing, managing API keys, creating and deleting webhooks and playback ids.             |
+| Scope    | Allows                                                                                                                              |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `upload` | Creating uploads through tus and cancelling them.                                                                                   |
+| `read`   | Listing and reading every asset of the workspace, processing status, playback URLs, signed URLs for private assets, Sia share maps. |
+| `manage` | Editing and deleting assets, retrying processing, managing API keys, creating and deleting webhooks and playback ids.               |
 
 Anything shipped to a browser can be read by whoever loads the page. A key with `manage` lets them delete your library and create new keys. A key with `upload` lets them fill your storage. A `read` key is not harmless either: it lists every asset of the account and mints signed URLs for private ones. The API has no short-lived or per-viewer tokens, so the safe setup keeps every key on a server you control:
 
@@ -273,7 +273,7 @@ Every REST call throws a typed error. All of them extend `SlubyError`, which has
 | ----------------------- | ---------------------------------------------------------------------------------------- |
 | `AuthenticationError`   | 401: a missing, invalid, deactivated or expired key, or an ended session.                |
 | `PermissionError`       | 403: the key lacks the scope the call needs.                                             |
-| `NotFoundError`         | 404 or 410, including an asset that belongs to another account.                          |
+| `NotFoundError`         | 404 or 410, such as an asset that does not exist.                                        |
 | `ValidationError`       | 400 or 422: the request was refused as invalid. The message names the problem.           |
 | `ConflictError`         | 409, such as asking for playback of an asset that is not ready, or rotating a key twice. |
 | `RateLimitError`        | 429. `retryAfter` has the seconds from the `Retry-After` header when the API sent one.   |

@@ -112,7 +112,7 @@ export class AssetManager {
   }
 
   /**
-   * Plays of the account's videos per UTC day for the last `days` days (1 to
+   * Plays of the workspace's videos per UTC day for the last `days` days (1 to
    * 90, default 30), today included. Needs the `read` scope.
    */
   async usage(options?: RequestOptions & { days?: number }): Promise<UsageReport> {
@@ -196,7 +196,7 @@ export class AssetManager {
   }
 
   /**
-   * Library totals for the caller's account: asset counts by status, bytes
+   * Library totals for the workspace: asset counts by status, bytes
    * stored on Sia, ready playtime and the number of Sia objects. Deleted
    * assets are not counted.
    */

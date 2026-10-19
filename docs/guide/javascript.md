@@ -18,7 +18,7 @@ This guide needs `@sluby/sdk` and `@sluby/player` 0.2.0. Version 0.1.0 predates 
 
 ## Keep keys on your server
 
-An API key has scopes: `upload` creates uploads, `read` lists and reads every asset of the account (including signed URLs for private ones and Sia share maps), and `manage` edits and deletes assets and manages keys and webhooks. Anything in a browser bundle is readable by whoever loads the page, and the API has no short-lived or per-viewer tokens, so:
+An API key has scopes: `upload` creates uploads, `read` lists and reads every asset of the workspace (including signed URLs for private ones and Sia share maps), and `manage` edits and deletes assets and manages keys and webhooks. Anything in a browser bundle is readable by whoever loads the page, and the API has no short-lived or per-viewer tokens, so:
 
 - upload from your server with an `upload` key ([Upload from a server](#upload-from-a-server))
 - play in the browser with no key at all: a public asset from its stream URL, direct from Sia included, and a private one from a signed URL your server mints ([Mint signed URLs on your server](#mint-signed-urls-on-your-server))
@@ -421,7 +421,7 @@ The server can also call `getSignedUrl(id)` while rendering the page and put the
 
 ## Manage keys, webhooks and playback ids
 
-The client also wraps the account's management endpoints. Run these on your server with a key that has the scope each needs (`manage`, except where noted):
+The client also wraps the workspace's management endpoints. Run these on your server with a key that has the scope each needs (`manage`, except where noted):
 
 ```js
 // API keys: one page at a time, newest first
@@ -431,7 +431,7 @@ const next = page.nextCursor
   : null;
 const created = await client.keys.create({ name: 'ci', scopes: ['upload', 'read'] });
 // created.key is the secret, returned only here
-// page.limits says how many keys an account may hold and the highest rate limit
+// page.limits says how many keys the workspace may hold and the highest rate limit
 await client.keys.update(created.id, { name: 'ci runner' });
 const rotated = await client.keys.rotate(created.id, { gracePeriodSeconds: 3600 });
 // rotated.prefix and, once used, rotated.lastUsedAt tell keys apart in a list
@@ -460,7 +460,7 @@ const pb = await client.playbackIds.create(assetId, { policy: 'signed', name: 'e
 const ids = await client.playbackIds.list(assetId);
 await client.playbackIds.delete(pb.playbackId);
 
-// library totals and plays per day for the account (read)
+// library totals and plays per day for the workspace (read)
 const stats = await client.assets.stats();
 const usage = await client.assets.usage({ days: 30 }); // { days: [{ date, plays }], total }
 
@@ -477,7 +477,7 @@ try {
 
 Assets carry `playCount` and `lastPlayedAt`, and `assets.processing(id)` says whether a failed video is `retryable`. A browser signed in to the Studio (a client without `apiKey`) can list its sessions with `client.sessions.list()`, each with `lastSeenAt`, and sign them out with `revoke(id)` or `revokeAll()`.
 
-`keys.rotate` on a key that was already rotated rejects with a `ConflictError`; rotate its replacement. An id from another account rejects with a `NotFoundError`, the same as one that does not exist.
+`keys.rotate` on a key that was already rotated rejects with a `ConflictError`; rotate its replacement. An unknown id rejects with a `NotFoundError`.
 
 ## Run the example
 

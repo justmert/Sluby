@@ -12,7 +12,7 @@ import type {
 import type { FetchFn } from './uploads.js';
 
 /**
- * Manages the account's webhook endpoints. Every call needs the `manage`
+ * Manages the workspace's webhook endpoints. Every call needs the `manage`
  * scope, since receiver URLs often carry credentials. Verifying the requests
  * an endpoint receives is `client.webhooks`.
  */
@@ -23,7 +23,7 @@ export class WebhookEndpointManager {
     this._fetch = fetchFn;
   }
 
-  /** The account's registered endpoints, paused ones included, newest first. */
+  /** The workspace's registered endpoints, paused ones included, newest first. */
   async list(options?: RequestOptions): Promise<WebhookEndpoint[]> {
     const res = await this._fetch('/api/v1/webhooks', { signal: options?.signal });
     const body = await readJson(res);

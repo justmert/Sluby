@@ -8,7 +8,7 @@ This section describes how the pieces fit together, as implemented in the reposi
 - [Playback](./playback): the HTTP gateway with its caches, signed URLs, and direct-from-Sia playback in the browser.
 - [Deletion and reconciliation](./deletion-and-reconciliation): how assets are unpinned and how the database is checked against the indexer.
 - [Data model](./data-model): the PostgreSQL tables.
-- [Auth and tenancy](./auth-and-tenancy): API keys, Studio sessions and per-owner isolation.
+- [Accounts and roles](./auth-and-tenancy): the team workspace, members and roles, sign-in, invites, API keys and Studio sessions.
 - [SDK integration patterns](./sdk-patterns): how to build on `@sluby/sdk` and `@sluby/player`.
 
 ## Components
@@ -105,5 +105,5 @@ What each party holds and can see:
 - **Hosts** store sectors of ciphertext. In the SDK, each object gets a random data key, its bytes are encrypted with it, then erasure coded, and every shard is encrypted again with a per-slab key before it leaves the backend process.
 - **Share URLs** (direct-from-Sia playback) are capabilities for a single object. A share URL has the form `sia://<indexer>/objects/<id>/shared?<signature>#encryption_key=<key>`: the query is signed by the backend's app key and valid until a set time, and the fragment carries that object's data key. Anyone holding one can download and decrypt that one object until it expires. Sluby cannot revoke a share URL early, short of deleting the object, so the backend mints them per playback, valid for at most an hour for a private asset and at most six hours for a public one.
 - **The viewer app key** used for direct-from-Sia playback is a separate app identity, registered with `backend/scripts/provision-viewer.mjs`, and it ships to every browser that plays a video. It is not the backend's key, so on its own it gives no access to the backend's objects; it only lets a browser resolve the share URLs the backend hands out. Treat it as public.
-- **Browsers** authenticate to the API with an API key or the Studio session cookie. The delivery gateway itself has no login: public objects are served to anyone who knows the object id, private ones need an HMAC-signed URL. API keys belong on servers: even a `read` key mints signed URLs and share maps for every private asset of its account. See [Auth and tenancy](./auth-and-tenancy) and [Playback](./playback).
+- **Browsers** authenticate to the API with an API key or the Studio session cookie. The delivery gateway itself has no login: public objects are served to anyone who knows the object id, private ones need an HMAC-signed URL. API keys belong on servers: even a `read` key mints signed URLs and share maps for every private asset of the workspace. See [Accounts and roles](./auth-and-tenancy) and [Playback](./playback).
 - **PostgreSQL and Redis** are reachable only inside the Compose network; the base Compose file publishes neither, and the development override `docker-compose.dev.yml` publishes them on `127.0.0.1` (ports 5433 and 6380) for running the backend from source.
