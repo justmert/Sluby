@@ -31,7 +31,7 @@ docker compose run --rm --no-deps backend node scripts/connect-indexer.mjs
 docker compose up -d
 ```
 
-Open `http://localhost:8080`, upload a video in the Studio and play it. The [quickstart guide](./docs/guide/quickstart.md) walks through each step and says how long each one took in our runs, and the [production guide](./docs/guide/production.md) covers TLS, GitHub sign-in and connecting to an indexer on mainnet or the Zen testnet.
+Open `http://localhost:8080` and create your admin account with the setup code from `docker compose logs backend | grep "setup code"`, then upload a video in the Studio and play it. The [quickstart guide](./docs/guide/quickstart.md) walks through each step and says how long each one took in our runs, and the [production guide](./docs/guide/production.md) covers TLS, GitHub sign-in and connecting to an indexer on mainnet or the Zen testnet.
 
 The documentation site lives in `docs/`:
 

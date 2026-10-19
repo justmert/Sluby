@@ -92,7 +92,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [retrying, setRetrying] = useState(false);
   // read before the first check, while the url still has it
   const [failure] = useState(takeSignInFailure);
-  const [view, setView] = useState<'signIn' | 'setup'>('signIn');
+  // null until someone picks: a server with no admin opens on setup, since
+  // nobody can sign in there yet
+  const [view, setView] = useState<'signIn' | 'setup' | null>(null);
   // an invite or reset link renders without a session; the gate sits outside
   // the router, so it reads the path itself
   const [link, setLink] = useState<LinkPath | null>(() => linkFromPath(window.location.pathname));
@@ -242,7 +244,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
 
   const { config } = state;
-  if (view === 'setup' && config.setup_required) {
+  if ((view ?? (config.setup_required ? 'setup' : 'signIn')) === 'setup' && config.setup_required) {
     return (
       <AuthScreen contentKey="setup" title="Set up Sluby Studio" footer={<ProductLine />}>
         <SetupScreen
