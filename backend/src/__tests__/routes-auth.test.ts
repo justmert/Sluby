@@ -293,7 +293,7 @@ describe('GET /auth/github/callback', () => {
 
   it('turns away a github account that is not a member, naming the login, with no account', async () => {
     const res = await signInThroughGithub();
-    expectSignInError(res, 'not_allowed', 'Octocat');
+    expectSignInError(res, 'not_a_member', 'Octocat');
     expect(accounts.identities).toEqual([]);
     expect(accounts.sessions).toEqual([]);
   });
@@ -302,14 +302,14 @@ describe('GET /auth/github/callback', () => {
     octocatMember();
     github.userReply = { status: 200, body: { login: 'octocat', id: 99 } };
     const res = await signInThroughGithub();
-    expectSignInError(res, 'not_allowed', 'octocat');
+    expectSignInError(res, 'not_a_member', 'octocat');
     expect(accounts.identities.map((i) => i.subject)).toEqual(['1']);
   });
 
   it('turns away a removed member, and lets them in again once restored', async () => {
     const member = octocatMember();
     accounts.disable(member.userId);
-    expectSignInError(await signInThroughGithub(), 'not_allowed', 'Octocat');
+    expectSignInError(await signInThroughGithub(), 'disabled', 'Octocat');
     expect(accounts.sessions).toEqual([]);
     accounts.restore(member.userId);
     expect((await signInThroughGithub()).headers.location).toBe('/studio');
@@ -592,11 +592,31 @@ describe('GET /auth/me', () => {
       auth_disabled: true,
       role: 'admin',
       operator: true,
+      sign_in: [{ provider: 'local', username: 'dev' }],
       expires_at: null,
       providerLabel: 'Local',
       authDisabled: true,
     });
     expect(accounts.identities[0]).toMatchObject({ provider: 'local', subject: 'dev' });
+  });
+});
+
+describe('GET /auth/me sign-in methods', () => {
+  it('lists every way the account signs in', async () => {
+    const { cookie, userId } = await signedIn('octocat', '1');
+    accounts.passwords.set(userId, { email: 'octo@example.com', passwordHash: 'x' });
+    accounts.identities.push({
+      id: 'password-identity',
+      userId,
+      provider: 'password',
+      subject: userId,
+      username: 'octo@example.com',
+    });
+    const res = await request(app()).get('/api/v1/auth/me').set('Cookie', cookie);
+    expect(res.body.sign_in).toEqual([
+      { provider: 'github', username: 'octocat' },
+      { provider: 'password', username: 'octo@example.com' },
+    ]);
   });
 });
 
@@ -747,5 +767,167 @@ describe('unknown auth routes', () => {
     const res = await request(app()).get('/api/v1/auth/github/nope');
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('Route GET /api/v1/auth/github/nope not found');
+  });
+});
+
+describe('joining and linking with github', () => {
+  const TOKEN = 'i'.repeat(43);
+
+  /** Start a github sign-in with extra query and finish it in the same browser. */
+  async function githubRoundTrip(query: Record<string, string>, sessionCookie?: string) {
+    const start = request(app()).get('/api/v1/auth/github/login').query(query);
+    if (sessionCookie) start.set('Cookie', sessionCookie);
+    const res = await start;
+    if (!String(res.headers.location).startsWith('https://github.com/')) return { login: res };
+    const state = new URL(res.headers.location).searchParams.get('state')!;
+    const handshake = setCookies(res)
+      .find((c) => c.startsWith('sluby_signin='))!
+      .split(';')[0];
+    const cookies = sessionCookie ? `${handshake}; ${sessionCookie}` : handshake;
+    const callback = await request(app())
+      .get('/api/v1/auth/github/callback')
+      .query({ code: 'the-code', state })
+      .set('Cookie', cookies);
+    return { login: res, callback };
+  }
+
+  function signinError(res: request.Response) {
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.location, 'https://sluby.test');
+    return {
+      path: location.pathname,
+      code: location.searchParams.get('signin_error'),
+      handle: location.searchParams.get('handle'),
+    };
+  }
+
+  it('carries the invite in the handshake, never to github', async () => {
+    accounts.addLink(TOKEN, { role: 'admin' });
+    const { login } = await githubRoundTrip({ invite: TOKEN, next: `/studio/join/${TOKEN}` });
+    expect(login.headers.location).not.toContain(TOKEN);
+    const handshake = cookieValue(setCookies(login), 'sluby_signin')!;
+    const intent = Buffer.from(handshake.split('.')[4], 'base64url').toString('utf8');
+    expect(intent).toBe(`invite:${TOKEN}`);
+  });
+
+  it("makes a new member with the invite's role and signs them in", async () => {
+    const link = accounts.addLink(TOKEN, { role: 'admin' });
+    const { callback } = await githubRoundTrip({ invite: TOKEN });
+    expect(callback!.status).toBe(302);
+    expect(callback!.headers.location).toBe('/studio');
+    const identity = accounts.identities.find((i) => i.provider === 'github' && i.subject === '1')!;
+    expect(accounts.users.get(identity.userId)).toMatchObject({ role: 'admin' });
+    expect(cookieValue(setCookies(callback!), SESSION_COOKIE_NAME)).toBeDefined();
+    expect(link.usedAt).toBeInstanceOf(Date);
+  });
+
+  it('refuses an invite that does not work, with its reason', async () => {
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ usedAt: new Date() }, 'invite_used'],
+      [{ revokedAt: new Date() }, 'invite_revoked'],
+      [{ expiresAt: new Date(Date.now() - 1000) }, 'invite_expired'],
+      [{ kind: 'reset', userId: 'someone' }, 'invite_not_found'],
+    ];
+    for (const [fields, code] of cases) {
+      accounts.links.length = 0;
+      accounts.addLink(TOKEN, fields);
+      const { callback } = await githubRoundTrip({ invite: TOKEN, next: `/studio/join/${TOKEN}` });
+      expect(signinError(callback!)).toEqual({
+        path: `/studio/join/${TOKEN}`,
+        code,
+        handle: 'Octocat',
+      });
+      expect(accounts.identities).toEqual([]);
+    }
+    const { callback } = await githubRoundTrip({ invite: 'k'.repeat(43) });
+    expect(signinError(callback!).code).toBe('invite_not_found');
+  });
+
+  it('answers a malformed invite token at once, without going to github', async () => {
+    const { login } = await githubRoundTrip({ invite: 'short', next: '/studio/join/short' });
+    expect(signinError(login)).toEqual({
+      path: '/studio/join/short',
+      code: 'invite_not_found',
+      handle: null,
+    });
+  });
+
+  it('refuses to join with a github account that is already a member', async () => {
+    octocatMember();
+    const link = accounts.addLink(TOKEN);
+    const { callback } = await githubRoundTrip({ invite: TOKEN });
+    expect(signinError(callback!)).toMatchObject({ code: 'already_linked', handle: 'Octocat' });
+    expect(link.usedAt).toBeNull();
+  });
+
+  it('adds github to the signed-in account', async () => {
+    const ada = await accounts.addPasswordAccount('ada@example.com', 'correct horse battery');
+    const { id } = await accounts.authDeps.createSession({
+      userId: ada.userId,
+      identityId: ada.identityId,
+      expiresAt: new Date(Date.now() + 3600_000),
+      userAgent: null,
+    });
+    const cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(signSession(id, ada.userId, SECRET))}`;
+    const { login, callback } = await githubRoundTrip(
+      { link: '1', next: '/studio/settings' },
+      cookie,
+    );
+    const handshake = cookieValue(setCookies(login), 'sluby_signin')!;
+    expect(Buffer.from(handshake.split('.')[4], 'base64url').toString('utf8')).toBe(
+      `link:${ada.userId}`,
+    );
+    expect(callback!.headers.location).toBe('/studio/settings');
+    // the session it already had stays the session
+    expect(cookieValue(setCookies(callback!), SESSION_COOKIE_NAME)).toBeUndefined();
+    expect(
+      accounts.identities.filter((i) => i.userId === ada.userId).map((i) => i.provider),
+    ).toEqual(['password', 'github']);
+  });
+
+  it('refuses to link a github account another member has', async () => {
+    octocatMember();
+    const { cookie, userId } = await signedIn('someone', '55');
+    const { callback } = await githubRoundTrip({ link: '1' }, cookie);
+    expect(signinError(callback!)).toMatchObject({ code: 'already_linked', handle: 'Octocat' });
+    expect(accounts.identities.filter((i) => i.userId === userId)).toHaveLength(1);
+  });
+
+  it('needs a session to start linking, and the same account to finish it', async () => {
+    const { login } = await githubRoundTrip({ link: '1', next: '/studio/settings' });
+    expect(signinError(login)).toEqual({
+      path: '/studio/settings',
+      code: 'not_signed_in',
+      handle: null,
+    });
+
+    // the session ended between the two steps
+    const { cookie, id, userId } = await signedIn('someone', '55');
+    const res = await request(app())
+      .get('/api/v1/auth/github/login')
+      .query({ link: '1' })
+      .set('Cookie', cookie);
+    const state = new URL(res.headers.location).searchParams.get('state')!;
+    const handshake = setCookies(res)
+      .find((c) => c.startsWith('sluby_signin='))!
+      .split(';')[0];
+    await accounts.authDeps.revokeSession(id, userId);
+    const callback = await request(app())
+      .get('/api/v1/auth/github/callback')
+      .query({ code: 'the-code', state })
+      .set('Cookie', `${handshake}; ${cookie}`);
+    expect(signinError(callback).code).toBe('not_signed_in');
+    expect(accounts.identities.filter((i) => i.subject === '1')).toEqual([]);
+  });
+
+  it('still finishes a plain sign-in begun before intents were in the handshake', async () => {
+    octocatMember();
+    const { state, cookie } = await startLogin();
+    const fourParts = cookie.split('.').slice(0, 4).join('.');
+    const res = await request(app())
+      .get('/api/v1/auth/github/callback')
+      .query({ code: 'the-code', state })
+      .set('Cookie', fourParts);
+    expect(res.headers.location).toBe('/studio');
   });
 });

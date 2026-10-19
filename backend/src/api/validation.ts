@@ -114,3 +114,29 @@ function unknownKeyMessage(issue: z.ZodIssue): string | undefined {
   const keys = (issue as unknown as { keys: string[] }).keys;
   return `unknown field${keys.length === 1 ? '' : 's'}: ${keys.join(', ')}`;
 }
+
+export const EMAIL_MAX = 254;
+export const PERSON_NAME_MAX = 100;
+
+/**
+ * An email address as an account's sign-in name: trimmed and lowercased, so
+ * one address names one account however it is typed. The shape check only
+ * catches typos (one @, a dot in the domain); nothing is ever sent to it.
+ */
+export const emailSchema = z
+  .string({ message: 'email must be a string' })
+  .trim()
+  .toLowerCase()
+  .min(1, { message: 'Enter an email address.' })
+  .max(EMAIL_MAX, { message: `Use at most ${EMAIL_MAX} characters.` })
+  .regex(/^[^@\s]+@[^@\s]+\.[^@\s]+$/, {
+    message: 'Enter an email address like name@example.com.',
+  });
+
+/** A person's display name. */
+export const personNameSchema = z
+  .string({ message: 'name must be a string' })
+  .trim()
+  .min(1, { message: 'Enter a name.' })
+  .max(PERSON_NAME_MAX, { message: `Use at most ${PERSON_NAME_MAX} characters.` })
+  .refine((v) => !hasControlCharacter(v), { message: 'name must not contain control characters' });

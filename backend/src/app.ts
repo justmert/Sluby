@@ -102,9 +102,22 @@ import {
   markStudioSessionSeen,
   pruneStudioSessions,
   revokeAllStudioSessions,
+  revokeOtherStudioSessions,
   revokeStudioSession,
 } from './db/queries/sessions.js';
-import { ensureIdentityAccount, getAccount, signInIdentity } from './db/queries/accounts.js';
+import {
+  createFirstAdmin,
+  ensureIdentityAccount,
+  findPasswordAccount,
+  getAccount,
+  getPasswordCredential,
+  hasSignInAdmin,
+  linkIdentity,
+  recordSignIn,
+  setPassword,
+  signInIdentity,
+} from './db/queries/accounts.js';
+import { acceptInvite, acceptReset, findLink, joinWithIdentity } from './db/queries/invites.js';
 import { WORKSPACE_ADDRESS } from './api/ownership.js';
 import type { CallerDeps } from './api/auth/caller.js';
 import { LOCAL_DEV_SUBJECT, LOCAL_PROVIDER } from './api/auth/providers/index.js';
@@ -523,7 +536,19 @@ export function buildApiDeps(
     listActiveSessions: listActiveStudioSessions,
     revokeSession: revokeStudioSession,
     revokeAllSessions: revokeAllStudioSessions,
+    revokeOtherSessions: revokeOtherStudioSessions,
     pruneSessions: pruneStudioSessions,
+    hasSignInAdmin: () => hasSignInAdmin(),
+    createFirstAdmin,
+    findPasswordAccount,
+    recordSignIn,
+    getPasswordCredential,
+    setPassword,
+    linkIdentity,
+    findLink,
+    acceptInvite,
+    acceptReset,
+    joinWithIdentity,
 
     // Upload creation happens through the TUS protocol (see tusServer); the REST
     // surface only exposes owner-scoped status and cancellation.

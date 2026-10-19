@@ -79,6 +79,24 @@ const idParam = (name: string, description: string) => ({
   description,
 });
 
+/** The token of an invite or reset link, from its Studio url. */
+const linkTokenParam = idParam('token', 'The token from the invite or reset link.');
+
+/** The session cookie a sign-in sets. */
+const sessionCookieHeader = {
+  'Set-Cookie': {
+    description: 'The `sluby_session` cookie of the new session (HttpOnly, SameSite=Lax).',
+    schema: { type: 'string' },
+  },
+};
+
+/** 429 from the attempt limits of the sign-in routes. */
+const attemptsLimited = {
+  description: 'Too many attempts; try again after `retry_after` seconds.',
+  headers: { 'Retry-After': { $ref: '#/components/headers/RetryAfter' } },
+  content: { 'application/json': { schema: { $ref: '#/components/schemas/RateLimited' } } },
+};
+
 export const openapiDocument = {
   openapi: '3.1.0',
   info: {
@@ -129,7 +147,9 @@ export const openapiDocument = {
         type: 'apiKey',
         in: 'cookie',
         name: 'sluby_session',
-        description: 'Signed session cookie issued to the Studio after GitHub login.',
+        description:
+          'Signed session cookie issued to the Studio at sign-in (email and password, GitHub, ' +
+          'setup, or an invite or reset link).',
       },
     },
     parameters: {
@@ -220,12 +240,28 @@ export const openapiDocument = {
           },
           reason: {
             type: 'string',
-            enum: ['missing', 'expired', 'revoked', 'not_allowed'],
+            enum: [
+              'missing',
+              'expired',
+              'revoked',
+              'not_allowed',
+              'bad_credentials',
+              'disabled',
+              'bad_code',
+              'already_set_up',
+              'email_taken',
+              'no_password',
+              'used',
+            ],
             description:
               'On a 401 to a request without an API key (a browser session): `missing` (no ' +
               'session cookie, or one this server did not sign), `expired`, `revoked` (signed ' +
               'out, here or from another browser) or `not_allowed` (an admin removed the ' +
-              'account). A key whose creator was removed also answers `not_allowed`.',
+              'account). A key whose creator was removed also answers `not_allowed`. The ' +
+              'sign-in routes add their own: `bad_credentials` (wrong email or password), ' +
+              '`disabled` (the account was removed), `bad_code` (wrong setup code), ' +
+              '`already_set_up`, `email_taken`, `no_password`, and on a 410 for a link ' +
+              '`used`, `expired` or `revoked`.',
           },
         },
         required: ['error'],
@@ -966,6 +1002,7 @@ export const openapiDocument = {
           'auth_disabled',
           'role',
           'operator',
+          'sign_in',
           'expires_at',
         ],
         properties: {
@@ -973,10 +1010,13 @@ export const openapiDocument = {
           name: { type: 'string', description: 'Display name.' },
           username: {
             type: 'string',
-            description: "The provider's current username (GitHub: the login).",
+            description:
+              "The handle the session signed in with: the email for `password`, GitHub's login " +
+              'for `github`.',
           },
           provider: nullable('string', {
-            description: 'The sign-in provider of this session, `local` with AUTH_DISABLED.',
+            description:
+              'How this session signed in: `password`, `github`, or `local` with AUTH_DISABLED.',
           }),
           provider_label: nullable('string'),
           auth_disabled: {
@@ -996,6 +1036,11 @@ export const openapiDocument = {
             type: 'boolean',
             deprecated: true,
             description: 'Use `role`. True when `role` is `admin`.',
+          },
+          sign_in: {
+            type: 'array',
+            description: 'Every way the account signs in.',
+            items: { $ref: '#/components/schemas/SignInMethod' },
           },
           expires_at: nullable('string', { format: 'date-time' }),
           providerLabel: {
@@ -1048,6 +1093,127 @@ export const openapiDocument = {
         type: 'object',
         required: ['success', 'revoked'],
         properties: { success: { const: true }, revoked: { type: 'integer' } },
+      },
+      SignInMethod: {
+        type: 'object',
+        required: ['provider', 'username'],
+        properties: {
+          provider: {
+            type: 'string',
+            description: '`password`, `github`, or `local` (the AUTH_DISABLED account).',
+          },
+          username: {
+            type: 'string',
+            description: 'The email for `password`, the login for `github`.',
+          },
+        },
+      },
+      AuthConfig: {
+        type: 'object',
+        required: ['auth_disabled', 'setup_required', 'methods'],
+        properties: {
+          auth_disabled: {
+            type: 'boolean',
+            description: 'Sign-in is off (AUTH_DISABLED): every request is the local admin.',
+          },
+          setup_required: {
+            type: 'boolean',
+            description:
+              'No admin who can sign in exists yet, so the Studio shows the setup screen. ' +
+              'The setup code is in the server log.',
+          },
+          methods: {
+            type: 'object',
+            required: ['password', 'github'],
+            properties: {
+              password: { const: true },
+              github: { type: 'boolean', description: 'A GitHub OAuth app is configured.' },
+            },
+          },
+        },
+      },
+      SetupRequest: {
+        type: 'object',
+        required: ['code', 'name', 'email', 'password'],
+        additionalProperties: false,
+        properties: {
+          code: {
+            type: 'string',
+            description:
+              'The setup code from the server log, `XXXXX-XXXXX`; case and dashes do not matter.',
+          },
+          name: { type: 'string', minLength: 1, maxLength: 100 },
+          email: { type: 'string', maxLength: 254, description: 'Stored trimmed and lowercased.' },
+          password: { type: 'string', minLength: 10, maxLength: 256 },
+        },
+      },
+      PasswordSignInRequest: {
+        type: 'object',
+        required: ['email', 'password'],
+        additionalProperties: false,
+        properties: {
+          email: { type: 'string', description: 'Compared trimmed and lowercased.' },
+          password: { type: 'string', minLength: 1, maxLength: 1024 },
+        },
+      },
+      PasswordChangeRequest: {
+        type: 'object',
+        required: ['current_password', 'new_password'],
+        additionalProperties: false,
+        properties: {
+          current_password: { type: 'string', minLength: 1, maxLength: 1024 },
+          new_password: { type: 'string', minLength: 10, maxLength: 256 },
+        },
+      },
+      LinkInfo: {
+        type: 'object',
+        required: ['kind', 'expires_at', 'github'],
+        properties: {
+          kind: { type: 'string', enum: ['invite', 'reset'] },
+          role: {
+            type: 'string',
+            enum: ['admin', 'member'],
+            description: 'Invites only: the role the new member gets.',
+          },
+          email: nullable('string', {
+            description:
+              'Reset links only: the email the member signs in with, null when they have no ' +
+              'password yet (then accepting needs `email`).',
+          }),
+          expires_at: { type: 'string', format: 'date-time' },
+          github: {
+            type: 'boolean',
+            description: 'GitHub sign-in is configured, so an invite can be accepted with it.',
+          },
+        },
+      },
+      LinkAcceptRequest: {
+        description:
+          'For an invite: `name`, `email` and `password`, making a new member. For a reset ' +
+          'link: `password`, plus `email` when the member has no password yet.',
+        oneOf: [
+          {
+            type: 'object',
+            title: 'Invite',
+            required: ['name', 'email', 'password'],
+            additionalProperties: false,
+            properties: {
+              name: { type: 'string', minLength: 1, maxLength: 100 },
+              email: { type: 'string', maxLength: 254 },
+              password: { type: 'string', minLength: 10, maxLength: 256 },
+            },
+          },
+          {
+            type: 'object',
+            title: 'Reset',
+            required: ['password'],
+            additionalProperties: false,
+            properties: {
+              password: { type: 'string', minLength: 10, maxLength: 256 },
+              email: { type: 'string', maxLength: 254 },
+            },
+          },
+        ],
       },
       Health: {
         type: 'object',
@@ -1258,12 +1424,32 @@ export const openapiDocument = {
             schema: { type: 'string' },
             description: 'Studio path to land on after sign-in, /studio by default.',
           },
+          {
+            name: 'invite',
+            in: 'query' as const,
+            required: false,
+            schema: { type: 'string' },
+            description:
+              'An invite token: join as a new member with this provider account instead of ' +
+              'signing in. The token stays in the handshake cookie and is never sent to the ' +
+              'provider.',
+          },
+          {
+            name: 'link',
+            in: 'query' as const,
+            required: false,
+            schema: { type: 'string', enum: ['1'] },
+            description:
+              'Add this provider account to the signed-in account (needs the session cookie).',
+          },
         ],
         responses: {
           '302': {
             description:
-              'Redirect to the provider, or to `/studio?signin_error=not_configured` when the ' +
-              'provider is not configured on this server.',
+              'Redirect to the provider, or back to `next` with `signin_error`: ' +
+              '`not_configured` when the provider is not configured on this server, ' +
+              '`invite_not_found` for a malformed invite token, `not_signed_in` for `link=1` ' +
+              'without a session.',
           },
           '404': errorWith('No such sign-in provider.'),
         },
@@ -1280,10 +1466,15 @@ export const openapiDocument = {
           '(GitHub: the numeric account id), never the login. A failure redirects to the ' +
           'page the sign-in started from (or `/studio` once the handshake is lost) with ' +
           '`signin_error=<code>` added: `expired_handshake` (expired, or started in another ' +
-          'browser), `not_allowed` (with `&handle=<login>`, the account is not a member of this ' +
-          'workspace, or was removed), ' +
-          '`cancelled` (the person declined at the provider), `provider_failed` (the provider ' +
-          'refused the code or could not be reached) or `not_configured`.',
+          'browser), `not_a_member` (with `&handle=<login>`, nobody added this account; people ' +
+          'join through invites), `disabled` (with `&handle`, an admin removed the member), ' +
+          '`already_linked` (with `&handle`, joining or linking with an account another member ' +
+          'already signs in with), `not_signed_in` (a link finished without the session it ' +
+          'began in), `invite_not_found`, `invite_used`, `invite_expired`, `invite_revoked` ' +
+          '(with `&handle`, joining with an invite that does not work), `cancelled` (the ' +
+          'person declined at the provider), `provider_failed` (the provider refused the code ' +
+          'or could not be reached) or `not_configured`. A join signs the new member in; a ' +
+          'link keeps the current session.',
         security: [],
         parameters: [
           {
@@ -1304,13 +1495,163 @@ export const openapiDocument = {
         },
       },
     },
+    '/api/v1/auth/config': {
+      get: {
+        tags: ['Auth'],
+        summary: 'How this server signs people in.',
+        description:
+          'Public: the Studio reads it before anyone is signed in, to show the setup screen or ' +
+          'the sign-in methods.',
+        security: [],
+        responses: { '200': jsonResponse('AuthConfig', 'The sign-in configuration.') },
+      },
+    },
+    '/api/v1/auth/setup': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Set up the first admin with the setup code, and sign in.',
+        description:
+          'Works while `setup_required` is true: no admin who can sign in exists. The code is ' +
+          'printed in the server log at startup. 10 attempts per client address in 10 minutes.',
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/SetupRequest' } },
+          },
+        },
+        responses: {
+          '201': {
+            ...jsonResponse('Success', 'The admin exists and is signed in.'),
+            headers: sessionCookieHeader,
+          },
+          '400': ref('BadRequest'),
+          '403': errorWith('Wrong setup code (`reason: bad_code`).'),
+          '409': errorWith(
+            'An admin already exists (`already_set_up`), the email is taken (`email_taken`), ' +
+              'or sign-in is disabled on this server.',
+          ),
+          '429': attemptsLimited,
+        },
+      },
+    },
+    '/api/v1/auth/password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Sign in with an email and password.',
+        description:
+          '10 attempts per client address in 10 minutes, and 5 wrong passwords per email in ' +
+          '15 minutes.',
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/PasswordSignInRequest' } },
+          },
+        },
+        responses: {
+          '200': {
+            ...jsonResponse('Success', 'Signed in.'),
+            headers: sessionCookieHeader,
+          },
+          '400': ref('BadRequest'),
+          '401': errorWith('Wrong email or password (`reason: bad_credentials`).'),
+          '403': errorWith('The password is right but the account was removed (`disabled`).'),
+          '409': errorWith('Sign-in is disabled on this server.'),
+          '429': attemptsLimited,
+        },
+      },
+    },
+    '/api/v1/auth/password/change': {
+      post: {
+        tags: ['Auth'],
+        summary: "Change the signed-in member's password.",
+        description:
+          'Studio sessions only. Every other session of the account ends; this one stays. ' +
+          '`revoked` is how many ended.',
+        security: [{ cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/PasswordChangeRequest' } },
+          },
+        },
+        responses: {
+          '200': jsonResponse('SessionsRevoked', 'Changed.'),
+          '400': ref('BadRequest'),
+          '401': ref('Unauthorized'),
+          '403': errorWith('The current password is wrong (`reason: bad_credentials`).'),
+          '409': errorWith(
+            'The account has no password (`no_password`), or sign-in is disabled on this server.',
+          ),
+          '429': attemptsLimited,
+        },
+      },
+    },
+    '/api/v1/auth/invites/{token}': {
+      get: {
+        tags: ['Auth'],
+        summary: 'What an invite or reset link is for.',
+        description:
+          'Public: the join and reset pages call it with the token from their url. 30 link ' +
+          'requests per client address in 10 minutes.',
+        security: [],
+        parameters: [linkTokenParam],
+        responses: {
+          '200': jsonResponse('LinkInfo', 'The link works.'),
+          '403': errorWith('A reset link of a removed member (`disabled`).'),
+          '404': errorWith('No such link.'),
+          '409': errorWith('Sign-in is disabled on this server.'),
+          '410': errorWith('The link was `used`, has `expired` or was `revoked` (in `reason`).'),
+          '429': attemptsLimited,
+        },
+      },
+    },
+    '/api/v1/auth/invites/{token}/accept': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Use an invite or reset link, and sign in.',
+        description:
+          'An invite makes a new member with its role. A reset link sets the member’s password ' +
+          '(their first, when they had none) and ends every other session of the account. ' +
+          'Either way the link is used up and the browser is signed in.',
+        security: [],
+        parameters: [linkTokenParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/LinkAcceptRequest' } },
+          },
+        },
+        responses: {
+          '200': {
+            ...jsonResponse('Success', 'Password set from a reset link, signed in.'),
+            headers: sessionCookieHeader,
+          },
+          '201': {
+            ...jsonResponse('Success', 'Joined with an invite, signed in.'),
+            headers: sessionCookieHeader,
+          },
+          '400': ref('BadRequest'),
+          '403': errorWith('A reset link of a removed member (`disabled`).'),
+          '404': errorWith('No such link.'),
+          '409': errorWith(
+            'Another account signs in with this email (`email_taken`), or sign-in is disabled ' +
+              'on this server.',
+          ),
+          '410': errorWith('The link was `used`, has `expired` or was `revoked` (in `reason`).'),
+          '429': attemptsLimited,
+        },
+      },
+    },
     '/api/v1/auth/me': {
       get: {
         tags: ['Auth'],
         summary: 'The signed-in account.',
         description:
           'The account id and display name, plus the provider, provider label and handle the ' +
-          'browser signed in with, its role, and the session expiry. ' +
+          'browser signed in with, its role, every way it signs in (`sign_in`), and the ' +
+          'session expiry. ' +
           'With AUTH_DISABLED it is the local dev account (`provider: "local"`, ' +
           '`auth_disabled: true`, `role: "admin"`).',
         security: [{ cookieAuth: [] }],

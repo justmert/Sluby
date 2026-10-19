@@ -196,6 +196,15 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, one workspace)', () =
     spec.check(method, template, res);
   }
 
+  /** The session cookie a sign-in response set, as a Cookie header value. */
+  function cookieFrom(res: request.Response): string {
+    const raw = res.headers['set-cookie'] as unknown;
+    const cookies: string[] = raw ? (Array.isArray(raw) ? raw : [String(raw)]) : [];
+    const session = cookies.find((c) => c.startsWith('sluby_session='));
+    expect(session, 'the response set no session cookie').toBeDefined();
+    return session!.split(';')[0];
+  }
+
   async function assetRow(id: string) {
     const [row] = await tdb.sql<{ title: string; description: string; deleted_at: Date | null }[]>`
       select title, description, deleted_at from video_assets where id = ${id}
@@ -1671,6 +1680,152 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, one workspace)', () =
       const logout = await request(app).post('/api/v1/auth/logout').set('Cookie', other.cookie);
       check('POST', '/api/v1/auth/logout', logout);
       expect(logout.status).toBe(200);
+    });
+
+    it('sets up the first admin, then signs in and changes the password', async () => {
+      const { env } = await import('../config/env.js');
+      const { setupCode } = await import('../api/auth/setup-code.js');
+      const code = setupCode(env.SESSION_SECRET);
+
+      const before = await call('GET', '/api/v1/auth/config', 'none');
+      check('GET', '/api/v1/auth/config', before);
+      expect(before.body).toEqual({
+        auth_disabled: false,
+        setup_required: true,
+        methods: { password: true, github: true },
+      });
+
+      const admin = { name: 'Ada', email: 'Ada@Example.com', password: 'correct horse battery' };
+      const wrongCode = await call('POST', '/api/v1/auth/setup', 'none', {
+        ...admin,
+        code: 'AAAAA-AAAAA',
+      });
+      check('POST', '/api/v1/auth/setup', wrongCode);
+      expect(wrongCode.status).toBe(403);
+      const invalid = await call('POST', '/api/v1/auth/setup', 'none', { code, name: 'Ada' });
+      check('POST', '/api/v1/auth/setup', invalid);
+      expect(invalid.status).toBe(400);
+      const setup = await call('POST', '/api/v1/auth/setup', 'none', { ...admin, code });
+      check('POST', '/api/v1/auth/setup', setup);
+      expect(setup.status).toBe(201);
+      const setupCookie = cookieFrom(setup);
+      const me = await request(app).get('/api/v1/auth/me').set('Cookie', setupCookie);
+      check('GET', '/api/v1/auth/me', me);
+      expect(me.body).toMatchObject({
+        role: 'admin',
+        provider: 'password',
+        sign_in: [{ provider: 'password', username: 'ada@example.com' }],
+      });
+      const again = await call('POST', '/api/v1/auth/setup', 'none', { ...admin, code });
+      check('POST', '/api/v1/auth/setup', again);
+      expect(again.status).toBe(409);
+      expect(again.body.reason).toBe('already_set_up');
+
+      const after = await call('GET', '/api/v1/auth/config', 'none');
+      check('GET', '/api/v1/auth/config', after);
+      expect(after.body.setup_required).toBe(false);
+
+      const wrong = await call('POST', '/api/v1/auth/password', 'none', {
+        email: 'ada@example.com',
+        password: 'not the password',
+      });
+      check('POST', '/api/v1/auth/password', wrong);
+      expect(wrong.status).toBe(401);
+      const signIn = await call('POST', '/api/v1/auth/password', 'none', {
+        email: 'ada@example.com',
+        password: admin.password,
+      });
+      check('POST', '/api/v1/auth/password', signIn);
+      expect(signIn.status).toBe(200);
+      const cookie = cookieFrom(signIn);
+
+      const badCurrent = await request(app)
+        .post('/api/v1/auth/password/change')
+        .set('Cookie', cookie)
+        .send({ current_password: 'not the password', new_password: 'a brand new password' });
+      check('POST', '/api/v1/auth/password/change', badCurrent);
+      expect(badCurrent.status).toBe(403);
+      const change = await request(app)
+        .post('/api/v1/auth/password/change')
+        .set('Cookie', cookie)
+        .send({ current_password: admin.password, new_password: 'a brand new password' });
+      check('POST', '/api/v1/auth/password/change', change);
+      expect(change.body).toEqual({ success: true, revoked: 1 });
+      // the setup session was the other one
+      const ended = await request(app).get('/api/v1/auth/me').set('Cookie', setupCookie);
+      check('GET', '/api/v1/auth/me', ended);
+      expect(ended.status).toBe(401);
+    });
+
+    it('joins with an invite and sets a password with a reset link', async () => {
+      const { newLinkToken } = await import('../api/auth/link-token.js');
+      const invite = newLinkToken();
+      await tdb.sql`
+        insert into invites (token_hash, kind, role, expires_at)
+        values (${invite.tokenHash}, 'invite', 'member', now() + interval '7 days')`;
+
+      const unknown = await call('GET', `/api/v1/auth/invites/${newLinkToken().token}`, 'none');
+      check('GET', '/api/v1/auth/invites/{token}', unknown);
+      expect(unknown.status).toBe(404);
+      const info = await call('GET', `/api/v1/auth/invites/${invite.token}`, 'none');
+      check('GET', '/api/v1/auth/invites/{token}', info);
+      expect(info.body).toMatchObject({ kind: 'invite', role: 'member', github: true });
+
+      const joined = await call('POST', `/api/v1/auth/invites/${invite.token}/accept`, 'none', {
+        name: 'Bob',
+        email: 'bob@example.com',
+        password: 'correct horse battery',
+      });
+      check('POST', '/api/v1/auth/invites/{token}/accept', joined);
+      expect(joined.status).toBe(201);
+      const me = await request(app).get('/api/v1/auth/me').set('Cookie', cookieFrom(joined));
+      check('GET', '/api/v1/auth/me', me);
+      expect(me.body).toMatchObject({ name: 'Bob', role: 'member' });
+
+      const used = await call('POST', `/api/v1/auth/invites/${invite.token}/accept`, 'none', {
+        name: 'Eve',
+        email: 'eve@example.com',
+        password: 'correct horse battery',
+      });
+      check('POST', '/api/v1/auth/invites/{token}/accept', used);
+      expect(used.status).toBe(410);
+      const gone = await call('GET', `/api/v1/auth/invites/${invite.token}`, 'none');
+      check('GET', '/api/v1/auth/invites/{token}', gone);
+      expect(gone.body.reason).toBe('used');
+
+      // a github member gets a first password
+      const reset = newLinkToken();
+      const [identity] = await tdb.sql`
+        insert into user_identities (user_id, provider, subject, username)
+        values (${aliceId}, 'github', '1001', 'alice') returning id`;
+      expect(identity).toBeDefined();
+      await tdb.sql`
+        insert into invites (token_hash, kind, user_id, expires_at)
+        values (${reset.tokenHash}, 'reset', ${aliceId}, now() + interval '7 days')`;
+      const resetInfo = await call('GET', `/api/v1/auth/invites/${reset.token}`, 'none');
+      check('GET', '/api/v1/auth/invites/{token}', resetInfo);
+      expect(resetInfo.body).toMatchObject({ kind: 'reset', email: null });
+      const taken = await call('POST', `/api/v1/auth/invites/${reset.token}/accept`, 'none', {
+        password: 'correct horse battery',
+        email: 'bob@example.com',
+      });
+      check('POST', '/api/v1/auth/invites/{token}/accept', taken);
+      expect(taken.status).toBe(409);
+      const set = await call('POST', `/api/v1/auth/invites/${reset.token}/accept`, 'none', {
+        password: 'correct horse battery',
+        email: 'alice@example.com',
+      });
+      check('POST', '/api/v1/auth/invites/{token}/accept', set);
+      expect(set.status).toBe(200);
+      const aliceMe = await request(app).get('/api/v1/auth/me').set('Cookie', cookieFrom(set));
+      check('GET', '/api/v1/auth/me', aliceMe);
+      expect(aliceMe.body.id).toBe(aliceId);
+      expect(aliceMe.body.sign_in).toEqual(
+        expect.arrayContaining([
+          { provider: 'github', username: 'alice' },
+          { provider: 'password', username: 'alice@example.com' },
+        ]),
+      );
     });
 
     it('documents the github login redirect and the callback refusals', async () => {
