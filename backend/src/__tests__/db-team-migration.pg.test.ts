@@ -93,6 +93,18 @@ describe.skipIf(!hasTestDatabase)('upgrade to one team workspace (postgres)', ()
     expect(byName[ZERO]).toBeNull();
   });
 
+  it('stops keys an ordinary person held that no account owns any more', async () => {
+    const keys = await tdb.sql<{ name: string; is_active: boolean }[]>`
+      select name, is_active from api_keys order by name`;
+    const active = Object.fromEntries(keys.map((k) => [k.name, k.is_active]));
+    expect(active[`user-${alice}`]).toBe(true);
+    expect(active[`user-${dev}`]).toBe(true);
+    expect(active[`user-${gone}`]).toBe(false);
+    expect(active['github-octocat']).toBe(false);
+    expect(active.platform).toBe(true);
+    expect(active[ZERO]).toBe(true);
+  });
+
   it('makes the local dev account an admin and everyone else a member', async () => {
     const users = await tdb.sql<{ id: string; role: string; disabled_at: Date | null }[]>`
       select id, role, disabled_at from users`;

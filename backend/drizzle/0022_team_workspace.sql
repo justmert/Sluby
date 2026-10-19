@@ -50,6 +50,13 @@ UPDATE "api_keys" AS k SET "created_by" = u."id"
   FROM "users" AS u
   WHERE k."creator_address" ~ '^user:[0-9a-f-]{36}$'
     AND u."id"::text = substring(k."creator_address" FROM 6);--> statement-breakpoint
+-- a key with no creator acts as admin, which is right for keys made from the
+-- server (platform, the zero address) but would promote keys an ordinary
+-- person once held: one whose account no longer exists, or a github:<login>
+-- key nobody claimed. those stop instead; an admin makes new ones
+UPDATE "api_keys" SET "is_active" = false
+  WHERE "created_by" IS NULL
+    AND ("creator_address" ~ '^user:' OR "creator_address" LIKE 'github:%');--> statement-breakpoint
 -- one install is one team: everything belongs to the workspace, so the owner
 -- scoped queries keep working and every member sees every row
 UPDATE "video_assets" SET "creator_address" = 'workspace'
