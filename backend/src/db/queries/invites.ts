@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { invites, passwordCredentials, studioSessions, userIdentities, users } from '../schema.js';
 import type { Role } from '../../api/auth/access.js';
@@ -214,4 +214,86 @@ export async function acceptReset(
     await markUsed(tx, link.id);
     return { status: 'reset' as const, userId, identityId };
   });
+}
+
+/** A pending invite as the members page lists it; its token is never shown again. */
+export interface PendingInvite {
+  id: string;
+  role: Role;
+  createdAt: Date;
+  expiresAt: Date;
+  createdBy: { id: string; name: string } | null;
+}
+
+/** Store a new invite; the caller made the token and keeps it. */
+export async function createInvite(data: {
+  tokenHash: string;
+  role: Role;
+  createdBy: string | null;
+  expiresAt: Date;
+}): Promise<{ id: string; createdAt: Date; expiresAt: Date }> {
+  const [row] = await db
+    .insert(invites)
+    .values({ kind: 'invite', ...data })
+    .returning({ id: invites.id, createdAt: invites.createdAt, expiresAt: invites.expiresAt });
+  return row;
+}
+
+/** Store a reset link for member `userId`; null when there is no such member. */
+export async function createResetLink(data: {
+  tokenHash: string;
+  userId: string;
+  createdBy: string | null;
+  expiresAt: Date;
+}): Promise<{ id: string; expiresAt: Date } | null> {
+  return db.transaction(async (tx) => {
+    const [user] = await tx.select({ id: users.id }).from(users).where(eq(users.id, data.userId));
+    if (!user) return null;
+    const [row] = await tx
+      .insert(invites)
+      .values({ kind: 'reset', ...data })
+      .returning({ id: invites.id, expiresAt: invites.expiresAt });
+    return row;
+  });
+}
+
+const pending = and(
+  eq(invites.kind, 'invite'),
+  isNull(invites.usedAt),
+  isNull(invites.revokedAt),
+  gt(invites.expiresAt, sql`now()`),
+);
+
+/** Invites nobody used yet that still work, newest first. */
+export async function listPendingInvites(): Promise<PendingInvite[]> {
+  const rows = await db
+    .select({
+      id: invites.id,
+      role: invites.role,
+      createdAt: invites.createdAt,
+      expiresAt: invites.expiresAt,
+      creatorId: users.id,
+      creatorName: users.displayName,
+    })
+    .from(invites)
+    .leftJoin(users, eq(users.id, invites.createdBy))
+    .where(pending)
+    .orderBy(desc(invites.createdAt), desc(invites.id));
+  return rows.map((r) => ({
+    id: r.id,
+    role: r.role ?? 'member',
+    createdAt: r.createdAt,
+    expiresAt: r.expiresAt,
+    createdBy: r.creatorId && r.creatorName ? { id: r.creatorId, name: r.creatorName } : null,
+  }));
+}
+
+/** Withdraw a pending invite. False when there is no pending invite with this id. */
+export async function revokeInvite(id: string): Promise<boolean> {
+  const rows = await db
+    .update(invites)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(invites.id, id), pending))
+    .returning({ id: invites.id });
+  return rows.length > 0;
 }

@@ -156,7 +156,10 @@ export async function lockAdmins(tx: Tx): Promise<void> {
  * The local dev account of an AUTH_DISABLED run is an admin with no way in
  * once sign-in is on, so it does not count.
  */
-export async function hasSignInAdmin(exec: Executor = db): Promise<boolean> {
+export async function hasSignInAdmin(
+  exec: Executor = db,
+  opts: { except?: string } = {},
+): Promise<boolean> {
   const rows = await exec
     .select({ id: users.id })
     .from(users)
@@ -164,6 +167,7 @@ export async function hasSignInAdmin(exec: Executor = db): Promise<boolean> {
       and(
         eq(users.role, 'admin'),
         isNull(users.disabledAt),
+        opts.except === undefined ? undefined : ne(users.id, opts.except),
         exists(
           exec
             .select({ one: sql`1` })

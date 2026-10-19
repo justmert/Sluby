@@ -79,6 +79,9 @@ const idParam = (name: string, description: string) => ({
   description,
 });
 
+/** Admins manage members from the Studio or with their own key. */
+const memberSecurity = [{ bearerAuth: [] as string[] }, { cookieAuth: [] as string[] }];
+
 /** The token of an invite or reset link, from its Studio url. */
 const linkTokenParam = idParam('token', 'The token from the invite or reset link.');
 
@@ -130,7 +133,8 @@ export const openapiDocument = {
     { name: 'Webhooks', description: 'Event delivery endpoints.' },
     { name: 'Reconciliation', description: 'DB vs indexer inventory drift.' },
     { name: 'Delivery', description: 'Byte-range gateway for Sia objects.' },
-    { name: 'Auth', description: 'Studio session auth.' },
+    { name: 'Auth', description: 'Studio sign-in, setup, invite and reset links.' },
+    { name: 'Members', description: 'Members, roles and invites (admins only).' },
     { name: 'Ops', description: 'Metrics and cache.' },
   ],
   security: bearerAuth,
@@ -252,6 +256,8 @@ export const openapiDocument = {
               'email_taken',
               'no_password',
               'used',
+              'last_admin',
+              'self',
             ],
             description:
               'On a 401 to a request without an API key (a browser session): `missing` (no ' +
@@ -261,7 +267,9 @@ export const openapiDocument = {
               'sign-in routes add their own: `bad_credentials` (wrong email or password), ' +
               '`disabled` (the account was removed), `bad_code` (wrong setup code), ' +
               '`already_set_up`, `email_taken`, `no_password`, and on a 410 for a link ' +
-              '`used`, `expired` or `revoked`.',
+              '`used`, `expired` or `revoked`. The members routes answer 409 with ' +
+              '`last_admin` (it would leave no admin who can sign in) or `self` (nobody ' +
+              'removes themselves).',
           },
         },
         required: ['error'],
@@ -1093,6 +1101,87 @@ export const openapiDocument = {
         type: 'object',
         required: ['success', 'revoked'],
         properties: { success: { const: true }, revoked: { type: 'integer' } },
+      },
+      Member: {
+        type: 'object',
+        required: ['id', 'name', 'role', 'status', 'sign_in', 'created_at', 'last_sign_in_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          name: { type: 'string' },
+          role: { type: 'string', enum: ['admin', 'member'] },
+          status: {
+            type: 'string',
+            enum: ['active', 'removed'],
+            description:
+              '`removed`: an admin removed the member, who cannot sign in and whose keys stop ' +
+              'until they are restored.',
+          },
+          sign_in: { type: 'array', items: { $ref: '#/components/schemas/SignInMethod' } },
+          created_at: { type: 'string', format: 'date-time' },
+          last_sign_in_at: nullable('string', {
+            format: 'date-time',
+            description: 'The latest sign-in by any method, null when the member has none.',
+          }),
+        },
+      },
+      MemberList: {
+        type: 'object',
+        required: ['data'],
+        properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Member' } } },
+      },
+      RoleRequest: {
+        type: 'object',
+        required: ['role'],
+        additionalProperties: false,
+        properties: { role: { type: 'string', enum: ['admin', 'member'] } },
+      },
+      ResetLink: {
+        type: 'object',
+        required: ['url', 'expires_at'],
+        properties: {
+          url: {
+            type: 'string',
+            description:
+              '`<PUBLIC_URL>/studio/reset/<token>`. Single use; only shown here, so pass it on ' +
+              'to the member now.',
+          },
+          expires_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      Invite: {
+        type: 'object',
+        required: ['id', 'role', 'created_at', 'expires_at', 'created_by'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          role: { type: 'string', enum: ['admin', 'member'] },
+          created_at: { type: 'string', format: 'date-time' },
+          expires_at: { type: 'string', format: 'date-time' },
+          created_by: {
+            type: ['object', 'null'],
+            required: ['id', 'name'],
+            properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' } },
+            description: 'The admin who made it, null for a key with no creator.',
+          },
+        },
+      },
+      InviteList: {
+        type: 'object',
+        required: ['data'],
+        properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Invite' } } },
+      },
+      InviteCreated: {
+        type: 'object',
+        required: ['id', 'url', 'role', 'expires_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          url: {
+            type: 'string',
+            description:
+              '`<PUBLIC_URL>/studio/join/<token>`. Single use; only shown here, so pass it on now.',
+          },
+          role: { type: 'string', enum: ['admin', 'member'] },
+          expires_at: { type: 'string', format: 'date-time' },
+        },
       },
       SignInMethod: {
         type: 'object',
@@ -2204,6 +2293,142 @@ export const openapiDocument = {
       },
     },
 
+    '/api/v1/members': {
+      get: {
+        tags: ['Members'],
+        summary: 'Every member of the workspace, removed ones included.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        responses: { '200': jsonResponse('MemberList', 'The members.'), ...authFailures },
+      },
+    },
+    '/api/v1/members/{id}': {
+      patch: {
+        tags: ['Members'],
+        summary: "Change a member's role.",
+        description:
+          'Applies to their sessions and keys on their next request. The last admin who can ' +
+          'sign in stays an admin (409 `last_admin`).',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        parameters: [idParam('id', 'Member id.')],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/RoleRequest' } } },
+        },
+        responses: {
+          '200': jsonResponse('Member', 'The member with the new role.'),
+          '400': ref('BadRequest'),
+          ...authFailures,
+          '404': ref('NotFound'),
+          '409': errorWith('It would leave no admin who can sign in (`last_admin`).'),
+        },
+      },
+    },
+    '/api/v1/members/{id}/remove': {
+      post: {
+        tags: ['Members'],
+        summary: 'Remove a member.',
+        description:
+          'They cannot sign in, every session they have ends and their keys stop, until they ' +
+          'are restored. Nobody removes themselves (409 `self`), and the last admin who can ' +
+          'sign in stays (409 `last_admin`).',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        parameters: [idParam('id', 'Member id.')],
+        responses: {
+          '200': jsonResponse('Member', 'The removed member.'),
+          '400': badId,
+          ...authFailures,
+          '404': ref('NotFound'),
+          '409': errorWith('`self` or `last_admin`.'),
+        },
+      },
+    },
+    '/api/v1/members/{id}/restore': {
+      post: {
+        tags: ['Members'],
+        summary: 'Let a removed member back in.',
+        description: 'They keep the role they had, and their keys work again.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        parameters: [idParam('id', 'Member id.')],
+        responses: {
+          '200': jsonResponse('Member', 'The restored member.'),
+          '400': badId,
+          ...authFailures,
+          '404': ref('NotFound'),
+        },
+      },
+    },
+    '/api/v1/members/{id}/reset-link': {
+      post: {
+        tags: ['Members'],
+        summary: 'A link where the member sets a new password.',
+        description:
+          'Single use, valid for 7 days. For a member who signs in with GitHub only it sets ' +
+          'their first password, with an email they choose. Using it ends their other sessions.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        parameters: [idParam('id', 'Member id.')],
+        responses: {
+          '201': jsonResponse('ResetLink', 'The link, shown only here.'),
+          '400': badId,
+          ...authFailures,
+          '404': ref('NotFound'),
+        },
+      },
+    },
+    '/api/v1/invites': {
+      get: {
+        tags: ['Members'],
+        summary: 'Pending invites, newest first.',
+        description: 'Only invites nobody used yet that still work. Their links are not shown.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        responses: { '200': jsonResponse('InviteList', 'The invites.'), ...authFailures },
+      },
+      post: {
+        tags: ['Members'],
+        summary: 'Invite one new member with a role.',
+        description:
+          'Single use, valid for 7 days. Sluby sends no email: pass the link on yourself.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/RoleRequest' } } },
+        },
+        responses: {
+          '201': jsonResponse('InviteCreated', 'The invite, with its link shown only here.'),
+          '400': ref('BadRequest'),
+          ...authFailures,
+        },
+      },
+    },
+    '/api/v1/invites/{id}': {
+      delete: {
+        tags: ['Members'],
+        summary: 'Withdraw a pending invite.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        parameters: [idParam('id', 'Invite id, from GET /api/v1/invites.')],
+        responses: {
+          '200': jsonResponse('Success', 'Withdrawn; the link no longer works.'),
+          '400': badId,
+          ...authFailures,
+          '404': ref('NotFound'),
+        },
+      },
+    },
     '/api/v1/keys': {
       post: {
         tags: ['Keys'],

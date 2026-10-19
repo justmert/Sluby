@@ -50,7 +50,11 @@
     },
     {
       "name": "Auth",
-      "description": "Studio session auth."
+      "description": "Studio sign-in, setup, invite and reset links."
+    },
+    {
+      "name": "Members",
+      "description": "Members, roles and invites (admins only)."
     },
     {
       "name": "Ops",
@@ -249,9 +253,11 @@
               "already_set_up",
               "email_taken",
               "no_password",
-              "used"
+              "used",
+              "last_admin",
+              "self"
             ],
-            "description": "On a 401 to a request without an API key (a browser session): `missing` (no session cookie, or one this server did not sign), `expired`, `revoked` (signed out, here or from another browser) or `not_allowed` (an admin removed the account). A key whose creator was removed also answers `not_allowed`. The sign-in routes add their own: `bad_credentials` (wrong email or password), `disabled` (the account was removed), `bad_code` (wrong setup code), `already_set_up`, `email_taken`, `no_password`, and on a 410 for a link `used`, `expired` or `revoked`."
+            "description": "On a 401 to a request without an API key (a browser session): `missing` (no session cookie, or one this server did not sign), `expired`, `revoked` (signed out, here or from another browser) or `not_allowed` (an admin removed the account). A key whose creator was removed also answers `not_allowed`. The sign-in routes add their own: `bad_credentials` (wrong email or password), `disabled` (the account was removed), `bad_code` (wrong setup code), `already_set_up`, `email_taken`, `no_password`, and on a 410 for a link `used`, `expired` or `revoked`. The members routes answer 409 with `last_admin` (it would leave no admin who can sign in) or `self` (nobody removes themselves)."
           }
         },
         "required": [
@@ -1783,6 +1789,202 @@
           },
           "revoked": {
             "type": "integer"
+          }
+        }
+      },
+      "Member": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "role",
+          "status",
+          "sign_in",
+          "created_at",
+          "last_sign_in_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "removed"
+            ],
+            "description": "`removed`: an admin removed the member, who cannot sign in and whose keys stop until they are restored."
+          },
+          "sign_in": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignInMethod"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_sign_in_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "The latest sign-in by any method, null when the member has none."
+          }
+        }
+      },
+      "MemberList": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            }
+          }
+        }
+      },
+      "RoleRequest": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          }
+        }
+      },
+      "ResetLink": {
+        "type": "object",
+        "required": [
+          "url",
+          "expires_at"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "`<PUBLIC_URL>/studio/reset/<token>`. Single use; only shown here, so pass it on to the member now."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Invite": {
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "created_at",
+          "expires_at",
+          "created_by"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "id",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "description": "The admin who made it, null for a key with no creator."
+          }
+        }
+      },
+      "InviteList": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Invite"
+            }
+          }
+        }
+      },
+      "InviteCreated": {
+        "type": "object",
+        "required": [
+          "id",
+          "url",
+          "role",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "type": "string",
+            "description": "`<PUBLIC_URL>/studio/join/<token>`. Single use; only shown here, so pass it on now."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -4605,6 +4807,478 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/members": {
+      "get": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Every member of the workspace, removed ones included.",
+        "x-required-scope": "manage",
+        "x-required-identity": "admin",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The members.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/v1/members/{id}": {
+      "patch": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Change a member's role.",
+        "description": "Applies to their sessions and keys on their next request. The last admin who can sign in stays an admin (409 `last_admin`).",
+        "x-required-scope": "manage",
+        "x-required-identity": "admin",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Member id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The member with the new role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Member"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "It would leave no admin who can sign in (`last_admin`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/v1/members/{id}/remove": {
+      "post": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Remove a member.",
+        "description": "They cannot sign in, every session they have ends and their keys stop, until they are restored. Nobody removes themselves (409 `self`), and the last admin who can sign in stays (409 `last_admin`).",
+        "x-required-scope": "manage",
+        "x-required-identity": "admin",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Member id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The removed member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Member"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, such as a malformed id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`self` or `last_admin`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/v1/members/{id}/restore": {
+      "post": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Let a removed member back in.",
+        "description": "They keep the role they had, and their keys work again.",
+        "x-required-scope": "manage",
+        "x-required-identity": "admin",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Member id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The restored member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Member"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, such as a malformed id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/v1/members/{id}/reset-link": {
+      "post": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "A link where the member sets a new password.",
+        "description": "Single use, valid for 7 days. For a member who signs in with GitHub only it sets their first password, with an email they choose. Using it ends their other sessions.",
+        "x-required-scope": "manage",
+        "x-required-identity": "admin",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Member id."
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The link, shown only here.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResetLink"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, such as a malformed id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/v1/invites": {
+      "get": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Pending invites, newest first.",
+        "description": "Only invites nobody used yet that still work. Their links are not shown.",
+        "x-required-scope": "manage",
+        "x-required-identity": "admin",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The invites.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Invite one new member with a role.",
+        "description": "Single use, valid for 7 days. Sluby sends no email: pass the link on yourself.",
+        "x-required-scope": "manage",
+        "x-required-identity": "admin",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The invite, with its link shown only here.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/v1/invites/{id}": {
+      "delete": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Withdraw a pending invite.",
+        "x-required-scope": "manage",
+        "x-required-identity": "admin",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Invite id, from GET /api/v1/invites."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Withdrawn; the link no longer works.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, such as a malformed id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
           }
         }
       }

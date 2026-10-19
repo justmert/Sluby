@@ -1596,6 +1596,192 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, one workspace)', () =
     });
   });
 
+  describe('members and invites', () => {
+    let ada: { userId: string; cookie: string };
+
+    beforeEach(async () => {
+      const { env } = await import('../config/env.js');
+      const { createStudioSession } = await import('../db/queries/sessions.js');
+      const { signSession, SESSION_COOKIE_NAME } = await import('../api/auth/session.js');
+      const [user] = await tdb.sql`
+        insert into users (display_name, role) values ('ada', 'admin') returning id`;
+      const [identity] = await tdb.sql`
+        insert into user_identities (user_id, provider, subject, username)
+        values (${user.id}, 'github', '1815', 'ada') returning id`;
+      const row = await createStudioSession({
+        userId: user.id,
+        identityId: identity.id,
+        expiresAt: new Date(Date.now() + 3600_000),
+        userAgent: 'contract-test',
+      });
+      ada = {
+        userId: user.id,
+        cookie: `${SESSION_COOKIE_NAME}=${signSession(row.id, user.id, env.SESSION_SECRET)}`,
+      };
+    });
+
+    const asAda = (method: string, url: string, body?: object) => {
+      const req = request(app)[method.toLowerCase() as 'get'](url).set('Cookie', ada.cookie);
+      return body === undefined ? req : req.send(body);
+    };
+
+    it("keeps members and invites to admins: a member's key gets 403", async () => {
+      const ops: Array<[string, string, string, object?]> = [
+        ['GET', '/api/v1/members', '/api/v1/members'],
+        ['PATCH', `/api/v1/members/${bobId}`, '/api/v1/members/{id}', { role: 'admin' }],
+        ['POST', `/api/v1/members/${bobId}/remove`, '/api/v1/members/{id}/remove'],
+        ['POST', `/api/v1/members/${bobId}/restore`, '/api/v1/members/{id}/restore'],
+        ['POST', `/api/v1/members/${bobId}/reset-link`, '/api/v1/members/{id}/reset-link'],
+        ['GET', '/api/v1/invites', '/api/v1/invites'],
+        ['POST', '/api/v1/invites', '/api/v1/invites', { role: 'admin' }],
+        ['DELETE', '/api/v1/invites/00000000-0000-4000-8000-000000000000', '/api/v1/invites/{id}'],
+      ];
+      for (const [method, url, template, body] of ops) {
+        const res = await call(method, url, 'a', body);
+        check(method, template, res);
+        expect(res.status, `${method} ${url}`).toBe(403);
+        const anonymous = await call(method, url, 'none', body);
+        check(method, template, anonymous);
+        expect(anonymous.status).toBe(401);
+      }
+      const [{ n }] = await tdb.sql`select count(*)::int as n from invites`;
+      expect(n).toBe(0);
+      const [bob] = await tdb.sql`select role, disabled_at from users where id = ${bobId}`;
+      expect(bob).toEqual({ role: 'member', disabled_at: null });
+    });
+
+    it('lets an admin change roles, remove and restore members', async () => {
+      const list = await asAda('GET', '/api/v1/members');
+      check('GET', '/api/v1/members', list);
+      expect(list.body.data.map((m: { name: string }) => m.name).sort()).toEqual([
+        'ada',
+        'alice',
+        'bob',
+      ]);
+
+      // alice signs in nowhere, so ada is the only admin who can
+      const last = await call('PATCH', `/api/v1/members/${ada.userId}`, 'admin', {
+        role: 'member',
+      });
+      check('PATCH', '/api/v1/members/{id}', last);
+      expect(last.status).toBe(409);
+      expect(last.body.reason).toBe('last_admin');
+      const promote = await asAda('PATCH', `/api/v1/members/${aliceId}`, { role: 'admin' });
+      check('PATCH', '/api/v1/members/{id}', promote);
+      expect(promote.body).toMatchObject({ id: aliceId, role: 'admin', status: 'active' });
+      const badRole = await asAda('PATCH', `/api/v1/members/${aliceId}`, { role: 'owner' });
+      check('PATCH', '/api/v1/members/{id}', badRole);
+      expect(badRole.status).toBe(400);
+      const unknown = await asAda('PATCH', '/api/v1/members/00000000-0000-4000-8000-000000000000', {
+        role: 'admin',
+      });
+      check('PATCH', '/api/v1/members/{id}', unknown);
+      expect(unknown.status).toBe(404);
+
+      const self = await asAda('POST', `/api/v1/members/${ada.userId}/remove`);
+      check('POST', '/api/v1/members/{id}/remove', self);
+      expect(self.status).toBe(409);
+      expect(self.body.reason).toBe('self');
+      const malformed = await asAda('POST', '/api/v1/members/not-a-uuid/remove');
+      check('POST', '/api/v1/members/{id}/remove', malformed);
+      expect(malformed.status).toBe(400);
+
+      const removed = await asAda('POST', `/api/v1/members/${bobId}/remove`);
+      check('POST', '/api/v1/members/{id}/remove', removed);
+      expect(removed.body).toMatchObject({ id: bobId, status: 'removed' });
+      const bobsKey = await call('GET', '/api/v1/assets', 'b');
+      check('GET', '/api/v1/assets', bobsKey);
+      expect(bobsKey.status).toBe(401);
+      expect(bobsKey.body.reason).toBe('not_allowed');
+
+      const restored = await asAda('POST', `/api/v1/members/${bobId}/restore`);
+      check('POST', '/api/v1/members/{id}/restore', restored);
+      expect(restored.body).toMatchObject({ id: bobId, status: 'active' });
+      expect((await call('GET', '/api/v1/assets', 'b')).status).toBe(200);
+      const restoreUnknown = await asAda(
+        'POST',
+        '/api/v1/members/00000000-0000-4000-8000-000000000000/restore',
+      );
+      check('POST', '/api/v1/members/{id}/restore', restoreUnknown);
+      expect(restoreUnknown.status).toBe(404);
+    });
+
+    it('makes reset links and invites that work end to end', async () => {
+      const resetLink = await asAda('POST', `/api/v1/members/${bobId}/reset-link`);
+      check('POST', '/api/v1/members/{id}/reset-link', resetLink);
+      expect(resetLink.status).toBe(201);
+      expect(resetLink.body.url).toMatch(/^https:\/\/sluby\.test\/studio\/reset\/[\w-]{43}$/);
+      const resetToken = resetLink.body.url.split('/').pop();
+      const resetInfo = await call('GET', `/api/v1/auth/invites/${resetToken}`, 'none');
+      check('GET', '/api/v1/auth/invites/{token}', resetInfo);
+      expect(resetInfo.body).toMatchObject({ kind: 'reset', email: null });
+      const noMember = await asAda(
+        'POST',
+        '/api/v1/members/00000000-0000-4000-8000-000000000000/reset-link',
+      );
+      check('POST', '/api/v1/members/{id}/reset-link', noMember);
+      expect(noMember.status).toBe(404);
+
+      const badInvite = await asAda('POST', '/api/v1/invites', {});
+      check('POST', '/api/v1/invites', badInvite);
+      expect(badInvite.status).toBe(400);
+      const invite = await asAda('POST', '/api/v1/invites', { role: 'member' });
+      check('POST', '/api/v1/invites', invite);
+      expect(invite.status).toBe(201);
+      expect(invite.body.url).toMatch(/^https:\/\/sluby\.test\/studio\/join\/[\w-]{43}$/);
+      const withdrawn = await call('POST', '/api/v1/invites', 'admin', { role: 'admin' });
+      check('POST', '/api/v1/invites', withdrawn);
+
+      const pending = await asAda('GET', '/api/v1/invites');
+      check('GET', '/api/v1/invites', pending);
+      expect(pending.body.data).toEqual([
+        expect.objectContaining({ id: withdrawn.body.id, role: 'admin', created_by: null }),
+        expect.objectContaining({
+          id: invite.body.id,
+          role: 'member',
+          created_by: { id: ada.userId, name: 'ada' },
+        }),
+      ]);
+
+      const del = await asAda('DELETE', `/api/v1/invites/${withdrawn.body.id}`);
+      check('DELETE', '/api/v1/invites/{id}', del);
+      expect(del.status).toBe(200);
+      const again = await asAda('DELETE', `/api/v1/invites/${withdrawn.body.id}`);
+      check('DELETE', '/api/v1/invites/{id}', again);
+      expect(again.status).toBe(404);
+      const gone = await call(
+        'GET',
+        `/api/v1/auth/invites/${withdrawn.body.url.split('/').pop()}`,
+        'none',
+      );
+      check('GET', '/api/v1/auth/invites/{token}', gone);
+      expect(gone.status).toBe(410);
+      expect(gone.body.reason).toBe('revoked');
+
+      const joined = await call(
+        'POST',
+        `/api/v1/auth/invites/${invite.body.url.split('/').pop()}/accept`,
+        'none',
+        { name: 'Carol', email: 'carol@example.com', password: 'correct horse battery' },
+      );
+      check('POST', '/api/v1/auth/invites/{token}/accept', joined);
+      expect(joined.status).toBe(201);
+      const after = await asAda('GET', '/api/v1/members');
+      check('GET', '/api/v1/members', after);
+      expect(after.body.data).toContainEqual(
+        expect.objectContaining({
+          name: 'Carol',
+          role: 'member',
+          status: 'active',
+          sign_in: [{ provider: 'password', username: 'carol@example.com' }],
+        }),
+      );
+      const none = await asAda('GET', '/api/v1/invites');
+      check('GET', '/api/v1/invites', none);
+      expect(none.body.data).toEqual([]);
+    });
+  });
+
   // studio sessions
 
   describe('auth', () => {

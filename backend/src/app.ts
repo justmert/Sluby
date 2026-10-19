@@ -117,7 +117,22 @@ import {
   setPassword,
   signInIdentity,
 } from './db/queries/accounts.js';
-import { acceptInvite, acceptReset, findLink, joinWithIdentity } from './db/queries/invites.js';
+import {
+  acceptInvite,
+  acceptReset,
+  createInvite,
+  createResetLink,
+  findLink,
+  joinWithIdentity,
+  listPendingInvites,
+  revokeInvite,
+} from './db/queries/invites.js';
+import {
+  changeMemberRole,
+  listMembers,
+  removeMember,
+  restoreMember,
+} from './db/queries/members.js';
 import { WORKSPACE_ADDRESS } from './api/ownership.js';
 import type { CallerDeps } from './api/auth/caller.js';
 import { LOCAL_DEV_SUBJECT, LOCAL_PROVIDER } from './api/auth/providers/index.js';
@@ -549,6 +564,15 @@ export function buildApiDeps(
     acceptInvite,
     acceptReset,
     joinWithIdentity,
+
+    listMembers,
+    changeMemberRole,
+    removeMember,
+    restoreMember,
+    createInvite,
+    createResetLink,
+    listPendingInvites,
+    revokeInvite,
 
     // Upload creation happens through the TUS protocol (see tusServer); the REST
     // surface only exposes owner-scoped status and cancellation.

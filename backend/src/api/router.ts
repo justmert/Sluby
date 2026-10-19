@@ -12,6 +12,7 @@ import { createWebhookRoutes, type WebhookRouteDeps } from './routes/webhooks.js
 import { createStatsRoutes, type StatsRouteDeps } from './routes/stats.js';
 import { createKeyRoutes, type KeyRouteDeps } from './routes/keys.js';
 import { createAuthRoutes, type AuthRouteDeps } from './routes/auth.js';
+import { createMemberRoutes, type MemberRouteDeps } from './routes/members.js';
 import {
   createApiKeyMiddleware,
   requireAdmin,
@@ -39,6 +40,7 @@ export interface ApiRouterDeps
     StatsRouteDeps,
     KeyRouteDeps,
     AuthRouteDeps,
+    MemberRouteDeps,
     ApiKeyMiddlewareDeps {}
 
 export interface ApiRouterOptions {
@@ -118,6 +120,8 @@ export function createApiRouter(deps: ApiRouterDeps, options: ApiRouterOptions =
   mountRouter(router, '/', createStatsRoutes(deps));
 
   mountRouter(router, '/keys', createKeyRoutes(deps));
+  // owns /members and /invites; admins only, by session or key
+  mountRouter(router, '/', createMemberRoutes(deps));
 
   // Metrics endpoint (JSON format). The registry counts the whole process,
   // every caller together, so it is operations data.
