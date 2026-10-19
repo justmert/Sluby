@@ -2,46 +2,32 @@
  * Mint a full-scope API key from the command line, for when no key exists yet
  * to create one through the API.
  *
- *   npm run db:seed-key -- --address user:<account id> [--name "My Key"]
- *   npm run db:seed-key -- --platform [--name ops]
+ *   npm run db:seed-key -- [--name "My Key"]
  *
- * --address mints a key for one owner. --platform mints a key for the
- * platform identity, which reads and changes every tenant's data and sees the
- * deployment-wide status and metrics. One of the two is required, so a
- * cross-tenant key is never minted by accident.
+ * The key belongs to the workspace and has no creator, so it acts as an
+ * admin: whoever can run this on the server can do anything there anyway.
  */
 import { closeDatabase } from '../config/database.js';
-import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import { ADMIN_SCOPES, createAdminApiKey } from './api-key-seeding.js';
 
 const USAGE =
-  'usage: npm run db:seed-key -- (--address <owner> | --platform) [--name <name>]\n' +
-  '  --address <owner>  owner the key belongs to, such as user:<account id>\n' +
-  '  --platform         a cross-tenant platform key: every tenant and the operator data\n' +
-  '  --name <name>      label shown in the key list (default: admin)';
+  'usage: npm run db:seed-key -- [--name <name>]\n' +
+  '  --name <name>  label shown in the key list (default: admin)';
 
-function parseArgs(argv: string[]): { name: string; creatorAddress: string; platform: boolean } {
+function parseArgs(argv: string[]): { name: string } {
   let name = 'admin';
-  let address: string | undefined;
-  let platform = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') {
       console.log(USAGE);
       process.exit(0);
-    } else if (arg === '--platform') {
-      platform = true;
-    } else if ((arg === '--name' || arg === '--address') && argv[i + 1]) {
-      if (arg === '--name') name = argv[++i];
-      else address = argv[++i];
+    } else if (arg === '--name' && argv[i + 1]) {
+      name = argv[++i];
     } else {
       throw new Error(`unexpected argument ${arg}`);
     }
   }
-  if (platform === (address !== undefined)) {
-    throw new Error('pass exactly one of --address <owner> and --platform');
-  }
-  return { name, creatorAddress: address ?? PLATFORM_ADDRESS, platform };
+  return { name };
 }
 
 async function seedApiKey() {
@@ -60,16 +46,13 @@ async function seedApiKey() {
     console.log('');
     console.log(`  ID:      ${id}`);
     console.log(`  Name:    ${opts.name}`);
-    console.log(`  Owner:   ${opts.creatorAddress}`);
     console.log(`  Scopes:  ${ADMIN_SCOPES.join(', ')}`);
     console.log(`  Key:     ${rawKey}`);
     console.log('');
-    if (opts.platform) {
-      console.log(
-        'This is a platform key: it reads, changes and deletes the data of every tenant. ' +
-          'Keep it with the operator.',
-      );
-    }
+    console.log(
+      'This key acts as an admin: it reads and changes everything in the workspace ' +
+        'and sees the operations pages. Keep it safe.',
+    );
     console.log('Save the key now. It is not shown again.');
     console.log('');
   } finally {

@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lt, or, desc, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, ne, or, desc, isNotNull, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { studioSessions, type StudioSession } from '../schema.js';
 import { SESSION_SEEN_INTERVAL_MS } from '../../api/auth/session.js';
@@ -92,6 +92,22 @@ export async function revokeAllStudioSessions(userId: string): Promise<number> {
     .update(studioSessions)
     .set({ revokedAt: new Date() })
     .where(and(eq(studioSessions.userId, userId), isNull(studioSessions.revokedAt)))
+    .returning({ id: studioSessions.id });
+  return rows.length;
+}
+
+/** End every live session of an account but `keepId`. Returns how many were ended. */
+export async function revokeOtherStudioSessions(userId: string, keepId: string): Promise<number> {
+  const rows = await db
+    .update(studioSessions)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(studioSessions.userId, userId),
+        ne(studioSessions.id, keepId),
+        isNull(studioSessions.revokedAt),
+      ),
+    )
     .returning({ id: studioSessions.id });
   return rows.length;
 }

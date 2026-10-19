@@ -1,5 +1,3 @@
-import type { Allowlist } from '../allowlist.js';
-
 /** A person as a sign-in provider vouches for them after a completed sign-in. */
 export interface ProviderProfile {
   /** The provider's stable id for the person, never a handle that can change hands. */
@@ -29,7 +27,7 @@ export class SignInError extends Error {
  * One way to sign in to the Studio. Adding a provider is one module that
  * implements this and one line in providers/index.ts: the routes
  * (/api/v1/auth/<id>/login and /callback), the browser binding of the
- * handshake, accounts, sessions, ownership and the allowlist rules are shared.
+ * handshake, accounts and sessions are shared.
  */
 export interface SignInProvider {
   /** Stored in user_identities.provider and used in the route path. Never change it. */
@@ -48,16 +46,6 @@ export interface SignInProvider {
     query: Record<string, unknown>,
     opts: { callbackUrl: string },
   ): Promise<ProviderProfile>;
-  /** Who may sign in with this provider, re-read from configuration on each call. */
-  allowlist(): Allowlist;
-  /** A handle as allowlist entries compare it (github: logins are case-insensitive). */
+  /** A handle as the provider compares it (github: logins are case-insensitive). */
   normalizeHandle(handle: string): string;
-  /**
-   * The owner address an older version of Sluby stored for this person, if
-   * this provider had one. Its data is claimed by the first account that signs
-   * in with this profile, once.
-   */
-  legacyOwnerAddress?(profile: ProviderProfile): string;
-  /** The handle inside a legacy owner address of this provider, or null if it is not one. */
-  legacyHandle?(address: string): string | null;
 }

@@ -46,7 +46,7 @@ function toRates(samples: MetricsSnapshot[]): RatePoint[] {
 }
 
 /**
- * Polls the metrics registry (operators only; anyone else gets 403) and keeps
+ * Polls the metrics registry (admins only; anyone else gets 403) and keeps
  * the samples taken while it is watched, so delivery rates can be drawn.
  * Nothing is stored server side, so the series starts empty once the query
  * cache drops it.
@@ -76,7 +76,7 @@ export function usePlatformMetrics(enabled: boolean) {
     },
     enabled,
     refetchInterval: (query) => {
-      // a 403 (not an operator) or other client error stays that way
+      // a 403 (not an admin) or other client error stays that way
       if (failedForGood(query)) return false;
       if (query.state.status === 'error') return backoffMs(failures.current);
       return (query.state.data?.samples.length ?? 0) < SEED_SAMPLES ? SEED_MS : POLL_MS;

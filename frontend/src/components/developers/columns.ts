@@ -11,6 +11,11 @@ export const KEY_COLUMNS: readonly ColumnFrame[] = [
     header: 'Created',
     className: 'max-xl:hidden! whitespace-nowrap text-muted-foreground',
   },
+  {
+    id: 'created-by',
+    header: 'Created by',
+    className: 'max-xl:hidden! max-w-40 whitespace-normal text-muted-foreground',
+  },
   { id: 'status', header: 'Status', className: 'whitespace-nowrap' },
 ];
 

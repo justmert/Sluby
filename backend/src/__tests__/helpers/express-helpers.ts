@@ -32,7 +32,7 @@ export function createTestApp(router: Router, basePath = '/'): Express {
 
 /**
  * Attach a mock apiKey to incoming requests (simulates authenticated request).
- * A caller is not an operator unless the key says so.
+ * A caller is not an admin unless the key says so.
  */
 export function withApiKey(
   app: Express,
@@ -42,13 +42,14 @@ export function withApiKey(
     scopes: string[];
     rateLimit: number;
     creatorAddress: string;
-    operator?: boolean;
+    admin?: boolean;
+    userId?: string | null;
   },
 ): Express {
   const wrapped = express();
   wrapped.use(express.json());
   wrapped.use((req: Request, _res: Response, next: NextFunction) => {
-    req.apiKey = { operator: false, ...apiKey };
+    req.apiKey = { admin: false, userId: null, ...apiKey };
     next();
   });
   wrapped.use(app);

@@ -40,11 +40,11 @@ function Seen() {
   return <span data-testid="seen" data-at={useSystemStatus().dataUpdatedAt} />;
 }
 
-function setup(operator = false) {
+function setup(admin = false) {
   // the answers come from the test through the cache, never from the poll
   vi.stubGlobal('fetch', jsonFetch({ '/api/v1/system/status': () => new Promise(() => {}) }));
   const view = renderPage(
-    <WithSession operator={operator}>
+    <WithSession admin={admin}>
       <LiveAlerts />
       <Seen />
     </WithSession>,
@@ -123,7 +123,7 @@ describe('LiveAlerts', () => {
     ).toBeInTheDocument();
   });
 
-  it('offers Open health to an operator, and drops it from the good news', async () => {
+  it('offers Open health to an admin, and drops it from the good news', async () => {
     const { answer } = setup(true);
     await answer(status('ok'));
     await answer(status('degraded', { indexer: false }));
@@ -136,7 +136,7 @@ describe('LiveAlerts', () => {
     expect(screen.queryByRole('button', { name: 'Open health' })).not.toBeInTheDocument();
   });
 
-  // a test of its own: a good news toast left from an operator's run would
+  // a test of its own: a good news toast left from an admin's run would
   // close on its timer under this one's warning, which shares its id
   it('does not offer Open health to a member', async () => {
     const { answer } = setup(false);

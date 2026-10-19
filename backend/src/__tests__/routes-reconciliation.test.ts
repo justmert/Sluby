@@ -4,7 +4,6 @@ import {
   createReconciliationRoutes,
   type ReconciliationRouteDeps,
 } from '../api/routes/reconciliation.js';
-import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import { openapiDocument } from '../api/openapi.js';
 import { createTestApp, withApiKey } from './helpers/express-helpers.js';
 
@@ -17,13 +16,10 @@ const manageKey = {
   name: 'Test Key',
   scopes: ['read', 'upload', 'manage'],
   rateLimit: 100,
-  creatorAddress: '0xabc123',
+  creatorAddress: 'workspace',
 };
 
-const platformKey = { ...manageKey, id: 'key-platform', creatorAddress: PLATFORM_ADDRESS };
-
-// an operator stays an ordinary tenant by address, see operators.ts
-const operatorKey = { ...manageKey, id: 'key-operator', operator: true };
+const adminKey = { ...manageKey, id: 'key-admin', admin: true };
 
 const aggregates = {
   id: 'run-1',
@@ -70,12 +66,12 @@ describe('reconciliation routes', () => {
     };
   });
 
-  function app(key: typeof manageKey & { operator?: boolean } = manageKey) {
+  function app(key: typeof manageKey & { admin?: boolean } = manageKey) {
     return withApiKey(createTestApp(createReconciliationRoutes(deps)), key);
   }
 
   describe('GET /reconciliation', () => {
-    it('gives a tenant only its own drift, none of the deployment figures', async () => {
+    it('gives a member only the workspace drift, none of the deployment figures', async () => {
       const res = await request(app()).get('/reconciliation');
 
       expect(res.status).toBe(200);
@@ -92,12 +88,12 @@ describe('reconciliation routes', () => {
       });
       expect(deps.filterReconciliationIdsOwnedBy).toHaveBeenCalledWith(
         ['missing-1', 'missing-2'],
-        '0xabc123',
+        'workspace',
       );
-      expect(deps.findVideosForObjectIds).toHaveBeenCalledWith(['missing-2'], '0xabc123');
+      expect(deps.findVideosForObjectIds).toHaveBeenCalledWith(['missing-2'], 'workspace');
     });
 
-    it('tells a tenant with nothing missing that it is in sync, whatever the others have', async () => {
+    it('tells a member with nothing missing that the workspace is in sync', async () => {
       vi.mocked(deps.filterReconciliationIdsOwnedBy).mockResolvedValue([]);
       const res = await request(app()).get('/reconciliation');
 
@@ -109,7 +105,7 @@ describe('reconciliation routes', () => {
       });
     });
 
-    it('tells a tenant a run failed, without its error text', async () => {
+    it('tells a member a run failed, without its error text', async () => {
       vi.mocked(deps.getLatestRun).mockResolvedValue({
         ...sampleRun,
         status: 'failed',
@@ -134,8 +130,8 @@ describe('reconciliation routes', () => {
       );
     });
 
-    it('gives the platform identity the full report', async () => {
-      const res = await request(app(platformKey)).get('/reconciliation');
+    it('gives an admin the full report', async () => {
+      const res = await request(app(adminKey)).get('/reconciliation');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -156,29 +152,11 @@ describe('reconciliation routes', () => {
       expect(deps.filterReconciliationIdsOwnedBy).not.toHaveBeenCalled();
     });
 
-    it('gives an operator the full report too', async () => {
-      const res = await request(app(operatorKey)).get('/reconciliation');
-
-      expect(res.status).toBe(200);
-      expect(res.body).toMatchObject({
-        ...aggregates,
-        scope: 'deployment',
-        missing_ids: ['missing-1', 'missing-2'],
-        orphaned_ids: ['orphan-1'],
-      });
-      expect(res.body.missing_objects).toHaveLength(2);
-      expect(deps.findVideosForObjectIds).toHaveBeenCalledWith(
-        ['missing-1', 'missing-2'],
-        undefined,
-      );
-      expect(deps.filterReconciliationIdsOwnedBy).not.toHaveBeenCalled();
-    });
-
     it('matches the documented schema for both scopes', async () => {
       const schemas = openapiDocument.components.schemas;
       for (const [key, schema] of [
         [manageKey, schemas.ReconciliationRunAccount],
-        [platformKey, schemas.ReconciliationRunDeployment],
+        [adminKey, schemas.ReconciliationRunDeployment],
       ] as const) {
         const res = await request(app(key)).get('/reconciliation');
         expect(Object.keys(schema.properties)).toEqual(
@@ -201,7 +179,7 @@ describe('reconciliation routes', () => {
   });
 
   describe('POST /reconciliation/run', () => {
-    it('refuses a tenant: a run scans the whole deployment', async () => {
+    it('refuses a member: a run scans the whole deployment', async () => {
       const res = await request(app()).post('/reconciliation/run');
 
       expect(res.status).toBe(403);
@@ -209,23 +187,16 @@ describe('reconciliation routes', () => {
     });
 
     it('answers 202 and says a new run was queued', async () => {
-      const res = await request(app(platformKey)).post('/reconciliation/run');
+      const res = await request(app(adminKey)).post('/reconciliation/run');
 
       expect(res.status).toBe(202);
       expect(deps.triggerRun).toHaveBeenCalledTimes(1);
       expect(res.body).toEqual({ enqueued: true, already_pending: false });
     });
 
-    it('lets an operator start one', async () => {
-      const res = await request(app(operatorKey)).post('/reconciliation/run');
-
-      expect(res.status).toBe(202);
-      expect(deps.triggerRun).toHaveBeenCalledTimes(1);
-    });
-
     it('answers 202 and says a run was already pending when nothing was queued', async () => {
       vi.mocked(deps.triggerRun).mockResolvedValue({ enqueued: false });
-      const res = await request(app(platformKey)).post('/reconciliation/run');
+      const res = await request(app(adminKey)).post('/reconciliation/run');
 
       expect(res.status).toBe(202);
       expect(res.body).toEqual({ enqueued: false, already_pending: true });
@@ -233,14 +204,12 @@ describe('reconciliation routes', () => {
 
     it('matches the documented schema', async () => {
       const schema = openapiDocument.components.schemas.ReconciliationTrigger;
-      const res = await request(app(platformKey)).post('/reconciliation/run');
+      const res = await request(app(adminKey)).post('/reconciliation/run');
       expect(Object.keys(res.body).sort()).toEqual(Object.keys(schema.properties).sort());
     });
 
     it('requires the manage scope', async () => {
-      const res = await request(app({ ...platformKey, scopes: ['read'] })).post(
-        '/reconciliation/run',
-      );
+      const res = await request(app({ ...adminKey, scopes: ['read'] })).post('/reconciliation/run');
       expect(res.status).toBe(403);
     });
   });

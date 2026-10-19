@@ -19,8 +19,12 @@ import { pruneEndedStudioSessions } from './db/queries/sessions.js';
 import { pruneWebhookDeliveries } from './db/queries/webhooks.js';
 import { WEBHOOK_DELIVERY_RETENTION_MS } from './webhooks/delivery.js';
 import { ENDED_SESSION_RETENTION_MS } from './api/routes/auth.js';
-import { signInWarnings } from './api/auth/startup.js';
-import { BOOTSTRAP_CREATOR_ADDRESS, seedBootstrapApiKey } from './db/api-key-seeding.js';
+import { ignoredSettingWarnings, setupCodeNotice, signInWarnings } from './api/auth/startup.js';
+import { adoptLegacyAccess } from './api/auth/adopt-legacy.js';
+import { setupCode } from './api/auth/setup-code.js';
+import { persistedSessionSecret } from './db/queries/instance-secret.js';
+import { hasSignInAdmin } from './db/queries/accounts.js';
+import { seedBootstrapApiKey } from './db/api-key-seeding.js';
 import { getClient } from './storage/sia-client.js';
 import {
   scheduleReconciliation,
@@ -67,10 +71,20 @@ const { app, tusServer, expireAbandonedUploads } = createApp({
   triggerReconciliation: () => triggerReconciliation(),
 });
 
+// without SESSION_SECRET (never in production) the install keeps the secret
+// it generated on its first start, so a restart signs nobody out and keeps
+// the setup code; it is read on each request, and nothing has been served yet
 if (sessionSecretGenerated) {
-  logger.warn(
-    'SESSION_SECRET is not set: using a random one for this run, so Studio sessions and ' +
-      'signed URLs stop working when the backend restarts. Set SESSION_SECRET to keep them.',
+  try {
+    env.SESSION_SECRET = await persistedSessionSecret(env.SESSION_SECRET);
+  } catch (err) {
+    logger.fatal({ err }, 'Could not load or store the session secret');
+    await closeDatabase().catch(() => {});
+    process.exit(1);
+  }
+  logger.info(
+    'SESSION_SECRET is not set: using the secret this install generated and keeps in its ' +
+      'database. Set SESSION_SECRET to choose your own.',
   );
 }
 if (env.EXPOSE_ERROR_STACKS) {
@@ -86,7 +100,7 @@ if (env.BOOTSTRAP_API_KEY) {
   try {
     const outcome = await seedBootstrapApiKey(db, env.BOOTSTRAP_API_KEY);
     if (outcome === 'created') {
-      logger.info({ platformAddress: BOOTSTRAP_CREATOR_ADDRESS }, 'Bootstrap API key seeded');
+      logger.info('Bootstrap API key seeded');
     } else if (outcome === 'retired') {
       logger.warn(
         'BOOTSTRAP_API_KEY was deleted or rotated away earlier and is not seeded again. ' +
@@ -100,7 +114,50 @@ if (env.BOOTSTRAP_API_KEY) {
   }
 }
 
-// Make an open Studio or a plaintext session cookie explicit rather than silent.
+// an install from before members and roles takes its old access settings
+// over once, before anyone can sign in; a failure leaves membership unknown,
+// so it stops the boot
+try {
+  const adoption = await adoptLegacyAccess({
+    githubAllowedUsers: env.GITHUB_ALLOWED_USERS,
+    operatorUsers: env.OPERATOR_USERS,
+  });
+  if (adoption.status === 'adopted' && (adoption.removed > 0 || adoption.promoted > 0)) {
+    logger.info(
+      { removed: adoption.removed, promoted: adoption.promoted },
+      'Adopted GITHUB_ALLOWED_USERS and OPERATOR_USERS: accounts they refused were removed ' +
+        'and the operators they listed are admins now',
+    );
+  }
+} catch (err) {
+  logger.fatal({ err }, 'Could not adopt the old access settings');
+  await closeDatabase().catch(() => {});
+  process.exit(1);
+}
+for (const warning of ignoredSettingWarnings({
+  githubAllowedUsers: env.GITHUB_ALLOWED_USERS,
+  operatorUsers: env.OPERATOR_USERS,
+})) {
+  logger.warn(warning);
+}
+
+// a fresh install, or one whose admins are all gone, is claimed on the
+// setup screen with a code only the server's logs show
+if (!env.AUTH_DISABLED) {
+  try {
+    if (!(await hasSignInAdmin())) {
+      logger.warn(
+        setupCodeNotice({ publicUrl: env.PUBLIC_URL, code: setupCode(env.SESSION_SECRET) }),
+      );
+    }
+  } catch (err) {
+    logger.fatal({ err }, 'Could not check whether this install has an admin');
+    await closeDatabase().catch(() => {});
+    process.exit(1);
+  }
+}
+
+// Make a plaintext session cookie explicit rather than silent.
 for (const warning of signInWarnings({
   authDisabled: env.AUTH_DISABLED,
   publicUrl: env.PUBLIC_URL,

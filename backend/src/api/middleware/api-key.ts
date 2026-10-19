@@ -19,8 +19,8 @@ declare global {
 /**
  * Authenticate every request below /api/v1 (except /auth and the public spec)
  * as a Studio session, the AUTH_DISABLED dev account or an API key, see
- * resolveCaller. The result is `req.apiKey`, whose creatorAddress scopes
- * every query.
+ * resolveCaller. The result is `req.apiKey`, whose creatorAddress (the
+ * workspace) scopes every query and whose role decides what it may do.
  */
 export function createApiKeyMiddleware(deps: ApiKeyMiddlewareDeps) {
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -50,25 +50,23 @@ export interface ScopedMiddleware {
   /** The scope this guard requires. Read by the OpenAPI drift test so the
    *  spec's `x-required-scope` cannot silently disagree with the code. */
   requiredScope?: string;
-  /** Set when only the platform identity or an operator may pass, see requireOperations. */
-  requiredIdentity?: 'operations';
+  /** Set when only an admin may pass, see requireAdmin. */
+  requiredIdentity?: 'admin';
 }
 
 /**
- * Only the platform identity or an operator passes: deployment-wide
- * operations data and actions, which an ordinary tenant must not see or start.
+ * Only an admin passes: deployment-wide operations data and actions, and
+ * managing members, which a member must not see or start.
  */
-export function requireOperations(): ScopedMiddleware {
+export function requireAdmin(): ScopedMiddleware {
   const middleware: ScopedMiddleware = (req: Request, res: Response, next: NextFunction) => {
     if (!seesOperations(req.apiKey)) {
-      res
-        .status(403)
-        .json({ error: 'Only the platform identity or an operator may use this endpoint' });
+      res.status(403).json({ error: 'Only an admin may use this endpoint' });
       return;
     }
     next();
   };
-  middleware.requiredIdentity = 'operations';
+  middleware.requiredIdentity = 'admin';
   return middleware;
 }
 

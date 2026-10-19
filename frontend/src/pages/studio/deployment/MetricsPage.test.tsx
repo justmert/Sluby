@@ -47,7 +47,7 @@ afterEach(() => {
 
 const render = () =>
   renderPage(
-    <WithSession operator>
+    <WithSession admin>
       <MetricsPage />
     </WithSession>,
   );
@@ -213,7 +213,7 @@ describe('MetricsPage', () => {
   });
 
   it('stops polling once the server says metrics are not for this caller', async () => {
-    routes['/api/v1/metrics'] = () => json({ error: 'Operators only' }, 403);
+    routes['/api/v1/metrics'] = () => json({ error: 'Admins only' }, 403);
     const { client } = render();
     expect(await screen.findByText('Could not load server metrics')).toBeInTheDocument();
     const query = client.getQueryCache().find({ queryKey: ['metrics'] })!;

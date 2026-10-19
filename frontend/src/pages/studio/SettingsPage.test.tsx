@@ -40,6 +40,12 @@ beforeEach(() => {
       sessions = sessions.filter((x) => x.id !== 's2');
       return json({ success: true });
     }
+    if (url === '/api/v1/auth/config')
+      return json({
+        auth_disabled: false,
+        setup_required: false,
+        methods: { password: true, github: true },
+      });
     if (url === '/api/v1/system/status')
       return json({ version: '0.1.0', indexer: { network: 'mainnet' } });
     return json({ error: `unmocked ${method} ${url}` }, 404);
@@ -73,7 +79,7 @@ describe('SettingsPage', () => {
 
   it('puts each section in a label column beside its content, under a rule', async () => {
     renderSettings();
-    for (const name of ['Account', 'Signed-in browsers', 'Appearance']) {
+    for (const name of ['Account', 'Sign-in methods', 'Signed-in browsers', 'Appearance']) {
       const section = screen.getByRole('region', { name });
       expect(section).toHaveClass('flex', 'flex-wrap', 'border-t', 'py-6');
       expect(section.firstElementChild?.querySelector('h2')).toHaveTextContent(name);
@@ -81,14 +87,15 @@ describe('SettingsPage', () => {
     await screen.findByText('Safari on iPhone');
   });
 
-  it('has the account, browsers and appearance sections and no API keys', async () => {
+  it('has the account, sign-in methods, browsers and appearance sections and no API keys', async () => {
     renderSettings();
     expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
     expect(
-      screen.getByText('Your account, where you are signed in, and how the Studio looks.'),
+      screen.getByText('Your account, how and where you sign in, and how the Studio looks.'),
     ).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
       'Account',
+      'Sign-in methods',
       'Signed-in browsers',
       'Appearance',
     ]);
@@ -108,10 +115,12 @@ describe('SettingsPage', () => {
   });
 
   it('leaves out signed-in browsers and sign out when sign-in is off', async () => {
-    renderSettings({ authDisabled: true, username: 'dev', provider: 'local', operator: true });
+    renderSettings({ authDisabled: true, username: 'dev', provider: 'local', admin: true });
     expect(screen.getByText('Sign-in is off on this server.')).toBeInTheDocument();
     expect(screen.queryByText('Signed-in browsers')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sign-in methods')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
     expect(calls('GET', '/api/v1/auth/sessions')).toHaveLength(0);
+    expect(calls('GET', '/api/v1/auth/config')).toHaveLength(0);
   });
 });

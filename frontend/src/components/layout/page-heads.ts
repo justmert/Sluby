@@ -25,8 +25,12 @@ export const PAGE_HEADS = {
     description: 'Whether this server and its Sia storage are working',
   },
   metrics: { title: 'Metrics', description: 'Server activity since it last started' },
+  members: {
+    title: 'Members',
+    description: 'Who can sign in to this Studio, and what they can do',
+  },
   settings: {
     title: 'Settings',
-    description: 'Your account, where you are signed in, and how the Studio looks.',
+    description: 'Your account, how and where you sign in, and how the Studio looks.',
   },
 } as const;

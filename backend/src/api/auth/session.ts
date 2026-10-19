@@ -155,8 +155,8 @@ export type FindActiveSession = (sid: string) => Promise<ActiveSession | undefin
 /**
  * The live session behind a request's cookie header, with its account, or
  * null: the cookie must verify, its row must still be live, and the account
- * must still pass the allowlist. Checked on every request, not only at
- * sign-in, so taking someone off the allowlist ends their sessions too.
+ * must not be removed. Checked on every request, not only at sign-in, so
+ * removing a member ends their sessions too.
  */
 export async function resolveSession(
   cookieHeader: string | undefined,
@@ -187,7 +187,7 @@ export async function resolveSession(
  * Why a request has no live session, for the 401 a browser gets: `missing`
  * (no cookie, or one this server did not sign), `expired`, `revoked` (signed
  * out here or from another browser, or the row is gone) or `not_allowed` (the
- * account is no longer on the allowlist).
+ * account was removed from the workspace).
  */
 export type SessionEndReason = 'missing' | 'expired' | 'revoked' | 'not_allowed';
 

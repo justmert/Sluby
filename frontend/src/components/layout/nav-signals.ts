@@ -20,14 +20,14 @@ export type NavSignal =
 const WEBHOOK_POLL_MS = 60_000;
 
 /** The signals for the nav, by item path. Members get no Health signal: they have no Health page. */
-export function useNavSignals(operator: boolean): Partial<Record<string, NavSignal>> {
+export function useNavSignals(admin: boolean): Partial<Record<string, NavSignal>> {
   const status = useSystemStatus({ poll: true });
   const stats = useAssetStats();
   const sendingHere = useSendingAssetIds().size;
   const webhooks = useWebhooks({ refetchInterval: WEBHOOK_POLL_MS });
   const signals: Partial<Record<string, NavSignal>> = {};
 
-  if (operator) {
+  if (admin) {
     if (status.isError && !status.data) {
       signals[ROUTES.DEPLOYMENT] = { kind: 'dot', tone: 'neutral', text: 'could not check' };
     } else {

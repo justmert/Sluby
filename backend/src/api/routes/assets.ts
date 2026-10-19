@@ -81,9 +81,9 @@ export interface AssetRouteDeps {
     nextCursor?: string | null;
     hasMore?: boolean;
   }>;
-  // `owner` is the caller's creatorAddress, or undefined for a platform key.
-  // Every by-id operation is scoped by it so one tenant cannot reach
-  // another's asset by guessing a UUID.
+  // `owner` is the caller's creatorAddress (the workspace). Every by-id
+  // operation is scoped by it, so a row with any other owner is never
+  // reachable.
   getAsset: (id: string, owner?: string) => Promise<VideoAssetRecord | null>;
   /**
    * With `ifMatch`, the edit applies only while the asset is still at one of

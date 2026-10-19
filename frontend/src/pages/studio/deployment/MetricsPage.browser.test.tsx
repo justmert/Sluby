@@ -51,7 +51,7 @@ describe('MetricsPage throughput card', () => {
     it(`keeps its height at ${width} px when the first samples turn into bars`, async () => {
       await (await browser()).page.viewport(width, 900);
       renderPage(
-        <WithSession operator>
+        <WithSession admin>
           <MetricsPage />
         </WithSession>,
       );

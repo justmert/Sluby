@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createStatsRoutes, type StatsRouteDeps } from '../api/routes/stats.js';
 import { createTestApp, withApiKey } from './helpers/express-helpers.js';
-import { PLATFORM_ADDRESS } from '../api/ownership.js';
 
 vi.mock('../config/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
@@ -13,7 +12,7 @@ const readKey = {
   name: 'k',
   scopes: ['read'],
   rateLimit: 100,
-  creatorAddress: 'github:owner',
+  creatorAddress: 'workspace',
 };
 
 describe('stats routes', () => {
@@ -58,13 +57,13 @@ describe('stats routes', () => {
     };
   });
 
-  const app = (key: typeof readKey & { operator?: boolean } = readKey) =>
+  const app = (key: typeof readKey & { admin?: boolean } = readKey) =>
     withApiKey(createTestApp(createStatsRoutes(deps)), key);
 
   it('GET /stats scopes totals to the caller', async () => {
     const res = await request(app()).get('/stats');
     expect(res.status).toBe(200);
-    expect(deps.getAssetStats).toHaveBeenCalledWith('github:owner');
+    expect(deps.getAssetStats).toHaveBeenCalledWith('workspace');
     expect(res.body).toEqual({
       total: 3,
       by_status: { created: 0, uploading: 0, processing: 1, ready: 2, failed: 0 },
@@ -74,7 +73,7 @@ describe('stats routes', () => {
     });
   });
 
-  it('GET /system/status gives a tenant a health summary only', async () => {
+  it('GET /system/status gives a member a health summary only', async () => {
     const res = await request(app()).get('/system/status');
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
@@ -89,10 +88,8 @@ describe('stats routes', () => {
     });
   });
 
-  it('GET /system/status reports everything, in snake_case, to the platform identity', async () => {
-    const res = await request(app({ ...readKey, creatorAddress: PLATFORM_ADDRESS })).get(
-      '/system/status',
-    );
+  it('GET /system/status reports everything, in snake_case, to an admin', async () => {
+    const res = await request(app({ ...readKey, admin: true })).get('/system/status');
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.body.scope).toBe('deployment');
@@ -115,15 +112,9 @@ describe('stats routes', () => {
     });
   });
 
-  it('GET /system/status reports everything to an operator, whose stats stay its own', async () => {
-    const operator = app({ ...readKey, operator: true });
-    const status = await request(operator).get('/system/status');
-    expect(status.body.scope).toBe('deployment');
-    expect(status.body.indexer.url).toBe('https://sia.storage');
-    expect(status.body.cache.hits).toBe(1);
-
-    await request(operator).get('/stats');
-    expect(deps.getAssetStats).toHaveBeenCalledWith('github:owner');
+  it('GET /stats gives an admin the same workspace totals as a member', async () => {
+    await request(app({ ...readKey, admin: true })).get('/stats');
+    expect(deps.getAssetStats).toHaveBeenCalledWith('workspace');
   });
 
   it('requires the read scope', async () => {
@@ -151,16 +142,14 @@ describe('stats routes', () => {
         ],
         total: 5,
       });
-      expect(deps.getDailyPlays).toHaveBeenCalledWith('github:owner', '2026-10-07');
+      expect(deps.getDailyPlays).toHaveBeenCalledWith('workspace', '2026-10-07');
     });
 
-    it('covers 30 days by default, and every account for the platform key', async () => {
-      const res = await request(app({ ...readKey, creatorAddress: PLATFORM_ADDRESS })).get(
-        '/stats/usage',
-      );
+    it('covers 30 days by default', async () => {
+      const res = await request(app()).get('/stats/usage');
       expect(res.body.days).toHaveLength(30);
       expect(res.body.total).toBe(0);
-      expect(vi.mocked(deps.getDailyPlays).mock.calls[0][0]).toBeUndefined();
+      expect(vi.mocked(deps.getDailyPlays).mock.calls[0][0]).toBe('workspace');
     });
 
     it.each(['0', '91', 'x', '1.5'])('rejects days=%s', async (days) => {

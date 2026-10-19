@@ -13,7 +13,7 @@ export function getProvider(id: string): SignInProvider | undefined {
 
 /**
  * The provider of the account AUTH_DISABLED runs as. It is not a way to sign
- * in, only the identity of the local dev account, so it has no allowlist.
+ * in, only the identity of the local dev account.
  */
 export const LOCAL_PROVIDER = 'local';
 export const LOCAL_DEV_SUBJECT = 'dev';

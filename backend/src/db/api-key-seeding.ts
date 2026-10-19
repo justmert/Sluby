@@ -3,18 +3,17 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { apiKeys, bootstrapKeys } from './schema.js';
 import { hashApiKey, keyPrefix } from '../api/auth/api-key.js';
 import { createApiKey } from './queries/api-keys.js';
+import { WORKSPACE_ADDRESS } from '../api/ownership.js';
 
 type Database = PostgresJsDatabase<Record<string, unknown>>;
 
-/** Scopes of a seeded key: everything, so it can mint the account's other keys. */
+/** Scopes of a seeded key: everything, so it can mint the workspace's other keys. */
 export const ADMIN_SCOPES = ['upload', 'read', 'manage'];
 
-/** Account the BOOTSTRAP_API_KEY belongs to. */
-export const BOOTSTRAP_CREATOR_ADDRESS = 'platform';
-
 /**
- * Seed the operator-chosen BOOTSTRAP_API_KEY as a full-scope key of the
- * platform account, once. The first start records its hash in
+ * Seed the BOOTSTRAP_API_KEY chosen by whoever runs the server as a
+ * full-scope key of the workspace, once. It has no creator, so it acts as an
+ * admin. The first start records its hash in
  * bootstrap_keys and inserts the key; later starts leave it alone, and once
  * it has been deleted or rotated away it is never inserted again
  * ('retired'), so revoking a leaked bootstrap key holds across restarts.
@@ -43,7 +42,7 @@ export async function seedBootstrapApiKey(
           name: 'bootstrap',
           scopes: ADMIN_SCOPES,
           rateLimit: 1000,
-          creatorAddress: BOOTSTRAP_CREATOR_ADDRESS,
+          creatorAddress: WORKSPACE_ADDRESS,
           isActive: true,
         })
         .onConflictDoNothing({ target: apiKeys.keyHash })
@@ -62,18 +61,18 @@ export async function seedBootstrapApiKey(
 }
 
 /**
- * Mint a fresh full-scope key for `creatorAddress` (the `db:seed-key` cli).
- * Returns the raw key, which is not stored anywhere and must be shown once.
+ * Mint a fresh full-scope key of the workspace with no creator, so it acts
+ * as an admin (the `db:seed-key` cli). Returns the raw key, which is not
+ * stored anywhere and must be shown once.
  */
 export async function createAdminApiKey(opts: {
   name: string;
-  creatorAddress: string;
 }): Promise<{ id: string; rawKey: string }> {
   const { apiKey, rawKey } = await createApiKey({
     name: opts.name,
     scopes: ADMIN_SCOPES,
     rateLimit: 1000,
-    creatorAddress: opts.creatorAddress,
+    creatorAddress: WORKSPACE_ADDRESS,
   });
   return { id: apiKey.id, rawKey };
 }

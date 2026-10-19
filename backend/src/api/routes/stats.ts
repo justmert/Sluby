@@ -10,7 +10,7 @@ const DAY_MS = 24 * 3600 * 1000;
 const usageQuerySchema = z.object({ days: integerParam('days', 1, 90).optional() });
 
 export interface StatsRouteDeps {
-  /** `owner` scopes the totals to one tenant (undefined = platform key). */
+  /** `owner` scopes the totals to one owner, the workspace (undefined = every owner). */
   getAssetStats: (owner?: string) => Promise<AssetStats>;
   /** Plays per UTC day from `since` (YYYY-MM-DD) on; days with none left out. */
   getDailyPlays: (
@@ -36,10 +36,10 @@ const healthProbe = (p: { ok: boolean; latencyMs: number }) => ({
 });
 
 /**
- * What an ordinary tenant sees: whether each dependency answers and how the
- * host pool looks. The indexer account, deployment totals, probe error text
- * (which can name internal hosts), the indexer url, the process cache and the
- * deployment-wide reconciliation result stay with the platform identity.
+ * What a member sees: whether each dependency answers and how the host pool
+ * looks. The indexer account, deployment totals, probe error text (which can
+ * name internal hosts), the indexer url, the process cache and the
+ * deployment-wide reconciliation result stay with admins.
  */
 function formatHealthSummary(s: SystemStatus) {
   return {
@@ -157,10 +157,10 @@ export function createStatsRoutes(deps: StatsRouteDeps): Router {
 
   /**
    * GET /api/v1/system/status
-   * Live platform status. The platform identity and operators get
-   * everything: database, redis, the Sia indexer (account usage and host
-   * pool), the last reconciliation run, and the delivery cache. A tenant gets
-   * the health summary only, see formatHealthSummary.
+   * Live platform status. Admins get everything: database, redis, the Sia
+   * indexer (account usage and host pool), the last reconciliation run, and
+   * the delivery cache. A member gets the health summary only, see
+   * formatHealthSummary.
    */
   router.get('/system/status', requireScope('read'), async (req: Request, res: Response) => {
     const status = await deps.getSystemStatus();

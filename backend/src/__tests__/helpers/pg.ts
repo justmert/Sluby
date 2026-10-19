@@ -36,6 +36,12 @@ export interface TestDatabase {
   truncate: () => Promise<void>;
   /** Apply every migration not applied yet, as a deploy of a newer version does. */
   migrateToLatest: () => Promise<void>;
+  /**
+   * Apply the migrations not applied yet up to the one tagged `tag`, as a
+   * deploy of that version did, so a test of an older migration keeps
+   * checking what that migration did rather than what later ones changed.
+   */
+  migrateThrough: (tag: string) => Promise<void>;
   drop: () => Promise<void>;
 }
 
@@ -107,6 +113,14 @@ export async function createTestDatabase(opts: { through?: string } = {}): Promi
       await sql.unsafe(`truncate ${list} restart identity cascade`);
     },
     migrateToLatest: () => runMigrations(url.toString(), MIGRATIONS),
+    migrateThrough: async (tag) => {
+      const folder = migrationsThrough(tag);
+      try {
+        await runMigrations(url.toString(), folder);
+      } finally {
+        rmSync(folder, { recursive: true, force: true });
+      }
+    },
     drop: async () => {
       await sql.end();
       const a = postgres(TEST_DATABASE_URL, { max: 1, onnotice: () => {} });

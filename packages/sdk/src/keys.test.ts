@@ -22,6 +22,7 @@ const RAW_KEY = {
   expires_at: null,
   prefix: 'sluby_abcdef',
   last_used_at: '2026-01-03T00:00:00.000Z',
+  created_by: { id: 'u1', name: 'Ada' },
 };
 
 const RAW_LIMITS = { max_keys: 100, max_rate_limit: 10000 };
@@ -36,6 +37,7 @@ const MAPPED_KEY = {
   expiresAt: null,
   prefix: 'sluby_abcdef',
   lastUsedAt: '2026-01-03T00:00:00.000Z',
+  createdBy: { id: 'u1', name: 'Ada' },
 };
 
 beforeEach(() => {
@@ -191,5 +193,18 @@ describe('KeyManager.update()', () => {
     const key = await new KeyManager(mockFetch).update('k1', { name: 'x' });
     expect(key.prefix).toBeNull();
     expect(key.lastUsedAt).toBeNull();
+  });
+
+  it('maps a key made from the server, with no creator, to a null createdBy', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ ...RAW_KEY, created_by: null }));
+    const key = await new KeyManager(mockFetch).update('k1', { name: 'x' });
+    expect(key.createdBy).toBeNull();
+  });
+
+  it('maps a key from a server that sends no created_by to a null createdBy', async () => {
+    const { created_by: _omitted, ...older } = RAW_KEY;
+    mockFetch.mockResolvedValueOnce(makeJsonResponse(older));
+    const key = await new KeyManager(mockFetch).update('k1', { name: 'x' });
+    expect(key.createdBy).toBeNull();
   });
 });

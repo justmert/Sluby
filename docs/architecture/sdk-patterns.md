@@ -267,7 +267,7 @@ Anyone holding the URL can watch until it expires, so mint one per viewer and se
 
 ### Apps where the browser holds a credential
 
-The player can also resolve URLs itself from a `client` and an `assetId`. That calls `/api/v1/playback/:id` from the browser, so the browser needs a credential with `read` scope for the asset's owner. The Studio does this with its session cookie: it is served from the same origin as the API and creates its client without an API key.
+The player can also resolve URLs itself from a `client` and an `assetId`. That calls `/api/v1/playback/:id` from the browser, so the browser needs a credential with `read` scope (a Studio session or a key). The Studio does this with its session cookie: it is served from the same origin as the API and creates its client without an API key.
 
 ```tsx
 const sluby = new SlubyClient({

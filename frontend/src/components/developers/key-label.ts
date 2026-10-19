@@ -17,3 +17,12 @@ export const keyCopyButton = (id: string) =>
 /** "sluby_7Hq2…f0Kd": enough to tell keys apart, not enough to use one. */
 export const maskKey = (key: string) =>
   key.length > 16 ? `${key.slice(0, 10)}…${key.slice(-4)}` : key;
+
+/**
+ * Who made a key, for its Created by cell: the member's name, or Server for a
+ * key made on the server's command line (no member). `known` is false then.
+ */
+export function keyCreator(k: Pick<ApiKeyRecord, 'createdBy'>): { text: string; known: boolean } {
+  if (k.createdBy === null) return { text: 'Server', known: false };
+  return { text: k.createdBy.name, known: true };
+}

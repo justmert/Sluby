@@ -61,6 +61,8 @@ import {
   deleteApiKey as dbDeleteApiKey,
   rotateApiKey as dbRotateApiKey,
   renameApiKey as dbRenameApiKey,
+  withCreators,
+  type ApiKeyWithCreator,
   touchApiKeyLastUsed,
 } from './db/queries/api-keys.js';
 import { createKeyUseRecorder } from './api/auth/key-usage.js';
@@ -100,15 +102,38 @@ import {
   markStudioSessionSeen,
   pruneStudioSessions,
   revokeAllStudioSessions,
+  revokeOtherStudioSessions,
   revokeStudioSession,
 } from './db/queries/sessions.js';
 import {
+  createFirstAdmin,
   ensureIdentityAccount,
-  findLegacyClaim,
+  findPasswordAccount,
   getAccount,
-  isAllowlistEntryPinned,
+  getPasswordCredential,
+  hasSignInAdmin,
+  linkIdentity,
+  recordSignIn,
+  setPassword,
   signInIdentity,
 } from './db/queries/accounts.js';
+import {
+  acceptInvite,
+  acceptReset,
+  createInvite,
+  createResetLink,
+  findLink,
+  joinWithIdentity,
+  listPendingInvites,
+  revokeInvite,
+} from './db/queries/invites.js';
+import {
+  changeMemberRole,
+  listMembers,
+  removeMember,
+  restoreMember,
+} from './db/queries/members.js';
+import { WORKSPACE_ADDRESS } from './api/ownership.js';
 import type { CallerDeps } from './api/auth/caller.js';
 import { LOCAL_DEV_SUBJECT, LOCAL_PROVIDER } from './api/auth/providers/index.js';
 import {
@@ -241,6 +266,8 @@ const LOCAL_DEV = {
   subject: LOCAL_DEV_SUBJECT,
   username: 'dev',
   displayName: 'Local developer',
+  // the one person at the keyboard of a local install can do everything
+  role: 'admin' as const,
 };
 
 /** The AUTH_DISABLED account, created on first use and then remembered. */
@@ -276,8 +303,6 @@ export function buildCallerDeps(
       );
     },
     getAccount,
-    findLegacyClaim,
-    isAllowlistEntryPinned,
     localDevAccount,
     findApiKeyByHash: async (hash) => {
       const apiKey = await getApiKeyByHash(hash);
@@ -288,6 +313,7 @@ export function buildCallerDeps(
         scopes: apiKey.scopes,
         rateLimit: apiKey.rateLimit,
         creatorAddress: apiKey.creatorAddress,
+        createdBy: apiKey.createdBy,
         isActive: apiKey.isActive,
         expiresAt: apiKey.expiresAt,
         lastUsedAt: apiKey.lastUsedAt,
@@ -314,7 +340,7 @@ export function buildTusServerDeps(
       const videoAsset = await createVideoAsset({
         title: data.title,
         description: data.description,
-        creatorAddress: data.metadata.creatorAddress ?? '',
+        creatorAddress: WORKSPACE_ADDRESS,
         accessTier: data.accessTier,
       });
 
@@ -391,7 +417,7 @@ export function buildTusServerDeps(
     },
 
     discardAsset: async (videoAssetId) => {
-      // the caller's ownership was already checked against the upload metadata
+      // the caller was already checked for the upload scope
       await deleteAsset(videoAssetId);
     },
 
@@ -481,7 +507,7 @@ function toWebhookRecord(ep: WebhookEndpointWithHealth) {
   };
 }
 
-function toKeyRecord(k: ApiKey) {
+function toKeyRecord(k: ApiKeyWithCreator) {
   return {
     id: k.id,
     name: k.name,
@@ -492,7 +518,14 @@ function toKeyRecord(k: ApiKey) {
     expiresAt: k.expiresAt,
     prefix: k.prefix,
     lastUsedAt: k.lastUsedAt,
+    createdBy: k.creator,
   };
+}
+
+/** One key as the api answers with it, with its creator's name. */
+async function keyRecord(k: ApiKey) {
+  const [withCreator] = await withCreators([k]);
+  return toKeyRecord(withCreator);
 }
 
 const retrySourceCheck = buildRetrySourceCheck({
@@ -518,7 +551,28 @@ export function buildApiDeps(
     listActiveSessions: listActiveStudioSessions,
     revokeSession: revokeStudioSession,
     revokeAllSessions: revokeAllStudioSessions,
+    revokeOtherSessions: revokeOtherStudioSessions,
     pruneSessions: pruneStudioSessions,
+    hasSignInAdmin: () => hasSignInAdmin(),
+    createFirstAdmin,
+    findPasswordAccount,
+    recordSignIn,
+    getPasswordCredential,
+    setPassword,
+    linkIdentity,
+    findLink,
+    acceptInvite,
+    acceptReset,
+    joinWithIdentity,
+
+    listMembers,
+    changeMemberRole,
+    removeMember,
+    restoreMember,
+    createInvite,
+    createResetLink,
+    listPendingInvites,
+    revokeInvite,
 
     // Upload creation happens through the TUS protocol (see tusServer); the REST
     // surface only exposes owner-scoped status and cancellation.
@@ -918,13 +972,13 @@ export function buildApiDeps(
     createApiKey: async (data, maxKeys) => {
       // the router already generated the key and hashes it here
       const created = await createApiKeyWithinCap(data, maxKeys);
-      return created ? toKeyRecord(created) : null;
+      return created ? keyRecord(created) : null;
     },
 
     listApiKeys: async (owner, { limit, cursor }) => {
       const page = await dbListApiKeys({ creatorAddress: owner, limit, cursor });
       return {
-        data: page.data.map(toKeyRecord),
+        data: (await withCreators(page.data)).map(toKeyRecord),
         hasMore: page.hasMore,
         nextCursor: page.nextCursor,
       };
@@ -935,14 +989,14 @@ export function buildApiDeps(
       if (result.status !== 'rotated') return result;
       return {
         status: 'rotated',
-        replacement: toKeyRecord(result.replacement),
+        replacement: await keyRecord(result.replacement),
         retiredAt: result.retiredAt,
       };
     },
 
     renameApiKey: async (id, owner, name) => {
       const row = await dbRenameApiKey(id, owner, name);
-      return row ? toKeyRecord(row) : null;
+      return row ? keyRecord(row) : null;
     },
 
     deleteApiKey: async (id, owner) => {

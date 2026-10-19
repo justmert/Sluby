@@ -1,18 +1,12 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../config/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
 
 import { Allowlist } from '../api/auth/allowlist.js';
-import {
-  isAccountAllowed,
-  resolveKeyOwner,
-  currentOwnerAddress,
-  type Account,
-} from '../api/auth/access.js';
+import { isAccountAllowed, resolveKeyOwner, type Account } from '../api/auth/access.js';
 import { signInWarnings } from '../api/auth/startup.js';
-import { env } from '../config/env.js';
 
 const lower = (s: string) => s.toLowerCase();
 const pins = (entries: Record<string, string> = {}) => new Map(Object.entries(entries));
@@ -83,127 +77,75 @@ describe('Allowlist on later requests', () => {
     expect(list.allows('1', [])).toBe(false);
     expect(list.allows('1', ['carol'])).toBe(false);
   });
-
-  it('admits an unclaimed legacy handle only while listed and unpinned', () => {
-    expect(list.allowsUnclaimedHandle('alice', false)).toBe(true);
-    expect(list.allowsUnclaimedHandle('alice', true)).toBe(false);
-    expect(list.allowsUnclaimedHandle('mallory', false)).toBe(false);
-    expect(new Allowlist('', lower).allowsUnclaimedHandle('anyone', true)).toBe(true);
-  });
 });
 
 describe('account and key owner access', () => {
-  const saved = env.GITHUB_ALLOWED_USERS;
-  afterEach(() => {
-    env.GITHUB_ALLOWED_USERS = saved;
-  });
-
   const user = '11111111-1111-4111-8111-111111111111';
-  const account = (provider: string, pinned: string[] = []): Account => ({
+  const account = (
+    provider: string,
+    over: Partial<Pick<Account, 'role' | 'disabledAt'>> = {},
+  ): Account => ({
     id: user,
     displayName: 'x',
-    identities: [{ id: 'i', provider, subject: '1', username: 'alice', pinnedEntries: pinned }],
+    role: 'member',
+    disabledAt: null,
+    identities: [{ id: 'i', provider, subject: '1', username: 'alice' }],
+    ...over,
   });
-  const deps = (opts: { account?: Account | null; claim?: string | null; pinned?: boolean }) => ({
-    getAccount: async () => opts.account ?? null,
-    findLegacyClaim: async () => opts.claim ?? null,
-    isAllowlistEntryPinned: async () => opts.pinned ?? false,
+  const deps = (found: Account | null) => ({ getAccount: async () => found });
+
+  it('lets a member in until an admin removes them', () => {
+    expect(isAccountAllowed(account('github'))).toBe(true);
+    expect(isAccountAllowed(account('password', { disabledAt: new Date() }))).toBe(false);
   });
 
-  it('lets a github account in by its pin and stops it once the entry is gone', () => {
-    env.GITHUB_ALLOWED_USERS = 'alice';
-    expect(isAccountAllowed(account('github', ['alice']))).toBe(true);
-    env.GITHUB_ALLOWED_USERS = 'bob';
-    expect(isAccountAllowed(account('github', ['alice']))).toBe(false);
+  it('always lets the local dev account in', () => {
+    expect(isAccountAllowed(account('local', { disabledAt: new Date() }))).toBe(true);
   });
 
-  it('always lets the local dev account in, and never an unknown provider', () => {
-    env.GITHUB_ALLOWED_USERS = 'bob';
-    expect(isAccountAllowed(account('local'))).toBe(true);
-    expect(isAccountAllowed(account('gone-provider'))).toBe(false);
-    expect(isAccountAllowed({ id: user, displayName: 'x', identities: [] })).toBe(false);
-  });
-
-  it('stops a key of an account taken off the allowlist, and restores it when put back', async () => {
-    env.GITHUB_ALLOWED_USERS = 'alice';
-    const a = account('github', ['alice']);
-    expect(await resolveKeyOwner(`user:${user}`, deps({ account: a }))).toEqual({
+  it('makes a key with no creator an admin', async () => {
+    expect(await resolveKeyOwner({ createdBy: null }, deps(null))).toEqual({
       allowed: true,
-      address: `user:${user}`,
-      operator: false,
-    });
-    env.GITHUB_ALLOWED_USERS = 'bob';
-    expect((await resolveKeyOwner(`user:${user}`, deps({ account: a }))).allowed).toBe(false);
-    env.GITHUB_ALLOWED_USERS = 'bob,alice';
-    expect((await resolveKeyOwner(`user:${user}`, deps({ account: a }))).allowed).toBe(true);
-  });
-
-  it('refuses a key whose account no longer exists', async () => {
-    expect((await resolveKeyOwner(`user:${user}`, deps({ account: null }))).allowed).toBe(false);
-  });
-
-  it('judges an unclaimed legacy github:<login> key by its login, while unpinned', async () => {
-    env.GITHUB_ALLOWED_USERS = 'alice';
-    expect((await resolveKeyOwner('github:alice', deps({}))).allowed).toBe(true);
-    expect((await resolveKeyOwner('github:mallory', deps({}))).allowed).toBe(false);
-    expect((await resolveKeyOwner('github:alice', deps({ pinned: true }))).allowed).toBe(false);
-    env.GITHUB_ALLOWED_USERS = '';
-    expect((await resolveKeyOwner('github:mallory', deps({}))).allowed).toBe(true);
-  });
-
-  it('maps a claimed legacy key to its account and judges that account', async () => {
-    env.GITHUB_ALLOWED_USERS = 'alice';
-    const a = account('github', ['alice']);
-    expect(await resolveKeyOwner('github:alice', deps({ claim: user, account: a }))).toEqual({
-      allowed: true,
-      address: `user:${user}`,
-      operator: false,
+      admin: true,
+      userId: null,
     });
   });
 
-  it('leaves operator-made owners alone', async () => {
-    env.GITHUB_ALLOWED_USERS = 'alice';
-    for (const owner of ['platform', `0x${'0'.repeat(64)}`, 'custom-address']) {
-      expect(await resolveKeyOwner(owner, deps({}))).toEqual({
-        allowed: true,
-        address: owner,
-        operator: false,
-      });
-    }
+  it("gives a key its creator's role, and stops it while the creator is removed", async () => {
+    expect(await resolveKeyOwner({ createdBy: user }, deps(account('github')))).toEqual({
+      allowed: true,
+      admin: false,
+      userId: user,
+    });
+    expect(
+      await resolveKeyOwner({ createdBy: user }, deps(account('github', { role: 'admin' }))),
+    ).toEqual({ allowed: true, admin: true, userId: user });
+    expect(
+      await resolveKeyOwner(
+        { createdBy: user },
+        deps(account('github', { role: 'admin', disabledAt: new Date() })),
+      ),
+    ).toMatchObject({ allowed: false, admin: false });
   });
 
-  it('maps stored owners to the address that owns them now', async () => {
-    expect(await currentOwnerAddress('github:alice', deps({ claim: user }))).toBe(`user:${user}`);
-    expect(await currentOwnerAddress('github:alice', deps({}))).toBe('github:alice');
-    expect(await currentOwnerAddress(`user:${user}`, deps({ claim: 'x' }))).toBe(`user:${user}`);
-    expect(await currentOwnerAddress('platform', deps({ claim: user }))).toBe('platform');
+  it('treats a creator whose row is gone like no creator, as the foreign key will', async () => {
+    expect(await resolveKeyOwner({ createdBy: user }, deps(null))).toEqual({
+      allowed: true,
+      admin: true,
+      userId: null,
+    });
   });
 });
 
 describe('signInWarnings', () => {
-  const saved = { ...env };
-  afterEach(() => Object.assign(env, saved));
-
-  it('warns about an unset allowlist but not about an explicit *', () => {
-    env.GITHUB_CLIENT_ID = 'id';
-    env.GITHUB_CLIENT_SECRET = 'secret';
-    env.GITHUB_ALLOWED_USERS = '';
-    const opts = { authDisabled: false, publicUrl: 'https://video.example.com' };
-    expect(signInWarnings(opts)).toEqual([
-      expect.stringContaining('GitHub sign-in has no allowlist'),
-    ]);
-    env.GITHUB_ALLOWED_USERS = '*';
-    expect(signInWarnings(opts)).toEqual([]);
-    env.GITHUB_ALLOWED_USERS = 'alice';
-    expect(signInWarnings(opts)).toEqual([]);
-  });
-
   it('warns about an http public url off localhost, where cookies are not Secure', () => {
-    env.GITHUB_CLIENT_ID = undefined;
     expect(signInWarnings({ authDisabled: false, publicUrl: 'http://192.168.1.10:8080' })).toEqual([
       expect.stringContaining('PUBLIC_URL is http on 192.168.1.10'),
     ]);
     expect(signInWarnings({ authDisabled: false, publicUrl: 'http://localhost:8080' })).toEqual([]);
+    expect(signInWarnings({ authDisabled: false, publicUrl: 'https://video.example.com' })).toEqual(
+      [],
+    );
     expect(signInWarnings({ authDisabled: true, publicUrl: 'http://192.168.1.10' })).toEqual([]);
   });
 });

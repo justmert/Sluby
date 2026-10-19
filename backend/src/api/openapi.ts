@@ -10,9 +10,8 @@
  *
  * `x-required-scope` on an operation records the API-key scope its
  * middleware enforces (`upload` | `read` | `manage`); `x-required-identity:
- * operations` marks operations only the platform identity or an operator
- * (OPERATOR_USERS) may use. Auth
- * endpoints and the public spec/docs carry `security: []`.
+ * admin` marks operations only an admin may use. Auth endpoints and the public
+ * spec/docs carry `security: []`.
  */
 
 const bearerAuth = [{ bearerAuth: [] as string[] }];
@@ -80,6 +79,27 @@ const idParam = (name: string, description: string) => ({
   description,
 });
 
+/** Admins manage members from the Studio or with their own key. */
+const memberSecurity = [{ bearerAuth: [] as string[] }, { cookieAuth: [] as string[] }];
+
+/** The token of an invite or reset link, from its Studio url. */
+const linkTokenParam = idParam('token', 'The token from the invite or reset link.');
+
+/** The session cookie a sign-in sets. */
+const sessionCookieHeader = {
+  'Set-Cookie': {
+    description: 'The `sluby_session` cookie of the new session (HttpOnly, SameSite=Lax).',
+    schema: { type: 'string' },
+  },
+};
+
+/** 429 from the attempt limits of the sign-in routes. */
+const attemptsLimited = {
+  description: 'Too many attempts; try again after `retry_after` seconds.',
+  headers: { 'Retry-After': { $ref: '#/components/headers/RetryAfter' } },
+  content: { 'application/json': { schema: { $ref: '#/components/schemas/RateLimited' } } },
+};
+
 export const openapiDocument = {
   openapi: '3.1.0',
   info: {
@@ -89,12 +109,13 @@ export const openapiDocument = {
       'REST API and delivery gateway for Sluby, decentralized video streaming on ' +
       'the Sia network. Programmatic access uses a scoped API key sent as a ' +
       '`Bearer` token; the Studio UI uses a session cookie.\n\n' +
-      'Every resource belongs to the account (`creator_address`) of the key that made ' +
-      'it, and a by-id request for another account’s resource answers 404, as for one ' +
-      'that does not exist. A key with the all-zero platform address acts across ' +
-      'accounts. Deployment-wide operations data is for that key and for operators, ' +
-      'the accounts listed in OPERATOR_USERS and their keys, who see the deployment ' +
-      'but still only their own account’s resources.\n\n' +
+      'One server is one team’s workspace: every asset, key, webhook and upload belongs ' +
+      'to the workspace, and every member and key works with all of them. Members are ' +
+      '`admin` or `member`; a key acts with the current role of the member who made it ' +
+      'and stops while that member is removed, and a key made from the server ' +
+      '(`BOOTSTRAP_API_KEY`, `npm run db:seed-key`) has no creator and acts as an admin. ' +
+      'Deployment-wide operations data (full system status, metrics, the whole ' +
+      'reconciliation run) is for admins only.\n\n' +
       'Errors are JSON `{ "error": "...", "details": [...] }`; `details` lists the ' +
       'invalid fields of a 400. Every response of a key-checked operation carries ' +
       '`X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`; over the ' +
@@ -112,7 +133,8 @@ export const openapiDocument = {
     { name: 'Webhooks', description: 'Event delivery endpoints.' },
     { name: 'Reconciliation', description: 'DB vs indexer inventory drift.' },
     { name: 'Delivery', description: 'Byte-range gateway for Sia objects.' },
-    { name: 'Auth', description: 'Studio session auth.' },
+    { name: 'Auth', description: 'Studio sign-in, setup, invite and reset links.' },
+    { name: 'Members', description: 'Members, roles and invites (admins only).' },
     { name: 'Ops', description: 'Metrics and cache.' },
   ],
   security: bearerAuth,
@@ -129,7 +151,9 @@ export const openapiDocument = {
         type: 'apiKey',
         in: 'cookie',
         name: 'sluby_session',
-        description: 'Signed session cookie issued to the Studio after GitHub login.',
+        description:
+          'Signed session cookie issued to the Studio at sign-in (email and password, GitHub, ' +
+          'setup, or an invite or reset link).',
       },
     },
     parameters: {
@@ -177,8 +201,8 @@ export const openapiDocument = {
       Unauthorized: errorWith(
         'No valid API key or session. Without a key, `reason` says why the session ended.',
       ),
-      Forbidden: errorWith('The key lacks the scope (or identity) the operation needs.'),
-      NotFound: errorWith('No such resource in the caller’s account.'),
+      Forbidden: errorWith('The key lacks the scope (or the admin role) the operation needs.'),
+      NotFound: errorWith('No such resource in the workspace.'),
       TooManyRequests: {
         description:
           'Over the rate limit of the key or session, or of the client address for a call without valid credentials.',
@@ -220,12 +244,32 @@ export const openapiDocument = {
           },
           reason: {
             type: 'string',
-            enum: ['missing', 'expired', 'revoked', 'not_allowed'],
+            enum: [
+              'missing',
+              'expired',
+              'revoked',
+              'not_allowed',
+              'bad_credentials',
+              'disabled',
+              'bad_code',
+              'already_set_up',
+              'email_taken',
+              'no_password',
+              'used',
+              'last_admin',
+              'self',
+            ],
             description:
               'On a 401 to a request without an API key (a browser session): `missing` (no ' +
               'session cookie, or one this server did not sign), `expired`, `revoked` (signed ' +
-              'out, here or from another browser) or `not_allowed` (the account is no longer on ' +
-              'the allowlist).',
+              'out, here or from another browser) or `not_allowed` (an admin removed the ' +
+              'account). A key whose creator was removed also answers `not_allowed`. The ' +
+              'sign-in routes add their own: `bad_credentials` (wrong email or password), ' +
+              '`disabled` (the account was removed), `bad_code` (wrong setup code), ' +
+              '`already_set_up`, `email_taken`, `no_password`, and on a 410 for a link ' +
+              '`used`, `expired` or `revoked`. The members routes answer 409 with ' +
+              '`last_admin` (it would leave no admin who can sign in) or `self` (nobody ' +
+              'removes themselves).',
           },
         },
         required: ['error'],
@@ -484,10 +528,9 @@ export const openapiDocument = {
       },
       ReconciliationRun: {
         description:
-          'The latest run. Its shape depends on `scope`: the platform identity and ' +
-          'operators (`deployment`) get the whole run; any other caller (`account`) gets only the ' +
-          'drift of its own assets, because the deployment-wide counts, orphans and failure ' +
-          'text describe other accounts and the operator’s setup. Objects the indexer ' +
+          'The latest run. Its shape depends on `scope`: admins (`deployment`) get the whole ' +
+          'run; members (`account`) get only the drift of the workspace’s assets, because the ' +
+          'deployment-wide counts, orphans and failure text describe the server’s setup. Objects the indexer ' +
           'pinned or unpinned within the hour before the run are work in progress and in ' +
           'neither list, so the in-sync count plus the orphan or missing count can be lower ' +
           'than the indexer or database count.',
@@ -572,12 +615,12 @@ export const openapiDocument = {
             type: 'string',
             enum: ['ok', 'drift', 'failed'],
             description:
-              '`drift` when objects of the caller’s assets are missing, `failed` when the ' +
+              '`drift` when objects of the workspace’s assets are missing, `failed` when the ' +
               'run itself could not complete.',
           },
           missing_count: {
             type: 'integer',
-            description: 'Missing objects of the caller’s assets.',
+            description: 'Missing objects of the workspace’s assets.',
           },
           missing_ids: { type: 'array', items: { type: 'string' } },
           missing_objects: {
@@ -662,8 +705,8 @@ export const openapiDocument = {
       },
       SystemStatus: {
         description:
-          'Live status. Its shape depends on `scope`: the platform identity and operators ' +
-          '(`deployment`) get the full report; any other caller (`account`) gets a health summary without ' +
+          'Live status. Its shape depends on `scope`: admins (`deployment`) get the full ' +
+          'report; members (`account`) get a health summary without ' +
           'the indexer account, the indexer url, probe error text, process uptime, the ' +
           'delivery cache or the deployment-wide reconciliation result.',
         oneOf: [
@@ -821,6 +864,7 @@ export const openapiDocument = {
           'expires_at',
           'prefix',
           'last_used_at',
+          'created_by',
         ],
         properties: {
           id: { type: 'string', format: 'uuid' },
@@ -845,6 +889,19 @@ export const openapiDocument = {
               'When the key last authenticated a request, to the minute: it is written at most ' +
               'once a minute per key. Null if never used since this was recorded.',
           }),
+          created_by: {
+            type: ['object', 'null'],
+            description:
+              'The member who made the key; it acts with their current role and stops while ' +
+              'they are removed. Null for a key made from the server (`BOOTSTRAP_API_KEY`, ' +
+              '`npm run db:seed-key`), made by such a key, or whose maker was deleted: it acts ' +
+              'as an admin.',
+            required: ['id', 'name'],
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              name: { type: 'string', description: 'Display name.' },
+            },
+          },
         },
       },
       ApiKeyList: {
@@ -862,7 +919,7 @@ export const openapiDocument = {
               max_keys: {
                 type: 'integer',
                 description:
-                  'How many usable keys one account may hold (`API_KEYS_PER_ACCOUNT_MAX`).',
+                  'How many usable keys the workspace may hold (`API_KEYS_PER_ACCOUNT_MAX`).',
               },
               max_rate_limit: {
                 type: 'integer',
@@ -951,7 +1008,9 @@ export const openapiDocument = {
           'provider',
           'provider_label',
           'auth_disabled',
+          'role',
           'operator',
+          'sign_in',
           'expires_at',
         ],
         properties: {
@@ -959,10 +1018,13 @@ export const openapiDocument = {
           name: { type: 'string', description: 'Display name.' },
           username: {
             type: 'string',
-            description: "The provider's current username (GitHub: the login).",
+            description:
+              "The handle the session signed in with: the email for `password`, GitHub's login " +
+              'for `github`.',
           },
           provider: nullable('string', {
-            description: 'The sign-in provider of this session, `local` with AUTH_DISABLED.',
+            description:
+              'How this session signed in: `password`, `github`, or `local` with AUTH_DISABLED.',
           }),
           provider_label: nullable('string'),
           auth_disabled: {
@@ -970,13 +1032,23 @@ export const openapiDocument = {
             description:
               'True when the server runs with AUTH_DISABLED and this is the local dev account.',
           },
+          role: {
+            type: 'string',
+            enum: ['admin', 'member'],
+            description:
+              'Admins also see deployment-wide operations data (the full system status, ' +
+              'metrics and the whole reconciliation report) and manage members. Always ' +
+              '`admin` for the local dev account, the one user of an AUTH_DISABLED server.',
+          },
           operator: {
             type: 'boolean',
-            description:
-              'Whether the account is an operator (OPERATOR_USERS) and sees deployment-wide ' +
-              'operations data: the full system status, metrics and the whole reconciliation ' +
-              'report. Always true for the local dev account, the one user of an AUTH_DISABLED ' +
-              'server.',
+            deprecated: true,
+            description: 'Use `role`. True when `role` is `admin`.',
+          },
+          sign_in: {
+            type: 'array',
+            description: 'Every way the account signs in.',
+            items: { $ref: '#/components/schemas/SignInMethod' },
           },
           expires_at: nullable('string', { format: 'date-time' }),
           providerLabel: {
@@ -1029,6 +1101,208 @@ export const openapiDocument = {
         type: 'object',
         required: ['success', 'revoked'],
         properties: { success: { const: true }, revoked: { type: 'integer' } },
+      },
+      Member: {
+        type: 'object',
+        required: ['id', 'name', 'role', 'status', 'sign_in', 'created_at', 'last_sign_in_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          name: { type: 'string' },
+          role: { type: 'string', enum: ['admin', 'member'] },
+          status: {
+            type: 'string',
+            enum: ['active', 'removed'],
+            description:
+              '`removed`: an admin removed the member, who cannot sign in and whose keys stop ' +
+              'until they are restored.',
+          },
+          sign_in: { type: 'array', items: { $ref: '#/components/schemas/SignInMethod' } },
+          created_at: { type: 'string', format: 'date-time' },
+          last_sign_in_at: nullable('string', {
+            format: 'date-time',
+            description: 'The latest sign-in by any method, null when the member has none.',
+          }),
+        },
+      },
+      MemberList: {
+        type: 'object',
+        required: ['data'],
+        properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Member' } } },
+      },
+      RoleRequest: {
+        type: 'object',
+        required: ['role'],
+        additionalProperties: false,
+        properties: { role: { type: 'string', enum: ['admin', 'member'] } },
+      },
+      ResetLink: {
+        type: 'object',
+        required: ['url', 'expires_at'],
+        properties: {
+          url: {
+            type: 'string',
+            description:
+              '`<PUBLIC_URL>/studio/reset/<token>`. Single use; only shown here, so pass it on ' +
+              'to the member now.',
+          },
+          expires_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      Invite: {
+        type: 'object',
+        required: ['id', 'role', 'created_at', 'expires_at', 'created_by'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          role: { type: 'string', enum: ['admin', 'member'] },
+          created_at: { type: 'string', format: 'date-time' },
+          expires_at: { type: 'string', format: 'date-time' },
+          created_by: {
+            type: ['object', 'null'],
+            required: ['id', 'name'],
+            properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' } },
+            description: 'The admin who made it, null for a key with no creator.',
+          },
+        },
+      },
+      InviteList: {
+        type: 'object',
+        required: ['data'],
+        properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Invite' } } },
+      },
+      InviteCreated: {
+        type: 'object',
+        required: ['id', 'url', 'role', 'expires_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          url: {
+            type: 'string',
+            description:
+              '`<PUBLIC_URL>/studio/join/<token>`. Single use; only shown here, so pass it on now.',
+          },
+          role: { type: 'string', enum: ['admin', 'member'] },
+          expires_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      SignInMethod: {
+        type: 'object',
+        required: ['provider', 'username'],
+        properties: {
+          provider: {
+            type: 'string',
+            description: '`password`, `github`, or `local` (the AUTH_DISABLED account).',
+          },
+          username: {
+            type: 'string',
+            description: 'The email for `password`, the login for `github`.',
+          },
+        },
+      },
+      AuthConfig: {
+        type: 'object',
+        required: ['auth_disabled', 'setup_required', 'methods'],
+        properties: {
+          auth_disabled: {
+            type: 'boolean',
+            description: 'Sign-in is off (AUTH_DISABLED): every request is the local admin.',
+          },
+          setup_required: {
+            type: 'boolean',
+            description:
+              'No admin who can sign in exists yet, so the Studio shows the setup screen. ' +
+              'The setup code is in the server log.',
+          },
+          methods: {
+            type: 'object',
+            required: ['password', 'github'],
+            properties: {
+              password: { const: true },
+              github: { type: 'boolean', description: 'A GitHub OAuth app is configured.' },
+            },
+          },
+        },
+      },
+      SetupRequest: {
+        type: 'object',
+        required: ['code', 'name', 'email', 'password'],
+        additionalProperties: false,
+        properties: {
+          code: {
+            type: 'string',
+            description:
+              'The setup code from the server log, `XXXXX-XXXXX`; case and dashes do not matter.',
+          },
+          name: { type: 'string', minLength: 1, maxLength: 100 },
+          email: { type: 'string', maxLength: 254, description: 'Stored trimmed and lowercased.' },
+          password: { type: 'string', minLength: 10, maxLength: 256 },
+        },
+      },
+      PasswordSignInRequest: {
+        type: 'object',
+        required: ['email', 'password'],
+        additionalProperties: false,
+        properties: {
+          email: { type: 'string', description: 'Compared trimmed and lowercased.' },
+          password: { type: 'string', minLength: 1, maxLength: 1024 },
+        },
+      },
+      PasswordChangeRequest: {
+        type: 'object',
+        required: ['current_password', 'new_password'],
+        additionalProperties: false,
+        properties: {
+          current_password: { type: 'string', minLength: 1, maxLength: 1024 },
+          new_password: { type: 'string', minLength: 10, maxLength: 256 },
+        },
+      },
+      LinkInfo: {
+        type: 'object',
+        required: ['kind', 'expires_at', 'github'],
+        properties: {
+          kind: { type: 'string', enum: ['invite', 'reset'] },
+          role: {
+            type: 'string',
+            enum: ['admin', 'member'],
+            description: 'Invites only: the role the new member gets.',
+          },
+          email: nullable('string', {
+            description:
+              'Reset links only: the email the member signs in with, null when they have no ' +
+              'password yet (then accepting needs `email`).',
+          }),
+          expires_at: { type: 'string', format: 'date-time' },
+          github: {
+            type: 'boolean',
+            description: 'GitHub sign-in is configured, so an invite can be accepted with it.',
+          },
+        },
+      },
+      LinkAcceptRequest: {
+        description:
+          'For an invite: `name`, `email` and `password`, making a new member. For a reset ' +
+          'link: `password`, plus `email` when the member has no password yet.',
+        oneOf: [
+          {
+            type: 'object',
+            title: 'Invite',
+            required: ['name', 'email', 'password'],
+            additionalProperties: false,
+            properties: {
+              name: { type: 'string', minLength: 1, maxLength: 100 },
+              email: { type: 'string', maxLength: 254 },
+              password: { type: 'string', minLength: 10, maxLength: 256 },
+            },
+          },
+          {
+            type: 'object',
+            title: 'Reset',
+            required: ['password'],
+            additionalProperties: false,
+            properties: {
+              password: { type: 'string', minLength: 10, maxLength: 256 },
+              email: { type: 'string', maxLength: 254 },
+            },
+          },
+        ],
       },
       Health: {
         type: 'object',
@@ -1239,12 +1513,32 @@ export const openapiDocument = {
             schema: { type: 'string' },
             description: 'Studio path to land on after sign-in, /studio by default.',
           },
+          {
+            name: 'invite',
+            in: 'query' as const,
+            required: false,
+            schema: { type: 'string' },
+            description:
+              'An invite token: join as a new member with this provider account instead of ' +
+              'signing in. The token stays in the handshake cookie and is never sent to the ' +
+              'provider.',
+          },
+          {
+            name: 'link',
+            in: 'query' as const,
+            required: false,
+            schema: { type: 'string', enum: ['1'] },
+            description:
+              'Add this provider account to the signed-in account (needs the session cookie).',
+          },
         ],
         responses: {
           '302': {
             description:
-              'Redirect to the provider, or to `/studio?signin_error=not_configured` when the ' +
-              'provider is not configured on this server.',
+              'Redirect to the provider, or back to `next` with `signin_error`: ' +
+              '`not_configured` when the provider is not configured on this server, ' +
+              '`invite_not_found` for a malformed invite token, `not_signed_in` for `link=1` ' +
+              'without a session.',
           },
           '404': errorWith('No such sign-in provider.'),
         },
@@ -1261,9 +1555,15 @@ export const openapiDocument = {
           '(GitHub: the numeric account id), never the login. A failure redirects to the ' +
           'page the sign-in started from (or `/studio` once the handshake is lost) with ' +
           '`signin_error=<code>` added: `expired_handshake` (expired, or started in another ' +
-          'browser), `not_allowed` (with `&handle=<login>`, the account is not on the allowlist), ' +
-          '`cancelled` (the person declined at the provider), `provider_failed` (the provider ' +
-          'refused the code or could not be reached) or `not_configured`.',
+          'browser), `not_a_member` (with `&handle=<login>`, nobody added this account; people ' +
+          'join through invites), `disabled` (with `&handle`, an admin removed the member), ' +
+          '`already_linked` (with `&handle`, joining or linking with an account another member ' +
+          'already signs in with), `not_signed_in` (a link finished without the session it ' +
+          'began in), `invite_not_found`, `invite_used`, `invite_expired`, `invite_revoked` ' +
+          '(with `&handle`, joining with an invite that does not work), `cancelled` (the ' +
+          'person declined at the provider), `provider_failed` (the provider refused the code ' +
+          'or could not be reached) or `not_configured`. A join signs the new member in; a ' +
+          'link keeps the current session.',
         security: [],
         parameters: [
           {
@@ -1284,15 +1584,165 @@ export const openapiDocument = {
         },
       },
     },
+    '/api/v1/auth/config': {
+      get: {
+        tags: ['Auth'],
+        summary: 'How this server signs people in.',
+        description:
+          'Public: the Studio reads it before anyone is signed in, to show the setup screen or ' +
+          'the sign-in methods.',
+        security: [],
+        responses: { '200': jsonResponse('AuthConfig', 'The sign-in configuration.') },
+      },
+    },
+    '/api/v1/auth/setup': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Set up the first admin with the setup code, and sign in.',
+        description:
+          'Works while `setup_required` is true: no admin who can sign in exists. The code is ' +
+          'printed in the server log at startup. 10 attempts per client address in 10 minutes.',
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/SetupRequest' } },
+          },
+        },
+        responses: {
+          '201': {
+            ...jsonResponse('Success', 'The admin exists and is signed in.'),
+            headers: sessionCookieHeader,
+          },
+          '400': ref('BadRequest'),
+          '403': errorWith('Wrong setup code (`reason: bad_code`).'),
+          '409': errorWith(
+            'An admin already exists (`already_set_up`), the email is taken (`email_taken`), ' +
+              'or sign-in is disabled on this server.',
+          ),
+          '429': attemptsLimited,
+        },
+      },
+    },
+    '/api/v1/auth/password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Sign in with an email and password.',
+        description:
+          '10 attempts per client address in 10 minutes, and 5 wrong passwords per email in ' +
+          '15 minutes.',
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/PasswordSignInRequest' } },
+          },
+        },
+        responses: {
+          '200': {
+            ...jsonResponse('Success', 'Signed in.'),
+            headers: sessionCookieHeader,
+          },
+          '400': ref('BadRequest'),
+          '401': errorWith('Wrong email or password (`reason: bad_credentials`).'),
+          '403': errorWith('The password is right but the account was removed (`disabled`).'),
+          '409': errorWith('Sign-in is disabled on this server.'),
+          '429': attemptsLimited,
+        },
+      },
+    },
+    '/api/v1/auth/password/change': {
+      post: {
+        tags: ['Auth'],
+        summary: "Change the signed-in member's password.",
+        description:
+          'Studio sessions only. Every other session of the account ends; this one stays. ' +
+          '`revoked` is how many ended.',
+        security: [{ cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/PasswordChangeRequest' } },
+          },
+        },
+        responses: {
+          '200': jsonResponse('SessionsRevoked', 'Changed.'),
+          '400': ref('BadRequest'),
+          '401': ref('Unauthorized'),
+          '403': errorWith('The current password is wrong (`reason: bad_credentials`).'),
+          '409': errorWith(
+            'The account has no password (`no_password`), or sign-in is disabled on this server.',
+          ),
+          '429': attemptsLimited,
+        },
+      },
+    },
+    '/api/v1/auth/invites/{token}': {
+      get: {
+        tags: ['Auth'],
+        summary: 'What an invite or reset link is for.',
+        description:
+          'Public: the join and reset pages call it with the token from their url. 30 link ' +
+          'requests per client address in 10 minutes.',
+        security: [],
+        parameters: [linkTokenParam],
+        responses: {
+          '200': jsonResponse('LinkInfo', 'The link works.'),
+          '403': errorWith('A reset link of a removed member (`disabled`).'),
+          '404': errorWith('No such link.'),
+          '409': errorWith('Sign-in is disabled on this server.'),
+          '410': errorWith('The link was `used`, has `expired` or was `revoked` (in `reason`).'),
+          '429': attemptsLimited,
+        },
+      },
+    },
+    '/api/v1/auth/invites/{token}/accept': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Use an invite or reset link, and sign in.',
+        description:
+          'An invite makes a new member with its role. A reset link sets the member’s password ' +
+          '(their first, when they had none) and ends every other session of the account. ' +
+          'Either way the link is used up and the browser is signed in.',
+        security: [],
+        parameters: [linkTokenParam],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/LinkAcceptRequest' } },
+          },
+        },
+        responses: {
+          '200': {
+            ...jsonResponse('Success', 'Password set from a reset link, signed in.'),
+            headers: sessionCookieHeader,
+          },
+          '201': {
+            ...jsonResponse('Success', 'Joined with an invite, signed in.'),
+            headers: sessionCookieHeader,
+          },
+          '400': ref('BadRequest'),
+          '403': errorWith('A reset link of a removed member (`disabled`).'),
+          '404': errorWith('No such link.'),
+          '409': errorWith(
+            'Another account signs in with this email (`email_taken`), or sign-in is disabled ' +
+              'on this server.',
+          ),
+          '410': errorWith('The link was `used`, has `expired` or was `revoked` (in `reason`).'),
+          '429': attemptsLimited,
+        },
+      },
+    },
     '/api/v1/auth/me': {
       get: {
         tags: ['Auth'],
         summary: 'The signed-in account.',
         description:
           'The account id and display name, plus the provider, provider label and handle the ' +
-          'browser signed in with, whether the account is an operator, and the session expiry. ' +
+          'browser signed in with, its role, every way it signs in (`sign_in`), and the ' +
+          'session expiry. ' +
           'With AUTH_DISABLED it is the local dev account (`provider: "local"`, ' +
-          '`auth_disabled: true`, `operator: true`).',
+          '`auth_disabled: true`, `role: "admin"`).',
         security: [{ cookieAuth: [] }],
         responses: {
           '200': jsonResponse('AuthMe', 'The signed-in account, or the local dev account.'),
@@ -1407,7 +1857,7 @@ export const openapiDocument = {
           '400': textResponse('Invalid tus headers.'),
           '401': textResponse('No valid API key or session.'),
           '403': textResponse('The key lacks the upload scope.'),
-          '404': textResponse('No such upload in the caller’s account.'),
+          '404': textResponse('No such upload in the workspace.'),
           '409': textResponse('Upload-Offset does not match the bytes received so far.'),
           '410': textResponse('The upload expired.'),
           '413': textResponse('More bytes than the declared Upload-Length.'),
@@ -1426,7 +1876,7 @@ export const openapiDocument = {
           '200': { description: 'Upload-Offset and Upload-Metadata headers.' },
           '401': { description: 'No valid API key or session.' },
           '403': { description: 'The key lacks the upload scope.' },
-          '404': { description: 'No such upload in the caller’s account.' },
+          '404': { description: 'No such upload in the workspace.' },
           '410': { description: 'The upload expired.' },
         },
       },
@@ -1843,13 +2293,151 @@ export const openapiDocument = {
       },
     },
 
+    '/api/v1/members': {
+      get: {
+        tags: ['Members'],
+        summary: 'Every member of the workspace, removed ones included.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        responses: { '200': jsonResponse('MemberList', 'The members.'), ...authFailures },
+      },
+    },
+    '/api/v1/members/{id}': {
+      patch: {
+        tags: ['Members'],
+        summary: "Change a member's role.",
+        description:
+          'Applies to their sessions and keys on their next request. The last admin who can ' +
+          'sign in stays an admin (409 `last_admin`).',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        parameters: [idParam('id', 'Member id.')],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/RoleRequest' } } },
+        },
+        responses: {
+          '200': jsonResponse('Member', 'The member with the new role.'),
+          '400': ref('BadRequest'),
+          ...authFailures,
+          '404': ref('NotFound'),
+          '409': errorWith('It would leave no admin who can sign in (`last_admin`).'),
+        },
+      },
+    },
+    '/api/v1/members/{id}/remove': {
+      post: {
+        tags: ['Members'],
+        summary: 'Remove a member.',
+        description:
+          'They cannot sign in, every session they have ends and their keys stop, until they ' +
+          'are restored. Nobody removes themselves (409 `self`), and the last admin who can ' +
+          'sign in stays (409 `last_admin`).',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        parameters: [idParam('id', 'Member id.')],
+        responses: {
+          '200': jsonResponse('Member', 'The removed member.'),
+          '400': badId,
+          ...authFailures,
+          '404': ref('NotFound'),
+          '409': errorWith('`self` or `last_admin`.'),
+        },
+      },
+    },
+    '/api/v1/members/{id}/restore': {
+      post: {
+        tags: ['Members'],
+        summary: 'Let a removed member back in.',
+        description: 'They keep the role they had, and their keys work again.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        parameters: [idParam('id', 'Member id.')],
+        responses: {
+          '200': jsonResponse('Member', 'The restored member.'),
+          '400': badId,
+          ...authFailures,
+          '404': ref('NotFound'),
+        },
+      },
+    },
+    '/api/v1/members/{id}/reset-link': {
+      post: {
+        tags: ['Members'],
+        summary: 'A link where the member sets a new password.',
+        description:
+          'Single use, valid for 7 days. For a member who signs in with GitHub only it sets ' +
+          'their first password, with an email they choose. Using it ends their other sessions.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        parameters: [idParam('id', 'Member id.')],
+        responses: {
+          '201': jsonResponse('ResetLink', 'The link, shown only here.'),
+          '400': badId,
+          ...authFailures,
+          '404': ref('NotFound'),
+        },
+      },
+    },
+    '/api/v1/invites': {
+      get: {
+        tags: ['Members'],
+        summary: 'Pending invites, newest first.',
+        description: 'Only invites nobody used yet that still work. Their links are not shown.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        responses: { '200': jsonResponse('InviteList', 'The invites.'), ...authFailures },
+      },
+      post: {
+        tags: ['Members'],
+        summary: 'Invite one new member with a role.',
+        description:
+          'Single use, valid for 7 days. Sluby sends no email: pass the link on yourself.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/RoleRequest' } } },
+        },
+        responses: {
+          '201': jsonResponse('InviteCreated', 'The invite, with its link shown only here.'),
+          '400': ref('BadRequest'),
+          ...authFailures,
+        },
+      },
+    },
+    '/api/v1/invites/{id}': {
+      delete: {
+        tags: ['Members'],
+        summary: 'Withdraw a pending invite.',
+        'x-required-scope': 'manage',
+        'x-required-identity': 'admin',
+        security: memberSecurity,
+        parameters: [idParam('id', 'Invite id, from GET /api/v1/invites.')],
+        responses: {
+          '200': jsonResponse('Success', 'Withdrawn; the link no longer works.'),
+          '400': badId,
+          ...authFailures,
+          '404': ref('NotFound'),
+        },
+      },
+    },
     '/api/v1/keys': {
       post: {
         tags: ['Keys'],
         summary: 'Create an API key.',
         description:
-          'The key belongs to the caller’s account. The answer has the shape of a listed key ' +
-          'plus `key`, the secret, which is never shown again.',
+          'The key belongs to the workspace and is made by the calling member, whose role it ' +
+          'acts with (`created_by`); a key with no creator makes keys with no creator. The ' +
+          'answer has the shape of a listed key plus `key`, the secret, which is never shown ' +
+          'again.',
         'x-required-scope': 'manage',
         requestBody: {
           content: {
@@ -1890,7 +2478,7 @@ export const openapiDocument = {
           '201': jsonResponse('ApiKeyCreated', 'Created (the secret is shown once).'),
           '400': ref('BadRequest'),
           '409': errorWith(
-            'The account already holds the most usable keys allowed (`API_KEYS_PER_ACCOUNT_MAX`).',
+            'The workspace already holds the most usable keys allowed (`API_KEYS_PER_ACCOUNT_MAX`).',
           ),
           ...authFailures,
         },
@@ -1899,8 +2487,8 @@ export const openapiDocument = {
         tags: ['Keys'],
         summary: 'List API keys.',
         description:
-          'Usable keys of the caller’s account, newest first, including rotated-out keys still ' +
-          'in their grace period. The platform identity lists every account’s keys. Pages hold ' +
+          'Usable keys of the workspace, newest first, with who made each, including ' +
+          'rotated-out keys still in their grace period. Pages hold ' +
           'up to 1000 keys; follow next_cursor while has_more is true.',
         'x-required-scope': 'manage',
         parameters: [
@@ -1958,8 +2546,8 @@ export const openapiDocument = {
         tags: ['Keys'],
         summary: 'Rename an API key.',
         description:
-          'Changes only the name; the secret, scopes and rate limit stay. A key of another ' +
-          'account, a revoked key and a key past its grace period answer 404.',
+          'Changes only the name; the secret, scopes and rate limit stay. An unknown key, a ' +
+          'revoked key and a key past its grace period answer 404.',
         'x-required-scope': 'manage',
         parameters: [idParam('id', 'Key id.')],
         requestBody: {
@@ -2006,9 +2594,9 @@ export const openapiDocument = {
     '/api/v1/webhooks': {
       post: {
         tags: ['Webhooks'],
-        summary: 'Register a webhook endpoint for your account.',
+        summary: 'Register a webhook endpoint for the workspace.',
         description:
-          'Events are delivered only for assets owned by the same account. Each request carries ' +
+          'Events are delivered for the workspace’s assets. Each request carries ' +
           'X-Sluby-Event, X-Sluby-Delivery (the same on every retry of one delivery), ' +
           'X-Sluby-Timestamp (Unix seconds, per attempt) and X-Sluby-Signature-V1, the hex ' +
           'HMAC-SHA256 of `<timestamp>.<raw body>` with the endpoint secret; receivers should ' +
@@ -2063,7 +2651,7 @@ export const openapiDocument = {
         tags: ['Webhooks'],
         summary: 'List webhook endpoints.',
         description:
-          'Every endpoint of the account, paused ones included, newest first. Needs `manage`, ' +
+          'Every endpoint of the workspace, paused ones included, newest first. Needs `manage`, ' +
           'like creating them: receiver URLs often carry credentials.',
         'x-required-scope': 'manage',
         responses: {
@@ -2324,11 +2912,8 @@ export const openapiDocument = {
         tags: ['Reconciliation'],
         summary: 'Latest reconciliation run.',
         description:
-          'The platform identity and operators get the whole run, orphaned ids included; any ' +
-          'other caller gets only the missing objects of its own assets (see ' +
-          'ReconciliationRun). The platform identity is a key with the all-zero address, as ' +
-          '`npm run db:seed-key -- --platform` mints; operators are the accounts in ' +
-          'OPERATOR_USERS, their Studio sessions and their keys.',
+          'Admins get the whole run, orphaned ids included; members get only the missing ' +
+          'objects of the workspace’s assets (see ReconciliationRun).',
         'x-required-scope': 'manage',
         responses: {
           '200': jsonResponse('ReconciliationRun', 'Latest run.'),
@@ -2342,12 +2927,11 @@ export const openapiDocument = {
         tags: ['Reconciliation'],
         summary: 'Trigger a reconciliation run.',
         description:
-          'A run scans the whole deployment, so only the platform identity or an operator may ' +
-          'start one. It ' +
+          'A run scans the whole deployment, so only an admin may start one. It ' +
           'is queued unless one, manual or scheduled, is already waiting or running, so ' +
           'repeated calls never stack runs.',
         'x-required-scope': 'manage',
-        'x-required-identity': 'operations',
+        'x-required-identity': 'admin',
         responses: {
           '202': jsonResponse('ReconciliationTrigger', 'Queued, or a run was already pending.'),
           ...authFailures,
@@ -2358,10 +2942,8 @@ export const openapiDocument = {
     '/api/v1/stats': {
       get: {
         tags: ['Ops'],
-        summary: "Library totals for the caller's account.",
-        description:
-          'The platform identity gets the totals of every account. An operator gets its own, ' +
-          'like any other account.',
+        summary: 'Library totals for the workspace.',
+        description: 'The same totals for every member and key.',
         'x-required-scope': 'read',
         responses: { '200': jsonResponse('AssetStats', 'Totals.'), ...authFailures },
       },
@@ -2369,11 +2951,11 @@ export const openapiDocument = {
     '/api/v1/stats/usage': {
       get: {
         tags: ['Ops'],
-        summary: 'Plays per day of your videos.',
+        summary: 'Plays per day of the workspace’s videos.',
         description:
-          'Plays of the caller’s videos per UTC day for the last `days` days, today included, ' +
+          'Plays of the workspace’s videos per UTC day for the last `days` days, today included, ' +
           'oldest first, with days without plays as 0. What counts as a play is described on ' +
-          '`play_count` of an asset. The platform identity gets every account together.',
+          '`play_count` of an asset.',
         'x-required-scope': 'read',
         parameters: [
           {
@@ -2414,9 +2996,7 @@ export const openapiDocument = {
       get: {
         tags: ['Ops'],
         summary: 'Live platform status: database, redis, Sia indexer, reconciliation, cache.',
-        description:
-          'The platform identity and operators get the full report; any other caller a health summary ' +
-          '(see SystemStatus).',
+        description: 'Admins get the full report; members a health summary (see SystemStatus).',
         'x-required-scope': 'read',
         responses: { '200': jsonResponse('SystemStatus', 'Status report.'), ...authFailures },
       },
@@ -2425,11 +3005,9 @@ export const openapiDocument = {
       get: {
         tags: ['Ops'],
         summary: 'Platform metrics (prometheus registry as JSON).',
-        description:
-          'The registry counts the whole process, so only the platform identity or an operator ' +
-          'may read it.',
+        description: 'The registry counts the whole process, so only an admin may read it.',
         'x-required-scope': 'read',
-        'x-required-identity': 'operations',
+        'x-required-identity': 'admin',
         responses: { '200': jsonResponse('Metrics', 'Metrics.'), ...authFailures },
       },
     },

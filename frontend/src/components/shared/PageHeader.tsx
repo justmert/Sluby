@@ -108,7 +108,7 @@ export interface SectionHeaderProps {
  * when it is the first thing in its parent.
  *
  *   <section aria-labelledby="deployment">
- *     <SectionHeader id="deployment" title="Deployment" description="Only operators see this" />
+ *     <SectionHeader id="deployment" title="Deployment" description="Only admins see this" />
  *     ...cards
  *   </section>
  */

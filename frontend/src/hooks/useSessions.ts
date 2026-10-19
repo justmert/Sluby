@@ -9,6 +9,9 @@ export type { StudioSession };
 
 const KEYS = ['studio-sessions'];
 
+/** The browsers list's query key, for changes elsewhere that end sessions. */
+export const SESSIONS_KEY = KEYS;
+
 /** The browsers signed in as this account, newest first (sdk `sessions.list`). */
 export function useSessions(enabled: boolean) {
   return useQuery({

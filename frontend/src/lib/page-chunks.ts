@@ -18,6 +18,7 @@ export const PAGE_CHUNKS = {
   explorer: () => import('@/pages/studio/developers/ExplorerPage'),
   health: () => import('@/pages/studio/deployment/HealthPage'),
   metrics: () => import('@/pages/studio/deployment/MetricsPage'),
+  members: () => import('@/pages/studio/MembersPage'),
   settings: () => import('@/pages/studio/SettingsPage'),
   notFound: () => import('@/pages/NotFoundPage'),
 } as const;
@@ -35,6 +36,7 @@ const BY_PATH: Record<string, PageChunk> = {
   [ROUTES.EXPLORER]: 'explorer',
   [ROUTES.DEPLOYMENT]: 'health',
   [ROUTES.METRICS]: 'metrics',
+  [ROUTES.MEMBERS]: 'members',
   [ROUTES.SETTINGS]: 'settings',
 };
 

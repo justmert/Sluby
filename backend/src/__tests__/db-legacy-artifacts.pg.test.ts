@@ -117,8 +117,10 @@ describe.skipIf(!hasTestDatabase)('legacy object ids backfilled into artifacts (
 
   it('counts legacy objects in the library stats', async () => {
     const { getAssetStats } = await import('../db/queries/stats.js');
-    const alice = await getAssetStats('alice');
-    // 5 legacy objects and 3 current ones; the deleting asset is bob's and hidden
-    expect(alice.objectCount).toBe(8);
+    // every owner became the workspace in 0022
+    const stats = await getAssetStats('workspace');
+    // 5 legacy objects and 3 current ones; the deleting asset is hidden and
+    // the empty one holds none
+    expect(stats.objectCount).toBe(8);
   });
 });

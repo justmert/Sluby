@@ -7,14 +7,11 @@ vi.mock('../config/env.js', () => ({
   env: {
     AUTH_DISABLED: false,
     SESSION_SECRET: 's'.repeat(40),
-    GITHUB_ALLOWED_USERS: '',
-    OPERATOR_USERS: '',
     UPLOAD_DIR: '/tmp',
   },
 }));
 
 import { authorizeTusRequest, type TusServerDeps } from '../upload/tus-server.js';
-import { PLATFORM_ADDRESS } from '../api/ownership.js';
 import { SESSION_COOKIE_NAME, signSession } from '../api/auth/session.js';
 import { env } from '../config/env.js';
 import { memoryAccounts } from './helpers/accounts.js';
@@ -62,10 +59,8 @@ const sessionReq = (method: string, sid: string) =>
 
 beforeEach(async () => {
   env.AUTH_DISABLED = false;
-  env.GITHUB_ALLOWED_USERS = '';
   accounts = memoryAccounts();
   owner = accounts.addAccount('github', '1', 'owner');
-  accounts.pin('github', 'owner', '1');
   const other = accounts.addAccount('github', '2', 'other');
   const session = (expired: boolean) =>
     accounts.authDeps.createSession({
@@ -76,20 +71,19 @@ beforeEach(async () => {
     });
   liveSid = (await session(false)).id;
   revokedSid = (await session(true)).id;
-  accounts.addKey('owner-key', { creatorAddress: `user:${owner.userId}`, scopes: ['upload'] });
-  accounts.addKey('other-key', { creatorAddress: `user:${other.userId}`, scopes: ['upload'] });
-  accounts.addKey('platform-key', { creatorAddress: PLATFORM_ADDRESS, scopes: ['upload'] });
-  accounts.addKey('read-key', { creatorAddress: `user:${owner.userId}`, scopes: ['read'] });
+  accounts.addKey('owner-key', { createdBy: owner.userId, scopes: ['upload'] });
+  accounts.addKey('other-key', { createdBy: other.userId, scopes: ['upload'] });
+  accounts.addKey('seed-key', { scopes: ['upload'] });
+  accounts.addKey('read-key', { createdBy: owner.userId, scopes: ['read'] });
   upload = {
     id: 'u1',
     offset: 0,
-    metadata: { creatorAddress: `user:${owner.userId}`, sessionId: 's1', videoAssetId: 'a1' },
+    metadata: { creatorAddress: 'workspace', sessionId: 's1', videoAssetId: 'a1' },
   };
 });
 
 afterEach(() => {
   env.AUTH_DISABLED = false;
-  env.GITHUB_ALLOWED_USERS = '';
 });
 
 describe('authorizeTusRequest', () => {
@@ -122,54 +116,45 @@ describe('authorizeTusRequest', () => {
     ).rejects.toMatchObject({ status_code: 403 });
   });
 
-  it('lets the owner patch their upload', async () => {
+  it('lets a member patch their own upload', async () => {
     await expect(
       authorizeTusRequest(req('PATCH', 'owner-key'), 'u1', d, getUpload),
     ).resolves.toBeUndefined();
   });
 
-  it('refuses the key of an account taken off the allowlist', async () => {
-    env.GITHUB_ALLOWED_USERS = 'someone-else';
+  it('refuses the key of a removed member', async () => {
+    accounts.disable(owner.userId);
     await expect(
       authorizeTusRequest(req('PATCH', 'owner-key'), 'u1', d, getUpload),
     ).rejects.toMatchObject({ status_code: 401 });
   });
 
-  it("hides another tenant's upload behind a 404", async () => {
-    await expect(
-      authorizeTusRequest(req('HEAD', 'other-key'), 'u1', d, getUpload),
-    ).rejects.toMatchObject({ status_code: 404 });
-    await expect(
-      authorizeTusRequest(req('DELETE', 'other-key'), 'u1', d, getUpload),
-    ).rejects.toMatchObject({ status_code: 404 });
-    expect(d.discardAsset).not.toHaveBeenCalled();
+  it('lets any member with the upload scope resume or cancel an upload another member began', async () => {
+    for (const key of ['other-key', 'seed-key']) {
+      await expect(
+        authorizeTusRequest(req('HEAD', key), 'u1', d, getUpload),
+      ).resolves.toBeUndefined();
+    }
+    await authorizeTusRequest(req('DELETE', 'other-key'), 'u1', d, getUpload);
+    expect(d.discardAsset).toHaveBeenCalledWith('a1');
   });
 
-  it('lets a platform key act on any upload', async () => {
+  it('lets an upload-scoped caller resume an upload begun under a per-account owner before the upgrade', async () => {
+    upload.metadata.creatorAddress = 'user:00000000-0000-4000-8000-0000000000aa';
     await expect(
-      authorizeTusRequest(req('HEAD', 'platform-key'), 'u1', d, getUpload),
+      authorizeTusRequest(req('PATCH', 'other-key'), 'u1', d, getUpload),
     ).resolves.toBeUndefined();
-  });
-
-  it('lets the account that claimed a legacy owner resume an upload started before the claim', async () => {
-    upload.metadata.creatorAddress = 'github:owner';
-    accounts.claims.set('github:owner', owner.userId);
+    upload.metadata.creatorAddress = 'github:someone';
     await expect(
       authorizeTusRequest(req('PATCH', 'owner-key'), 'u1', d, getUpload),
     ).resolves.toBeUndefined();
-    await expect(
-      authorizeTusRequest(req('PATCH', 'other-key'), 'u1', d, getUpload),
-    ).rejects.toMatchObject({ status_code: 404 });
   });
 
   it('runs as the local dev account under AUTH_DISABLED even with a session cookie, like the api', async () => {
     env.AUTH_DISABLED = true;
-    // the upload belongs to the signed-in account, not to the dev account
-    await expect(
-      authorizeTusRequest(sessionReq('PATCH', liveSid), 'u1', d, getUpload),
-    ).rejects.toMatchObject({ status_code: 404 });
-    const dev = await accounts.callerDeps.localDevAccount();
-    upload.metadata.creatorAddress = `user:${dev.userId}`;
+    // a removed account's cookie would be refused, but under AUTH_DISABLED
+    // nobody signs in: every request is the dev account
+    accounts.disable(owner.userId);
     await expect(
       authorizeTusRequest(sessionReq('PATCH', liveSid), 'u1', d, getUpload),
     ).resolves.toBeUndefined();

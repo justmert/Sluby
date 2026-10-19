@@ -30,7 +30,7 @@ function videosBreakdown(s: AssetStats): string {
   return parts.join(' · ');
 }
 
-/** "of 50 GB" for an operator who can see the Sia account's limit. */
+/** "of 50 GB" for an admin who can see the Sia account's limit. */
 function storedHint(status: SystemStatus | undefined): string {
   const account = status?.scope === 'deployment' ? status.indexer.account : null;
   return account && account.max_pinned_data > 0
@@ -168,7 +168,7 @@ export function OverviewStats({
  * its first answers are in. The checklist is left out: nothing says yet
  * whether it will be there.
  */
-export function DashboardLoading(_: { operator?: boolean }) {
+export function DashboardLoading(_: { admin?: boolean }) {
   return (
     <div className={DASH.page}>
       <OverviewStats />

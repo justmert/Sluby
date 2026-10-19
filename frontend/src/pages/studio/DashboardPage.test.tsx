@@ -183,9 +183,9 @@ function Where() {
   return <p data-testid="where">{location.pathname + location.search}</p>;
 }
 
-function render(operator = false) {
+function render(admin = false) {
   return renderPage(
-    <WithSession operator={operator}>
+    <WithSession admin={admin}>
       <Routes>
         <Route
           path="*"
@@ -213,7 +213,7 @@ const steps = () =>
     .map((li) => li as HTMLElement);
 
 describe('Overview page', () => {
-  it('is titled Overview, leaves the upload action to the sidebar, and shows no operator cards', async () => {
+  it('is titled Overview, leaves the upload action to the sidebar, and shows no admin cards', async () => {
     setup({ '/api/v1/system/status': deploymentStatus });
     render(true);
     expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
@@ -259,7 +259,7 @@ describe('Overview page', () => {
       ).toEqual(['Videos', 'Stored on Sia', 'Playable time', 'Plays, last 30 days']);
     });
 
-    it('shows the Sia account limit to an operator under Stored on Sia', async () => {
+    it('shows the Sia account limit to an admin under Stored on Sia', async () => {
       setup({ '/api/v1/system/status': deploymentStatus });
       render(true);
       await screen.findByText('545 MB', readable);
@@ -354,7 +354,7 @@ describe('Overview page', () => {
       expect(screen.getByTestId('where')).toHaveTextContent('/studio/videos/upload');
     });
 
-    it('tells a member whose server cannot reach Sia to ask the operator', async () => {
+    it('tells a member whose server cannot reach Sia to ask an admin', async () => {
       setup({
         '/api/v1/system/status': {
           ...accountStatus,
@@ -368,11 +368,11 @@ describe('Overview page', () => {
       expect(
         within(sia).getByText('This server cannot reach the Sia indexer.'),
       ).toBeInTheDocument();
-      expect(within(sia).getByText('Ask the operator of this server.')).toBeInTheDocument();
+      expect(within(sia).getByText('Ask an admin.')).toBeInTheDocument();
       expect(card('Get started')).toHaveTextContent('0 of 4 done');
     });
 
-    it('gives an operator the probe error under Details and a way to Health', async () => {
+    it('gives an admin the probe error under Details and a way to Health', async () => {
       setup({
         '/api/v1/system/status': {
           ...deploymentStatus,
@@ -396,7 +396,7 @@ describe('Overview page', () => {
       ).not.toHaveAttribute('open');
     });
 
-    it('counts an operator whose Sia account is not ready as not connected', async () => {
+    it('counts an admin whose Sia account is not ready as not connected', async () => {
       setup({
         '/api/v1/system/status': {
           ...deploymentStatus,
@@ -726,7 +726,7 @@ describe('Overview page', () => {
       expect(card('Needs attention')).toHaveTextContent('Items: 1');
     });
 
-    it('puts a service that is down first, with Health for operators', async () => {
+    it('puts a service that is down first, with Health for admins', async () => {
       setup({
         '/api/v1/system/status': {
           ...deploymentStatus,
@@ -968,7 +968,7 @@ describe('Overview page', () => {
       expect(value.previousElementSibling).toHaveTextContent('Queue');
     });
 
-    it('gives an operator a way to Health', async () => {
+    it('gives an admin a way to Health', async () => {
       setup({ '/api/v1/system/status': deploymentStatus });
       render(true);
       await screen.findByText('OK · 218 ms');

@@ -1,6 +1,6 @@
-import { eq, and, desc, or, isNull, gt, count, sql, type SQL } from 'drizzle-orm';
+import { eq, and, desc, or, isNull, gt, count, inArray, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import { apiKeys, type ApiKey, type NewApiKey } from '../schema.js';
+import { apiKeys, users, type ApiKey, type NewApiKey } from '../schema.js';
 import { generateApiKey, hashApiKey, keyPrefix } from '../../api/auth/api-key.js';
 import { KEY_USE_INTERVAL_MS } from '../../api/auth/key-usage.js';
 import { paginateRows, type CursorKey, type Page } from '../../api/pagination.js';
@@ -24,16 +24,39 @@ export async function createApiKey(
   return { apiKey, rawKey };
 }
 
+/** A key with the member who made it, as the api lists keys. */
+export type ApiKeyWithCreator = ApiKey & { creator: { id: string; name: string } | null };
+
+/** The keys with their creators' names, looked up in one query. */
+export async function withCreators(rows: ApiKey[]): Promise<ApiKeyWithCreator[]> {
+  const ids = [...new Set(rows.map((k) => k.createdBy).filter((id) => id !== null))];
+  const names = new Map<string, string>();
+  if (ids.length > 0) {
+    const found = await db
+      .select({ id: users.id, name: users.displayName })
+      .from(users)
+      .where(inArray(users.id, ids));
+    for (const u of found) names.set(u.id, u.name);
+  }
+  return rows.map((k) => {
+    const name = k.createdBy === null ? undefined : names.get(k.createdBy);
+    return {
+      ...k,
+      creator: k.createdBy !== null && name !== undefined ? { id: k.createdBy, name } : null,
+    };
+  });
+}
+
 /**
- * Insert a key unless the account already holds `maxKeys` usable ones (active
- * and unexpired, rotation grace periods included). A per-account advisory
- * lock serialises concurrent creations, so parallel requests cannot all pass
- * the count and overshoot the cap. Null when the account is full.
+ * Insert a key unless its owner (the workspace) already holds `maxKeys`
+ * usable ones (active and unexpired, rotation grace periods included). A
+ * per-owner advisory lock serialises concurrent creations, so parallel
+ * requests cannot all pass the count and overshoot the cap. Null when full.
  */
 export async function createApiKeyWithinCap(
   values: Pick<
     NewApiKey,
-    'keyHash' | 'prefix' | 'name' | 'scopes' | 'rateLimit' | 'creatorAddress'
+    'keyHash' | 'prefix' | 'name' | 'scopes' | 'rateLimit' | 'creatorAddress' | 'createdBy'
   >,
   maxKeys: number,
 ): Promise<ApiKey | null> {
@@ -68,8 +91,7 @@ export async function getApiKeyByHash(keyHash: string): Promise<ApiKey | undefin
 
 /**
  * One page of API keys, newest first. Only active, unexpired keys unless
- * `includeInactive`. `creatorAddress` undefined lists every account (the
- * platform identity). Keyset paging on (created_at, id), like the asset
+ * `includeInactive`. `creatorAddress` undefined lists every owner. Keyset paging on (created_at, id), like the asset
  * listing, so keys created between pages are not skipped or repeated.
  */
 export async function listApiKeys(opts: {
@@ -108,9 +130,9 @@ export async function listApiKeys(opts: {
 /**
  * Permanently delete an API key.
  *
- * `owner` constrains the delete to the caller's `creatorAddress` so one
- * tenant cannot revoke another tenant's key by guessing its UUID. Omit it
- * only for platform/internal callers.
+ * `owner` constrains the delete to the caller's `creatorAddress`, as every
+ * owner-scoped lookup does (see api/ownership.ts). Omit it only for internal
+ * callers.
  */
 export async function deleteApiKey(id: string, owner?: string): Promise<ApiKey | undefined> {
   const [deleted] = await db
@@ -125,8 +147,8 @@ export async function deleteApiKey(id: string, owner?: string): Promise<ApiKey |
 }
 
 /**
- * Rename a usable (active, unexpired) key. `owner` scopes it like deletion;
- * undefined for the platform identity. Undefined when no such key.
+ * Rename a usable (active, unexpired) key. `owner` scopes it like deletion.
+ * Undefined when no such key.
  */
 export async function renameApiKey(
   id: string,
@@ -158,11 +180,15 @@ export type RotateResult =
  * old row locked, and a key that already has a replacement is refused, so
  * concurrent or repeated rotations of one key mint exactly one replacement,
  * grace period or not. An existing, earlier expiry is never pushed out.
+ *
+ * The replacement is made by `replacement.createdBy`, the member rotating it,
+ * not by the old key's creator: a key acts with its creator's role, so a
+ * member who rotates an admin's key must not walk away with an admin secret.
  */
 export async function rotateApiKey(
   id: string,
   owner: string | undefined,
-  replacement: { keyHash: string; prefix: string },
+  replacement: { keyHash: string; prefix: string; createdBy: string | null },
   retireAt: Date,
 ): Promise<RotateResult> {
   return db.transaction(async (tx) => {
@@ -193,6 +219,7 @@ export async function rotateApiKey(
         scopes: old.scopes,
         rateLimit: old.rateLimit,
         creatorAddress: old.creatorAddress,
+        createdBy: replacement.createdBy,
       })
       .returning();
 

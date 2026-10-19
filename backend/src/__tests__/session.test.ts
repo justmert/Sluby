@@ -7,6 +7,7 @@ import {
   buildSessionCookie,
   buildClearCookie,
   resolveSession,
+  whySessionEnded,
   SESSION_COOKIE_NAME,
   type ActiveSession,
 } from '../api/auth/session.js';
@@ -330,30 +331,20 @@ describe('resolveSession', () => {
   const account: Account = {
     id: UID,
     displayName: 'Octo Cat',
-    identities: [
-      {
-        id: IDENTITY,
-        provider: 'github',
-        subject: '1',
-        username: 'octocat',
-        pinnedEntries: ['octocat'],
-      },
-    ],
+    role: 'member',
+    disabledAt: null,
+    identities: [{ id: IDENTITY, provider: 'github', subject: '1', username: 'octocat' }],
   };
+  const removed: Account = { ...account, disabledAt: new Date() };
   const cookie = (token: string) => `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`;
-  const opts = (rows: ActiveSession[]) => ({
+  const opts = (rows: ActiveSession[], current: Account = account) => ({
     secret: SECRET,
     findActiveSession: async (sid: string) => rows.find((r) => r.id === sid),
-    getAccount: async (id: string) => (id === UID ? account : null),
+    getAccount: async (id: string) => (id === UID ? current : null),
     markSeen: () => {},
-  });
-  const saved = env.GITHUB_ALLOWED_USERS;
-  afterEach(() => {
-    env.GITHUB_ALLOWED_USERS = saved;
   });
 
   it('returns the live row and its account behind a valid cookie', async () => {
-    env.GITHUB_ALLOWED_USERS = '';
     const token = signSession(SID, UID, SECRET, 3600);
     expect(await resolveSession(cookie(token), opts([row]))).toEqual({ session: row, account });
   });
@@ -368,20 +359,22 @@ describe('resolveSession', () => {
     expect(await resolveSession(cookie(token), opts([row]))).toBeNull();
   });
 
-  it('keeps the session while the pinned entry stays listed', async () => {
-    env.GITHUB_ALLOWED_USERS = 'octocat';
+  it('returns null while the account is removed from the workspace', async () => {
     const token = signSession(SID, UID, SECRET, 3600);
-    expect(await resolveSession(cookie(token), opts([row]))).not.toBeNull();
+    expect(await resolveSession(cookie(token), opts([row], removed))).toBeNull();
   });
 
-  it('returns null when the account was taken off the allowlist', async () => {
-    env.GITHUB_ALLOWED_USERS = 'alice';
+  it('says not_allowed for the session of a removed account', async () => {
     const token = signSession(SID, UID, SECRET, 3600);
-    expect(await resolveSession(cookie(token), opts([row]))).toBeNull();
+    const reason = await whySessionEnded(cookie(token), {
+      secret: SECRET,
+      findSession: async () => ({ userId: UID, expiresAt: row.expiresAt, revokedAt: null }),
+      getAccount: async () => removed,
+    });
+    expect(reason).toBe('not_allowed');
   });
 
   it('records activity when the session was not seen in the last five minutes', async () => {
-    env.GITHUB_ALLOWED_USERS = '';
     const token = signSession(SID, UID, SECRET, 3600);
     const seen: string[] = [];
     const run = (lastSeenAt: Date | null) =>
@@ -398,11 +391,10 @@ describe('resolveSession', () => {
   });
 
   it('records no activity for a session it does not accept', async () => {
-    env.GITHUB_ALLOWED_USERS = 'alice';
     const seen: string[] = [];
     const token = signSession(SID, UID, SECRET, 3600);
     const result = await resolveSession(cookie(token), {
-      ...opts([row]),
+      ...opts([row], removed),
       markSeen: (sid) => seen.push(sid),
     });
     expect(result).toBeNull();

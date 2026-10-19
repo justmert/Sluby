@@ -37,7 +37,13 @@ describe('studio upload store', () => {
               auth_disabled: false,
               expires_at: '2026-10-14T00:00:00.000Z',
             })
-          : json({ error: 'unexpected call' }, 500),
+          : String(input) === '/api/v1/auth/config'
+            ? json({
+                auth_disabled: false,
+                setup_required: false,
+                methods: { password: true, github: true },
+              })
+            : json({ error: 'unexpected call' }, 500),
       ),
     );
     render(
@@ -59,7 +65,7 @@ describe('studio upload store', () => {
     expect(
       await screen.findByText('Your session ended. Sign in again to continue.'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /continue with github/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.queryByText('studio')).not.toBeInTheDocument();
     expect(uploadStore.getState().uploads[0]).toMatchObject({ authFailed: true });
   });

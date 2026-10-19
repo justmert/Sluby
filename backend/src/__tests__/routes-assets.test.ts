@@ -246,15 +246,14 @@ describe('asset routes', () => {
       expect(deps.getAsset).toHaveBeenCalledWith('asset-1', '0xabc123');
     });
 
-    it('should not scope the lookup for a platform (all-zero address) key', async () => {
+    it("scopes an admin's lookup like anyone else's: admins see more of the deployment, not more rows", async () => {
       vi.mocked(deps.getAsset).mockResolvedValue(createMockAsset());
-      const platform = { ...defaultApiKey, creatorAddress: `0x${'0'.repeat(64)}` };
-      const app = withApiKey(createTestApp(createAssetRoutes(deps)), platform);
+      const admin = { ...defaultApiKey, creatorAddress: 'workspace', admin: true };
+      const app = withApiKey(createTestApp(createAssetRoutes(deps)), admin);
 
       await request(app).get('/asset-1');
 
-      // undefined owner => cross-tenant access, reserved for the platform key.
-      expect(deps.getAsset).toHaveBeenCalledWith('asset-1', undefined);
+      expect(deps.getAsset).toHaveBeenCalledWith('asset-1', 'workspace');
     });
 
     it("should hide another tenant's asset behind a 404", async () => {

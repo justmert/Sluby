@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { useSession } from '@/lib/session';
 import { SETTINGS_SECTION, SectionLabel } from './section';
 
-const AUTH_OFF_SENTENCE = 'Anyone who can open this address has operator access.';
+const AUTH_OFF_SENTENCE = 'Anyone who can open this address has admin access.';
 
 /** "Mert Köklü" → "MK"; one word gives its first two letters. */
 function initialsOf(name: string): string {
@@ -19,13 +19,16 @@ function initialsOf(name: string): string {
 export function AccountSection() {
   const session = useSession();
   const name = session.name || session.username;
+  const byPassword = session.provider === 'password';
 
   return (
     <section aria-labelledby="settings-account" className={SETTINGS_SECTION}>
       <SectionLabel id="settings-account" title="Account">
         {session.authDisabled
           ? 'Sign-in is off on this server.'
-          : `From your ${session.providerLabel ?? 'sign-in provider'} sign-in.`}
+          : byPassword
+            ? 'Signed in with your password.'
+            : `From your ${session.providerLabel ?? 'sign-in provider'} sign-in.`}
       </SectionLabel>
       <div className="flex items-center gap-3.5 rounded-xl border bg-card px-5 py-4.5 text-sm">
         <span
@@ -41,6 +44,9 @@ export function AccountSection() {
           <div className="text-muted-foreground wrap-anywhere">
             {session.authDisabled ? (
               AUTH_OFF_SENTENCE
+            ) : byPassword ? (
+              // a password account's handle is its email, which takes no @
+              <span dir="auto">{session.username}</span>
             ) : (
               <>
                 <span dir="auto">@{session.username}</span>
@@ -49,13 +55,13 @@ export function AccountSection() {
             )}
           </div>
         </div>
-        {session.operator ? (
+        {session.admin ? (
           <Badge
             variant="progress"
             className="h-5.5 font-semibold"
-            title="Can see server status, storage and metrics"
+            title="Manages members and sees server status, storage and metrics"
           >
-            Operator
+            Admin
           </Badge>
         ) : (
           <Badge className="h-5.5 font-semibold">Member</Badge>

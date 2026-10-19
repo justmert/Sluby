@@ -31,9 +31,9 @@ import { useNavSignals, type NavSignal } from './nav-signals';
  */
 export function AppSidebar() {
   const { pathname } = useLocation();
-  const { operator } = useSession();
-  const groups = navGroupsFor(operator);
-  const signals = useNavSignals(operator);
+  const { admin } = useSession();
+  const groups = navGroupsFor(admin);
+  const signals = useNavSignals(admin);
   // on a phone the sidebar is a sheet over the page; picking a page should
   // close it rather than leave it covering what was just opened
   const { isMobile, setOpenMobile } = useSidebar();
@@ -99,7 +99,7 @@ export function AppSidebar() {
                     className="h-auto px-2.5 pt-0 pb-1.5 text-xs font-semibold text-subtle-foreground"
                   >
                     {group.label}
-                    {group.operatorOnly && <span className="sr-only">, operators only</span>}
+                    {group.adminOnly && <span className="sr-only">, admins only</span>}
                   </SidebarGroupLabel>
                 )}
                 <SidebarGroupContent>{entries(group.items)}</SidebarGroupContent>

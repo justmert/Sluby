@@ -31,7 +31,7 @@ docker compose run --rm --no-deps backend node scripts/connect-indexer.mjs
 docker compose up -d
 ```
 
-Open `http://localhost:8080`, upload a video in the Studio and play it. The [quickstart guide](./docs/guide/quickstart.md) walks through each step and says how long each one took in our runs, and the [production guide](./docs/guide/production.md) covers TLS, GitHub sign-in and connecting to an indexer on mainnet or the Zen testnet.
+Open `http://localhost:8080` and create your admin account with the setup code from `docker compose logs backend | grep "setup code"`, then upload a video in the Studio and play it. The [quickstart guide](./docs/guide/quickstart.md) walks through each step and says how long each one took in our runs, and the [production guide](./docs/guide/production.md) covers TLS, GitHub sign-in and connecting to an indexer on mainnet or the Zen testnet.
 
 The documentation site lives in `docs/`:
 
@@ -75,20 +75,21 @@ The Studio (`frontend/`) is the management UI. It is built with Vite, React and 
 
 | Page      | What it does                                                                                                                                                                                                                            |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dashboard | Asset totals by status, bytes stored on Sia, latest uploads and a health summary. Operators also see the indexer account, storage, the gateway cache and the last reconciliation run.                                                   |
+| Dashboard | Asset totals by status, bytes stored on Sia, latest uploads and a health summary. Admins also see the indexer account, storage, the gateway cache and the last reconciliation run.                                                      |
 | Upload    | Drag and drop, resumable tus upload with byte and chunk progress, pause, resume and cancel, then the processing pipeline stage by stage with its log and a retry. Unfinished uploads from an earlier visit can be resumed or discarded. |
 | Assets    | Server-side search (title, description or id), status and access filters, sorting, grid and list views, bulk delete.                                                                                                                    |
 | Asset     | Embedded player with a rendition picker and the delivery path (direct from Sia or gateway), the rendition ladder, and the Sia breakdown described below.                                                                                |
 | Player    | The library's ready videos in a paged list, played with `@sluby/player`.                                                                                                                                                                |
 | Developer | Copy-ready JavaScript and curl snippets for common tasks (checked against the SDK and the OpenAPI document in tests), webhooks with a test send and a delivery log, and an API explorer that calls this server as you.                  |
-| Analytics | The account's library by status, and for operators the server's metrics: gateway throughput and responses, cache and queues.                                                                                                            |
-| Settings  | API keys: create with scopes, rotate with a grace period, revoke. Studio sessions, and light, dark or system theme.                                                                                                                     |
+| Analytics | The library by status, and for admins the server's metrics: gateway throughput and responses, cache and queues.                                                                                                                         |
+| Members   | For admins: members with their roles and sign-in methods, change a role, remove and restore, reset links, and invite links.                                                                                                             |
+| Settings  | API keys: create with scopes, rotate with a grace period, revoke, and who created each. Sign-in methods (change password, link GitHub), Studio sessions, and light, dark or system theme.                                               |
 
 The Sia breakdown on an asset comes live from the indexer: every object (master playlist, variant playlists, media, thumbnails) with its size, encoded size, slab and sector counts; deduplicated totals (objects packed together share slabs, and each slab is counted once); data and parity shards and the redundancy ratio; and the hosts and countries holding the sectors.
 
 ### Signing in
 
-The Studio signs in with GitHub (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`; set the OAuth callback to `<PUBLIC_URL>/api/v1/auth/github/callback` and `PUBLIC_URL` to the Studio origin). Each account owns its own videos, keys and webhooks. Accounts are keyed on GitHub's numeric user id, not the login, so a renamed or reused login never reaches someone else's data. `GITHUB_ALLOWED_USERS` limits who may sign in, and `OPERATOR_USERS` names the accounts that see deployment-wide operations data. For local development without OAuth, `AUTH_DISABLED=true` signs every request in as a local dev account; the backend refuses to start with it in production.
+One install is one team's workspace: every member sees every video, key and webhook, and each has a role, admin or member. On a fresh install the backend logs a setup code, and whoever runs the server uses it in the Studio to create the first admin; everyone else joins through single-use invite links an admin makes on the Members page. People sign in with an email and password, or with GitHub when `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set (OAuth callback `<PUBLIC_URL>/api/v1/auth/github/callback`); GitHub only signs in people who are already members or have an invite. Admins also see the server's operations data and manage members. There is no email: a forgotten password gets a reset link from an admin, or from `npm run admin:reset-link --workspace=backend -- --email <email>` on the server. For local development, `AUTH_DISABLED=true` signs every request in as a local admin; the backend refuses to start with it in production. See [accounts and roles](./docs/architecture/auth-and-tenancy.md).
 
 ### Direct-from-Sia in the Studio
 
@@ -140,7 +141,7 @@ One backend process runs the REST API, the tus upload server, the delivery gatew
 
 An upload arrives over tus, FFmpeg transcodes it into a ladder of fMP4 HLS renditions, and the output goes to Sia in three packed uploads. Playback either goes through the gateway, which downloads byte ranges from Sia on demand, or straight from Sia in the browser with short-lived share URLs, using the same stored manifests.
 
-The [architecture docs](./docs/architecture/index.md) cover each part with diagrams: the upload pipeline, both playback paths, deletion and reconciliation, the data model, auth and tenancy, and SDK integration patterns.
+The [architecture docs](./docs/architecture/index.md) cover each part with diagrams: the upload pipeline, both playback paths, deletion and reconciliation, the data model, accounts and roles, and SDK integration patterns.
 
 ## Direct-from-Sia playback
 

@@ -148,9 +148,9 @@ export const envSchema = z.object({
 
   /** Optional bootstrap API key (raw sluby_ value). Seeded with every scope
    *  before the server listens, once: after it is deleted or rotated away it is
-   *  never seeded again (see db/api-key-seeding.ts). It belongs to its own
-   *  `platform` account, not to any Studio user. Production requires the
-   *  format of a generated key. */
+   *  never seeded again (see db/api-key-seeding.ts). It belongs to the
+   *  workspace with no creator, so it acts as an admin. Production requires
+   *  the format of a generated key. */
   BOOTSTRAP_API_KEY: z.string().optional(),
 
   /** Public base URL the browser sees (no trailing slash).
@@ -163,18 +163,20 @@ export const envSchema = z.object({
   /** GitHub OAuth app client secret. */
   GITHUB_CLIENT_SECRET: z.string().optional(),
 
-  /** Who may sign in with GitHub, comma-separated: logins (case-insensitive,
-   *  each pinned to the account that first signs in with it), `id:<numeric
-   *  github id>` entries, or `*` for open sign-up. Empty also leaves sign-up
-   *  open, with a warning at startup. See api/auth/allowlist.ts. */
+  /** Who could sign in with GitHub before membership, comma-separated:
+   *  logins (case-insensitive, each pinned to the account that first signed in
+   *  with it), `id:<numeric github id>` entries, or `*`. It no longer decides
+   *  who signs in: the first start after the upgrade removes the github
+   *  accounts it refused (api/auth/adopt-legacy.ts), and later starts ignore
+   *  it with a warning. */
   GITHUB_ALLOWED_USERS: z.string().default(''),
 
-  /** Accounts that see deployment-wide operations data (full system status,
-   *  metrics, the whole reconciliation report and starting a run), never other
-   *  accounts' data. Comma-separated `<provider>:<entry>`, the entry written
-   *  as in that provider's allowlist: `github:id:583231`, `github:octocat`
-   *  (pinned like an allowlist login), `github:*`. Empty: no operators. See
-   *  api/auth/operators.ts. */
+  /** Accounts that saw deployment-wide operations data before roles.
+   *  Comma-separated `<provider>:<entry>`, the entry written as in that
+   *  provider's allowlist: `github:id:583231`, `github:octocat`, `github:*`.
+   *  It no longer makes anyone an admin: the first start after the upgrade
+   *  makes the accounts it lists admins (api/auth/adopt-legacy.ts), and later
+   *  starts ignore it with a warning. */
   OPERATOR_USERS: z
     .string()
     .default('')
@@ -206,7 +208,8 @@ export const envSchema = z.object({
    *  production refuses to start without a strong one. */
   SESSION_SECRET: z.string().optional(),
 
-  /** When set to 'true', bypasses the GitHub auth gate entirely (dev only). */
+  /** When set to 'true', turns sign-in off: every request acts as one local
+   *  admin account (dev only). */
   AUTH_DISABLED: flag('false'),
 
   /** Comma-separated browser origins that may call the API with the session
@@ -257,7 +260,7 @@ export const envSchema = z.object({
    *  are refused at creation, and older ones are held to this at use. */
   API_KEY_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10000),
 
-  /** How many usable API keys one account may hold. */
+  /** How many usable API keys the workspace may hold. */
   API_KEYS_PER_ACCOUNT_MAX: z.coerce.number().int().positive().default(100),
 
   /** When set, GET /metrics (Prometheus) needs `Authorization: Bearer <token>`.

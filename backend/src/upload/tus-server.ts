@@ -5,8 +5,7 @@ import { logger } from '../config/logger.js';
 import { computeFileHash } from './chunk-verifier.js';
 import { UPLOAD_EXPIRY_MS, UploadFileStore } from './upload-store.js';
 import { resolveCaller, type CallerDeps } from '../api/auth/caller.js';
-import { currentOwnerAddress } from '../api/auth/access.js';
-import { PLATFORM_ADDRESS } from '../api/ownership.js';
+import { WORKSPACE_ADDRESS } from '../api/ownership.js';
 import { accessTierSchema, descriptionSchema, titleSchema } from '../api/validation.js';
 import { corsDecision } from '../api/cors.js';
 import { uploadBytesTotal, uploadFailureTotal, uploadSuccessTotal } from '../metrics/collector.js';
@@ -170,9 +169,8 @@ export function createTusServer(deps: TusServerDeps): Server {
       }
       const fields = parseUploadMetadata(metadata);
 
-      // the owner comes from the authenticated caller, never from the tus
-      // metadata: a client-supplied creatorAddress would let any caller stamp
-      // another tenant's address on an asset
+      // the owner comes from the authenticated caller (the workspace), never
+      // from the tus metadata, where a client can write any address
       const creatorAddress = apiKey.creatorAddress;
 
       const session = await deps.createUploadSession({
@@ -215,11 +213,6 @@ export function createTusServer(deps: TusServerDeps): Server {
       const metadata = upload.metadata ?? {};
       const sessionId = metadata.sessionId;
       const videoAssetId = metadata.videoAssetId;
-      // an upload started before its owner's account claimed a legacy address
-      // still names that address on disk
-      const creatorAddress = metadata.creatorAddress
-        ? await currentOwnerAddress(metadata.creatorAddress, deps.callers)
-        : undefined;
 
       if (!sessionId) {
         logger.error({ uploadId: upload.id }, 'No session ID found in upload metadata');
@@ -260,7 +253,9 @@ export function createTusServer(deps: TusServerDeps): Server {
             sha256,
             file_size: upload.size,
           },
-          creatorAddress ?? '',
+          // an upload begun before the workspace upgrade names its old owner
+          // on disk, but everything belongs to the workspace now
+          WORKSPACE_ADDRESS,
         );
 
         return {};
@@ -289,7 +284,7 @@ export function createTusServer(deps: TusServerDeps): Server {
               video_asset_id: videoAssetId ?? null,
               error: err instanceof Error ? err.message : String(err),
             },
-            creatorAddress ?? '',
+            WORKSPACE_ADDRESS,
           )
           .catch((hookErr) => logger.warn({ hookErr }, 'upload.failed webhook not sent'));
         throw err;
@@ -350,10 +345,11 @@ async function resolveIdentity(req: Request, deps: TusServerDeps): Promise<Ident
 }
 
 /**
- * Authenticate a tus request and, for requests on an existing upload, check
- * the caller owns it. On termination (DELETE) the upload's session is
- * cancelled and the asset it created is discarded, so a cancelled upload does
- * not leave an empty asset behind in the library.
+ * Authenticate a tus request: any caller with the upload scope may create,
+ * resume or cancel any upload, since every upload belongs to the one
+ * workspace. On termination (DELETE) the upload's session is cancelled and
+ * the asset it created is discarded, so a cancelled upload does not leave an
+ * empty asset behind in the library.
  */
 export async function authorizeTusRequest(
   req: Request,
@@ -375,13 +371,6 @@ export async function authorizeTusRequest(
   } catch {
     // unknown id: let the tus handler answer with its own 404/410
     return;
-  }
-
-  const stored = upload.metadata?.creatorAddress;
-  const owner = stored ? await currentOwnerAddress(stored, deps.callers) : undefined;
-  if (identity.creatorAddress !== PLATFORM_ADDRESS && owner !== identity.creatorAddress) {
-    // same answer as a missing upload, so ids cannot be probed across tenants
-    throw tusError(404, 'Upload not found');
   }
 
   if (req.method === 'DELETE') {

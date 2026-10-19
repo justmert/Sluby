@@ -5,9 +5,9 @@ import { AppError } from '../middleware/error-handler.js';
 
 export interface UploadRouteDeps {
   // `id` is the tus upload id, the last segment of the Location a tus
-  // creation answers with. `owner` is the caller's creatorAddress (undefined
-  // for a platform key); scoping by it stops one tenant reading or cancelling
-  // another tenant's upload.
+  // creation answers with. `owner` is the caller's creatorAddress (the
+  // workspace), passed through ownerFilter like every other owner-scoped
+  // lookup.
   getUploadStatus: (
     id: string,
     owner?: string,

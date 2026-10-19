@@ -26,9 +26,9 @@ const browser = () =>
     page: { viewport(width: number, height: number): Promise<void> };
   }>;
 
-type Session = { operator: boolean; authDisabled: boolean };
-const OPERATOR_SIGN_IN_OFF: Session = { operator: true, authDisabled: true };
-const MEMBER: Session = { operator: false, authDisabled: false };
+type Session = { admin: boolean; authDisabled: boolean };
+const ADMIN_SIGN_IN_OFF: Session = { admin: true, authDisabled: true };
+const MEMBER: Session = { admin: false, authDisabled: false };
 
 // [name, url, route pattern, page, session]
 const PAGES: Array<[string, string, string, ComponentType, Session?]> = [
@@ -142,7 +142,7 @@ describe('route skeletons', () => {
   // help text wrap there in every engine, so a skeleton that draws text as
   // fixed bars shows up whatever the scrollbar takes
   for (const width of [1200, 768, 390, 320]) {
-    for (const [name, url, pattern, Page, session = OPERATOR_SIGN_IN_OFF] of PAGES) {
+    for (const [name, url, pattern, Page, session = ADMIN_SIGN_IN_OFF] of PAGES) {
       it(`put ${name} at ${width} px in the boxes the page draws while it loads`, async () => {
         const { skeleton, loading } = await shapes(url, pattern, Page, width, session);
         // a pixel either way is how an engine rounds a text line

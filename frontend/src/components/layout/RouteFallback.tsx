@@ -9,21 +9,24 @@ import {
 } from '@/components/deployment/HealthLoading';
 import { MetricsLoading } from '@/components/deployment/MetricsCharts';
 import { WEBHOOK_COLUMNS } from '@/components/developers/columns';
+import { INVITE_COLUMNS, MEMBER_COLUMNS } from '@/components/members/columns';
+import { PENDING_INVITES_LEAD } from '@/components/members/link-copy';
 import { KeysLoading } from '@/components/developers/KeysLoading';
 import { WebhookDetailLoading } from '@/components/developers/WebhookDetailLoading';
 import { AccountSection } from '@/components/settings/AccountSection';
 import { AppearanceSection } from '@/components/settings/AppearanceSection';
 import { SessionsSectionLoading } from '@/components/settings/SessionsHeader';
+import { SignInMethodsSectionLoading } from '@/components/settings/SignInMethodsHeader';
 import { type ColumnFrame, withCells } from '@/components/shared/column-frames';
 import { DataTable } from '@/components/shared/DataTable';
-import { PageHeader, type PageHeaderProps } from '@/components/shared/PageHeader';
+import { PageHeader, SectionHeader, type PageHeaderProps } from '@/components/shared/PageHeader';
 import { DropZone } from '@/components/upload/DropZone';
 import { VideosLoading } from '@/components/videos/VideosLoading';
 import { lateReveal } from '@/lib/motion';
 import { useSession } from '@/lib/session';
 import { ExplorerLoading } from '@/pages/studio/developers/explorer-parts';
 import { QuickstartLoading } from '@/pages/studio/developers/quickstart-parts';
-import { AddWebhookButton, BackToVideosButton } from './page-actions';
+import { AddWebhookButton, BackToVideosButton, InviteButton } from './page-actions';
 import { PAGE_HEADS } from './page-heads';
 import { PageContainer } from './PageContainer';
 
@@ -49,11 +52,11 @@ function Head(props: PageHeaderProps) {
 // the dashboard and analytics draw their own loading state, the same one
 // the pages show while their data loads
 function Dashboard() {
-  const { operator } = useSession();
+  const { admin } = useSession();
   return (
     <>
       <Head {...PAGE_HEADS.overview} />
-      <DashboardLoading operator={operator} />
+      <DashboardLoading admin={admin} />
     </>
   );
 }
@@ -117,6 +120,19 @@ function Analytics() {
   );
 }
 
+// members as the page draws it: its header, the members table with no rows
+// yet and the invites section under it
+function Members() {
+  return (
+    <>
+      <Head {...PAGE_HEADS.members} primaryAction={<InviteButton />} />
+      <TableSkeleton columns={MEMBER_COLUMNS} rows={3} />
+      <SectionHeader title="Pending invites" description={PENDING_INVITES_LEAD} className="mt-10" />
+      <TableSkeleton columns={INVITE_COLUMNS} rows={1} />
+    </>
+  );
+}
+
 // settings as the page draws it (SettingsPage): the account and appearance
 // sections need nothing from the server, and the browsers list waits on it
 function Settings() {
@@ -125,6 +141,7 @@ function Settings() {
     <>
       <Head {...PAGE_HEADS.settings} className="mb-2" />
       <AccountSection />
+      {!authDisabled && <SignInMethodsSectionLoading />}
       {!authDisabled && <SessionsSectionLoading />}
       <AppearanceSection />
     </>
@@ -144,6 +161,7 @@ const SKELETONS: Array<[RegExp, () => React.ReactNode]> = [
   [/^\/studio\/developers\/explorer\/?$/, ExplorerLoading],
   [/^\/studio\/deployment\/?$/, Health],
   [/^\/studio\/deployment\/metrics\/?$/, Analytics],
+  [/^\/studio\/members\/?$/, Members],
   [/^\/studio\/settings\/?$/, Settings],
 ];
 

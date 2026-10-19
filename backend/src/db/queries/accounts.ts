@@ -1,200 +1,106 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, exists, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import {
-  allowlistPins,
-  apiKeys,
-  legacyOwnerClaims,
-  uploadSessions,
-  userIdentities,
-  users,
-  videoAssets,
-  webhookEndpoints,
-} from '../schema.js';
-import { userAddress } from '../../api/ownership.js';
-import type { Account } from '../../api/auth/access.js';
+import { passwordCredentials, userIdentities, users } from '../schema.js';
+import type { Account, Role } from '../../api/auth/access.js';
+import { LOCAL_PROVIDER } from '../../api/auth/providers/index.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type Executor = typeof db | Tx;
+
+/** The provider of email and password sign-in in user_identities. */
+export const PASSWORD_PROVIDER = 'password';
 
 export async function getAccount(userId: string): Promise<Account | null> {
   const rows = await db
     .select({
       userId: users.id,
       displayName: users.displayName,
+      role: users.role,
+      disabledAt: users.disabledAt,
       identityId: userIdentities.id,
       provider: userIdentities.provider,
       subject: userIdentities.subject,
       username: userIdentities.username,
-      pinned: allowlistPins.entry,
     })
     .from(users)
     .leftJoin(userIdentities, eq(userIdentities.userId, users.id))
-    .leftJoin(
-      allowlistPins,
-      and(
-        eq(allowlistPins.provider, userIdentities.provider),
-        eq(allowlistPins.subject, userIdentities.subject),
-      ),
-    )
     .where(eq(users.id, userId));
   if (rows.length === 0) return null;
 
-  const identities = new Map<string, Account['identities'][number]>();
+  const identities: Account['identities'] = [];
   for (const r of rows) {
     if (!r.identityId || !r.provider || r.subject === null || r.username === null) continue;
-    let identity = identities.get(r.identityId);
-    if (!identity) {
-      identity = {
-        id: r.identityId,
-        provider: r.provider,
-        subject: r.subject,
-        username: r.username,
-        pinnedEntries: [],
-      };
-      identities.set(r.identityId, identity);
-    }
-    if (r.pinned !== null) identity.pinnedEntries.push(r.pinned);
+    identities.push({
+      id: r.identityId,
+      provider: r.provider,
+      subject: r.subject,
+      username: r.username,
+    });
   }
   return {
     id: rows[0].userId,
     displayName: rows[0].displayName,
-    identities: [...identities.values()],
+    role: rows[0].role,
+    disabledAt: rows[0].disabledAt,
+    identities,
   };
 }
 
-/**
- * Move everything owned by any of `from` to `to`, in every table that stores
- * an owner address. Upload sessions keep theirs in metadata.
- */
-async function moveOwnedRows(tx: Tx, from: string[], to: string): Promise<void> {
-  if (from.length === 0) return;
-  await tx
-    .update(videoAssets)
-    .set({ creatorAddress: to })
-    .where(inArray(videoAssets.creatorAddress, from));
-  await tx.update(apiKeys).set({ creatorAddress: to }).where(inArray(apiKeys.creatorAddress, from));
-  await tx
-    .update(webhookEndpoints)
-    .set({ creatorAddress: to })
-    .where(inArray(webhookEndpoints.creatorAddress, from));
-  await tx
-    .update(uploadSessions)
-    .set({
-      metadata: sql`jsonb_set(${uploadSessions.metadata}, '{creatorAddress}', to_jsonb(${to}::text))`,
-    })
-    .where(sql`${uploadSessions.metadata}->>'creatorAddress' in ${from}`);
-}
-
-// serialises concurrent sign-ins of one identity, so it is created once and
-// its legacy data is claimed once
-async function lockIdentity(tx: Tx, provider: string, subject: string): Promise<void> {
+// serialises concurrent sign-ins of one identity, so it is created once
+export async function lockIdentity(tx: Tx, provider: string, subject: string): Promise<void> {
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${`identity:${provider}:${subject}`}, 0))`,
   );
 }
-
-export type SignInDecision = { allowed: boolean; pin?: string };
 
 export interface SignInInput {
   provider: string;
   subject: string;
   username: string;
   displayName: string;
-  /**
-   * The owner address an older version stored for this person. Claimed only
-   * when this identity signs in for the first time, and only if no other
-   * account claimed it before.
-   */
-  legacyAddress?: string;
-  /** The allowlist decision, given the provider's pinned entries (entry to subject). */
-  decide: (pins: ReadonlyMap<string, string>) => SignInDecision;
 }
 
 export type SignInResult =
-  | { status: 'refused' }
+  /** `not_a_member`: nobody added this identity; `disabled`: an admin removed its account. */
+  | { status: 'refused'; reason: 'not_a_member' | 'disabled' }
   | { status: 'signed_in'; userId: string; identityId: string; displayName: string };
 
 /**
- * Sign an identity in, in one transaction: apply the allowlist (recording a
- * pin when it takes a handle entry), find or create its account, claim its
- * legacy data on first sign-in, and move any rows still left under addresses
- * the account claimed earlier (a write that raced an earlier claim).
+ * Sign in an identity that already belongs to a member, refreshing the
+ * handle and name the provider reports now. Signing in never makes an
+ * account: people join through an invite, so an identity nobody added is
+ * refused, and so is the identity of a removed member.
  */
 export async function signInIdentity(input: SignInInput): Promise<SignInResult> {
   const { provider, subject } = input;
   return db.transaction(async (tx) => {
     await lockIdentity(tx, provider, subject);
-
-    const pinRows = await tx
-      .select({ entry: allowlistPins.entry, subject: allowlistPins.subject })
-      .from(allowlistPins)
-      .where(eq(allowlistPins.provider, provider));
-    const pins = new Map(pinRows.map((p) => [p.entry, p.subject]));
-
-    let decision = input.decide(pins);
-    if (!decision.allowed) return { status: 'refused' as const };
-    if (decision.pin) {
-      const pinned = await tx
-        .insert(allowlistPins)
-        .values({ provider, entry: decision.pin, subject })
-        .onConflictDoNothing()
-        .returning({ entry: allowlistPins.entry });
-      if (pinned.length === 0) {
-        // another account took the entry since it was read; decide again
-        const [row] = await tx
-          .select({ subject: allowlistPins.subject })
-          .from(allowlistPins)
-          .where(and(eq(allowlistPins.provider, provider), eq(allowlistPins.entry, decision.pin)));
-        pins.set(decision.pin, row.subject);
-        decision = input.decide(pins);
-        if (!decision.allowed) return { status: 'refused' as const };
-      }
-    }
-
     const [existing] = await tx
-      .select({ id: userIdentities.id, userId: userIdentities.userId })
+      .select({
+        id: userIdentities.id,
+        userId: userIdentities.userId,
+        disabledAt: users.disabledAt,
+      })
       .from(userIdentities)
+      .innerJoin(users, eq(users.id, userIdentities.userId))
       .where(and(eq(userIdentities.provider, provider), eq(userIdentities.subject, subject)));
+    if (!existing) return { status: 'refused' as const, reason: 'not_a_member' as const };
+    if (existing.disabledAt) return { status: 'refused' as const, reason: 'disabled' as const };
 
-    let userId: string;
-    let identityId: string;
-    if (existing) {
-      ({ userId, id: identityId } = existing);
-      await tx
-        .update(userIdentities)
-        .set({ username: input.username, lastSignInAt: new Date() })
-        .where(eq(userIdentities.id, identityId));
-      await tx.update(users).set({ displayName: input.displayName }).where(eq(users.id, userId));
-    } else {
-      const [user] = await tx
-        .insert(users)
-        .values({ displayName: input.displayName })
-        .returning({ id: users.id });
-      userId = user.id;
-      const [identity] = await tx
-        .insert(userIdentities)
-        .values({ userId, provider, subject, username: input.username })
-        .returning({ id: userIdentities.id });
-      identityId = identity.id;
-      if (input.legacyAddress) {
-        // the primary key makes the first claimant the only one, for good
-        await tx
-          .insert(legacyOwnerClaims)
-          .values({ address: input.legacyAddress, userId })
-          .onConflictDoNothing();
-      }
-    }
-
-    const claimed = await tx
-      .select({ address: legacyOwnerClaims.address })
-      .from(legacyOwnerClaims)
-      .where(eq(legacyOwnerClaims.userId, userId));
-    await moveOwnedRows(
-      tx,
-      claimed.map((c) => c.address),
-      userAddress(userId),
-    );
-
-    return { status: 'signed_in' as const, userId, identityId, displayName: input.displayName };
+    await tx
+      .update(userIdentities)
+      .set({ username: input.username, lastSignInAt: new Date() })
+      .where(eq(userIdentities.id, existing.id));
+    await tx
+      .update(users)
+      .set({ displayName: input.displayName })
+      .where(eq(users.id, existing.userId));
+    return {
+      status: 'signed_in' as const,
+      userId: existing.userId,
+      identityId: existing.id,
+      displayName: input.displayName,
+    };
   });
 }
 
@@ -207,6 +113,8 @@ export async function ensureIdentityAccount(input: {
   subject: string;
   username: string;
   displayName: string;
+  /** The role the account gets when it is created here. */
+  role: Role;
 }): Promise<{ userId: string; identityId: string }> {
   return db.transaction(async (tx) => {
     await lockIdentity(tx, input.provider, input.subject);
@@ -219,7 +127,7 @@ export async function ensureIdentityAccount(input: {
     if (existing) return { userId: existing.userId, identityId: existing.id };
     const [user] = await tx
       .insert(users)
-      .values({ displayName: input.displayName })
+      .values({ displayName: input.displayName, role: input.role })
       .returning({ id: users.id });
     const [identity] = await tx
       .insert(userIdentities)
@@ -234,20 +142,214 @@ export async function ensureIdentityAccount(input: {
   });
 }
 
-/** The account that claimed a legacy owner address, or null while it is unclaimed. */
-export async function findLegacyClaim(address: string): Promise<string | null> {
-  const [row] = await db
-    .select({ userId: legacyOwnerClaims.userId })
-    .from(legacyOwnerClaims)
-    .where(eq(legacyOwnerClaims.address, address));
-  return row?.userId ?? null;
+/**
+ * Serialises every change that could leave the workspace without an admin
+ * (setup, role changes, removals), so two of them cannot each see another
+ * admin and both go ahead.
+ */
+export async function lockAdmins(tx: Tx): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended('sluby:admins', 0))`);
 }
 
-/** Whether an allowlist entry of `provider` is pinned to an account. */
-export async function isAllowlistEntryPinned(provider: string, entry: string): Promise<boolean> {
+/**
+ * Whether some admin can sign in: not removed, and with a way to sign in.
+ * The local dev account of an AUTH_DISABLED run is an admin with no way in
+ * once sign-in is on, so it does not count.
+ */
+export async function hasSignInAdmin(
+  exec: Executor = db,
+  opts: { except?: string } = {},
+): Promise<boolean> {
+  const rows = await exec
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      and(
+        eq(users.role, 'admin'),
+        isNull(users.disabledAt),
+        opts.except === undefined ? undefined : ne(users.id, opts.except),
+        exists(
+          exec
+            .select({ one: sql`1` })
+            .from(userIdentities)
+            .where(
+              and(eq(userIdentities.userId, users.id), ne(userIdentities.provider, LOCAL_PROVIDER)),
+            ),
+        ),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+export interface PasswordAccountInput {
+  name: string;
+  /** Already trimmed and lowercased. */
+  email: string;
+  passwordHash: string;
+}
+
+export type NewAccount = { userId: string; identityId: string };
+
+/** Add the email and password way in to an account, unless another account has the email. */
+export async function addPasswordIdentity(
+  tx: Tx,
+  userId: string,
+  email: string,
+  passwordHash: string,
+): Promise<{ identityId: string } | 'email_taken'> {
+  await lockIdentity(tx, 'password-email', email);
+  const [taken] = await tx
+    .select({ userId: passwordCredentials.userId })
+    .from(passwordCredentials)
+    .where(eq(passwordCredentials.email, email));
+  if (taken) return 'email_taken';
+  await tx.insert(passwordCredentials).values({ userId, email, passwordHash });
+  const [identity] = await tx
+    .insert(userIdentities)
+    .values({ userId, provider: PASSWORD_PROVIDER, subject: userId, username: email })
+    .returning({ id: userIdentities.id });
+  return { identityId: identity.id };
+}
+
+/** A new member who signs in with an email and password. */
+export async function insertPasswordAccount(
+  tx: Tx,
+  input: PasswordAccountInput & { role: Role },
+): Promise<NewAccount | 'email_taken'> {
+  // checked before the user row exists, so a taken email leaves nothing behind
+  await lockIdentity(tx, 'password-email', input.email);
+  const [taken] = await tx
+    .select({ userId: passwordCredentials.userId })
+    .from(passwordCredentials)
+    .where(eq(passwordCredentials.email, input.email));
+  if (taken) return 'email_taken';
+  const [user] = await tx
+    .insert(users)
+    .values({ displayName: input.name, role: input.role })
+    .returning({ id: users.id });
+  const added = await addPasswordIdentity(tx, user.id, input.email, input.passwordHash);
+  if (added === 'email_taken') throw new Error('The email was taken while its lock was held');
+  return { userId: user.id, identityId: added.identityId };
+}
+
+export type FirstAdminResult =
+  ({ status: 'created' } & NewAccount) | { status: 'admin_exists' } | { status: 'email_taken' };
+
+/**
+ * Make the first admin of an install, or of an upgraded one that has members
+ * but no admin. Refused once an admin who can sign in exists, so the setup
+ * code stops working the moment it was used.
+ */
+export async function createFirstAdmin(input: PasswordAccountInput): Promise<FirstAdminResult> {
+  return db.transaction(async (tx) => {
+    await lockAdmins(tx);
+    if (await hasSignInAdmin(tx)) return { status: 'admin_exists' as const };
+    const created = await insertPasswordAccount(tx, { ...input, role: 'admin' });
+    if (created === 'email_taken') return { status: 'email_taken' as const };
+    return { status: 'created' as const, ...created };
+  });
+}
+
+export interface PasswordAccount {
+  userId: string;
+  identityId: string;
+  passwordHash: string;
+  disabled: boolean;
+}
+
+/** The account that signs in with `email` (lowercased), or null. */
+export async function findPasswordAccount(email: string): Promise<PasswordAccount | null> {
   const [row] = await db
-    .select({ entry: allowlistPins.entry })
-    .from(allowlistPins)
-    .where(and(eq(allowlistPins.provider, provider), eq(allowlistPins.entry, entry)));
-  return Boolean(row);
+    .select({
+      userId: passwordCredentials.userId,
+      passwordHash: passwordCredentials.passwordHash,
+      identityId: userIdentities.id,
+      disabledAt: users.disabledAt,
+    })
+    .from(passwordCredentials)
+    .innerJoin(users, eq(users.id, passwordCredentials.userId))
+    .innerJoin(
+      userIdentities,
+      and(
+        eq(userIdentities.userId, passwordCredentials.userId),
+        eq(userIdentities.provider, PASSWORD_PROVIDER),
+      ),
+    )
+    .where(eq(passwordCredentials.email, email));
+  if (!row) return null;
+  return {
+    userId: row.userId,
+    identityId: row.identityId,
+    passwordHash: row.passwordHash,
+    disabled: row.disabledAt !== null,
+  };
+}
+
+/** Note a sign-in through an identity, for the members list. */
+export async function recordSignIn(identityId: string): Promise<void> {
+  await db
+    .update(userIdentities)
+    .set({ lastSignInAt: new Date() })
+    .where(eq(userIdentities.id, identityId));
+}
+
+/** The email and password hash of an account, null when it has no password. */
+export async function getPasswordCredential(
+  userId: string,
+): Promise<{ email: string; passwordHash: string } | null> {
+  const [row] = await db
+    .select({ email: passwordCredentials.email, passwordHash: passwordCredentials.passwordHash })
+    .from(passwordCredentials)
+    .where(eq(passwordCredentials.userId, userId));
+  return row ?? null;
+}
+
+/** Replace the password of an account that has one. */
+export async function setPassword(userId: string, passwordHash: string): Promise<void> {
+  await db
+    .update(passwordCredentials)
+    .set({ passwordHash, updatedAt: new Date() })
+    .where(eq(passwordCredentials.userId, userId));
+}
+
+export type LinkIdentityResult =
+  { status: 'linked'; identityId: string } | { status: 'already_linked' };
+
+/**
+ * Add a provider identity to a signed-in member's account, so they can sign
+ * in with it too. Refused when the identity belongs to another account;
+ * linking one the account already has only refreshes its handle.
+ */
+export async function linkIdentity(
+  userId: string,
+  input: Omit<SignInInput, 'displayName'>,
+): Promise<LinkIdentityResult> {
+  return db.transaction(async (tx) => {
+    await lockIdentity(tx, input.provider, input.subject);
+    const [existing] = await tx
+      .select({ id: userIdentities.id, userId: userIdentities.userId })
+      .from(userIdentities)
+      .where(
+        and(eq(userIdentities.provider, input.provider), eq(userIdentities.subject, input.subject)),
+      );
+    if (existing && existing.userId !== userId) return { status: 'already_linked' as const };
+    if (existing) {
+      await tx
+        .update(userIdentities)
+        .set({ username: input.username })
+        .where(eq(userIdentities.id, existing.id));
+      return { status: 'linked' as const, identityId: existing.id };
+    }
+    const [identity] = await tx
+      .insert(userIdentities)
+      .values({
+        userId,
+        provider: input.provider,
+        subject: input.subject,
+        username: input.username,
+      })
+      .returning({ id: userIdentities.id });
+    return { status: 'linked' as const, identityId: identity.id };
+  });
 }

@@ -99,7 +99,7 @@ afterEach(() => {
 async function draw(width: number) {
   await (await browser()).page.viewport(width, 1000);
   const view = renderPage(
-    <WithSession operator>
+    <WithSession admin>
       <HealthPage />
     </WithSession>,
   );

@@ -1,34 +1,10 @@
-import { SIGN_IN_PROVIDERS, type SignInProvider } from './providers/index.js';
-import { unknownOperatorProviders } from './operators.js';
-
 /**
- * Sign-in settings worth a warning at startup, so an open Studio or a session
- * cookie that can travel in plaintext is never a silent surprise.
+ * Sign-in settings worth a warning at startup, so a session cookie that can
+ * travel in plaintext is never a silent surprise.
  */
-export function signInWarnings(
-  opts: { authDisabled: boolean; publicUrl: string },
-  providers: readonly SignInProvider[] = SIGN_IN_PROVIDERS,
-): string[] {
+export function signInWarnings(opts: { authDisabled: boolean; publicUrl: string }): string[] {
   if (opts.authDisabled) return [];
   const warnings: string[] = [];
-
-  for (const provider of providers) {
-    if (!provider.isConfigured()) continue;
-    const allowlist = provider.allowlist();
-    if (allowlist.open && !allowlist.explicitlyOpen) {
-      warnings.push(
-        `${provider.label} sign-in has no allowlist: any ${provider.label} account can sign in ` +
-          'and gets its own tenant. List who may sign in, or set it to "*" to keep sign-up open on purpose.',
-      );
-    }
-  }
-
-  for (const id of unknownOperatorProviders(providers)) {
-    warnings.push(
-      `OPERATOR_USERS names the sign-in provider "${id}", which this server does not have; ` +
-        'those entries make nobody an operator.',
-    );
-  }
 
   // the session cookie is only marked Secure for an https public url;
   // browsers treat localhost as a secure context anyway, other hosts do not
@@ -41,4 +17,43 @@ export function signInWarnings(
     );
   }
   return warnings;
+}
+
+/**
+ * The old access settings that are still set once their values were adopted
+ * (see adopt-legacy.ts). Members and roles live in the database now, so an
+ * operator editing these would expect an effect that never comes.
+ */
+export function ignoredSettingWarnings(opts: {
+  githubAllowedUsers: string;
+  operatorUsers: string;
+}): string[] {
+  const warnings: string[] = [];
+  if (opts.githubAllowedUsers.trim()) {
+    warnings.push(
+      'GITHUB_ALLOWED_USERS is set but ignored: it was read once when this install moved to ' +
+        'members. Invite people and remove members on the Members page, then remove the setting.',
+    );
+  }
+  if (opts.operatorUsers.trim()) {
+    warnings.push(
+      'OPERATOR_USERS is set but ignored: it was read once when this install moved to roles. ' +
+        'Change roles on the Members page, then remove the setting.',
+    );
+  }
+  return warnings;
+}
+
+/**
+ * The startup line that lets whoever runs the server claim a fresh install:
+ * where the setup screen is and the code it asks for (see setup-code.ts).
+ * Only logged while no admin can sign in, so the code is useless by the time
+ * anyone else reads old logs.
+ */
+export function setupCodeNotice(opts: { publicUrl: string; code: string }): string {
+  const studio = `${opts.publicUrl.replace(/\/+$/, '')}/studio`;
+  return (
+    `No admin can sign in yet. Open ${studio} and set up the first admin with the setup ` +
+    `code ${opts.code}.`
+  );
 }

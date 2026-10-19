@@ -25,9 +25,8 @@ export interface PlaybackAsset {
 }
 
 export interface PlaybackRouteDeps {
-  // `owner` is the caller's creatorAddress (undefined for a platform key).
-  // Scoping the lookup by it stops a caller reading another tenant's asset
-  // by guessing its id or playback id.
+  // `owner` is the caller's creatorAddress (the workspace). The lookup is
+  // scoped by it like every other owner-scoped lookup.
   getPlaybackAsset: (id: string, owner?: string) => Promise<PlaybackAsset | null>;
   // Sign the asset's master manifest url (and its first thumbnail, when it
   // has one) for `expiresIn` seconds, already bounded by the route.

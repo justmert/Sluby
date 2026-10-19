@@ -4,6 +4,7 @@ import { statusOf } from '@/lib/api-client';
 import { sluby } from '@/lib/sluby';
 
 export type KeyScope = ApiKeyScope;
+/** A key as listed. `createdBy` is null for a key made from the command line. */
 export type ApiKeyRecord = ApiKey;
 /** This server's limits on keys, to check a new key against. */
 export type KeyLimits = ApiKeyPage['limits'];
@@ -49,6 +50,7 @@ function listed(k: IssuedKey): ApiKeyRecord {
     expiresAt: k.expiresAt,
     prefix: k.prefix,
     lastUsedAt: k.lastUsedAt,
+    createdBy: k.createdBy,
   };
 }
 

@@ -72,7 +72,7 @@ export function StatusFrame({
 
 /**
  * Overview's status: one verdict and the three services behind it, the
- * database, the job queue and Sia storage. Operators get a way to the full
+ * database, the job queue and Sia storage. Admins get a way to the full
  * Health page; the internals live there (D-07).
  */
 export function StatusCard({
@@ -80,13 +80,13 @@ export function StatusCard({
   error,
   onRetry,
   retrying,
-  operator,
+  admin,
 }: {
   status?: SystemStatus;
   error: Error | null;
   onRetry: () => void;
   retrying: boolean;
-  operator: boolean;
+  admin: boolean;
 }) {
   const health = healthOf(status);
   return (
@@ -113,7 +113,7 @@ export function StatusCard({
         )
       }
       footer={
-        operator && (
+        admin && (
           <Link
             to={ROUTES.DEPLOYMENT}
             className="rounded-sm font-semibold text-primary hover:text-primary-hover"

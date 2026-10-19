@@ -176,9 +176,9 @@ export function ServerStats({ m, stagger = false }: { m?: MetricsSnapshot; stagg
 /**
  * Metrics as it first draws, before any answer: what the route skeleton
  * shows while the page's code loads, built from the pieces the page shows
- * while its data loads. Members never reach the page (OperatorOnly).
+ * while its data loads. Members never reach the page (AdminOnly).
  */
-export function AnalyticsLoading(_: { operator?: boolean }) {
+export function AnalyticsLoading(_: { admin?: boolean }) {
   return (
     <>
       <ServerStats />

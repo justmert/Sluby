@@ -7,18 +7,18 @@ import { ROUTES } from '@/lib/constants';
 import { useSession } from '@/lib/session';
 
 /**
- * The deployment pages, for operators only. The api refuses their data to
- * members, so a member who follows a link here is told why instead of being
- * moved somewhere else (plan D-03).
+ * The deployment pages and Members, for admins only. The api refuses their
+ * data to members, so a member who follows a link here is told why instead
+ * of being moved somewhere else (plan D-03).
  */
-export function OperatorOnly({ children }: { children: ReactNode }) {
-  const { operator } = useSession();
-  if (operator) return children;
+export function AdminOnly({ children }: { children: ReactNode }) {
+  const { admin } = useSession();
+  if (admin) return children;
   return (
     <PageState
       icon={ShieldAlert}
-      title="For operators only"
-      description="Health and metrics cover every account on this server."
+      title="For admins only"
+      description="Members, health and metrics are for the admins of this server. Ask an admin if you need them."
       actions={
         <Button variant="outline" asChild>
           <Link to={ROUTES.OVERVIEW}>Back to overview</Link>

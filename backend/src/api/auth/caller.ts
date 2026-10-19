@@ -8,8 +8,7 @@ import {
   type SessionEndReason,
 } from './session.js';
 import { resolveKeyOwner, type OwnerAccessDeps } from './access.js';
-import { isOperatorAccount } from './operators.js';
-import { userAddress } from '../ownership.js';
+import { WORKSPACE_ADDRESS } from '../ownership.js';
 
 // what a 401 says, by why the cookie did not count; with no cookie at all the
 // request simply lacked credentials
@@ -17,7 +16,7 @@ const ENDED: Record<SessionEndReason, string> = {
   missing: 'Missing or invalid Authorization header',
   expired: 'This session has expired',
   revoked: 'This session was signed out',
-  not_allowed: 'This account is not allowed on this server',
+  not_allowed: 'This account was removed from this workspace',
 };
 
 /** Who is making a request, as every route and tus see it. */
@@ -27,12 +26,15 @@ export interface Caller {
   name: string;
   scopes: string[];
   rateLimit: number;
+  /** Always WORKSPACE_ADDRESS, see ownership.ts. */
   creatorAddress: string;
   /**
-   * The operator role (OPERATOR_USERS, see operators.ts): deployment-wide
-   * operations data, never other accounts' data. Decided on every request.
+   * Whether the caller acts as an admin: operations data and member
+   * management. Decided on every request from the account's current role.
    */
-  operator: boolean;
+  admin: boolean;
+  /** The member behind the request, null for a key with no creator. */
+  userId: string | null;
 }
 
 const ALL_SCOPES = ['upload', 'read', 'manage'];
@@ -43,6 +45,8 @@ export interface StoredApiKey {
   scopes: string[];
   rateLimit: number;
   creatorAddress: string;
+  /** The member who made the key, null for keys made from the server. */
+  createdBy: string | null;
   isActive: boolean;
   expiresAt: Date | null;
   lastUsedAt: Date | null;
@@ -63,18 +67,22 @@ export interface CallerDeps extends OwnerAccessDeps {
 
 export type CallerResult =
   | { ok: true; caller: Caller }
-  /** `reason` is set when no key was sent, so the request was a browser's session. */
+  /**
+   * `reason` is set when no key was sent, so the request was a browser's
+   * session, and when a key's creator was removed.
+   */
   | { ok: false; error: string; reason?: SessionEndReason };
 
-// a studio session drives the whole api for its account, like a full key
-function accountCaller(userId: string, username: string, operator: boolean): Caller {
+// a studio session drives the whole api for its member, like a full key
+function accountCaller(userId: string, username: string, admin: boolean): Caller {
   return {
     id: `session:${userId}`,
     name: `Studio session (${username})`,
     scopes: ALL_SCOPES,
     rateLimit: 1000,
-    creatorAddress: userAddress(userId),
-    operator,
+    creatorAddress: WORKSPACE_ADDRESS,
+    admin,
+    userId,
   };
 }
 
@@ -89,7 +97,7 @@ export async function resolveCaller(
   deps: CallerDeps,
 ): Promise<CallerResult> {
   if (env.AUTH_DISABLED) {
-    // the one local user runs the deployment, so it sees its operations
+    // the one local user runs the deployment, so it is the admin
     const dev = await deps.localDevAccount();
     return { ok: true, caller: accountCaller(dev.userId, dev.username, true) };
   }
@@ -107,7 +115,7 @@ export async function resolveCaller(
       caller: accountCaller(
         signedIn.account.id,
         identity?.username ?? signedIn.account.displayName,
-        isOperatorAccount(signedIn.account),
+        signedIn.account.role === 'admin',
       ),
     };
   }
@@ -128,9 +136,13 @@ export async function resolveCaller(
     return { ok: false, error: 'API key has expired' };
   }
 
-  const owner = await resolveKeyOwner(key.creatorAddress, deps);
+  const owner = await resolveKeyOwner(key, deps);
   if (!owner.allowed) {
-    return { ok: false, error: "API key's account is not allowed on this server" };
+    return {
+      ok: false,
+      error: "This API key's creator was removed from this workspace",
+      reason: 'not_allowed',
+    };
   }
   deps.recordKeyUse(key.id, key.lastUsedAt);
   return {
@@ -140,8 +152,9 @@ export async function resolveCaller(
       name: key.name,
       scopes: key.scopes,
       rateLimit: key.rateLimit,
-      creatorAddress: owner.address,
-      operator: owner.operator,
+      creatorAddress: WORKSPACE_ADDRESS,
+      admin: owner.admin,
+      userId: owner.userId,
     },
   };
 }

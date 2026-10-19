@@ -13,7 +13,7 @@ export interface StepState {
 }
 
 export interface GetStartedInput {
-  operator: boolean;
+  admin: boolean;
   status?: SystemStatus;
   stats?: AssetStats;
   usage?: Usage;
@@ -22,16 +22,16 @@ export interface GetStartedInput {
   activeKeys?: number;
 }
 
-/** Step 1 is done when the indexer answers and, for an operator, the Sia account is ready. */
-export function siaConnected(status: SystemStatus | undefined, operator: boolean): boolean {
+/** Step 1 is done when the indexer answers and, for an admin, the Sia account is ready. */
+export function siaConnected(status: SystemStatus | undefined, admin: boolean): boolean {
   if (!status?.indexer.ok) return false;
-  if (status.scope !== 'deployment' || !operator) return true;
+  if (status.scope !== 'deployment' || !admin) return true;
   return status.indexer.account?.ready === true;
 }
 
 export function stepStates(input: GetStartedInput): StepState[] {
   return [
-    { id: 'sia', done: siaConnected(input.status, input.operator) },
+    { id: 'sia', done: siaConnected(input.status, input.admin) },
     // a video still waiting for its file was created, not uploaded
     {
       id: 'upload',

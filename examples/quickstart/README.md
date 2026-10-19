@@ -5,7 +5,7 @@ A minimal React app that exercises the full flow with `@sluby/sdk` and `@sluby/p
 1. Upload a file with resumable tus upload (progress, pause and resume), public or private.
 2. Follow processing (stage and percentage) until the asset is ready.
 3. Play it with `<SlubyPlayer>`, signed when private, and pin a rendition or leave it adaptive.
-4. Play any other asset of the account by id.
+4. Play any other asset of the workspace by id.
 5. Delete the asset (the backend soft-deletes it and unpins its Sia objects).
 
 ## Run

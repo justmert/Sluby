@@ -64,6 +64,12 @@ export const STATUS = {
     replaced: spec('Replaced', 'warning'),
     revoked: spec('Revoked', 'neutral'),
   },
+  /** a member of the workspace */
+  member: {
+    active: spec('Active', 'success'),
+    // cannot sign in until restored
+    removed: spec('Removed', 'neutral'),
+  },
   /** a webhook endpoint */
   webhook: {
     active: spec('Active', 'success'),
