@@ -12,6 +12,7 @@ import {
   index,
   uniqueIndex,
   primaryKey,
+  check,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
@@ -409,24 +410,42 @@ export const apiKeys = pgTable(
     prefix: text('prefix'),
     // written at most once a minute per key, see api/auth/key-usage.ts
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    // the member who made the key: it acts with that member's current role and
+    // stops while they are removed. null for keys made from the server (seed
+    // and bootstrap keys) and for keys whose maker's row is gone; those act as
+    // admin, since only someone with server access can make them
+    createdBy: uuid('created_by').references((): AnyPgColumn => users.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     index('api_keys_creator_address_idx').on(t.creatorAddress),
+    index('api_keys_created_by_idx').on(t.createdBy),
     // deleting a key clears this link on the key it replaced
     index('api_keys_replaced_by_id_idx').on(t.replacedById),
   ],
 );
 
 /**
- * users is one row per account. Everything an account owns carries the owner
- * address `user:<id>` (see api/ownership.ts), never a sign-in provider's
- * handle, so a renamed or recycled handle cannot move data between people.
+ * users is one row per member of the workspace. Everything the team makes
+ * belongs to the workspace (owner address `workspace`, see api/ownership.ts),
+ * so a member's role decides what they may do, not which rows they see.
  */
-export const users = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  displayName: text('display_name').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    displayName: text('display_name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // admins manage members and see the operations pages; members work with
+    // the library
+    role: text('role').$type<'admin' | 'member'>().notNull().default('member'),
+    // set when an admin removes the member. the row stays so their keys and
+    // history keep pointing at a name, and restoring them is one update
+    disabledAt: timestamp('disabled_at', { withTimezone: true }),
+  },
+  (t) => [check('users_role_check', sql`${t.role} in ('admin', 'member')`)],
+);
 
 /**
  * user_identities links an account to the ways it signs in. `subject` is the
@@ -457,7 +476,8 @@ export const userIdentities = pgTable(
  * allowlist_pins ties a handle written in a provider's allowlist (a github
  * login) to the account that held it when it first signed in, so the entry
  * keeps admitting that account through renames and never admits whoever
- * claims the handle next.
+ * claims the handle next. Only read now to adopt an install that used the
+ * allowlist, see api/auth/adopt-legacy.ts.
  */
 export const allowlistPins = pgTable(
   'allowlist_pins',
@@ -474,28 +494,64 @@ export const allowlistPins = pgTable(
 );
 
 /**
- * legacy_owner_claims records which account took over an owner address
- * written by older versions (`github:<login>`). An address is claimed at most
- * once, by the first account that signs in with that handle, and its rows are
- * moved to the account's own address in the same transaction.
+ * password_credentials holds the password of an account that signs in with an
+ * email and password. The email is stored lowercased and is unique, so it
+ * names one account; the hash format is described in api/auth/password.ts.
  */
-export const legacyOwnerClaims = pgTable(
-  'legacy_owner_claims',
+export const passwordCredentials = pgTable('password_credentials', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * invites holds the single-use links an admin hands out: `invite` lets a new
+ * person join with `role`, `reset` lets the member `user_id` set a new
+ * password. Only the sha-256 of the token is stored, so the table cannot be
+ * used to sign in.
+ */
+export const invites = pgTable(
+  'invites',
   {
-    address: text('address').primaryKey(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id),
-    claimedAt: timestamp('claimed_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    tokenHash: text('token_hash').notNull().unique(),
+    kind: text('kind').$type<'invite' | 'reset'>().notNull(),
+    role: text('role').$type<'admin' | 'member'>(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    // kept when the admin who made it is deleted, the link still works
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },
-  (t) => [index('legacy_owner_claims_user_id_idx').on(t.userId)],
+  (t) => [
+    check('invites_kind_check', sql`${t.kind} in ('invite', 'reset')`),
+    check('invites_role_check', sql`${t.role} is null or ${t.role} in ('admin', 'member')`),
+    // the pending list filters on kind and expiry
+    index('invites_kind_expires_at_idx').on(t.kind, t.expiresAt),
+    index('invites_user_id_idx').on(t.userId),
+    index('invites_created_by_idx').on(t.createdBy),
+  ],
 );
+
+/**
+ * instance_meta records one-off facts about this install, such as whether the
+ * old allowlist settings were adopted, so startup code runs them only once.
+ */
+export const instanceMeta = pgTable('instance_meta', {
+  key: text('key').primaryKey(),
+  value: jsonb('value').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 /**
  * studio_sessions holds one row per Studio sign-in. The session cookie only
  * carries the row id (signed), so a session can be ended server-side: on
- * sign-out, from the sessions list, or by taking the account off the
- * allowlist.
+ * sign-out, from the sessions list, or by removing the member.
  */
 export const studioSessions = pgTable(
   'studio_sessions',
@@ -524,15 +580,15 @@ export const studioSessions = pgTable(
 );
 
 /**
- * webhook_endpoints stores each account's webhook URLs and the events each
+ * webhook_endpoints stores the workspace's webhook URLs and the events each
  * one is sent.
  */
 export const webhookEndpoints = pgTable(
   'webhook_endpoints',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    // the account the endpoint belongs to; events are only ever delivered for
-    // that account's own assets
+    // the owner the endpoint belongs to (`workspace`); events are only ever
+    // delivered for assets with the same owner
     creatorAddress: text('creator_address').notNull(),
     // the key it was registered with, when it was a key (null for a studio
     // session); kept for audit, not ownership, so revoking a key keeps the hook
@@ -684,4 +740,5 @@ export type NewReconciliationRun = typeof reconciliationRuns.$inferInsert;
 export type StudioSession = typeof studioSessions.$inferSelect;
 
 export type User = typeof users.$inferSelect;
+export type Invite = typeof invites.$inferSelect;
 export type UserIdentity = typeof userIdentities.$inferSelect;
