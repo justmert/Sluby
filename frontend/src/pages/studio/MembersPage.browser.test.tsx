@@ -110,8 +110,13 @@ describe('Members in a real browser', () => {
     await userEvent.click(within(table).getByRole('combobox', { name: 'Role of Bea' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Admin' }));
     await expect.poll(() => patched).toEqual([{ role: 'admin' }]);
+    // while the list closes, radix hides the rest of the page from the
+    // accessibility tree, and webkit takes the longest to finish closing
+    await expect.poll(() => screen.queryByRole('listbox'), { timeout: 5_000 }).toBeNull();
     await expect
-      .poll(() => within(table).getByRole('combobox', { name: 'Role of Bea' }).textContent)
+      .poll(() => within(table).getByRole('combobox', { name: 'Role of Bea' }).textContent, {
+        timeout: 5_000,
+      })
       .toContain('Admin');
   });
 
