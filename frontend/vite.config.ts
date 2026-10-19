@@ -92,6 +92,8 @@ export default defineConfig(({ mode }) => {
         '/api': proxy,
         '/v1': proxy,
         '/health': proxy,
+        // the public watch page the backend renders
+        '/watch': proxy,
       },
     },
     test: {

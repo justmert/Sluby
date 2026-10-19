@@ -895,8 +895,8 @@ describe('AssetsPage: selection and bulk actions', () => {
     expect(within(bar).queryByRole('button', { name: 'Make public' })).toBeNull();
     await userEvent.click(within(bar).getByRole('button', { name: 'Copy embed code' }));
     expect(writeText).toHaveBeenCalledTimes(1);
-    expect(writeText.mock.lastCall![0]).toContain("'a1'");
-    expect(writeText.mock.lastCall![0]).not.toContain("'f1'");
+    expect(writeText.mock.lastCall![0]).toContain('/watch/a1"');
+    expect(writeText.mock.lastCall![0]).not.toContain('/watch/f1"');
     expect(await screen.findByText('Embed code copied')).toBeInTheDocument();
   });
 
@@ -1022,8 +1022,8 @@ describe('AssetsPage: row menu and preview', () => {
     expect(await screen.findByText('Video ID copied')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Actions for Big Buck Bunny' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Copy embed code' }));
-    expect(writeText.mock.lastCall![0]).toContain('<SlubyPlayer');
-    expect(writeText.mock.lastCall![0]).toContain("'a1'");
+    expect(writeText.mock.lastCall![0]).toContain('<iframe');
+    expect(writeText.mock.lastCall![0]).toContain('/watch/a1"');
     writeText.mockRejectedValueOnce(new Error('denied'));
     await userEvent.click(screen.getByRole('button', { name: 'Actions for Big Buck Bunny' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Copy video ID' }));

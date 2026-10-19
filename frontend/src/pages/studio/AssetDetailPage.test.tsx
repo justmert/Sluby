@@ -250,7 +250,7 @@ describe('AssetDetailPage', () => {
       Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
       render(asset({ access_tier: 'public' }));
       await userEvent.click(await screen.findByRole('button', { name: 'Copy embed code' }));
-      expect(writeText.mock.lastCall![0]).toContain("streamUrl('a1')");
+      expect(writeText.mock.lastCall![0]).toContain('/watch/a1"');
       expect(await screen.findByText('Embed code copied')).toBeInTheDocument();
     });
 
@@ -320,19 +320,19 @@ describe('AssetDetailPage', () => {
         within(share)
           .getAllByRole('tab')
           .map((t) => t.textContent),
-      ).toEqual(['Server', 'React', 'HTML']);
+      ).toEqual(['Server', 'Iframe', 'React', 'HTML']);
       expect(share.textContent).toContain("getSignedUrl('a1'");
     });
 
-    it('offers React first for a public video, playing it by this ID', async () => {
+    it('offers the iframe first for a public video, playing it by this ID', async () => {
       render(asset({ access_tier: 'public' }));
       const share = await screen.findByRole('tabpanel', { name: 'Share' });
       expect(
         within(share)
           .getAllByRole('tab')
           .map((t) => t.textContent),
-      ).toEqual(['React', 'HTML', 'Stream URL']);
-      expect(share.textContent).toContain("streamUrl('a1')");
+      ).toEqual(['Iframe', 'Link', 'React', 'HTML', 'Stream URL']);
+      expect(share.textContent).toContain('/watch/a1"');
     });
 
     it('opens the section named in the url and keeps the choice there', async () => {

@@ -194,6 +194,10 @@ The player attempts direct-from-Sia in two cases. With `src`, `assetId` and a cl
 
 `onDeliveryChange` reports `sia` or `gateway` for each load. The decision is made once per load: if a download fails after playback has started in Sia mode, the player does not switch to the gateway. hls.js reports the error and the player's usual recovery applies (up to `maxNetworkRetries` reloads, then the error overlay with a Retry button, which resolves everything again).
 
+## The watch page
+
+`GET /watch/:id` (backend `src/watch/`) renders one video on a page of its own for a link or an iframe: the title, the poster and a `<video>` played by hls.js, which the backend serves from its own npm install under `/watch/assets/`. It resolves the id the way `/v1/stream` does and asks for the same signature: a private video or a signed playback id needs the `expires` and `sig` of a signed URL, which the page puts on the stream URL and, signed for its own object until the same expiry, on the poster. The page sends its own `Content-Security-Policy` with `frame-ancestors *` (only its own scripts, styles and media), and nginx routes `/watch/` to the backend without the `X-Frame-Options: DENY` the rest of the site gets. See [share and embed](/guide/share).
+
 ## Plays
 
 The backend counts a play where it can see one: one player load of a video.

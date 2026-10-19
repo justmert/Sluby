@@ -2059,6 +2059,24 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, one workspace)', () =
       check('GET', '/v1/cache/stats', stats);
       expect(stats.status).toBe(200);
     });
+
+    it('serves the watch page gated like the stream, and its files', async () => {
+      const gone = await call('GET', `/watch/${assetADeleted.id}`, 'none');
+      check('GET', '/watch/{id}', gone);
+      expect(gone.status).toBe(404);
+      await tdb.sql`update video_assets set access_tier = 'private' where id = ${assetB.id}`;
+      const gated = await call('GET', `/watch/${assetB.id}`, 'none');
+      check('GET', '/watch/{id}', gated);
+      expect(gated.status).toBe(403);
+      expect(gated.headers['content-security-policy']).toContain('frame-ancestors *');
+
+      const script = await call('GET', '/watch/assets/watch.js', 'none');
+      check('GET', '/watch/assets/{file}', script);
+      expect(script.status).toBe(200);
+      const missing = await call('GET', '/watch/assets/nope.js', 'none');
+      check('GET', '/watch/assets/{file}', missing);
+      expect(missing.status).toBe(404);
+    });
   });
 
   // runs last: vitest runs the tests of a file in order

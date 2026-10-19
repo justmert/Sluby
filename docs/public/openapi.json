@@ -6849,6 +6849,109 @@
           }
         }
       }
+    },
+    "/watch/{id}": {
+      "get": {
+        "tags": [
+          "Delivery"
+        ],
+        "summary": "A video's public watch page, for a link or an iframe.",
+        "description": "An HTML page that plays the video by asset ID or pb_ playback ID through the gateway. A private video or a signed playback ID needs the `expires` and `sig` of a signed URL, which the page passes on to the stream and the poster. Any site may frame it (`frame-ancestors *`). Query `autoplay=1`, `muted=1` and `loop=1` change how it starts.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Asset ID or pb_ playback ID.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expires",
+            "in": "query",
+            "required": false,
+            "description": "From a signed URL, for a private video or a signed playback ID.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sig",
+            "in": "query",
+            "required": false,
+            "description": "From the same signed URL.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The video needs a signed link, or the link expired.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such video, or it is not ready.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/watch/assets/{file}": {
+      "get": {
+        "tags": [
+          "Delivery"
+        ],
+        "summary": "The watch page's player script, hls.js build and stylesheet.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "hls.min.js",
+                "watch.js",
+                "watch.css"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file."
+          },
+          "404": {
+            "description": "No such file."
+          }
+        }
+      }
     }
   }
 }
