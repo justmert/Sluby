@@ -517,8 +517,11 @@ describe('AuthGate sign-in failures (B-12)', () => {
     renderGate();
     expect(await screen.findByText(/alice via GitHub/)).toBeInTheDocument();
     expect(window.location.search).toBe('');
-    expect(toastError).toHaveBeenCalledWith(
-      'GitHub account octo-cat already belongs to another member.',
+    // the toast comes from an effect after the signed-in render
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        'GitHub account octo-cat already belongs to another member.',
+      ),
     );
   });
 });
