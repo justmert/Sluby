@@ -108,7 +108,7 @@ describe('upload page: picking and starting', () => {
     expect(
       within(row)
         .getByRole('progressbar', { name: 'my trip video upload' })
-        .querySelector('[data-slot="progress-indicator"]'),
+        .querySelector('[data-slot="pipeline-fill"][data-moving]'),
     ).toHaveAttribute('data-moving', 'true');
     expect(
       within(row).getByText('Uploading').querySelector('[data-slot="status-dot"]'),

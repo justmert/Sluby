@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
 import { Check, ChevronDown, RotateCcw, X } from 'lucide-react';
-import { PipelineSteps } from '@/components/asset/PipelineSteps';
+import { PipelineProgress } from '@/components/asset/PipelineProgress';
 import { uploadSteps } from '@/components/asset/pipeline-states';
 import { failureInfo, stageLabel } from '@/components/asset/processing';
 import { RetryProcessingButton } from '@/components/asset/RetryProcessingButton';
@@ -12,7 +12,6 @@ import { CopyButton } from '@/components/shared/CopyButton';
 import { ErrorDetails } from '@/components/shared/ErrorDetails';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { ROUTES } from '@/lib/constants';
 import { primaryEmbed } from '@/lib/embed';
@@ -28,18 +27,6 @@ const ButtonSpinner = () => <Spinner role={undefined} aria-hidden="true" />;
 
 // the board's row buttons are 30px, a step under the page's 36px buttons
 const SMALL = 'h-7.5 gap-1.5 px-2.5 text-sm pointer-coarse:h-9';
-
-/** A bar with no number yet: a slow sweep, or a still fill under reduced motion (MOT-06). */
-function WaitingBar({ label }: { label: string }) {
-  return (
-    <div
-      role="progressbar"
-      aria-label={label}
-      aria-valuetext="Waiting"
-      className="relative h-1.5 overflow-hidden rounded-full bg-sunken before:absolute before:inset-y-0 before:w-1/3 before:-translate-x-full before:rounded-full before:bg-progress/60 motion-safe:before:animate-shimmer motion-reduce:before:w-full motion-reduce:before:translate-x-0 motion-reduce:before:bg-progress/30"
-    />
-  );
-}
 
 /**
  * A ring that lights up once and fades when an upload lands on ready or
@@ -306,19 +293,20 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
         {dismiss}
       </div>
 
-      {status.bar === 'waiting' ? (
-        <WaitingBar label={`${s.title}, progress`} />
-      ) : status.bar !== null ? (
-        <Progress
-          value={status.bar}
-          smooth={s.phase === 'processing'}
-          moving={s.phase === 'uploading' || s.phase === 'processing'}
-          className="h-1.5 bg-sunken"
-          aria-label={
-            s.phase === 'processing' ? `${s.title}, processing progress` : `${s.title} upload`
+      {status.bar !== null && (
+        <PipelineProgress
+          steps={uploadSteps(s)}
+          upload={
+            (s.phase === 'uploading' || s.phase === 'paused') && typeof status.bar === 'number'
+              ? status.bar
+              : null
           }
+          percent={s.phase === 'processing' && typeof status.bar === 'number' ? status.bar : null}
+          moving={s.phase === 'uploading' || s.phase === 'processing'}
+          size="sm"
+          label={s.phase === 'processing' ? `${s.title}, processing progress` : `${s.title} upload`}
         />
-      ) : null}
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <p
@@ -358,9 +346,6 @@ export function UploadRow({ store, upload: s, busy, onReupload }: UploadRowProps
       )}
 
       <Collapse open={open} id={`${id}-details`} className="flex flex-col gap-4 pt-2">
-        {/* across, like the video page's processing card; capped so the
-            rails stay short in a wide row */}
-        <PipelineSteps steps={uploadSteps(s)} size="sm" className="max-w-xl" />
         {showChunks && (
           <ChunkStrip
             bytesUploaded={s.bytesUploaded}

@@ -3,7 +3,7 @@ import type { UploadState } from '@/lib/upload-store';
 import { isWaitingForSia, jobStep, PIPELINE_STEPS, type JobStep } from './processing';
 
 /*
- * where each of the four processing steps stands, for PipelineSteps. the
+ * where each of the four processing steps stands, for PipelineProgress. the
  * video page reads it from the server (asset status plus processing job),
  * the upload sheet from its own store; both draw the same component.
  */
@@ -97,3 +97,25 @@ export function uploadSteps(
       return PIPELINE_STEPS.map((_, i) => (i === 0 ? 'cancelled' : 'skipped'));
   }
 }
+
+// the share of the job's overall percent each server step covers, as
+// backend/src/queue/pipeline.ts reports it: transcoding up to 65, storing on
+// sia up to 90, publishing the rest. the upload has its own byte count
+const STEP_RANGE: Array<[number, number] | null> = [null, [0, 65], [65, 90], [90, 100]];
+
+/** How far one step's part of the bar is filled, 0 to 1. */
+export function stepFill(
+  index: number,
+  state: StepState,
+  progress: { upload?: number | null; percent?: number | null },
+): number {
+  if (state === 'done' || state === 'failed') return 1;
+  if (state === 'pending' || state === 'skipped' || state === 'cancelled') return 0;
+  const range = STEP_RANGE[index];
+  if (!range) return clamp01((progress.upload ?? 0) / 100);
+  if (progress.percent == null) return 0;
+  const [from, to] = range;
+  return clamp01((progress.percent - from) / (to - from));
+}
+
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
