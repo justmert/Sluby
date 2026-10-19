@@ -505,6 +505,7 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
     await note(pj, 'upload', 'Uploading segments to Sia');
 
     let result: Awaited<ReturnType<typeof uploadSegments>>;
+    let lastSiaPercent = 65;
     try {
       result = await uploadSegments(outputDir, {
         thumbnailPaths,
@@ -513,9 +514,14 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
           if (lease.lost()) throw new LeaseLost(videoAssetId);
           if (!(await stillProcessing(videoAssetId))) throw new StageStopped(videoAssetId);
         },
-        // the Sia upload is 65-90% of the pipeline
-        onProgress: (uploaded, total) =>
-          void progress(job, pj, 65 + Math.round((uploaded / total) * 25)),
+        // the Sia upload is 65-90% of the pipeline; a shard moves it a
+        // fraction of a point, so only a new whole percent is written
+        onProgress: (fraction) => {
+          const percent = 65 + Math.floor(fraction * 25);
+          if (percent === lastSiaPercent) return;
+          lastSiaPercent = percent;
+          void progress(job, pj, percent);
+        },
       });
     } catch (err) {
       if (err instanceof LeaseLost) {

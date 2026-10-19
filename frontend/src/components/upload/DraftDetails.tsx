@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useRef } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { WifiOff } from 'lucide-react';
+import { PipelineProgress } from '@/components/asset/PipelineProgress';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
@@ -28,8 +29,6 @@ export const TITLE_MAX = 200;
 export const DESCRIPTION_MAX = 5_000;
 // the counter shows once the description gets near the limit (FLW-30)
 const COUNTER_FROM = 4_500;
-
-const NEXT_STEPS = ['Upload', 'Transcode', 'Store on Sia', 'Ready to play'];
 
 export interface DraftDetailsProps {
   draft: Draft;
@@ -178,35 +177,16 @@ export function DraftDetails({
 
         <AccessChoice value={d.accessTier} onChange={(accessTier) => onChange({ accessTier })} />
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2.5">
           <p id={`${id}-next`} className="text-sm font-semibold">
             What happens next
           </p>
-          <ol
-            aria-labelledby={`${id}-next`}
-            className="flex flex-wrap items-center gap-2.5 text-sm text-muted-foreground"
-          >
-            {NEXT_STEPS.map((step, i) => (
-              <Fragment key={step}>
-                {/* the separators are list items of their own, hidden from
-                    screen readers, so each step reads as just its name */}
-                {i > 0 && (
-                  <li aria-hidden="true" className="text-subtle-foreground">
-                    ›
-                  </li>
-                )}
-                <li className="flex items-center gap-2">
-                  <span
-                    aria-hidden="true"
-                    className="grid size-5.5 shrink-0 place-items-center rounded-full border-[1.5px] border-border-strong text-xs font-bold tabular-nums"
-                  >
-                    {i + 1}
-                  </span>
-                  {step}
-                </li>
-              </Fragment>
-            ))}
-          </ol>
+          <PipelineProgress
+            preview
+            steps={['pending', 'pending', 'pending', 'pending']}
+            size="sm"
+            label="What happens next"
+          />
         </div>
 
         {!online && (

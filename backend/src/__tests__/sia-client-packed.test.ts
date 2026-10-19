@@ -21,6 +21,7 @@ vi.mock('../storage/prune-leases.js', async () => {
 });
 
 import {
+  encodedUploadBytes,
   uploadAndPinPacked,
   deleteObject,
   pruneSlabs,
@@ -121,6 +122,20 @@ describe('uploadAndPinPacked', () => {
   it('does nothing for an empty batch', async () => {
     expect(await uploadAndPinPacked([])).toEqual([]);
     expect(fake.calls.add).toBe(0);
+  });
+});
+
+describe('encodedUploadBytes', () => {
+  const MiB = 1024 * 1024;
+  it('counts whole slabs of data and parity sectors', async () => {
+    const { env } = await import('../config/env.js');
+    // ten and twenty unless the environment picks its own split
+    const data = env.SIA_DATA_SHARDS ?? 10;
+    const slab = (data + (env.SIA_PARITY_SHARDS ?? 20)) * 4 * MiB;
+    // a single byte still costs a full slab on the wire
+    expect(encodedUploadBytes(1)).toBe(slab);
+    expect(encodedUploadBytes(data * 4 * MiB)).toBe(slab);
+    expect(encodedUploadBytes(data * 4 * MiB + 1)).toBe(2 * slab);
   });
 });
 

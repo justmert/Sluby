@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { scrypt } from 'node:crypto';
 import { promisify } from 'node:util';
 import { hashPassword, passwordProblem, verifyPassword } from '../api/auth/password.js';
@@ -9,6 +9,10 @@ const scryptAsync = promisify(scrypt) as (
   keylen: number,
   opts: { N: number; r: number; p: number; maxmem: number },
 ) => Promise<Buffer>;
+
+// every case runs real scrypt (32 MiB, about 100 ms a hash); a busy runner
+// stretches a case with several of them past the 5 s default
+vi.setConfig({ testTimeout: 20_000 });
 
 describe('hashPassword', () => {
   it('stores scrypt parameters, a 16-byte salt and a 64-byte key', async () => {

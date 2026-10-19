@@ -21,7 +21,7 @@ import type {
   PinnedObject as SdkPinnedObject,
   Sdk,
 } from '@siafoundation/sia-storage';
-import type { ObjectSnapshot } from './sia-breakdown.js';
+import { SECTOR_SIZE_BYTES, type ObjectSnapshot } from './sia-breakdown.js';
 import { siaUploadDurationSeconds } from '../metrics/collector.js';
 import { RedisPruneLeases } from './prune-leases.js';
 import { SlabPruneGate } from './slab-prune-gate.js';
@@ -186,6 +186,22 @@ function erasureOptions(): PackedUploadOptions | undefined {
   return undefined;
 }
 
+// the split the sdk uses when none is configured, as its stored slabs show
+const DEFAULT_DATA_SHARDS = 10;
+const DEFAULT_PARITY_SHARDS = 20;
+
+/**
+ * The bytes a packed upload of `dataBytes` puts on the wire: whole slabs of
+ * data plus parity shards, every shard a full sector. Progress divides the
+ * shards stored so far by this.
+ */
+export function encodedUploadBytes(dataBytes: number): number {
+  const data = env.SIA_DATA_SHARDS ?? DEFAULT_DATA_SHARDS;
+  const parity = env.SIA_PARITY_SHARDS ?? DEFAULT_PARITY_SHARDS;
+  const slabs = Math.max(1, Math.ceil(dataBytes / (data * SECTOR_SIZE_BYTES)));
+  return slabs * (data + parity) * SECTOR_SIZE_BYTES;
+}
+
 /**
  * A packed upload that has stored no shard for this long is hung and gets
  * cancelled. The SDK bounds each host write (90 s) and each indexer call
@@ -201,6 +217,8 @@ export interface PackedUploadHooks {
    */
   beforePin?: (objectIds: string[]) => Promise<void>;
   stallTimeoutMs?: number;
+  /** Each shard stored on a host, with its size in bytes, for progress. */
+  onShardStored?: (bytes: number) => void;
 }
 
 /** One item of a packed upload: bytes in memory, or a file the SDK reads from disk. */
@@ -258,8 +276,9 @@ async function packedUpload(
       new Error(`Sia upload stored nothing for ${Math.round(stallMs / 1000)}s and was cancelled`),
     );
   }, stallMs);
-  const progressed = () => {
+  const progressed = (shard?: { shardSize: number }) => {
     timer.refresh();
+    if (shard) hooks.onShardStored?.(shard.shardSize);
   };
   const packed = sdk.uploadPacked({ ...erasureOptions(), onShardUploaded: progressed });
 

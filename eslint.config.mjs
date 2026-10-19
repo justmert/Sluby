@@ -9,7 +9,16 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   eslintConfigPrettier,
   {
-    ignores: ['**/dist/', '**/node_modules/', '**/drizzle/', '**/build/', 'resources/', '.claude/'],
+    ignores: [
+      '**/dist/',
+      '**/node_modules/',
+      '**/drizzle/',
+      '**/build/',
+      // the docs dev server's bundled dependencies
+      '**/.vitepress/cache/',
+      'resources/',
+      '.claude/',
+    ],
   },
   {
     // Plain Node scripts (probes, one-off tooling) run under Node, not the

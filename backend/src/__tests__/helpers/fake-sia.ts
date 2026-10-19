@@ -108,7 +108,7 @@ export function createFakeSia(): FakeSia {
   });
 
   const sdk = {
-    uploadPacked(opts?: { onShardUploaded?: () => void }) {
+    uploadPacked(opts?: { onShardUploaded?: (shard: { shardSize: number }) => void }) {
       const pending: FakeObject[] = [];
       let closed = false;
       let cancel: (err: Error) => void = () => {};
@@ -123,7 +123,9 @@ export function createFakeSia(): FakeSia {
         const slab = randomBytes(8).toString('hex');
         fake.slabs.add(slab);
         fake.inFlightSlabs.add(slab);
-        opts?.onShardUploaded?.();
+        // the 30 shards of the item's slab, each a full 4 MiB sector, as a
+        // real upload reports them
+        for (let i = 0; i < 30; i++) opts?.onShardUploaded?.({ shardSize: 4 * 1024 * 1024 });
         pending.push({ id: randomBytes(32).toString('hex'), size, slabs: [slab] });
         return BigInt(size);
       };

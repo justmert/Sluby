@@ -4,12 +4,11 @@ import { CircleAlert, CirclePause, Upload } from 'lucide-react';
 import type { VideoAsset } from '@sluby/sdk';
 import { ErrorDetails } from '@/components/shared/ErrorDetails';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { ROUTES } from '@/lib/constants';
 import { Icons } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { assetSteps } from './pipeline-states';
-import { PipelineSteps } from './PipelineSteps';
+import { PipelineProgress } from './PipelineProgress';
 import { failureInfo, processingView, type Job } from './processing';
 import { RetryProcessingButton } from './RetryProcessingButton';
 
@@ -121,7 +120,12 @@ export function ProcessingCard({
         }
         title="Upload interrupted"
         actions={deleteButton}
-        steps={<PipelineSteps steps={assetSteps(asset, job, { interrupted: true })} />}
+        steps={
+          <PipelineProgress
+            steps={assetSteps(asset, job, { interrupted: true })}
+            label={`${asset.title}, processing progress`}
+          />
+        }
       >
         <p>
           The browser sending this file stopped. Add the same file again in that browser to
@@ -143,7 +147,12 @@ export function ProcessingCard({
           <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-destructive" />
         }
         title={info.title}
-        steps={<PipelineSteps steps={assetSteps(asset, job)} />}
+        steps={
+          <PipelineProgress
+            steps={assetSteps(asset, job)}
+            label={`${asset.title}, processing progress`}
+          />
+        }
         actions={
           <>
             {deleteButton}
@@ -185,7 +194,14 @@ export function ProcessingCard({
     <Frame
       className={className}
       title={uploading ? 'Uploading' : 'Processing'}
-      steps={<PipelineSteps steps={assetSteps(asset, job)} />}
+      steps={
+        <PipelineProgress
+          steps={assetSteps(asset, job)}
+          percent={view?.percent ?? null}
+          moving={Boolean(view?.busy) && !jobError}
+          label={`${asset.title}, processing progress`}
+        />
+      }
       actions={
         jobError && !uploading ? (
           <Button variant="outline" onClick={onCheckAgain} disabled={checking}>
@@ -211,15 +227,6 @@ export function ProcessingCard({
           </span>
         )}
       </div>
-      {view?.percent != null && (
-        <Progress
-          smooth
-          moving={view.busy && !jobError}
-          value={view.percent}
-          className="mt-3"
-          aria-label={`${asset.title}, processing progress`}
-        />
-      )}
     </Frame>
   );
 }
