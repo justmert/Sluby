@@ -18,3 +18,28 @@ export function signInWarnings(opts: { authDisabled: boolean; publicUrl: string 
   }
   return warnings;
 }
+
+/**
+ * The old access settings that are still set once their values were adopted
+ * (see adopt-legacy.ts). Members and roles live in the database now, so an
+ * operator editing these would expect an effect that never comes.
+ */
+export function ignoredSettingWarnings(opts: {
+  githubAllowedUsers: string;
+  operatorUsers: string;
+}): string[] {
+  const warnings: string[] = [];
+  if (opts.githubAllowedUsers.trim()) {
+    warnings.push(
+      'GITHUB_ALLOWED_USERS is set but ignored: it was read once when this install moved to ' +
+        'members. Invite people and remove members on the Members page, then remove the setting.',
+    );
+  }
+  if (opts.operatorUsers.trim()) {
+    warnings.push(
+      'OPERATOR_USERS is set but ignored: it was read once when this install moved to roles. ' +
+        'Change roles on the Members page, then remove the setting.',
+    );
+  }
+  return warnings;
+}

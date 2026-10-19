@@ -19,7 +19,8 @@ import { pruneEndedStudioSessions } from './db/queries/sessions.js';
 import { pruneWebhookDeliveries } from './db/queries/webhooks.js';
 import { WEBHOOK_DELIVERY_RETENTION_MS } from './webhooks/delivery.js';
 import { ENDED_SESSION_RETENTION_MS } from './api/routes/auth.js';
-import { signInWarnings } from './api/auth/startup.js';
+import { ignoredSettingWarnings, signInWarnings } from './api/auth/startup.js';
+import { adoptLegacyAccess } from './api/auth/adopt-legacy.js';
 import { seedBootstrapApiKey } from './db/api-key-seeding.js';
 import { getClient } from './storage/sia-client.js';
 import {
@@ -98,6 +99,33 @@ if (env.BOOTSTRAP_API_KEY) {
     await closeDatabase().catch(() => {});
     process.exit(1);
   }
+}
+
+// an install from before members and roles takes its old access settings
+// over once, before anyone can sign in; a failure leaves membership unknown,
+// so it stops the boot
+try {
+  const adoption = await adoptLegacyAccess({
+    githubAllowedUsers: env.GITHUB_ALLOWED_USERS,
+    operatorUsers: env.OPERATOR_USERS,
+  });
+  if (adoption.status === 'adopted' && (adoption.removed > 0 || adoption.promoted > 0)) {
+    logger.info(
+      { removed: adoption.removed, promoted: adoption.promoted },
+      'Adopted GITHUB_ALLOWED_USERS and OPERATOR_USERS: accounts they refused were removed ' +
+        'and the operators they listed are admins now',
+    );
+  }
+} catch (err) {
+  logger.fatal({ err }, 'Could not adopt the old access settings');
+  await closeDatabase().catch(() => {});
+  process.exit(1);
+}
+for (const warning of ignoredSettingWarnings({
+  githubAllowedUsers: env.GITHUB_ALLOWED_USERS,
+  operatorUsers: env.OPERATOR_USERS,
+})) {
+  logger.warn(warning);
 }
 
 // Make a plaintext session cookie explicit rather than silent.

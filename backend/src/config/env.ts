@@ -166,15 +166,17 @@ export const envSchema = z.object({
   /** Who could sign in with GitHub before membership, comma-separated:
    *  logins (case-insensitive, each pinned to the account that first signed in
    *  with it), `id:<numeric github id>` entries, or `*`. It no longer decides
-   *  who signs in; it is only read to adopt an install that used it. See
-   *  api/auth/allowlist.ts. */
+   *  who signs in: the first start after the upgrade removes the github
+   *  accounts it refused (api/auth/adopt-legacy.ts), and later starts ignore
+   *  it with a warning. */
   GITHUB_ALLOWED_USERS: z.string().default(''),
 
   /** Accounts that saw deployment-wide operations data before roles.
    *  Comma-separated `<provider>:<entry>`, the entry written as in that
    *  provider's allowlist: `github:id:583231`, `github:octocat`, `github:*`.
-   *  It no longer makes anyone an admin; it is only read to adopt an install
-   *  that used it. See api/auth/operator-list.ts. */
+   *  It no longer makes anyone an admin: the first start after the upgrade
+   *  makes the accounts it lists admins (api/auth/adopt-legacy.ts), and later
+   *  starts ignore it with a warning. */
   OPERATOR_USERS: z
     .string()
     .default('')
@@ -206,7 +208,8 @@ export const envSchema = z.object({
    *  production refuses to start without a strong one. */
   SESSION_SECRET: z.string().optional(),
 
-  /** When set to 'true', bypasses the GitHub auth gate entirely (dev only). */
+  /** When set to 'true', turns sign-in off: every request acts as one local
+   *  admin account (dev only). */
   AUTH_DISABLED: flag('false'),
 
   /** Comma-separated browser origins that may call the API with the session
