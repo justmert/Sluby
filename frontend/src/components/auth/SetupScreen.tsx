@@ -1,4 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
+import { CopyButton } from '@/components/shared/CopyButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
@@ -9,6 +10,8 @@ import { reasonOf, SessionNotKeptError } from './sign-in-copy';
 import { useAuthForm } from './use-auth-form';
 
 type Field = 'code' | 'name' | 'email' | 'password';
+
+const SETUP_COMMAND = 'docker compose logs backend | grep "setup code"';
 
 /**
  * The first admin's account, guarded by the setup code the server prints in
@@ -57,7 +60,16 @@ export function SetupScreen({
           id="setup-code"
           label="Setup code"
           error={form.shown('code')}
-          hint='The server prints it in its log, on the line that starts with "No admin can sign in yet".'
+          hint={
+            <>
+              The server prints it in its log. With Docker Compose, run this in Sluby&rsquo;s
+              folder:
+              <span className="mt-1.5 flex items-center gap-1 rounded-md border bg-muted/50 py-0.5 pr-0.5 pl-2.5 font-mono text-xs text-foreground">
+                <span className="min-w-0 flex-1 truncate">{SETUP_COMMAND}</span>
+                <CopyButton value={SETUP_COMMAND} label="Copy the command" />
+              </span>
+            </>
+          }
           input={(props) => (
             <Input
               {...props}

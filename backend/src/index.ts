@@ -22,6 +22,7 @@ import { ENDED_SESSION_RETENTION_MS } from './api/routes/auth.js';
 import { ignoredSettingWarnings, setupCodeNotice, signInWarnings } from './api/auth/startup.js';
 import { adoptLegacyAccess } from './api/auth/adopt-legacy.js';
 import { setupCode } from './api/auth/setup-code.js';
+import { persistedSessionSecret } from './db/queries/instance-secret.js';
 import { hasSignInAdmin } from './db/queries/accounts.js';
 import { seedBootstrapApiKey } from './db/api-key-seeding.js';
 import { getClient } from './storage/sia-client.js';
@@ -70,10 +71,20 @@ const { app, tusServer, expireAbandonedUploads } = createApp({
   triggerReconciliation: () => triggerReconciliation(),
 });
 
+// without SESSION_SECRET (never in production) the install keeps the secret
+// it generated on its first start, so a restart signs nobody out and keeps
+// the setup code; it is read on each request, and nothing has been served yet
 if (sessionSecretGenerated) {
-  logger.warn(
-    'SESSION_SECRET is not set: using a random one for this run, so Studio sessions and ' +
-      'signed URLs stop working when the backend restarts. Set SESSION_SECRET to keep them.',
+  try {
+    env.SESSION_SECRET = await persistedSessionSecret(env.SESSION_SECRET);
+  } catch (err) {
+    logger.fatal({ err }, 'Could not load or store the session secret');
+    await closeDatabase().catch(() => {});
+    process.exit(1);
+  }
+  logger.info(
+    'SESSION_SECRET is not set: using the secret this install generated and keeps in its ' +
+      'database. Set SESSION_SECRET to choose your own.',
   );
 }
 if (env.EXPOSE_ERROR_STACKS) {

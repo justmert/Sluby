@@ -211,8 +211,8 @@ describe('password sign-in', () => {
 describe('first admin setup', () => {
   const needsSetup = { '/api/v1/auth/config': { ...config, setup_required: true } };
 
+  // a server with no admin opens on setup, since nobody can sign in there yet
   async function openSetup() {
-    await userEvent.click(await screen.findByRole('button', { name: 'Set up the first admin' }));
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Set up Sluby Studio' }),
     ).toBeInTheDocument();
@@ -225,11 +225,16 @@ describe('first admin setup', () => {
     await userEvent.type(screen.getByLabelText('Password'), 'long enough pw');
   }
 
-  it('says the server has no admin yet, beside the sign-in form', async () => {
+  it('opens on setup, and keeps the sign-in form a click away', async () => {
     stub(needsSetup);
     renderGate();
+    await openSetup();
+    expect(screen.getByText('docker compose logs backend | grep "setup code"')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /back to sign in/i }));
     expect(await screen.findByText('This server has no admin yet.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Set up the first admin' }));
+    await openSetup();
   });
 
   it('does not offer setup once an admin exists', async () => {

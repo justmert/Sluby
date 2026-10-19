@@ -17,7 +17,7 @@ cd Sluby
 cp .env.example .env
 ```
 
-The defaults in `.env.example` are set up for this guide: the hosted mainnet indexer, the Studio on `http://localhost:8080`, and sign-in turned off because the stack only listens on localhost.
+The defaults in `.env.example` are set up for this guide: the hosted mainnet indexer and the Studio on `http://localhost:8080`, with sign-in on. If something else already uses port 8080, set `WEB_PORT` and `PUBLIC_URL` in `.env` to another port, for example `WEB_PORT=8090` and `PUBLIC_URL=http://localhost:8090`.
 
 ## 2. Connect to the indexer
 
@@ -55,12 +55,24 @@ docker compose up -d
 
 This starts PostgreSQL, Redis, the backend and the web front door (nginx serving the Studio and proxying the API and video delivery). `docker compose ps` shows every service as `healthy` once it is up.
 
-## 4. Upload and play
+## 4. Create your admin account
 
-1. Open [http://localhost:8080](http://localhost:8080). The dashboard shows the indexer as **Operational** and how many Sia hosts are accepting uploads.
-2. Go to **Upload**, pick your video, give it a title and press **Start upload**.
-3. The page follows the pipeline: the upload itself, transcoding, storing on Sia, and finalizing. When it reaches **Ready**, press **Open asset**.
-4. The asset page plays the video. Its storage panel lists every Sia object behind it, with slab, sector and host counts.
+Open [http://localhost:8080](http://localhost:8080). The first visit asks for a setup code, which only the backend's log shows:
+
+```sh
+docker compose logs backend | grep "setup code"
+```
+
+Enter it with your name, email and a password of at least 10 characters. That makes you the admin; you invite everyone else from **Members** in the Studio. The code works until the first admin exists.
+
+## 5. Upload and play
+
+1. The overview shows **Connect Sia** done and the Sia storage status as OK.
+2. Press **Upload video**, pick your video, give it a title and press **Start upload**.
+3. The bar follows the pipeline: Upload, Transcode, Store on Sia and Publish. When it reaches **Ready**, press **Open video**.
+4. The video page plays it. Its **Storage** tab lists every Sia object behind it, with slab, sector and host counts.
+
+The Studio plays through this server's gateway, which reads the video from Sia. To have browsers fetch the bytes straight from Sia hosts instead, give the Studio a viewer identity, see [the direct-from-Sia path](/architecture/playback#the-direct-from-sia-path).
 
 ### How long it takes
 
@@ -87,9 +99,9 @@ That machine was heavily loaded by other work during the run (a one-minute load 
 - whether the base images are already pulled: on ARM64 the first build also downloads the Rust toolchain image (2.2 GB unpacked)
 - CPU, for the ARM64 SDK compile and for transcoding longer or larger sources
 
-## 5. Use the API
+## 6. Use the API
 
-The Studio is a client of the same REST API your applications use. Create a key under **Settings → API keys**, then:
+The Studio is a client of the same REST API your applications use. Create a key under **API keys** in the Studio, then:
 
 ```sh
 export SLUBY_API_KEY=sluby_...
