@@ -86,7 +86,18 @@ export function sessionEndReasonOf(err: unknown): SessionEndReason | undefined {
 
 /**
  * The `?signin_error=` codes the GitHub callback sends back to the studio
- * (plan B-12). `cancelled` is the person backing out at GitHub.
+ * (backend routes/auth.ts). `cancelled` is the person backing out at GitHub.
  */
 export type SignInError =
-  'expired_handshake' | 'not_allowed' | 'cancelled' | 'provider_failed' | 'not_configured';
+  | 'expired_handshake'
+  | 'not_a_member'
+  | 'disabled'
+  | 'already_linked'
+  | 'not_signed_in'
+  | 'invite_not_found'
+  | 'invite_used'
+  | 'invite_expired'
+  | 'invite_revoked'
+  | 'cancelled'
+  | 'provider_failed'
+  | 'not_configured';

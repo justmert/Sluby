@@ -8,23 +8,29 @@ import { AuthGate } from './AuthGate';
 
 afterEach(() => vi.unstubAllGlobals());
 
-const unauthorized = () =>
-  new Response(JSON.stringify({ error: 'Not signed in' }), {
-    status: 401,
-    headers: { 'content-type': 'application/json' },
-  });
+const json = (body: unknown, status: number) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+// the session check says no; the config the sign-in screen reads alongside it says how
+const answer = (input: RequestInfo | URL) =>
+  String(input).endsWith('/auth/config')
+    ? json(
+        { auth_disabled: false, setup_required: false, methods: { password: true, github: true } },
+        200,
+      )
+    : json({ error: 'Not signed in' }, 401);
 
 // FLW-01: when /auth/me answered 401 within the first frames, the loading
 // screen's exit never finished and the sign-in button never mounted
 describe('AuthGate signed out, in a real browser', () => {
-  it('shows "Continue with GitHub" on every load, however fast the 401 is', async () => {
+  it('shows the sign-in form on every load, however fast the 401 is', async () => {
     let hangs = 0;
     for (let i = 0; i < 30; i++) {
       const delay = i % 3 === 0 ? -1 : i % 3 === 1 ? 0 : 16;
-      vi.stubGlobal('fetch', () =>
+      vi.stubGlobal('fetch', (input: RequestInfo | URL) =>
         delay < 0
-          ? Promise.resolve(unauthorized())
-          : new Promise<Response>((r) => setTimeout(() => r(unauthorized()), delay)),
+          ? Promise.resolve(answer(input))
+          : new Promise<Response>((r) => setTimeout(() => r(answer(input)), delay)),
       );
       const view = render(
         // as main.tsx renders it: strict mode, and motion's features loading
@@ -40,9 +46,13 @@ describe('AuthGate signed out, in a real browser', () => {
         </StrictMode>,
       );
       const shown = await expect
-        .poll(() => document.body.textContent?.includes('Continue with GitHub') ?? false, {
-          timeout: 2000,
-        })
+        .poll(
+          () =>
+            document.querySelector('input[type=email]') !== null &&
+            document.querySelector('input[autocomplete=current-password]') !== null &&
+            (document.body.textContent?.includes('Continue with GitHub') ?? false),
+          { timeout: 2000 },
+        )
         .toBe(true)
         .then(
           () => true,
