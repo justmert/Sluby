@@ -139,7 +139,7 @@ function renderSiaPlayer(
   props: Partial<React.ComponentProps<typeof SlubyPlayer>> = {},
 ) {
   const ref = createRef<SlubyPlayerHandle>();
-  const events = { deliveries: [] as Array<'sia' | 'gateway'>, errors: [] as Error[] };
+  const events = { deliveries: [] as Array<'sia' | 'hybrid' | 'gateway'>, errors: [] as Error[] };
   mounted = mount(
     <SlubyPlayer
       ref={ref}

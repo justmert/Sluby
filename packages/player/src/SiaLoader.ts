@@ -31,7 +31,7 @@ function failureStatus(err: unknown): number {
   return RETRYABLE_STATUS;
 }
 
-function parseObjectId(url: string): string | null {
+export function parseObjectId(url: string): string | null {
   const m = OBJECT_URL_RE.exec(url);
   return m ? m[1] : null;
 }

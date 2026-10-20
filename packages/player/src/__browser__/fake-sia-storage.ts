@@ -12,10 +12,22 @@ export interface FakeSiaLog {
 
 export const fakeSiaLog: FakeSiaLog = { connects: 0, resolved: [], downloads: [] };
 
+/** How the fake network misbehaves, for the hybrid loader's fallbacks. */
+export interface FakeSiaFaults {
+  /** Refuse to connect, as an indexer that is down or a key it does not know. */
+  failConnect: boolean;
+  /** Hang every read longer than one byte (warm-up reads still answer), as slow hosts do. */
+  stallReads: boolean;
+}
+
+export const fakeSiaFaults: FakeSiaFaults = { failConnect: false, stallReads: false };
+
 export function resetFakeSia(): void {
   fakeSiaLog.connects = 0;
   fakeSiaLog.resolved = [];
   fakeSiaLog.downloads = [];
+  fakeSiaFaults.failConnect = false;
+  fakeSiaFaults.stallReads = false;
 }
 
 const SHARE_URL_RE = /^sia:\/\/[^/]+\/objects\/([0-9a-f]+)\/shared/;
@@ -46,8 +58,11 @@ class FakeSdk {
     let bytes: Uint8Array | null = null;
     let pos = options?.offset ?? 0;
     let end = 0;
+    const stall = fakeSiaFaults.stallReads && options?.length !== 1;
     return new ReadableStream<Uint8Array>({
       async pull(controller) {
+        // never answers; the reader's cancel ends it
+        if (stall) return new Promise<void>(() => {});
         if (!bytes) {
           const res = await fetch(`/__fixture/sia/${object.objectId}`);
           if (!res.ok) {
@@ -86,6 +101,7 @@ export class Builder {
   ) {}
 
   async connected(_key: AppKey): Promise<FakeSdk> {
+    if (fakeSiaFaults.failConnect) throw new Error('fake indexer is down');
     fakeSiaLog.connects += 1;
     return new FakeSdk();
   }

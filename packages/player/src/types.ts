@@ -1,7 +1,12 @@
 import type { CSSProperties } from 'react';
-import type { SiaPlaybackSession } from './sia-types.js';
+import type { HybridDeliveryStats, HybridPolicy, SiaPlaybackSession } from './sia-types.js';
 
-export type { SiaPlaybackSession, SiaShareSource } from './sia-types.js';
+export type {
+  HybridDeliveryStats,
+  HybridPolicy,
+  SiaPlaybackSession,
+  SiaShareSource,
+} from './sia-types.js';
 
 export interface QualityLevel {
   index: number;
@@ -142,11 +147,25 @@ export interface SlubyPlayerProps {
   /** Every rendition in the manifest, once it is parsed (hls.js path only). */
   onQualitiesChange?: (levels: QualityLevel[]) => void;
   /**
-   * How bytes reach the player for this load: `sia` streams straight from Sia
-   * hosts through the viewer session, `gateway` goes through the HTTP gateway
-   * (no viewer key, Safari's native path, or a failed Sia session).
+   * How a video with a viewer session is delivered. `direct` (the default)
+   * streams every playlist and segment from Sia. `hybrid` plays the start, and
+   * whatever is needed urgently, through the gateway and takes the rest from
+   * Sia once the buffer is comfortable, so a video starts as fast as through
+   * the gateway while most of its bytes still come from Sia. Ignored without a
+   * viewer session, where everything goes through the gateway.
    */
-  onDeliveryChange?: (mode: 'sia' | 'gateway') => void;
+  siaDelivery?: 'direct' | 'hybrid';
+  /** Tuning for `siaDelivery="hybrid"`; see `HybridPolicy` for the defaults. */
+  hybridPolicy?: Partial<HybridPolicy>;
+  /**
+   * How bytes reach the player for this load: `sia` streams straight from Sia
+   * hosts through the viewer session, `hybrid` splits segments between the
+   * gateway and Sia (`siaDelivery="hybrid"`), `gateway` goes through the HTTP
+   * gateway (no viewer key, Safari's native path, or a failed Sia session).
+   */
+  onDeliveryChange?: (mode: 'sia' | 'hybrid' | 'gateway') => void;
+  /** Under hybrid delivery, where the segments came from so far; called after every segment. */
+  onDeliveryStats?: (stats: HybridDeliveryStats) => void;
   onStateChange?: (state: PlayerState) => void;
 }
 
