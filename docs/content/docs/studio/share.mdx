@@ -1,0 +1,88 @@
+---
+title: Share or embed a video
+description: Copy a video's watch page link or embed code from the Studio, and share a private video with a signed link.
+---
+
+Copy a link that opens the video on its own page, or embed code that puts the player on your site. Sharing works once the video's status is **Ready**. Before that, the **Share** tab says "Available once the video is ready."
+
+## Copy the watch page link
+
+The watch page shows only the video, in a player that fills the window. Anyone with the link can watch a public video there.
+
+<Steps>
+  <Step>Open the video from **Videos**.</Step>
+  <Step>Click the **Share** tab under the player.</Step>
+  <Step>Click the **Link** tab in the code box, then **Copy**.</Step>
+</Steps>
+
+To check the page first, click **Open watch page**. It opens in a new tab.
+
+The watch page of a public video carries its title, and its thumbnail when it has one, for apps that show link previews.
+
+## Copy the embed code
+
+On the video page, click **Copy embed code** next to the title. For a public video this copies an iframe that you paste into any web page. The Studio confirms with "Embed code copied".
+
+You can also copy it from the **Videos** page: open a video's actions menu and choose **Copy embed code**, or select several videos and click **Copy embed code** in the bar that appears. That copies the code of every selected video that is ready, one after another.
+
+The **Share** tab offers the same video in other forms. Click a tab, then **Copy**:
+
+| Tab            | What you get                                                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Iframe**     | An iframe of the watch page. Nothing to install.                                                                                                   |
+| **Link**       | The watch page address.                                                                                                                            |
+| **React**      | A component for a React app, using `@sluby/player` and `@sluby/sdk`. The install command `npm install @sluby/player @sluby/sdk` is under the code. |
+| **HTML**       | A `<video>` element that plays the stream with hls.js.                                                                                             |
+| **Stream URL** | The address of the video's HLS stream, for any player that plays HLS.                                                                              |
+
+For code beyond these samples, see [Play videos in React](/developers/guides/play-react) and [Play videos without React](/developers/guides/play-hls).
+
+### Change how the embed plays
+
+Add these to the end of the watch page address in the iframe or link:
+
+| Add           | Effect                                   |
+| ------------- | ---------------------------------------- |
+| `?autoplay=1` | Starts playing on load, muted.           |
+| `?muted=1`    | Starts muted.                            |
+| `?loop=1`     | Plays again from the start when it ends. |
+
+Join several with `&`, for example `https://sluby.example.com/watch/<id>?autoplay=1&loop=1`.
+
+## Share with a playback ID
+
+By default the code uses the video ID. To share under a separate ID that you can delete later without touching the video, create a playback ID on the **Playback IDs** tab (see [Playback IDs](/studio/privacy#playback-ids)). Then, on the **Share** tab, pick it in **Play by**. The code samples and **Open watch page** switch to that ID.
+
+## Share a private video
+
+A private video plays only through a signed URL: a link that carries an expiry and a signature. On a private video:
+
+- The **Share** tab says "Private videos play only through signed URLs. Your server creates them with an API key. Never put a key in browser code."
+- **Copy embed code** copies the **Server** sample, the server code that creates signed URLs. The **Iframe**, **React** and **HTML** tabs show page code that asks that server for a signed URL.
+
+Hand the **Server** sample to the person who runs your site, or follow [Serve private videos](/developers/guides/private-videos).
+
+### Get a signed link for a quick test
+
+<Steps>
+  <Step>
+    On the video page, click the **Playback IDs** tab and create a playback ID if the video has none
+    ([create a playback ID](/studio/privacy#create-a-playback-id)).
+  </Step>
+  <Step>In the playback ID's row, click **Copy signed URL**.</Step>
+</Steps>
+
+The Studio copies a stream URL that works for 1 hour and says when it stops, for example "Signed URL copied. It works until 3:45 PM". It is an HLS stream address, so open it in a player that plays HLS. How long signed URLs last and how they are checked is on [Playback and delivery](/developers/concepts/playback#signed-urls).
+
+## When a shared link does not play
+
+The watch page tells the viewer why:
+
+| The viewer sees                         | Why                                                                                                  |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **This video needs a signed link**      | The video is private, or the playback ID requires a signed URL, and the link has no valid signature. |
+| **This link has expired**               | The signed link was valid but its time ran out. Send a new one.                                      |
+| **This video is not available**         | The video or playback ID was deleted, or the video is still processing.                              |
+| **This video is unavailable right now** | The server could not look up the video. Try again in a moment.                                       |
+
+To stop links you already shared from working, see [Choose who can watch](/studio/privacy#stop-links-you-already-shared).

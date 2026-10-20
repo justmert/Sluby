@@ -1,0 +1,112 @@
+---
+title: Follow processing and retry
+description: See where a video is in processing, read its processing log, and retry a video that failed.
+---
+
+After a file is uploaded, the server converts it for streaming and stores it on Sia. Follow that work from the Studio, read the log of each run, and restart a video whose processing failed.
+
+## The four steps
+
+Every video goes through the same four steps. The Studio draws them as a progress bar with these names:
+
+| Step             | What happens                                               |
+| ---------------- | ---------------------------------------------------------- |
+| **Upload**       | The file is sent to this server and resumes if interrupted |
+| **Transcode**    | Converted into several qualities for streaming             |
+| **Store on Sia** | Video, playlists and thumbnails are stored on Sia          |
+| **Publish**      | The video becomes playable                                 |
+
+For what happens inside each step, see [the upload pipeline](/developers/concepts/upload-pipeline).
+
+While a video processes, the Studio names its current stage and a percentage, for example "Storing on Sia, 72%". The stage names are:
+
+| Stage            | Meaning                                                                                                                                               |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Waiting to start | The file has arrived and processing has not started yet.                                                                                              |
+| Transcoding      | The server converts the video into several qualities.                                                                                                 |
+| Storing on Sia   | The server stores the converted files on Sia. A second line "Waiting for the Sia uploader" means transcoding is done and storing has not started yet. |
+| Publishing       | The server makes the video playable.                                                                                                                  |
+| Done             | Processing finished. The video is ready to play.                                                                                                      |
+| Failed           | Processing stopped with an error. See [When processing fails](#when-processing-fails).                                                                |
+
+When a step fails, the server tries it again by itself, unless the file is not a readable video. The stage then reads, for example, "Transcoding, trying again".
+
+## Video statuses
+
+Each video has one status. It shows as a badge next to the title on the video page and on each video on the **Videos** page.
+
+| Status               | Meaning                                                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Waiting for file** | The video was created and no file has arrived yet.                                                                                                      |
+| **Uploading**        | The file is arriving.                                                                                                                                   |
+| **Processing**       | The file has arrived and is being processed. In the video list the badge names the stage instead, for example **Storing on Sia**.                       |
+| **Ready**            | The video plays, and its links and embed code work.                                                                                                     |
+| **Failed**           | Processing stopped with an error.                                                                                                                       |
+| **Interrupted**      | The video was created more than 10 minutes ago and its file has not fully arrived. See [When an upload is interrupted](#when-an-upload-is-interrupted). |
+
+## Where to follow progress
+
+- **Upload page**: each row you started in this browser shows the stage and a progress bar. Click **Details** on the row to see the processing log.
+- **Top bar**: while uploads run, a progress ring shows in the top bar. Click it for the **Uploads** list.
+- **Videos page**: a processing video shows its stage and percentage in the list.
+- **Video page**: until the video is ready, the player area shows the four steps. It reads **Uploading** while the file arrives, then **Processing** with the stage and the percentage. The page updates by itself.
+
+When a video you uploaded in this tab finishes, a notice "“Title” is ready" appears on any other Studio page. On the upload page, the row itself turns into a check mark and a link.
+
+## Read the processing log
+
+<Steps>
+  <Step>Open the video from **Videos**.</Step>
+  <Step>Click the **Activity** tab under the player.</Step>
+</Steps>
+
+The tab shows when the run started and finished, how many times it was tried again ("Tried again 2 times"), and the processing log: one line per event, with the time, the stage and a message. If the run failed, the line it failed on is red.
+
+Before the whole file has arrived, the tab says "Nothing has run yet. Processing starts once the whole file has arrived."
+
+## When processing fails
+
+A failed video shows **Processing failed** in the player area, with one sentence about what went wrong:
+
+- The file is not a readable video.
+- The original file is no longer on the server.
+- Transcoding the video failed.
+- Storing the video on Sia failed. Retrying usually works.
+- Publishing the video failed. Retrying usually works.
+- Processing stopped with an error.
+- Processing failed before it recorded a reason.
+
+Click **Details** under the message to see the server's own error text.
+
+The card offers one of two actions next to **Delete video**:
+
+- **Retry processing** when a new run can help.
+- **Upload a different file** when it cannot, for example when the file is not a readable video. This opens the upload page.
+
+## Retry processing
+
+<Steps>
+  <Step>
+    Find the failed video. On the **Videos** page, failed videos show the reason in red and a
+    **Retry** button. On the video page, the button reads **Retry processing**.
+  </Step>
+  <Step>Click **Retry** or **Retry processing**.</Step>
+</Steps>
+
+The server starts a new run from **Transcoding**, or from **Storing on Sia** when transcoding already finished in an earlier run. The Studio confirms with a notice such as "Processing restarted from Storing on Sia". The video's status returns to **Processing**, and you follow it as before.
+
+If the retry is refused, the notice starts with "Could not retry" and gives the reason.
+
+On the upload page, a row whose processing failed also has **Retry processing** or **Upload a different file**.
+
+## When an upload is interrupted
+
+If a video was created more than 10 minutes ago, its file has not fully arrived, and this browser is not sending it, the Studio marks it **Interrupted**. The video page shows **Upload interrupted**: "The browser sending this file stopped. Add the same file again in that browser to continue, or delete this video. Unfinished uploads are removed after 24 hours."
+
+To continue it, see [Continue an upload after closing the tab](/studio/upload#continue-an-upload-after-closing-the-tab). To remove it, click **Delete video**.
+
+## When the Studio cannot read the status
+
+If the Studio cannot reach the server to read the processing status, the player area says "Could not read the processing status." and offers **Check again**. Processing on the server continues meanwhile.
+
+On the upload page, if processing has not started a minute after the file was sent, the row says "Processing has not started after a minute. Check again, or open the video." with **Check again** and **Open video** buttons.

@@ -1,0 +1,132 @@
+---
+title: Set up sign-in
+description: Create the first admin with the setup code, add GitHub sign-in, and make reset links from the command line.
+---
+
+People sign in to the Studio with an email and password, and with GitHub when you add a GitHub OAuth app. This page covers what you do on the server: claim a fresh install with the setup code, turn on GitHub sign-in, make a reset link for a locked-out admin, and turn sign-in off for local development. Inviting people and changing roles happens in the Studio: [Invite and manage members](/studio/members).
+
+The commands below are for the base stack. On a production server, add `-f docker-compose.yml -f docker-compose.prod.yml` after `docker compose`.
+
+## Create the first admin
+
+While no admin can sign in, the backend logs a setup code at every start. Whoever can read the server's logs can claim the install with it.
+
+<Steps>
+<Step>
+
+### Read the code from the log
+
+```bash
+docker compose logs backend | grep "setup code"
+```
+
+```text
+No admin can sign in yet. Open http://localhost:8080/studio and set up the first admin with the setup code XXXXX-XXXXX.
+```
+
+The address in the line comes from [`PUBLIC_URL`](/self-hosting/configuration#public_url).
+
+</Step>
+<Step>
+
+### Fill in the setup form
+
+Open the Studio, click **Set up the first admin**, and fill in **Setup code**, **Your name**, **Email** and **Password** (at least 10 characters). Click **Create admin account**. The Studio signs you in as an admin.
+
+The code ignores case, spaces and dashes.
+
+</Step>
+</Steps>
+
+The setup code is derived from [`SESSION_SECRET`](/self-hosting/configuration#session_secret), so it changes when the secret changes. Once an admin exists, the form answers `This server already has an admin. Sign in instead.` Whenever no admin can sign in, the backend logs a setup code again at its next start.
+
+## Add GitHub sign-in
+
+GitHub sign-in lets in members whose account has GitHub linked (on their Settings page, or by joining with GitHub from an invite link) and people who open an invite link. Anyone else who tries it sees a message that their GitHub account is not a member of the workspace.
+
+<Steps>
+<Step>
+
+### Create a GitHub OAuth app
+
+Open [GitHub developer settings](https://github.com/settings/developers) and create a new OAuth app. Set **Authorization callback URL** to your `PUBLIC_URL` followed by `/api/v1/auth/github/callback`:
+
+```text
+https://sluby.example.com/api/v1/auth/github/callback
+```
+
+For the local stack it is `http://localhost:8080/api/v1/auth/github/callback`. Sluby asks GitHub for the `read:user` scope only.
+
+</Step>
+<Step>
+
+### Put the client ID and secret in .env
+
+```bash title=".env"
+GITHUB_CLIENT_ID=<client id>
+GITHUB_CLIENT_SECRET=<client secret>
+```
+
+See [`GITHUB_CLIENT_ID`](/self-hosting/configuration#github_client_id) and [`GITHUB_CLIENT_SECRET`](/self-hosting/configuration#github_client_secret).
+
+</Step>
+<Step>
+
+### Restart the backend
+
+```bash
+docker compose up -d
+```
+
+The sign-in screen now offers GitHub. Members link their GitHub account from Settings: [Link your GitHub account](/studio/account#link-your-github-account).
+
+</Step>
+</Steps>
+
+## Make a reset link from the command line
+
+Admins make reset links for members on the Members page ([Give someone a reset link](/studio/members#give-someone-a-reset-link)). When no admin can sign in to make one, for example because the only admin forgot their password, make it on the server:
+
+```bash
+docker compose exec backend node dist/db/reset-link.js --email you@example.com
+```
+
+```text
+Reset link for <name>:
+
+  https://sluby.example.com/studio/reset/<token>
+
+It works once, until <date>. Using it sets a new password and signs out every other session of the account.
+```
+
+The link works once and for 7 days. The script finds the account by the email it signs in with, so it cannot make a link for an account that signs in with GitHub only. For a removed account it refuses and says that an admin can restore it on the Members page.
+
+When you run the backend from source, use `npm run admin:reset-link --workspace=backend -- --email you@example.com` instead.
+
+## Create an admin API key from the command line
+
+To call the API before anyone has signed in, for example from a provisioning script, create a key with every scope on the server:
+
+```bash
+docker compose exec backend node dist/db/seed-api-key.js --name provisioning
+```
+
+The script prints the key once, after `Key:`. The key acts as an admin. To have the backend create a key you choose at startup instead, set [`BOOTSTRAP_API_KEY`](/self-hosting/configuration#bootstrap_api_key). What each scope allows: [Scopes](/developers/reference/api-conventions#scopes).
+
+## Turn sign-in off for local development [#turn-sign-in-off]
+
+On a machine only you can reach, skip sign-in with this line:
+
+```bash title=".env"
+AUTH_DISABLED=true
+```
+
+Run `docker compose up -d` to apply it. Every visitor then acts as one local admin account, and the Studio shows a banner that starts with **Sign-in is off.** What the setting allows and where it is refused: [`AUTH_DISABLED`](/self-hosting/configuration#auth_disabled).
+
+To turn sign-in back on, set `AUTH_DISABLED=false` and run `docker compose up -d` again.
+
+## Related
+
+- [Accounts, roles and sessions](/developers/concepts/accounts-and-roles)
+- [Sign in and out](/studio/sign-in), from the Studio side
+- [Sign-in problems](/self-hosting/troubleshooting#sign-in)

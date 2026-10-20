@@ -1,0 +1,87 @@
+---
+title: Create and manage API keys
+description: Create an API key for your server, copy it once, and rename, rotate or revoke keys from the Studio.
+---
+
+An API key lets your server call the Sluby REST API and SDK. Create, rotate and revoke keys on the **API keys** page, under **Developers** in the sidebar. Members and admins can both use it.
+
+<Callout type="warn" title="Keys are server secrets">
+  Never put an API key in browser code. The Studio shows a new key only once, so copy it straight
+  into your server's configuration.
+</Callout>
+
+## Create a key
+
+<Steps>
+  <Step>On the **API keys** page, click **Create key**.</Step>
+  <Step>
+    Enter a **Name** that tells you where the key is used, for example "Production web app". Names
+    can be up to 100 characters.
+  </Step>
+  <Step>
+    Under **Scopes**, tick what the key can do. **upload** and **read** are ticked by default. Tick
+    at least one.
+  </Step>
+  <Step>
+    Set the **Rate limit** in requests per minute. The default is 100, and the line under the field
+    shows the highest value this server allows.
+  </Step>
+  <Step>Click **Create key**.</Step>
+</Steps>
+
+A notice appears above the table: **Key “Production web app” created** and "Copy it now. It is shown only once." Click **Copy key**, then close the notice. To check the key on screen, click **Show**.
+
+If you close the notice before copying, the Studio asks **Close without copying?** first. If you follow a link to another Studio page, it asks **Leave without the key?**, and if you reload or close the tab, the browser asks you to confirm. A key you did not copy cannot be shown again; create or rotate another one instead.
+
+## Scopes
+
+Each key has one or more scopes:
+
+- **upload**: Upload videos.
+- **read**: See videos, playback URLs and storage details.
+- **manage**: Edit and delete videos, keys and webhooks.
+
+For exactly which API calls each scope allows, see [Scopes](/developers/reference/api-conventions#scopes).
+
+## The keys table
+
+The page header shows how many keys you have and how many the server allows, for example "2 of 100 used." The table lists every key in the Studio, whoever created it. The columns are:
+
+- **Name**: the name you gave the key.
+- **Key**: the first characters of the key, so you can match it to the one on your server.
+- **Can**: the key's scopes.
+- **Last used**: when the key last made a request, or **Never**.
+- **Created** and **Created by**: when and by whom. **Server** means the key was made on the server, not by a member.
+- **Status**: **Active**, or **Replaced** with the time left for an old key that is being rotated out.
+
+Narrow screens hide some columns.
+
+A key acts with the role of the member who created it, and a key made on the server acts as an admin. While the member who created a key is [removed](/studio/members#remove-a-member), the key stops working; it works again when the member is restored.
+
+## Rename a key
+
+Open the row menu and choose **Rename**, or click the key's name. Type the new name and press Enter (or click outside the field) to save, or press Escape to cancel. The key itself does not change.
+
+## Rotate a key
+
+Rotating gives you a new key with the same name, scopes and rate limit, while the old key keeps working long enough for your servers to switch. The new key counts as created by you, so it acts with your role.
+
+<Steps>
+  <Step>Open the row menu of the key and choose **Rotate**.</Step>
+  <Step>
+    Under **Old key keeps working for**, pick **1 hour**, **1 day**, **7 days** or **Stop now**. **1
+    hour** is the default.
+  </Step>
+  <Step>Click **Rotate key**.</Step>
+  <Step>Copy the new key from the notice and update your servers.</Step>
+</Steps>
+
+The notice says when the old key stops working. Until then the old key stays in the table with the status **Replaced** and the time left. A replaced key has no **Rotate** item; rotate its replacement instead.
+
+## Revoke a key
+
+Open the row menu, choose **Revoke** and confirm **Revoke this key?** with **Revoke**. The key stops working right away. This cannot be undone.
+
+## When you reach the key limit
+
+The limit counts every key in the table, including replaced keys that still work. When you reach it, **Create key** is disabled and the page says "You have 100 keys, the most allowed. Revoke one to create another." (with your server's limit in place of 100). Revoke a key you no longer use, then create the new one. The person who runs the server sets the limit ([configuration](/self-hosting/configuration#api_keys_per_account_max)).

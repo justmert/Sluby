@@ -1,0 +1,124 @@
+---
+title: Overview, health and metrics
+description: Read the Overview page, and as an admin, the Health and Metrics pages.
+---
+
+The **Overview** page shows your library totals, what needs your attention and your newest videos. Admins also get **Health**, which says whether the server and its Sia storage work, and **Metrics**, which shows server activity since it last started.
+
+## Overview
+
+Open **Overview** at the top of the sidebar (`/studio`). Every member of the team sees the same totals and videos.
+
+### Get started
+
+The **Get started** card lists four steps, shows how many are done (for example "2 of 4 done"), and ticks each step on its own as soon as it is done. The first step that is not done is marked as the next one. Each open step has a link that takes you to it.
+
+| Step                     | Done when                                                                                       | Link                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Connect Sia**          | The server reaches the Sia indexer and its Sia account is ready.                                | Only when this fails: **Open health** for admins, "Ask an admin." for members |
+| **Upload a video**       | At least one video has started uploading its file.                                              | **Upload video**                                                              |
+| **Play it on your site** | A player outside the Studio loaded one of your videos. Previews inside the Studio do not count. | **Get embed code**, which opens the share options of a ready video            |
+| **Create an API key**    | You have an active API key. This step is optional.                                              | **Create key**                                                                |
+
+Click **Hide** to remove the card. Once all four steps are done, the card closes by itself. Either way it stays hidden for your account in this browser.
+
+### Totals
+
+| Card                    | What it counts                                                                                                                                                              |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Videos**              | All videos in the library. The line under it splits them by status, for example "4 ready · 1 failed · 1 processing · 2 waiting for file".                                   |
+| **Stored on Sia**       | The size of all your videos on Sia, before Sia adds redundancy. When the Sia account has a storage limit, admins see the figure against it, for example "of 50 GB".         |
+| **Playable time**       | The total length of all ready videos.                                                                                                                                       |
+| **Plays, last 30 days** | Player loads of your videos over the last 30 days. Repeat loads of the same video by the same viewer within 30 minutes count once, and previews in the Studio do not count. |
+
+### Needs attention
+
+**Needs attention** lists problems, most urgent first, with a count next to the heading. It shows up to five rows; click **and N more** to see the rest. With nothing to fix, it says "Nothing needs your attention."
+
+| Label           | Meaning                                                                                              | What to do                                                                                                                     |
+| --------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Down**        | The Sia indexer, the database or the job queue does not work. The row names which one.               | Admins click **Open health**. Members ask an admin.                                                                            |
+| **Missing**     | The last storage check found files that Sia no longer holds.                                         | Admins click **Open health** and read the [storage check](#storage-check).                                                     |
+| **Failed**      | A video failed to process.                                                                           | Click **Retry**, or **Upload again** when retrying cannot help. See [Follow processing and retry](/studio/processing).         |
+| **Failing**     | The last delivery to a webhook failed.                                                               | Click **Open webhook**. See [Receive webhooks](/developers/guides/webhooks).                                                   |
+| **Paused**      | A webhook is paused, so it gets no events.                                                           | Click **Open webhook**.                                                                                                        |
+| **Interrupted** | An upload started more than 10 minutes ago and has not finished, and this browser is not sending it. | Click **Open video**. See [Continue an upload after closing the tab](/studio/upload#continue-an-upload-after-closing-the-tab). |
+
+### Status
+
+The **Status** card gives one verdict and a row for each service the server needs: **Database**, **Queue** and **Sia storage**. Each row shows "OK" with the response time, or **Not responding**. The card checks again every 20 seconds. Admins get an **Open health** link.
+
+| Verdict         | Meaning                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| **All working** | Every service works.                                                                              |
+| **Degraded**    | The database and queue work, but the Sia indexer does not answer or the Sia account is not ready. |
+| **Down**        | The database or the queue does not answer.                                                        |
+
+### Recent videos
+
+**Recent videos** lists your six newest videos with their **Status**, **Access** (**Public** or **Private**), **Plays** and when they were **Uploaded**. Videos that are processing show their progress. Click a title to open the video, or **All videos** to open the [Videos](/studio/library) page. Interrupted uploads are left out of this list and appear under **Needs attention**.
+
+## Health
+
+**Health** and **Metrics** are in the **Deployment** group of the sidebar, for admins only. A member who opens either page sees "For admins only". For admins, a dot next to **Health** in the sidebar shows the server's verdict from any page.
+
+Under the page title, a line says when the server was last checked, that the page refreshes every 20 seconds, the backend version and how long the server has been running. The chip at the top right gives the verdict:
+
+| Chip                            | Meaning                                                                                               |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **All services working**        | The database, the job queue and the Sia indexer all answer, and the Sia account is ready.             |
+| **Sia indexer needs attention** | The database and job queue work, but the Sia indexer does not answer or the Sia account is not ready. |
+| **Some services are down**      | The database or the job queue does not answer.                                                        |
+
+### Services
+
+| Card             | What it shows                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Database**     | PostgreSQL and its response time.                                                                            |
+| **Queue**        | Redis, its response time and how many jobs are waiting.                                                      |
+| **Sia indexer**  | The indexer's host, the Sia network and the response time. Hover to see the full indexer URL.                |
+| **Stream cache** | How much of the server's in-memory cache for streamed files is in use, and the share of lookups it answered. |
+
+A service that fails shows **Not working**. Click **Details** under it to read the error.
+
+### Sia account
+
+The **Sia account** card shows the account this server stores videos with:
+
+- **Stored**: how much data is stored, against the account's limit, with a bar. The line below gives the space it takes on Sia hosts with redundancy.
+- **Hosts**: how many Sia hosts are good for upload out of all hosts, and how many countries they are in.
+- **App**: the app name the server uses on the indexer.
+- **Account key**: the start and end of the account key. Hover to see all of it.
+
+To learn what these numbers mean on Sia, see [Storage on Sia](/developers/concepts/storage-on-sia).
+
+### Storage check
+
+The **Storage check** card compares the files your videos use with the files Sia holds. It shows when the last check ran, how long it took and how many files it compared. Its chip reads **All present**, **Needs attention** or **Check failed**. Two tiles count what the check found:
+
+- **missing files**: files a video uses that Sia no longer holds. Click **Show missing files** to see them grouped by video, with a link to each video. The copy button next to the list (**Copy missing file IDs**) copies every missing file ID.
+- **unused files still stored**: files on Sia that no video on this server uses, for example from another app on the same Sia account. The Sia account still pays to store them. The check never deletes them.
+
+Click **Check now** to start a check. The Studio confirms with "Storage check started", or "A check is already running" if one has not finished yet. If a check stops before it finishes, the card says "The check stopped before it finished. Start it again." and **Details** holds the error. For how checks run, see [Deletion and reconciliation](/developers/concepts/deletion-and-reconciliation).
+
+## Metrics
+
+**Metrics** shows what the server did since it last started. It reads new figures every 10 seconds, and the line at the bottom says when they last arrived.
+
+| Card                        | What it shows                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Uploads**                 | Uploads received in full, with how many failed and how much data arrived.                                                       |
+| **Processing time**         | The average time a processing job took to make a video ready, how many jobs that covers and how many jobs wait in the queue.    |
+| **Sia upload time**         | The average time an upload of files to Sia took, and how many uploads that covers.                                              |
+| **Playback URLs**           | Public, signed and direct-from-Sia playback URLs the server handed out, with how many were direct from Sia and how many signed. |
+| **Streamed by this server** | Data the server streamed to viewers, and the number of requests.                                                                |
+| **Cache hit ratio**         | The share of stream cache lookups answered from memory.                                                                         |
+| **Uptime**                  | How long the server has been running.                                                                                           |
+| **Memory**                  | The memory the server process uses, with how much of its heap is in use.                                                        |
+
+Two charts follow:
+
+- **Streaming throughput**: bytes per second the server streamed, measured every 10 seconds while the page is open. It covers at most the last 10 minutes and marks the peak and the current rate.
+- **Streaming requests**: requests the server answered since it started, split into **Video segments**, **Playlists** and **Other files**.
+
+Both charts count only video data that passes through this server. A viewer who plays a video straight from Sia does not add to them ([how playback works](/developers/concepts/playback)).

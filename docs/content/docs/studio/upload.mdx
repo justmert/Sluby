@@ -1,0 +1,104 @@
+---
+title: Upload a video
+description: Add video files in the Studio, give each a title, choose who can watch, and pause, resume or cancel the upload.
+---
+
+Upload one or more video files from your computer. Each file gets a title and a public or private setting, then the Studio sends it to your server, which converts it for streaming and stores it on Sia.
+
+## Upload a file
+
+<Steps>
+  <Step>
+    Click **Upload video** at the top of the sidebar, or press `U` on any Studio page. The **Upload
+    videos** page opens.
+  </Step>
+  <Step>
+    Drag files onto the box that reads **Drop video files here**, or click **Choose files**. You can
+    add several files at once.
+  </Step>
+  <Step>
+    For each file, check the **Title**. The Studio fills it in from the file name, for example
+    `product_walkthrough-v2.mov` becomes "product walkthrough v2". Add a **Description** if you
+    like.
+  </Step>
+  <Step>
+    Under **Who can watch**, pick **Public** ("Anyone with the link or embed") or **Private** ("Only
+    with signed links"). Each new file starts with the choice you made last. See [Choose who can
+    watch](/studio/privacy) for what each means.
+  </Step>
+  <Step>
+    Click **Start upload**, or press Enter in the title field. With several files waiting, a second
+    button starts them all, for example **Upload 3 videos**.
+  </Step>
+</Steps>
+
+You can also drop files anywhere on the **Videos** page. They open on the upload page, ready for a title.
+
+The `U` shortcut does not fire while you type in a field or while a menu or dialog is open. Adding `?upload=1` to any Studio address, for example `https://sluby.example.com/studio?upload=1`, also opens the upload page.
+
+## Accepted files and limits
+
+- **File types**: the drop box lists MP4, MOV, M4V, MKV, WebM and AVI. Files that are not videos are skipped with a message such as "notes.txt is not a video file."
+- **Size**: the drop box shows the server's limit, for example "up to 10.7 GB each". A file over the limit shows "Too large for this server." in the list and a line such as "11.8 GB is over this server's 10.7 GB limit." under its title, and **Start upload** stays disabled. The person who runs the server sets this limit ([`MAX_UPLOAD_SIZE`](/self-hosting/configuration#max_upload_size)).
+- **Empty files** are skipped: "clip.mp4 is empty and was skipped."
+- **Title**: required, up to 200 characters. An empty title shows "Enter a title."
+- **Description**: optional, up to 5,000 characters. A counter appears near the limit.
+
+If you add a file you already uploaded from this browser, the form says "You uploaded this file 2 days ago as “Title”." with an **Open video** link, so you can avoid a duplicate.
+
+## Follow the upload
+
+Files you add and uploads you start appear in the **Files** list on the upload page. A summary above the list counts them, for example "1 uploading · 2 queued · 1 done".
+
+While a file is sending, its row shows a progress bar and a line like "5.4 of 12 MB · 220 KB/s · about 30 s left". Once the whole file is sent, the row reads "File sent. Waiting for the server to confirm." Processing starts after that. To follow processing, see [Follow processing and retry](/studio/processing).
+
+When a video is ready, its row turns into one line with a check mark, the title as a link to the video, and **Copy embed code**. If you are on another Studio page, a notice "“Title” is ready" appears with a **Copy embed code** button.
+
+### Uploads keep going while you use the Studio
+
+You can leave the upload page and keep working: uploads continue on every other Studio page. While uploads run, a progress ring shows in the top bar. Click it to see the **Uploads** list, and click **Open uploads** to return to the upload page.
+
+Closing the browser tab stops the upload. While an upload is sending, the browser asks you to confirm before the tab closes.
+
+### One file at a time
+
+The Studio sends one file at a time. Files you start while another is sending wait in the list as **Queued, 2nd**, **Queued, 3rd** and so on, with a line such as "Starts when Intro finishes." To take a file out of the queue, click the close button on its row.
+
+## Pause, resume and cancel
+
+- **Pause** stops sending and keeps what was sent. The row shows "Paused" and how much is sent, for example "40% · 4.8 of 12 MB sent".
+- **Resume** continues from where the file stopped.
+- **Cancel** stops the upload and removes what was sent. The row says "Upload canceled. Nothing was kept."
+
+If the server does not confirm the cancel, the row reads "Upload stopped but not cleaned up." with a **Try again** button.
+
+## When the connection drops
+
+If your connection drops, the row shows **Offline** and "The connection dropped. The upload continues when you are back online." The upload continues by itself once you are back online.
+
+If the upload fails for another reason, the row shows **Failed**, the reason, and **Resume upload** when the file can continue. Files queued behind it wait: a **Queue paused** notice offers **Skip to next** to move on without it.
+
+## Continue an upload after closing the tab
+
+If the tab closed or the browser quit partway through an upload, you can continue it from the same browser.
+
+<Steps>
+  <Step>
+    Open the upload page. A section **Unfinished from earlier** lists each upload that stopped
+    partway, with how much was sent and when it started.
+  </Step>
+  <Step>
+    Click **Choose file** on the row and pick the same file, or add the same file to the drop box.
+    The upload continues from where it stopped, with the title and settings you gave it.
+  </Step>
+</Steps>
+
+If you pick a different file, the row says "This is not the same file." and names the file it expects.
+
+Continue within 24 hours of starting the upload. After that the server removes the partial file, and the same file starts over as a new upload.
+
+To discard an unfinished upload, click **Delete** on its row and confirm. The part already sent and the video entry are deleted.
+
+### Uploads in another tab
+
+A file already uploading in another tab of the same browser cannot be added again: the page says "This file is already uploading in another tab." Those uploads show under **Uploading in another tab**. Manage them in the tab that sends them.

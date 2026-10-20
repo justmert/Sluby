@@ -1,0 +1,140 @@
+---
+title: Monitor and maintain
+description: Check health, read logs, scrape metrics, run a storage check, and upgrade a Sluby server.
+---
+
+This page covers running a Sluby server day to day: the health endpoint, the status view, logs, Prometheus metrics, the storage check that compares your database with Sia, and upgrades.
+
+The commands below are for the base stack. On a production server, add `-f docker-compose.yml -f docker-compose.prod.yml` after `docker compose`.
+
+## Service health
+
+The `postgres`, `redis`, `backend` and `web` services have Docker health checks. See their state with:
+
+```bash
+docker compose ps
+```
+
+The web proxy starts only after the backend reports healthy, and its own health check goes through to the backend, so `web` turns unhealthy when it can no longer reach the backend.
+
+## Health endpoint
+
+`GET /health` answers while the backend process is up:
+
+```bash
+curl http://localhost:8080/health
+```
+
+```json
+{ "status": "ok", "timestamp": "2026-10-20T09:00:00.000Z", "version": "0.2.0" }
+```
+
+It reports liveness only, so a slow indexer never makes Docker restart the backend. The state of the database, Redis and the Sia indexer is in the status view below. The `version` field is the backend's version.
+
+## Status view
+
+Admins see the full status in the Studio under **Deployment** > **Health**: database, Redis, the Sia indexer with account usage and hosts, the last storage check and the delivery cache. See [Overview, health and metrics](/studio/overview).
+
+The same data comes from `GET /api/v1/system/status`. Admins get the full status, members a health summary: [system status reference](/developers/reference/api/ops/get-system-status).
+
+## Logs
+
+```bash
+docker compose logs -f backend
+```
+
+- [`LOG_LEVEL`](/self-hosting/configuration#log_level) sets how much the backend logs.
+- With [`NODE_ENV`](/self-hosting/configuration#node_env) set to `production` each line is a JSON object. Otherwise the lines are colored text.
+- Requests to `/health` log at `debug`, so the health checks do not fill the log at `info`.
+- Docker keeps at most five files of 10 MB of logs per service, then drops the oldest.
+
+## Prometheus metrics
+
+The backend serves Prometheus metrics at `GET /metrics` on its port 3000. The Compose files publish no backend port and the web proxy does not pass `/metrics` on, so the endpoint is reachable only from inside the Compose network, at `http://backend:3000/metrics`. Run your scraper on that network, and set [`METRICS_TOKEN`](/self-hosting/configuration#metrics_token) to require a bearer token:
+
+```bash title=".env"
+METRICS_TOKEN=<generated value>
+```
+
+To look at the metrics from the server:
+
+```bash
+docker compose exec backend node -e "fetch('http://127.0.0.1:3000/metrics').then(r => r.text()).then(console.log)"
+```
+
+Add `{ headers: { Authorization: 'Bearer <token>' } }` as the second argument to `fetch` when a token is set.
+
+Besides the Node.js process metrics, the backend exports:
+
+| Metric                              | Type                  | Meaning                                                                                                     |
+| ----------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `sluby_upload_success_total`        | counter               | successful uploads                                                                                          |
+| `sluby_upload_failure_total`        | counter               | failed uploads                                                                                              |
+| `sluby_upload_bytes_total`          | counter               | bytes uploaded                                                                                              |
+| `sluby_processing_duration_seconds` | histogram             | time from the start to the end of a video's processing job, counted when the video becomes ready            |
+| `sluby_processing_queue_depth`      | gauge                 | jobs waiting or running across the transcode, upload and finalize queues; `NaN` while Redis does not answer |
+| `sluby_redis_up`                    | gauge                 | `1` when Redis answered the queue depth read of this scrape within 2 seconds, `0` otherwise                 |
+| `sluby_playback_initiation_total`   | counter, label `mode` | playback URLs handed out                                                                                    |
+| `sluby_segment_requests_total`      | counter, label `kind` | objects served through the server (`manifest`, `media`, `object`)                                           |
+| `sluby_bandwidth_bytes_total`       | counter               | bytes served through the server                                                                             |
+| `sluby_cache_hits_total`            | counter               | whole-object cache lookups served from memory                                                               |
+| `sluby_cache_misses_total`          | counter               | whole-object cache lookups that fetched the object from Sia                                                 |
+| `sluby_sia_upload_duration_seconds` | histogram             | time of each upload to Sia (one upload carries several objects packed together)                             |
+
+## Storage check
+
+The storage check (reconciliation) compares the objects your database expects with what the indexer stores, and reports the differences. By default it runs every hour, and a separate sweep every 15 minutes finishes deletions that stopped partway. What the report means: [Deletion and reconciliation](/developers/concepts/deletion-and-reconciliation).
+
+- **In the Studio**: an admin sees the result on the **Storage check** card of the Health page and starts a run with **Check now**.
+- **With the API**: read the latest report with [`GET /api/v1/reconciliation`](/developers/reference/api/reconciliation/get-reconciliation) and start a run with [`POST /api/v1/reconciliation/run`](/developers/reference/api/reconciliation/post-reconciliation-run), which needs an admin's key with the `manage` scope.
+
+To change the schedules, set [`RECONCILE_ENABLED`](/self-hosting/configuration#reconcile_enabled), [`RECONCILE_INTERVAL_MS`](/self-hosting/configuration#reconcile_interval_ms), [`DELETION_GC_ENABLED`](/self-hosting/configuration#deletion_gc_enabled) and [`DELETION_GC_INTERVAL_MS`](/self-hosting/configuration#deletion_gc_interval_ms).
+
+## Housekeeping the backend does
+
+At startup and then every hour, the backend removes uploads that are still unfinished 24 hours after they were created, deletes source files it no longer needs, and prunes Studio sessions that ended more than 30 days ago and webhook delivery records older than 30 days. Nothing needs to be scheduled for this.
+
+## Upgrade
+
+<Steps>
+<Step>
+
+### Get the new code
+
+```bash
+git pull
+```
+
+</Step>
+<Step>
+
+### Rebuild and restart
+
+```bash
+docker compose up -d --build
+```
+
+</Step>
+<Step>
+
+### Check the migrations
+
+The backend applies database migrations every time its container starts, before it takes requests, and skips the ones it already applied. Check the log:
+
+```bash
+docker compose logs backend | grep -i migration
+```
+
+A successful start logs `Running migrations...` and `Migrations complete.` A failed one logs `Migration failed:` with the error, and the backend does not start.
+
+</Step>
+</Steps>
+
+When several backend containers start at once, they apply migrations one at a time; the later ones find nothing left to do.
+
+On stop or restart, the backend stops taking requests and gives running work 25 seconds to finish. Docker waits 30 seconds before it kills the container.
+
+## Related
+
+- [Troubleshooting](/self-hosting/troubleshooting)
+- [Configuration reference](/self-hosting/configuration)

@@ -1,0 +1,94 @@
+---
+title: Invite and manage members
+description: Invite people to your Studio, change their role, remove or restore them, and give them a link to set a new password.
+---
+
+Admins use the **Members** page to decide who can sign in to the Studio and what each person can do. Open it from **Members** at the bottom of the sidebar.
+
+Only admins see **Members** in the sidebar. A member who opens the page sees **For admins only** and a **Back to overview** button.
+
+## Roles
+
+Every person has one of two roles. The Studio describes them like this:
+
+- **Member**: Uploads and manages videos, API keys and webhooks.
+- **Admin**: Also manages members and sees server health and metrics.
+
+For the full list of what each role allows, see [Roles and what each can do](/developers/concepts/accounts-and-roles#roles).
+
+## Invite someone
+
+An invite is a link for one person. They choose their own name, email and password when they join.
+
+<Steps>
+  <Step>On the **Members** page, click **Invite people**.</Step>
+  <Step>Under **Role**, pick **Member** or **Admin**. **Member** is the default.</Step>
+  <Step>Click **Create link**. The dialog changes to **Invite link created**.</Step>
+  <Step>
+    Click the copy button next to the link, send the link to the person, then click **Done**.
+  </Step>
+</Steps>
+
+Each link works for 7 days and lets one person join. The dialog shows the exact date and time it stops working. The link is shown only once: if it is lost, revoke the invite and create a new one.
+
+What the invited person sees is on [Join from an invite link](/studio/sign-in#join-from-an-invite-link).
+
+## Pending invites
+
+The **Pending invites** section lists every invite that nobody has used yet and that still works. Its columns are **Role**, **Created by**, **Created** and **Expires** (the time left). A used invite leaves the list.
+
+To withdraw an invite, open the row menu, choose **Revoke**, then click **Revoke** in the **Revoke this invite?** dialog. The link stops working right away. You cannot undo this.
+
+## The members table
+
+The table lists everyone, including removed members:
+
+- **Name**: your own row carries a **You** badge.
+- **Signs in with**: each way the person signs in, for example **Password** with their email or **GitHub** with their `@login`.
+- **Role**: a menu to switch between **Member** and **Admin**.
+- **Status**: **Active**, or **Removed** for someone who can no longer sign in. Removed rows show in lighter text.
+- **Last sign-in**: when they last signed in, or **Never**.
+
+## Change someone's role
+
+Pick a new role in the **Role** column, or open the row menu and choose **Make admin** or **Make member**. The Studio confirms with a message such as "Alex is now an admin." The new role takes effect right away, for the person's Studio sessions and for the API keys they created.
+
+If you make yourself a member, the Studio asks **Stop being an admin?** first. When you click **Make me a member**, the page reloads without **Members**, **Health** and **Metrics**. Another admin can make you an admin again.
+
+You cannot change the role of a removed member until you restore them.
+
+## Remove a member
+
+<Steps>
+  <Step>Open the row menu of the person and choose **Remove**.</Step>
+  <Step>In the **Remove this member?** dialog, click **Remove**.</Step>
+</Steps>
+
+The person can no longer sign in, every browser they are signed in on is signed out right away, and the API keys they created stop working. They stay in the table with the status **Removed**.
+
+**Remove** is not offered on your own row. Another admin has to remove you.
+
+## Restore a member
+
+Open the row menu of a removed member and choose **Restore**. They can sign in again with the role they had before, and their API keys work again.
+
+## Give someone a reset link
+
+When a member forgets their password, an admin creates a reset link for them. With it they set a new password.
+
+<Steps>
+  <Step>Open the row menu of the person and choose **Create reset link**.</Step>
+  <Step>Click **Create link** in the **Create a reset link?** dialog.</Step>
+  <Step>
+    In **Reset link created**, click the copy button next to the link, send the link only to that
+    person, then click **Done**.
+  </Step>
+</Steps>
+
+Like an invite, the link is shown only once, works for 7 days and works once. When the person sets a new password with it, their other browsers are signed out. What they see is on [Set a new password from a reset link](/studio/sign-in#set-a-new-password-from-a-reset-link).
+
+A reset link also works for someone who signs in with GitHub only: with it they choose an email and password, so they can sign in with a password as well.
+
+## The last admin
+
+The Studio always keeps at least one admin who can sign in. If you try to make the last such admin a member, or to remove them, the Studio refuses and shows "This is the last admin who can sign in. Make someone else an admin first." Make another person an admin, then try again.

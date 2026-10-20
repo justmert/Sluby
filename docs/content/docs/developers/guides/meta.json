@@ -1,0 +1,3 @@
+{
+  "pages": ["upload", "play-react", "play-hls", "private-videos", "manage-library", "webhooks"]
+}

@@ -1,0 +1,87 @@
+---
+title: Get started
+description: Open the Studio, create your account, upload your first video, watch it and copy its link.
+---
+
+Sluby Studio is the web app where your team uploads, watches and shares videos stored on Sia. This page takes you from a fresh account to a first video you can send to someone.
+
+## 1. Open the Studio
+
+Open your server's address followed by `/studio`, for example `https://sluby.example.com/studio`. What you see depends on how you arrive:
+
+- **Set up Sluby Studio**: the server has no admin yet, and you are the first person. Continue with [Create the first admin](#create-the-first-admin).
+- **Join Sluby Studio**: you opened an invite link. Continue with [Join from an invite](#join-from-an-invite).
+- **Sign in to Sluby Studio**: you already have an account. Sign in with your email and password ([Sign in and out](/studio/sign-in)).
+
+### Create the first admin
+
+The first account on a new server is an admin, and it needs the server's setup code. The person who runs the server finds the code in the server's log ([how to find the setup code](/self-hosting/sign-in#create-the-first-admin)). Ask them for it if that is not you.
+
+<Steps>
+  <Step>
+    Enter the **Setup code**. It looks like `XXXXX-XXXXX`. Upper or lower case and the dash do not
+    matter.
+  </Step>
+  <Step>Fill in **Your name**, **Email** and **Password** (at least 10 characters).</Step>
+  <Step>Click **Create admin account**. You are signed in and the Studio opens.</Step>
+</Steps>
+
+If the screen says "That setup code is wrong. Copy it from the server log.", check the code with the person who runs the server. If it says "This server already has an admin. Sign in instead.", someone set up the server first: click **Sign in instead**.
+
+As the admin, you invite everyone else from the **Members** page ([Invite and manage members](/studio/members)).
+
+### Join from an invite
+
+<Steps>
+  <Step>Open the invite link an admin sent you.</Step>
+  <Step>
+    Fill in **Your name**, **Email** and **Password** (at least 10 characters), then click **Join**.
+    If the server offers it, you can click **Continue with GitHub** instead.
+  </Step>
+</Steps>
+
+You are signed in and the Studio opens on the **Overview** page.
+
+## 2. Upload a video
+
+<Steps>
+  <Step>Click **Upload video** at the top of the sidebar, or press `U`.</Step>
+  <Step>Drop a video file on the page, or click **Choose files** and pick one.</Step>
+  <Step>
+    Check the **Title**, leave **Who can watch** on **Public**, and click **Start upload**.
+  </Step>
+</Steps>
+
+A progress bar shows how much is sent. After the upload, the server processes the video: it converts it for streaming and stores it on Sia. You can leave the page meanwhile; the upload keeps going while the tab stays open. More in [Upload a video](/studio/upload) and [Follow processing and retry](/studio/processing).
+
+When the video is ready, its row on the upload page shows a check mark. On any other Studio page, a notice reads "“Title” is ready".
+
+## 3. Watch it
+
+Open **Videos** in the sidebar and click the video's title. Press play in the player at the top of the video page. More in [Watch a video](/studio/watch).
+
+## 4. Copy its link
+
+<Steps>
+  <Step>On the video page, click the **Share** tab under the player.</Step>
+  <Step>Click the **Link** tab in the code box, then **Copy**.</Step>
+</Steps>
+
+Anyone with this link can watch a public video on its own page. To put the player on your site instead, click **Copy embed code** next to the video's title. More in [Share or embed a video](/studio/share).
+
+## Next steps
+
+<Cards>
+  <Card title="Find and edit videos" href="/studio/library">
+    Search, filter, preview and rename your videos.
+  </Card>
+  <Card title="Choose who can watch" href="/studio/privacy">
+    Make a video private and control who can play it.
+  </Card>
+  <Card title="Invite and manage members" href="/studio/members">
+    Admins: bring your team in.
+  </Card>
+  <Card title="Build with Sluby" href="/developers">
+    Upload and play videos from your own app.
+  </Card>
+</Cards>

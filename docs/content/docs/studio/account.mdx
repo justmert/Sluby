@@ -1,0 +1,59 @@
+---
+title: Manage your account
+description: Change your password, link GitHub, sign out other browsers and pick a theme from the Settings page.
+---
+
+The **Settings** page shows who you are signed in as and lets you change how you sign in, end sessions on other browsers, and choose the Studio's theme. Open it from **Settings** at the bottom of the sidebar. Every member and admin can use it.
+
+## Account
+
+The **Account** section shows your name, the email or GitHub `@login` you signed in with, and your role: **Admin** or **Member**.
+
+## Change your password
+
+<Steps>
+  <Step>Under **Sign-in methods**, click **Change password** in the **Password** row.</Step>
+  <Step>
+    Enter your **Current password**, then a **New password** of at least 10 characters, and type it
+    again in **Confirm new password**.
+  </Step>
+  <Step>Click **Change password**.</Step>
+</Steps>
+
+This browser stays signed in. Every other browser signed in as you is signed out, and the confirmation says how many, for example "Password changed. Signed out 2 other browsers."
+
+If the current password is wrong, the dialog shows "Your current password is wrong." under that field. For all password rules, see [Password rules](/studio/sign-in#password-rules).
+
+If the **Password** row says "Ask an admin for a reset link to add a password.", your account has no password yet. An admin can give you one with a [reset link](/studio/members#give-someone-a-reset-link).
+
+## Link your GitHub account
+
+The **GitHub** row appears when the server offers GitHub sign-in. If it says **Not linked to this account.**:
+
+<Steps>
+  <Step>Click **Link GitHub**.</Step>
+  <Step>Finish signing in on GitHub.</Step>
+</Steps>
+
+GitHub sends you back to **Settings**, and the row shows your `@login`. From then on you can use **Continue with GitHub** on the sign-in screen ([Sign in with GitHub](/studio/sign-in#sign-in-with-github)).
+
+A GitHub account can belong to only one member. If it already belongs to someone else, nothing is linked and the Studio shows, for example, "GitHub account example-dev already belongs to another member."
+
+## Sign out other browsers
+
+The **Signed-in browsers** section lists every browser where you are signed in, for example "Chrome on macOS". The browser you are using has a **This browser** badge. Each row says when the browser was last active and when it signed in. Hover over that line to see when the session expires.
+
+- To sign out one other browser, click **End session** on its row.
+- To sign out every browser, this one included, click **Sign out everywhere**, then **Sign out everywhere** again in the dialog. You return to the sign-in screen. Your API keys keep working.
+
+To sign out only this browser, click **Sign out** in the account menu ([Sign out](/studio/sign-in#sign-out)).
+
+## Choose a theme
+
+Under **Appearance**, pick **System**, **Light** or **Dark**. **System** is the default and follows your operating system's setting. The choice is saved in this browser only, so other browsers keep their own.
+
+You can also change the theme from **Theme** in the account menu. The sun or moon button next to the account menu switches straight between light and dark.
+
+## When sign-in is off
+
+If the server runs with sign-in turned off, **Account** says "Sign-in is off on this server." and the **Sign-in methods** and **Signed-in browsers** sections do not appear. **Appearance** works as usual.
