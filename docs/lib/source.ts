@@ -30,7 +30,18 @@ export const source = loader(
   },
   {
     baseUrl: docsRoute,
-    plugins: [openapi.loaderPlugin()],
+    plugins: [
+      openapi.loaderPlugin(),
+      {
+        transformPageTree: {
+          // the generated folder is named after its directory ("Api")
+          folder(node, folderPath) {
+            if (folderPath === 'developers/reference/api') node.name = 'REST API';
+            return node;
+          },
+        },
+      },
+    ],
   },
 );
 

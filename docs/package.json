@@ -6,9 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node scripts/check-links.mjs",
+    "build": "node scripts/build-skill-zip.mjs && next build && node scripts/check-links.mjs",
     "types:check": "next typegen && tsc --noEmit",
-    "check-links:external": "node scripts/check-links.mjs --external"
+    "check-links:external": "node scripts/check-links.mjs --external",
+    "skill:zip": "node scripts/build-skill-zip.mjs"
   },
   "dependencies": {
     "fumadocs-core": "16.17.7",

@@ -72,3 +72,5 @@ resources/
 # license texts copied into the packages at pack time
 packages/*/LICENSE
 packages/*/NOTICE
+# built from docs/public/skills/<name>/ by the docs build
+docs/public/skills/*.zip
