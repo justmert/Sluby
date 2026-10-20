@@ -38,6 +38,8 @@ Thumbs.db
 docs/.next/
 docs/out/
 docs/next-env.d.ts
+# written by next dev for coding agents
+docs/AGENTS.md
 
 # media & test fixtures
 *.mp4
