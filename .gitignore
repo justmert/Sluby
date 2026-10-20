@@ -38,8 +38,6 @@ Thumbs.db
 docs/.next/
 docs/out/
 docs/next-env.d.ts
-# written by next dev for coding agents
-docs/AGENTS.md
 
 # media & test fixtures
 *.mp4
@@ -76,3 +74,5 @@ packages/*/LICENSE
 packages/*/NOTICE
 # built from docs/public/skills/<name>/ by the docs build
 docs/public/skills/*.zip
+# written by next dev for coding agents (after the docs/**/*.md exception)
+docs/AGENTS.md
