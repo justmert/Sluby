@@ -32,7 +32,7 @@ docker compose run --rm --no-deps backend node scripts/connect-indexer.mjs
 docker compose up -d
 ```
 
-Open `http://localhost:8080` and create your admin account with the setup code from `docker compose logs backend | grep "setup code"`, then upload a video in the Studio and play it. The [quickstart guide](./docs/guide/quickstart.md) walks through each step and says how long each one took in our runs, and the [production guide](./docs/guide/production.md) covers TLS, GitHub sign-in and connecting to an indexer on mainnet or the Zen testnet.
+Open `http://localhost:8080` and create your admin account with the setup code from `docker compose logs backend | grep "setup code"`, then upload a video in the Studio and play it. The [install guide](./docs/content/docs/self-hosting/index.mdx) walks through each step, and the [production guide](./docs/content/docs/self-hosting/production.mdx) covers the domain, TLS and the production secrets.
 
 The documentation site lives in `docs/`:
 
@@ -90,7 +90,7 @@ The Sia breakdown on an asset comes live from the indexer: every object (master 
 
 ### Signing in
 
-One install is one team's workspace: every member sees every video, key and webhook, and each has a role, admin or member. On a fresh install the backend logs a setup code, and whoever runs the server uses it in the Studio to create the first admin; everyone else joins through single-use invite links an admin makes on the Members page. People sign in with an email and password, or with GitHub when `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set (OAuth callback `<PUBLIC_URL>/api/v1/auth/github/callback`); GitHub only signs in people who are already members or have an invite. Admins also see the server's operations data and manage members. There is no email: a forgotten password gets a reset link from an admin, or from `npm run admin:reset-link --workspace=backend -- --email <email>` on the server. For local development, `AUTH_DISABLED=true` signs every request in as a local admin; the backend refuses to start with it in production. See [accounts and roles](./docs/architecture/auth-and-tenancy.md).
+One install is one team's workspace: every member sees every video, key and webhook, and each has a role, admin or member. On a fresh install the backend logs a setup code, and whoever runs the server uses it in the Studio to create the first admin; everyone else joins through single-use invite links an admin makes on the Members page. People sign in with an email and password, or with GitHub when `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set (OAuth callback `<PUBLIC_URL>/api/v1/auth/github/callback`); GitHub only signs in people who are already members or have an invite. Admins also see the server's operations data and manage members. There is no email: a forgotten password gets a reset link from an admin, or from `npm run admin:reset-link --workspace=backend -- --email <email>` on the server. For local development, `AUTH_DISABLED=true` signs every request in as a local admin; the backend refuses to start with it in production. See [accounts, roles and sessions](./docs/content/docs/developers/concepts/accounts-and-roles.mdx).
 
 ### Direct-from-Sia in the Studio
 
@@ -123,7 +123,7 @@ import { SlubyPlayer } from '@sluby/player';
 <SlubyPlayer client={client} assetId={asset.id} />;
 ```
 
-Keep API keys on your server: a page that plays public videos needs no key, and a private video plays from a signed URL your server mints. The [JavaScript](./docs/guide/javascript.md) and [React](./docs/guide/react.md) guides show both, and the Studio's Developer page has more snippets, in JavaScript and curl, pointed at your own server.
+Keep API keys on your server: a page that plays public videos needs no key, and a private video plays from a signed URL your server mints. The [React](./docs/content/docs/developers/guides/play-react.mdx) and [without React](./docs/content/docs/developers/guides/play-hls.mdx) playback guides show both, and the Studio's Developer page has more snippets, in JavaScript and curl, pointed at your own server.
 
 ## API reference
 
@@ -132,7 +132,7 @@ The REST API is described by an OpenAPI 3.1 document, served by the backend:
 - Spec (JSON): `http://localhost:8080/api/v1/openapi.json`
 - Interactive reference: `http://localhost:8080/api/v1/docs`, which sends requests to the same server with your API key
 
-The docs site (`npm run docs:dev`, see above) renders the same document as an API reference page, next to an [API overview](./docs/api/index.md) of keys and scopes, pagination, errors, rate limits and webhooks. Its copy lives in `docs/public/openapi.json`; after changing `backend/src/api/openapi.ts`, run `npm run openapi:export --workspace=backend` (a backend test fails while the copy is stale).
+The docs site (`npm run docs:dev`, see above) renders the same document as an API reference page, next to the [API conventions](./docs/content/docs/developers/reference/api-conventions.mdx) (keys and scopes, pagination, errors, rate limits) and the [webhook events](./docs/content/docs/developers/reference/webhook-events.mdx). Its copy lives in `docs/public/openapi.json`; after changing `backend/src/api/openapi.ts`, run `npm run openapi:export --workspace=backend` (a backend test fails while the copy is stale).
 
 Programmatic calls authenticate with a `Bearer` API key; each key carries `upload`, `read` and `manage` scopes. A `read` key can mint signed URLs for private videos, so treat every key as a server-side secret. Listings use cursor paging (pass the `next_cursor` of one page back as `?cursor=` for the next).
 
@@ -142,7 +142,7 @@ One backend process runs the REST API, the tus upload server, the delivery gatew
 
 An upload arrives over tus, FFmpeg transcodes it into a ladder of fMP4 HLS renditions, and the output goes to Sia in three packed uploads. Playback either goes through the gateway, which downloads byte ranges from Sia on demand, or straight from Sia in the browser with short-lived share URLs, using the same stored manifests.
 
-The [architecture docs](./docs/architecture/index.md) cover each part with diagrams: the upload pipeline, both playback paths, deletion and reconciliation, the data model, accounts and roles, and SDK integration patterns.
+The [architecture docs](./docs/content/docs/developers/concepts/architecture.mdx) cover each part: the upload pipeline, storage on Sia, playback, deletion and reconciliation, the data model, accounts and roles, and the security model.
 
 ## Direct-from-Sia playback
 
@@ -180,7 +180,7 @@ frontend/         Studio (Vite, React, shadcn/ui)
 packages/sdk/     @sluby/sdk     TypeScript API client
 packages/player/  @sluby/player  SlubyPlayer, hooks and the direct-from-Sia hls.js loader
 examples/         react (quickstart) and plain javascript (vanilla) apps using the sdk and player
-docs/             documentation site (VitePress)
+docs/             documentation site (Fumadocs)
 nginx/            web front door: Studio, api and delivery proxy, rate limits
 deploy/           Caddyfile for the production override
 scripts/          package checks, the compose stack check, the release gate, the share e2e

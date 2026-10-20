@@ -1,6 +1,6 @@
 # Sluby plain JavaScript example
 
-Sluby without a framework: `@sluby/sdk` for the API, hls.js for playback, and `@sluby/player/hls` for direct-from-Sia playback. The code is plain JavaScript modules, typechecked with `checkJs`. The [plain JavaScript guide](../../docs/guide/javascript.md) walks through it.
+Sluby without a framework: `@sluby/sdk` for the API, hls.js for playback, and `@sluby/player/hls` for direct-from-Sia playback. The code is plain JavaScript modules, typechecked with `checkJs`. The [guide to playing videos without React](../../docs/content/docs/developers/guides/play-hls.mdx) walks through it.
 
 - `src/main.js`: upload with progress and pause, wait for processing, play, pick a rendition, delete
 - `src/player.js`: playback with hls.js, native HLS on Safari without Media Source Extensions, signed URLs, direct from Sia with no API key

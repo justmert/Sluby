@@ -11,7 +11,7 @@ Thanks for helping out. This covers how the repository is laid out, how to run i
 | `packages/player/`  | `@sluby/player`, the React player (hls.js, direct-from-Sia loader)              |
 | `frontend/`         | the Studio (Vite, React, shadcn/ui)                                             |
 | `examples/`         | example apps built on the SDK and player                                        |
-| `docs/`             | the documentation site (VitePress), a standalone package with its own lockfile  |
+| `docs/`             | the documentation site (Fumadocs), a standalone package with its own lockfile  |
 | `nginx/`, `deploy/` | the web front door's nginx config and the Caddyfile for the production override |
 
 The root is an npm workspace for everything except `docs/`, which stays separate so its toolchain does not change the app's dependency tree.
@@ -40,7 +40,7 @@ npm run connect-indexer --workspace=backend
 
 ## Running it
 
-The whole stack in Docker, as in the [quickstart](./docs/guide/quickstart.md):
+The whole stack in Docker, as in the [install guide](./docs/content/docs/self-hosting/index.mdx):
 
 ```sh
 docker compose up -d
