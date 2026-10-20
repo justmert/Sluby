@@ -18,6 +18,7 @@ import type {
 } from './types.js';
 import type { SiaPlaybackSession, SiaShareSource } from './sia-types.js';
 import { createSiaLoader } from './SiaLoader.js';
+import { createHybridLoader } from './HybridLoader.js';
 import { renewingLoader, signedUrlsFor, withoutQuery, type SignedUrls } from './renewal.js';
 
 export interface SlubyPlayerHandle {
@@ -39,11 +40,13 @@ export interface SlubyPlayerHandle {
 }
 
 // direct-from-Sia delivery for one load; `source` is set when the share map
-// comes from the public endpoint for `src`
+// comes from the public endpoint for `src`. A hybrid load also plays through
+// the gateway, so its signed urls are renewed like a gateway load's.
 interface SiaDelivery {
   session: SiaPlaybackSession;
   assetId: string;
   source?: SiaShareSource;
+  hybrid: boolean;
 }
 
 // one resolved load. A new object means a new load; `key` names the video
@@ -126,9 +129,10 @@ async function loadSrc(
   url: string,
   session: SiaPlaybackSession | undefined,
   assetId: string | undefined,
+  hybrid: boolean,
   attempt: number,
 ): Promise<Playback> {
-  const sia = session && assetId ? await prepareSia(session, assetId, { src: url }) : null;
+  const sia = session && assetId ? await prepareSia(session, assetId, hybrid, { src: url }) : null;
   return srcPlayback(url, attempt, sia);
 }
 
@@ -137,6 +141,7 @@ async function loadAsset(
   assetId: string,
   signed: boolean,
   expiresIn: number | undefined,
+  hybrid: boolean,
   attempt: number,
 ): Promise<Playback> {
   // The gateway URL is always resolved: it is the http fallback, and in Sia
@@ -163,16 +168,17 @@ async function loadAsset(
     expiresAtMs = Number.isFinite(parsed) ? parsed : expiresFromUrl(url);
   }
 
-  // the authenticated share map renews itself, so Sia delivery never depends
-  // on the signed url's expiry
-  const sia = await prepareSia(client.sia, assetId);
+  // the authenticated share map renews itself, so direct Sia delivery never
+  // depends on the signed url's expiry; hybrid delivery still plays the
+  // gateway url, so it renews like a gateway load
+  const sia = await prepareSia(client.sia, assetId, hybrid);
   return {
     kind: 'asset',
     src: url,
     sia,
     key: `asset:${assetId}`,
     poster: posterUrl ?? undefined,
-    expiresAtMs: sia ? undefined : expiresAtMs,
+    expiresAtMs: sia && !sia.hybrid ? undefined : expiresAtMs,
     attempt,
   };
 }
@@ -180,13 +186,19 @@ async function loadAsset(
 async function prepareSia(
   session: SiaPlaybackSession | undefined,
   assetId: string,
+  hybrid: boolean,
   source?: SiaShareSource,
 ): Promise<SiaDelivery | null> {
   // a custom loader cannot apply on the Safari-native path
   if (!session || !Hls.isSupported()) return null;
+  const delivery: SiaDelivery = source
+    ? { session, assetId, source, hybrid }
+    : { session, assetId, hybrid };
+  // a hybrid load starts on the gateway and connects to Sia while it plays
+  if (hybrid) return delivery;
   try {
     await session.prepare(assetId, ...(source ? [source] : []));
-    return source ? { session, assetId, source } : { session, assetId };
+    return delivery;
   } catch (err) {
     console.warn('Sluby: direct-from-Sia delivery unavailable, using the gateway.', err);
     return null;
@@ -239,8 +251,12 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       onQualityChange,
       onQualitiesChange,
       onDeliveryChange,
+      onDeliveryStats,
       onStateChange,
+      siaDelivery = 'direct',
+      hybridPolicy,
     } = props;
+    const hybrid = siaDelivery === 'hybrid';
 
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const hlsRef = useRef<Hls | null>(null);
@@ -273,9 +289,10 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       onQualityChange,
       onQualitiesChange,
       onDeliveryChange,
+      onDeliveryStats,
       onStateChange,
     });
-    const opts = useRef({ autoPlay, maxNetworkRetries, maxMediaRetries, refreshSrc });
+    const opts = useRef({ autoPlay, maxNetworkRetries, maxMediaRetries, refreshSrc, hybridPolicy });
     const latest = useRef({ client, assetId, signed, expiresIn });
     const playbackRef = useRef<Playback | null>(playback);
     const [renewal, setRenewal] = useState<Renewal | null>(null);
@@ -295,9 +312,10 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         onQualityChange,
         onQualitiesChange,
         onDeliveryChange,
+        onDeliveryStats,
         onStateChange,
       };
-      opts.current = { autoPlay, maxNetworkRetries, maxMediaRetries, refreshSrc };
+      opts.current = { autoPlay, maxNetworkRetries, maxMediaRetries, refreshSrc, hybridPolicy };
       latest.current = { client, assetId, signed, expiresIn };
       playbackRef.current = playback;
       renewalRef.current = renewal;
@@ -364,16 +382,22 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         const inPlace =
           hlsRef.current !== null &&
           next.key === current.key &&
-          Boolean(next.sia) === Boolean(current.sia);
+          Boolean(next.sia) === Boolean(current.sia) &&
+          next.sia?.hybrid === current.sia?.hybrid;
         if (!inPlace) {
           setPlayback(next);
           return true;
         }
         const seq = ++adoptSeq.current;
         const source = current.sia?.source;
+        const viaGateway = !current.sia || current.sia.hybrid;
         let urls: SignedUrls | null = null;
-        if (source) await current.sia!.session.prepare(current.sia!.assetId, { src: next.src });
-        else if (!current.sia) urls = await signedUrlsFor(next.src);
+        // a hybrid load fetches the share map for the new src when it next
+        // reads from Sia, so a Sia outage cannot hold up the gateway's renewal
+        if (source && !viaGateway) {
+          await current.sia!.session.prepare(current.sia!.assetId, { src: next.src });
+        }
+        if (viaGateway) urls = await signedUrlsFor(next.src);
         // a newer load (a prop change, a retry) has replaced this one
         if (playbackRef.current !== current) return true;
         // a newer renewal of it has
@@ -410,7 +434,11 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
           prev.kind === 'src' &&
           prev.attempt === retryKey &&
           prev.key === srcPlayback(src, retryKey).key &&
-          (viaSia ? prev.sia?.session === session && prev.sia?.assetId === assetId : !prev.sia)
+          (viaSia
+            ? prev.sia?.session === session &&
+              prev.sia?.assetId === assetId &&
+              prev.sia?.hybrid === hybrid
+            : !prev.sia)
         ) {
           if (liveOf(prev).src === src) return;
           if (hlsRef.current) {
@@ -434,7 +462,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
         // cannot start a stale load first
         setPlayback(null);
         moveTo('loading');
-        void loadSrc(src, session, assetId!, retryKey).then((next) => {
+        void loadSrc(src, session, assetId!, hybrid, retryKey).then((next) => {
           if (!cancelled) setPlayback(next);
         });
         return () => {
@@ -459,7 +487,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       // a stale or expired url before the fresh resolve below lands.
       setPlayback(null);
       moveTo('loading');
-      loadAsset(client, assetId, signed, expiresIn, retryKey).then(
+      loadAsset(client, assetId, signed, expiresIn, hybrid, retryKey).then(
         (next) => {
           if (!cancelled) setPlayback(next);
         },
@@ -471,7 +499,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       return () => {
         cancelled = true;
       };
-    }, [src, client, assetId, signed, expiresIn, retryKey, fail, moveTo, adopt, liveOf]);
+    }, [src, client, assetId, signed, expiresIn, hybrid, retryKey, fail, moveTo, adopt, liveOf]);
 
     // ── Renew a signed url before it expires ───────────────────────────────
 
@@ -498,7 +526,14 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
               'The playback URL expired and the player no longer has a client to renew it.',
             );
           }
-          next = await loadAsset(resolver, id, sign, ttl, current.attempt);
+          next = await loadAsset(
+            resolver,
+            id,
+            sign,
+            ttl,
+            Boolean(current.sia?.hybrid),
+            current.attempt,
+          );
         }
         // a newer load (a prop change, a retry) has replaced this one
         if (playbackRef.current !== current) return true;
@@ -653,10 +688,22 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
       // Direct-from-Sia: a custom loader streams every playlist and segment
       // from Sia via the viewer session (loaders run on the main thread, so
       // this is compatible with enableWorker). Setting `loader` covers
-      // manifest, level, fragment, and key loads. Absent -> gateway HTTP.
+      // manifest, level, fragment, and key loads. Hybrid: playlists and urgent
+      // segments over the gateway, the rest from Sia. Absent -> gateway HTTP.
       const sia = current.sia;
-      if (sia) {
+      if (sia && !sia.hybrid) {
         hlsConfig.loader = createSiaLoader(sia.session, sia.assetId, sia.source);
+      } else if (sia) {
+        signedUrlsRef.current = new Map();
+        hlsConfig.loader = createHybridLoader({
+          session: sia.session,
+          assetId: sia.assetId,
+          source: sia.source,
+          media: () => video,
+          urls: signedUrlsRef,
+          policy: opts.current.hybridPolicy,
+          onStats: (stats) => cb.current.onDeliveryStats?.(stats),
+        });
       } else {
         signedUrlsRef.current = new Map();
         hlsConfig.loader = renewingLoader(signedUrlsRef);
@@ -664,7 +711,7 @@ export const SlubyPlayer = forwardRef<SlubyPlayerHandle, SlubyPlayerProps>(
 
       const hls = new Hls(hlsConfig);
       hlsRef.current = hls;
-      cb.current.onDeliveryChange?.(sia ? 'sia' : 'gateway');
+      cb.current.onDeliveryChange?.(sia ? (sia.hybrid ? 'hybrid' : 'sia') : 'gateway');
 
       // Bounded recovery counters. Reset once real data buffers so that
       // intermittent, well-separated errors do not exhaust the budget.

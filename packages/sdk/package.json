@@ -58,7 +58,7 @@
     "test:browser": "vitest run --config vitest.browser.config.ts"
   },
   "dependencies": {
-    "@siafoundation/sia-storage": "^0.1.1",
+    "@siafoundation/sia-storage": "^0.1.5",
     "tus-js-client": "^4.3.1"
   },
   "devDependencies": {

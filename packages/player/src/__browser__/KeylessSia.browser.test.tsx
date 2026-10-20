@@ -103,7 +103,7 @@ describe('keyless direct-from-Sia with the real SDK', () => {
     const client = keylessClient();
     const src = client.playback.streamUrl(ASSET_ID);
     const ref = createRef<SlubyPlayerHandle>();
-    const deliveries: Array<'sia' | 'gateway'> = [];
+    const deliveries: Array<'sia' | 'hybrid' | 'gateway'> = [];
     const errors: Error[] = [];
     mounted = mount(
       <SlubyPlayer
@@ -134,7 +134,7 @@ describe('keyless direct-from-Sia with the real SDK', () => {
     // a signed url your server minted with its key, handed to the page
     const src = `${location.origin}/v1/objects/${catalog.masterId}?type=manifest&expires=4102444800&sig=${'ab'.repeat(32)}`;
     const ref = createRef<SlubyPlayerHandle>();
-    const deliveries: Array<'sia' | 'gateway'> = [];
+    const deliveries: Array<'sia' | 'hybrid' | 'gateway'> = [];
     mounted = mount(
       <SlubyPlayer
         ref={ref}
@@ -197,7 +197,7 @@ describe('gated share maps: signatures and expiry', () => {
     const client = keylessClient();
     const { stream, expires } = await signedUrls(3600);
     const ref = createRef<SlubyPlayerHandle>();
-    const deliveries: Array<'sia' | 'gateway'> = [];
+    const deliveries: Array<'sia' | 'hybrid' | 'gateway'> = [];
     mounted = mount(
       <SlubyPlayer
         ref={ref}
@@ -252,7 +252,7 @@ describe('gated share maps: signatures and expiry', () => {
       return next.stream;
     });
     const ref = createRef<SlubyPlayerHandle>();
-    const deliveries: Array<'sia' | 'gateway'> = [];
+    const deliveries: Array<'sia' | 'hybrid' | 'gateway'> = [];
     const errors: Error[] = [];
     mounted = mount(
       <SlubyPlayer

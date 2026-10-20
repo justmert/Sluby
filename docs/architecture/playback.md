@@ -192,7 +192,28 @@ The player attempts direct-from-Sia in two cases. With `src`, `assetId` and a cl
 - hls.js is not supported (the browser has no Media Source Extensions) but the browser plays HLS natively; a custom loader cannot apply to native playback, so the `<video>` element gets the gateway URL
 - `client.sia.prepare` fails, for example when the WASM SDK cannot load, the viewer key is not registered, or the share endpoint errors (a 403 for a missing signature included); the player logs a warning and continues on the gateway
 
-`onDeliveryChange` reports `sia` or `gateway` for each load. The decision is made once per load: if a download fails after playback has started in Sia mode, the player does not switch to the gateway. hls.js reports the error and the player's usual recovery applies (up to `maxNetworkRetries` reloads, then the error overlay with a Retry button, which resolves everything again).
+`onDeliveryChange` reports `sia`, `hybrid` or `gateway` for each load. The decision is made once per load: if a download fails after playback has started in Sia mode, the player does not switch to the gateway. hls.js reports the error and the player's usual recovery applies (up to `maxNetworkRetries` reloads, then the error overlay with a Retry button, which resolves everything again). Hybrid delivery, below, is the exception: it moves between the two paths segment by segment.
+
+### Hybrid delivery
+
+A browser reads a Sia object by connecting to the hosts of its slabs over WebTransport and rebuilding each piece from 10 of 30 shards. A fresh page starts with no connections, so the first bytes are slow, and a direct load pays that cost three times in a row: the master, a playlist and the first segment each live in a different upload on a different set of hosts. Measured from a home connection against a 10 second 720p video on sluby.app, in Chrome, three cold starts each:
+
+| Delivery        | First frame           |
+| --------------- | --------------------- |
+| gateway         | 4.1, 5.8 and 6.9 s    |
+| direct from Sia | 32.9, 35.6 and 35.8 s |
+| hybrid          | 5.2, 5.9 and 6.1 s    |
+
+With `siaDelivery="hybrid"` the player uses `createHybridLoader` (`packages/player/src/HybridLoader.ts`) instead:
+
+- **Playlists** always come through the gateway. They are under a kilobyte, cached there and signed per viewer.
+- **The start does not wait for Sia.** The first segments play through the gateway while the session connects in the background.
+- **Warm-up.** The first time a data object is seen, the loader reads one byte of it from Sia at the segment's offset, which connects to the hosts of the slab holding it.
+- **Each segment by urgency.** A segment comes from Sia only when its object is warm, no other Sia read is in flight, and at least `minBufferSec` (default 10) is buffered ahead of the playhead. Otherwise (the start, a seek, a nearly empty buffer, a rendition not yet warm) it comes through the gateway.
+- **Deadline.** A Sia read gets until the buffer would drop to `safetyMarginSec` (default 4), and never more than `maxSiaWaitMs` (default 20 s). A read that fails or runs past that is cancelled and the gateway fetches the segment, so playback never waits on a slow host.
+- **Pause.** After `maxFailures` (default 3) failed or cut-off reads in a row, Sia is left alone for `pauseMs` (default 60 s). If the session cannot connect at all, the whole load plays through the gateway.
+
+A hybrid load keeps the gateway's signed urls, so they are renewed in place like a gateway load's. `onDeliveryStats` reports after each segment how many bytes came from each side, and how many Sia reads the gateway had to take over. Short videos play mostly or entirely through the gateway, since their buffer rarely reaches `minBufferSec`; the longer the video, the larger the share Sia carries. The Studio plays every video this way and shows that share on the player.
 
 ## The watch page
 

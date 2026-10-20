@@ -33,3 +33,40 @@ export interface SiaPlaybackSession {
    */
   masterObjectId?(assetId: string, source?: SiaShareSource): Promise<string>;
 }
+
+/**
+ * When the hybrid loader may take a segment from Sia instead of the gateway.
+ * Every field is optional where it is accepted; the defaults are noted.
+ */
+export interface HybridPolicy {
+  /**
+   * Seconds of video buffered ahead of the playhead before a segment may come
+   * from Sia. Below it every segment comes from the gateway, so a start, a
+   * seek or a nearly empty buffer never waits on Sia. Default 10.
+   */
+  minBufferSec: number;
+  /**
+   * Seconds kept in hand when a Sia read runs long: the read is cut off while
+   * this much buffer is left, and the gateway fetches the segment in time.
+   * Default 4.
+   */
+  safetyMarginSec: number;
+  /** The longest a single Sia read may take, however full the buffer is. Default 20000. */
+  maxSiaWaitMs: number;
+  /** Sia reads in a row that may fail or run long before Sia is paused. Default 3. */
+  maxFailures: number;
+  /** How long Sia is paused after that, with every segment from the gateway. Default 60000. */
+  pauseMs: number;
+}
+
+/** Where the segments of one load came from so far, under hybrid delivery. */
+export interface HybridDeliveryStats {
+  /** Media bytes read straight from Sia hosts. */
+  siaBytes: number;
+  /** Media bytes fetched through the gateway, including the fallbacks below. */
+  gatewayBytes: number;
+  siaSegments: number;
+  gatewaySegments: number;
+  /** Segments Sia started but the gateway delivered, after a Sia read failed or ran long. */
+  fallbacks: number;
+}

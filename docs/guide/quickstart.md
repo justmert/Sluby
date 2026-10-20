@@ -72,7 +72,7 @@ Enter it with your name, email and a password of at least 10 characters. That ma
 3. The bar follows the pipeline: Upload, Transcode, Store on Sia and Publish. When it reaches **Ready**, press **Open video**.
 4. The video page plays it. Its **Storage** tab lists every Sia object behind it, with slab, sector and host counts.
 
-The Studio plays through this server's gateway, which reads the video from Sia. To have browsers fetch the bytes straight from Sia hosts instead, give the Studio a viewer identity, see [the direct-from-Sia path](/architecture/playback#the-direct-from-sia-path).
+The Studio plays through this server's gateway, which reads the video from Sia. To have browsers fetch most of the bytes straight from Sia hosts instead, give the Studio a viewer identity, see [the direct-from-Sia path](/architecture/playback#the-direct-from-sia-path). The Studio then starts each video through the gateway and takes the rest from Sia ([hybrid delivery](/architecture/playback#hybrid-delivery)).
 
 ### How long it takes
 
@@ -122,7 +122,7 @@ The quickstart builds two images, the backend on the first `docker compose run` 
 - `sluby-web` builds the Studio and puts it behind nginx.
 - `sluby-backend` installs FFmpeg and the backend's dependencies.
 
-On ARM64 (Apple Silicon, Graviton) the backend build also compiles the Sia SDK's native module from source, because the published ARM64 Linux build of `@siafoundation/sia-storage` 0.1.3 (like 0.1.1 and 0.1.2 before it) cannot make HTTPS requests. On x86-64 the published build is used and nothing is compiled.
+On ARM64 (Apple Silicon, Graviton) the backend build also compiles the Sia SDK's native module from source, because the published ARM64 Linux build of `@siafoundation/sia-storage` could not make HTTPS requests up to 0.1.3, and 0.1.5's has not been checked. On x86-64 the published build is used and nothing is compiled.
 
 For reference, on an Apple M3 Pro with the base images already pulled, the backend image built from scratch in 71 seconds, 54 of them compiling the SDK. A first build also downloads the base images, which on ARM64 include the Rust toolchain image (2.2 GB unpacked). Later builds reuse the cached layers.
 

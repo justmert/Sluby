@@ -91,6 +91,21 @@ describe('AssetPlayer', () => {
     expect(screen.getByText('Through this server')).toBeInTheDocument();
   });
 
+  it('plays hybrid and counts how much of the video came from Sia', () => {
+    renderPage(<AssetPlayer assetId="a1" signed={false} />);
+    expect(last.props).toMatchObject({ siaDelivery: 'hybrid' });
+    fire(() => last.props!.onDeliveryChange!('hybrid'));
+    expect(screen.getByText('Sia and this server')).toBeInTheDocument();
+    const stats = { siaSegments: 3, gatewaySegments: 1, fallbacks: 0 };
+    fire(() => last.props!.onDeliveryStats!({ ...stats, siaBytes: 0, gatewayBytes: 2_000 }));
+    expect(screen.getByText('0% from Sia')).toBeInTheDocument();
+    fire(() => last.props!.onDeliveryStats!({ ...stats, siaBytes: 6_000, gatewayBytes: 2_000 }));
+    expect(screen.getByText('75% from Sia')).toBeInTheDocument();
+    // a new load starts its count over
+    fire(() => last.props!.onDeliveryChange!('hybrid'));
+    expect(screen.getByText('Sia and this server')).toBeInTheDocument();
+  });
+
   it('announces a playback error with the reader sentence for the api error behind it', () => {
     renderPage(<AssetPlayer assetId="a1" signed={false} />);
     const cause = new ConflictError('Video is not ready for playback (status: processing)');

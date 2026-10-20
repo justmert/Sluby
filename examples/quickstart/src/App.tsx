@@ -53,7 +53,7 @@ export function App() {
   const [currentQuality, setCurrentQuality] = useState<QualityLevel | null>(null);
   // -1 is adaptive, otherwise the pinned rendition's index
   const [pinnedQuality, setPinnedQuality] = useState(-1);
-  const [delivery, setDelivery] = useState<'sia' | 'gateway' | null>(null);
+  const [delivery, setDelivery] = useState<'sia' | 'hybrid' | 'gateway' | null>(null);
 
   const uploadRef = useRef<AssetUploadHandle | null>(null);
   const playerRef = useRef<SlubyPlayerHandle>(null);

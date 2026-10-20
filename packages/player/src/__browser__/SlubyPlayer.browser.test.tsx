@@ -41,7 +41,7 @@ function renderPlayer(props: Partial<React.ComponentProps<typeof SlubyPlayer>> =
     states: [] as PlayerState[],
     qualities: [] as QualityLevel[][],
     qualityChanges: [] as QualityLevel[],
-    deliveries: [] as Array<'sia' | 'gateway'>,
+    deliveries: [] as Array<'sia' | 'hybrid' | 'gateway'>,
     errors: [] as Error[],
     ready: 0,
   };
