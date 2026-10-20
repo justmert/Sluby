@@ -1,5 +1,10 @@
 import { useRef, useState } from 'react';
-import { SlubyPlayer, type QualityLevel, type SlubyPlayerHandle } from '@sluby/player';
+import {
+  SlubyPlayer,
+  type HybridDeliveryStats,
+  type QualityLevel,
+  type SlubyPlayerHandle,
+} from '@sluby/player';
 import { SlubyError } from '@sluby/sdk';
 import { InlineError } from '@/components/shared/InlineError';
 import { formatBitrate, formatResolution } from '@/lib/formatters';
@@ -32,9 +37,22 @@ const PILL =
 const describe = (level: QualityLevel) =>
   `${level.name} (${formatResolution(level.width, level.height)}, ${formatBitrate(level.bitrate)})`;
 
+type Delivery = 'sia' | 'hybrid' | 'gateway';
+
+/** The pill's words: where this video's bytes have come from so far. */
+function deliveryLabel(delivery: Delivery, stats: HybridDeliveryStats | null): string {
+  if (delivery === 'sia') return 'Direct from Sia';
+  if (delivery === 'gateway') return 'Through this server';
+  const total = stats ? stats.siaBytes + stats.gatewayBytes : 0;
+  // the start always plays through the server, so there is nothing to split yet
+  if (!stats || total === 0) return 'Sia and this server';
+  return `${Math.round((stats.siaBytes / total) * 100)}% from Sia`;
+}
+
 /**
  * The Studio's preview: @sluby/player driven by the same sdk client in the
- * board's 16:9 frame. Where the bytes come from ("Direct from Sia") and the
+ * board's 16:9 frame, with hybrid delivery so a video starts through this
+ * server and the rest streams from Sia. Where the bytes come from and the
  * quality picker sit on the frame's top edge, clear of the player's controls.
  */
 export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
@@ -42,7 +60,8 @@ export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
   const [levels, setLevels] = useState<QualityLevel[]>([]);
   const [current, setCurrent] = useState<QualityLevel | null>(null);
   const [pinned, setPinned] = useState<string>(AUTO);
-  const [delivery, setDelivery] = useState<'sia' | 'gateway' | null>(null);
+  const [delivery, setDelivery] = useState<Delivery | null>(null);
+  const [deliveryStats, setDeliveryStats] = useState<HybridDeliveryStats | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   const choose = (value: string) => {
@@ -61,6 +80,7 @@ export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
           signed={signed}
           expiresIn={signed ? 3600 : undefined}
           title={title}
+          siaDelivery="hybrid"
           controls
           className="aspect-video w-full"
           style={{ width: '100%', aspectRatio: '16 / 9' }}
@@ -69,7 +89,11 @@ export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
             setPinned(AUTO);
           }}
           onQualityChange={setCurrent}
-          onDeliveryChange={setDelivery}
+          onDeliveryChange={(next) => {
+            setDelivery(next);
+            setDeliveryStats(null);
+          }}
+          onDeliveryStats={setDeliveryStats}
           onError={(e) => setError(playbackError(e))}
           onReady={() => setError(null)}
         />
@@ -94,7 +118,7 @@ export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
             )}
             {delivery && (
               <span className={`${PILL} inline-flex items-center`}>
-                {delivery === 'sia' ? 'Direct from Sia' : 'Through this server'}
+                {deliveryLabel(delivery, deliveryStats)}
               </span>
             )}
           </div>
