@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 3200",
     "build": "node scripts/build-skill-zip.mjs && next build && node scripts/check-links.mjs",
     "types:check": "next typegen && tsc --noEmit",
     "check-links:external": "node scripts/check-links.mjs --external",
