@@ -5,13 +5,35 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vitepress dev",
-    "build": "vitepress build",
-    "preview": "vitepress preview"
+    "dev": "next dev",
+    "build": "next build && node scripts/check-links.mjs",
+    "types:check": "next typegen && tsc --noEmit",
+    "check-links:external": "node scripts/check-links.mjs --external"
+  },
+  "dependencies": {
+    "cn": "^0.5.0",
+    "fumadocs-core": "16.17.7",
+    "fumadocs-mdx": "15.4.8",
+    "fumadocs-openapi": "12.5.4",
+    "fumadocs-ui": "npm:@fumadocs/base-ui@16.17.7",
+    "lucide-react": "^1.60.0",
+    "mermaid": "^12.2.0",
+    "next": "16.4.2",
+    "next-themes": "^0.4.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "shiki": "^4.5.0"
   },
   "devDependencies": {
-    "@scalar/api-reference": "1.73.1",
-    "mermaid": "^12.1.0",
-    "vitepress": "^1.6.4"
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/mdx": "^2.0.14",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "next-validate-link": "^1.6.7",
+    "postcss": "^8.5.31",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }
