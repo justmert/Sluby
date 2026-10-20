@@ -1,0 +1,150 @@
+---
+title: Serve private videos
+description: Mint signed playback URLs on your server, play them in the browser, renew them during playback and revoke them.
+---
+
+A private video plays only through a signed URL: a playback URL with an expiry and a signature that your server mints with its API key. Your server decides who can watch, the browser receives only the signed URL, and the key never leaves the server. [Playback and delivery](/developers/concepts/playback#signed-urls) explains how signing works, including the default and maximum lifetime of a signed URL.
+
+## Make a video private
+
+On your server, set the access tier at upload, or change it later with a key that has the `manage` scope:
+
+```js
+// at upload
+await client.uploads.upload(file, { title: 'Members only', accessTier: 'private' });
+
+// later, with a key that has the manage scope
+await client.assets.update(assetId, { accessTier: 'private' });
+```
+
+Making a video private also stops every signed URL minted for it before the change.
+
+## Mint signed URLs on your server
+
+Add a route to your server that checks your own access rule and then asks Sluby for a signed URL. A key with the `read` scope is enough.
+
+```js title="server.mjs (server)"
+import { createServer } from 'node:http';
+import { SlubyClient, NotFoundError } from '@sluby/sdk';
+
+const { SLUBY_URL, SLUBY_API_KEY } = process.env;
+if (!SLUBY_URL || !SLUBY_API_KEY) throw new Error('Set SLUBY_URL and SLUBY_API_KEY.');
+// a key with the read scope is enough to mint signed URLs
+const client = new SlubyClient({ baseUrl: SLUBY_URL, apiKey: SLUBY_API_KEY });
+
+/**
+ * Your own access rule: is this visitor signed in, did they buy this video.
+ * @param {import('node:http').IncomingMessage} req
+ * @param {string} assetId
+ */
+async function canWatch(req, assetId) {
+  // look up your own session and the videos this visitor can watch
+  return false;
+}
+
+createServer(async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const match = /^\/playback\/([^/]+)$/.exec(url.pathname);
+  if (req.method !== 'GET' || !match) {
+    res.writeHead(404).end();
+    return;
+  }
+  const assetId = decodeURIComponent(match[1]);
+  if (!(await canWatch(req, assetId))) {
+    res.writeHead(403).end();
+    return;
+  }
+  try {
+    const signed = await client.playback.getSignedUrl(assetId, { expiresIn: 3600 });
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(
+      JSON.stringify({
+        url: signed.signedUrl,
+        poster: signed.posterUrl,
+        expiresAt: signed.expiresAt,
+      }),
+    );
+  } catch (err) {
+    res.writeHead(err instanceof NotFoundError ? 404 : 502).end();
+  }
+}).listen(3000);
+```
+
+`getSignedUrl` returns:
+
+- `signedUrl`: the signed master playlist URL. When the gateway serves a private video's playlists, it signs every URL inside them with the same expiry.
+- `posterUrl`: the video's poster image, signed the same way, or `null` when the video has none.
+- `expiresAt`: when the URL stops working, as an ISO 8601 timestamp.
+
+`expiresIn` is the lifetime in seconds and must be a positive whole number. Without it the server applies its default. A video that is not ready yet has no playback URL: the API answers `409` ([`GET /api/v1/playback/{id}/signed`](/developers/reference/api/playback/get-playback-id-signed)).
+
+## Play the signed URL
+
+Fetch the signed URL from your route and pass it to the player as `src`. `refreshSrc` keeps a long viewing going: the player calls it shortly before the URL expires, and keeps playing from the same position on the URL it returns.
+
+```tsx title="PrivateVideo.tsx (browser)"
+import { useEffect, useState } from 'react';
+import { SlubyPlayer } from '@sluby/player';
+import { client } from './sluby';
+
+interface SignedPlayback {
+  url: string;
+  poster: string | null;
+  expiresAt: string;
+}
+
+async function fetchPlayback(assetId: string): Promise<SignedPlayback> {
+  const res = await fetch(`/playback/${encodeURIComponent(assetId)}`);
+  if (!res.ok) throw new Error(`Could not get a playback URL (${res.status})`);
+  return (await res.json()) as SignedPlayback;
+}
+
+export function PrivateVideo({ assetId }: { assetId: string }) {
+  const [playback, setPlayback] = useState<SignedPlayback | null>(null);
+
+  useEffect(() => {
+    fetchPlayback(assetId).then(setPlayback, (err) => console.error(err));
+  }, [assetId]);
+
+  if (!playback) return null;
+  return (
+    <SlubyPlayer
+      src={playback.url}
+      poster={playback.poster ?? undefined}
+      // called shortly before the URL expires; playback continues on the new one
+      refreshSrc={async () => (await fetchPlayback(assetId)).url}
+      // optional: with a viewer identity the bytes come straight from Sia
+      client={client}
+      assetId={assetId}
+      controls
+    />
+  );
+}
+```
+
+`client` is the browser `SlubyClient` without an API key from [Play videos in React](/developers/guides/play-react#stream-the-bytes-from-sia). With `client` and `assetId` next to a signed `src`, the player streams from Sia using the share map that belongs to that signed URL, so the browser still holds no key. Leave both out to play through the gateway.
+
+Without `refreshSrc`, playback of a signed `src` fails when the URL expires. To play a signed URL with hls.js and no React, see [Play videos without React](/developers/guides/play-hls#play-through-the-gateway).
+
+## Revoke signed URLs
+
+To stop every signed URL of a video at once, for example after a link leaked, call the revoke endpoint with a key that has the `manage` scope. Your server can mint new signed URLs right after.
+
+```js title="revoke.mjs (server)"
+const { SLUBY_URL, SLUBY_API_KEY } = process.env;
+if (!SLUBY_URL || !SLUBY_API_KEY) throw new Error('Set SLUBY_URL and SLUBY_API_KEY.');
+const assetId = process.argv[2];
+if (!assetId) throw new Error('usage: node revoke.mjs <asset id>');
+
+// needs a key with the manage scope
+const res = await fetch(
+  `${SLUBY_URL}/api/v1/playback/${encodeURIComponent(assetId)}/signed/revoke`,
+  {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${SLUBY_API_KEY}` },
+  },
+);
+if (!res.ok) throw new Error(`revoke failed: ${res.status}`);
+```
+
+The REST reference documents the endpoint: [`POST /api/v1/playback/{id}/signed/revoke`](/developers/reference/api/playback/post-playback-id-signed-revoke).

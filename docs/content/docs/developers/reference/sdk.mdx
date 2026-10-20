@@ -1,0 +1,701 @@
+---
+title: '@sluby/sdk reference'
+description: Every option, namespace, method, error class and exported type of the Sluby TypeScript SDK.
+---
+
+`@sluby/sdk` is the TypeScript client for the Sluby REST API. It wraps every request in typed methods, uploads files over tus, verifies webhook signatures and opens the browser session that streams video straight from Sia. For a walkthrough, start with [Upload videos from your app](/developers/guides/upload).
+
+## Install [#install]
+
+```bash
+npm install @sluby/sdk
+```
+
+## Package [#package]
+
+| Fact           | Value                                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------- |
+| Module formats | ESM (`import`) and CommonJS (`require`), each with its own type declarations                               |
+| Entry points   | One: `@sluby/sdk`. There are no subpath exports.                                                           |
+| Node.js        | `^20.16.0 \|\| >=22.3.0` (the `engines` field)                                                             |
+| Browsers       | Every REST method, uploads and `verifyRequestAsync` run in a browser. `client.sia` runs only in a browser. |
+| HTTP           | The global `fetch`. There is no option to pass your own.                                                   |
+| Dependencies   | `tus-js-client` for uploads, `@siafoundation/sia-storage` for direct-from-Sia playback                     |
+| Side effects   | None (`"sideEffects": false`)                                                                              |
+
+The Sia storage SDK is a WebAssembly module. The client imports it the first time `client.sia` connects (`connect()`, `prepare()` or `resolveObjectId()`), so code that never touches `client.sia` never loads it.
+
+## SlubyConfig [#slubyconfig]
+
+```ts
+interface SlubyConfig {
+  baseUrl: string;
+  apiKey?: string;
+  credentials?: RequestCredentials;
+  deliveryBaseUrl?: string;
+  sia?: SiaViewerConfig;
+  timeoutMs?: number;
+}
+```
+
+| Option            | Type                 | Default   | Behavior                                                                                                                                                                                                                                                           |
+| ----------------- | -------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `baseUrl`         | `string`             | required  | The origin of your Sluby server, such as `https://sluby.example.com`. The SDK appends the `/api/v1/...` paths and removes trailing slashes.                                                                                                                        |
+| `apiKey`          | `string`             | none      | Sent as `Authorization: Bearer <apiKey>` on every API request and every upload request. The public share map request of `client.sia` never carries it. Leave it out in a browser app on the same origin as the API: requests then carry the Studio session cookie. |
+| `credentials`     | `RequestCredentials` | not set   | Passed to `fetch` for API requests. With `'include'`, uploads also send cookies cross-origin. Set it only when a cookie session crosses origins.                                                                                                                   |
+| `deliveryBaseUrl` | `string`             | `baseUrl` | The origin the SDK resolves playback URLs against: `playback.streamUrl`, `playback.getUrl`, `playback.getSignedUrl` and relative `src` values in `client.sia`. The SDK removes trailing slashes.                                                                   |
+| `sia`             | `SiaViewerConfig`    | none      | The viewer identity for direct-from-Sia playback. When set, `client.sia` is a [`SiaSession`](#sia). When not set, `client.sia` is `undefined`.                                                                                                                     |
+| `timeoutMs`       | `number`             | none      | Rejects any API request that has not finished, headers and body, within this many milliseconds, with a [`TimeoutError`](#errors). It does not apply to uploads.                                                                                                    |
+
+The constructor throws an `Error` when:
+
+| Condition                                  | Message                                                                                |
+| ------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `apiKey` is set to an empty string         | `SlubyClient apiKey must be non-empty when provided; omit it to use a cookie session.` |
+| `baseUrl` is empty                         | `SlubyClient requires a non-empty baseUrl.`                                            |
+| `timeoutMs` is not a finite number above 0 | `SlubyClient timeoutMs must be a positive number of milliseconds.`                     |
+
+### SiaViewerConfig [#siaviewerconfig]
+
+The publishable, low-privilege Sia identity a browser uses to download shared objects. [Stream from Sia in the browser](/self-hosting/direct-playback) shows how to create one.
+
+| Field         | Type     | Default                              | Behavior                                                          |
+| ------------- | -------- | ------------------------------------ | ----------------------------------------------------------------- |
+| `indexerUrl`  | `string` | required                             | The indexer the viewer connects to, such as `https://sia.storage` |
+| `appId`       | `string` | required                             | 32 bytes as 64 hex characters, with or without `0x`               |
+| `appKey`      | `string` | required                             | 32 bytes as 64 hex characters, with or without `0x`               |
+| `name`        | `string` | `Sluby Player`                       | App name shown to the indexer                                     |
+| `description` | `string` | `Sluby direct-from-Sia video player` | App description shown to the indexer                              |
+| `serviceUrl`  | `string` | `indexerUrl`                         | App service URL shown to the indexer                              |
+
+## SlubyClient [#slubyclient]
+
+```ts
+import { SlubyClient } from '@sluby/sdk';
+
+const client = new SlubyClient({
+  baseUrl: 'https://sluby.example.com',
+  apiKey: process.env.SLUBY_API_KEY,
+  timeoutMs: 30_000,
+});
+```
+
+| Member                          | Type                            | Purpose                                                                                       |
+| ------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `uploads`                       | `UploadManager`                 | [Upload files, read and cancel upload sessions](#uploads)                                     |
+| `assets`                        | `AssetManager`                  | [List, read, edit, retry, delete and wait for videos](#assets)                                |
+| `playback`                      | `PlaybackManager`               | [Public and signed playback URLs](#playback)                                                  |
+| `playbackIds`                   | `PlaybackIdManager`             | [`pb_...` playback ids](#playback-ids)                                                        |
+| `keys`                          | `KeyManager`                    | [API keys](#keys)                                                                             |
+| `sessions`                      | `SessionManager`                | [Signed-in Studio browsers](#sessions)                                                        |
+| `reconciliation`                | `ReconciliationManager`         | [The storage check](#reconciliation)                                                          |
+| `webhookEndpoints`              | `WebhookEndpointManager`        | [Register and manage webhook endpoints](#webhook-endpoints)                                   |
+| `webhooks`                      | `WebhookManager`                | [Verify and parse incoming webhooks](#webhooks)                                               |
+| `sia`                           | `SiaSession \| undefined`       | [Direct-from-Sia viewer session](#sia), present only with `config.sia`                        |
+| `resolveDeliveryUrl(pathOrUrl)` | `(pathOrUrl: string) => string` | Returns an absolute `http(s)` URL unchanged and prefixes anything else with `deliveryBaseUrl` |
+
+### Request behavior [#request-behavior]
+
+- Request bodies go out with the API's snake_case field names. Responses come back mapped to the camelCase types on this page.
+- Every method that takes `options` accepts `signal?: AbortSignal`. When the signal fires, the call rejects with an [`AbortError`](#errors) whose `cause` is the signal's reason.
+- The SDK reads the whole response body before it resolves, so `signal` and `timeoutMs` cover the body too.
+- A response outside 200 to 299 rejects with the [error class for its status](#errors).
+- A network failure rejects with the `TypeError` that `fetch` threw, not a `SlubyError`.
+- The SDK does not retry REST requests. Uploads retry on their own (see `retryDelays` in [UploadFileOptions](#uploadfileoptions)).
+
+The endpoint decides which [scope](/developers/reference/api-conventions#scopes) a request needs. Each method below links to its endpoint page.
+
+## client.uploads [#uploads]
+
+```ts
+class UploadManager {
+  upload(file: UploadInput, options: UploadOptions): AssetUploadHandle;
+  getStatus(uploadId: string, options?: RequestOptions): Promise<UploadSession>;
+  cancel(uploadId: string, options?: RequestOptions): Promise<void>;
+}
+
+type UploadInput = Blob | Uint8Array;
+```
+
+| Method      | Request                                                                                                                                                                            | Returns                                                                  |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `upload`    | tus upload to [`POST /api/v1/uploads`](/developers/reference/api/uploads/post-uploads), then [`PATCH`](/developers/reference/api/uploads/patch-uploads-id) requests for the chunks | An [`AssetUploadHandle`](#assetuploadhandle) right away, without waiting |
+| `getStatus` | [`GET /api/v1/uploads/{uploadId}`](/developers/reference/api/uploads/get-uploads-id)                                                                                               | `UploadSession`                                                          |
+| `cancel`    | [`DELETE /api/v1/uploads/{uploadId}`](/developers/reference/api/uploads/delete-uploads-id)                                                                                         | Nothing                                                                  |
+
+`upload()` takes a `File` or `Blob` in the browser, and a `Buffer`, `Uint8Array` or `Blob` (for example from `fs.openAsBlob`) in Node.js. It does not take Node.js streams. Each call creates one video asset, unless it resumes an unfinished upload (see `resume` below). The upload runs as a single tus stream.
+
+### UploadOptions [#uploadoptions]
+
+`UploadOptions` is [`UploadFileOptions`](#uploadfileoptions) plus the fields of the new video. The SDK sends them as tus metadata.
+
+| Field         | Type                    | Default    | tus metadata key |
+| ------------- | ----------------------- | ---------- | ---------------- |
+| `title`       | `string`                | required   | `title`          |
+| `description` | `string`                | `''`       | `description`    |
+| `accessTier`  | `'public' \| 'private'` | `'public'` | `accessTier`     |
+
+The SDK also sends `filename` (the `File`'s name, or `video`) and `filetype` (the `Blob`'s type, or an empty string).
+
+### UploadFileOptions [#uploadfileoptions]
+
+| Field         | Type                                                                   | Default                 | Behavior                                                                                                                                                                                                    |
+| ------------- | ---------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chunkSize`   | `number`                                                               | `10485760` (10 MiB)     | Bytes per tus `PATCH` request                                                                                                                                                                               |
+| `retryDelays` | `number[]`                                                             | `[0, 1000, 3000, 5000]` | Milliseconds to wait before each tus retry                                                                                                                                                                  |
+| `onProgress`  | `(percent: number, bytesUploaded: number, bytesTotal: number) => void` | none                    | `percent` is `Math.round(bytesUploaded / bytesTotal * 100)`. Not called while `bytesTotal` is 0.                                                                                                            |
+| `onSuccess`   | `() => void`                                                           | none                    | Called once when every byte is uploaded                                                                                                                                                                     |
+| `onError`     | `(error: Error) => void`                                               | none                    | Called with the same `SlubyError` the handle rejects with                                                                                                                                                   |
+| `resume`      | `boolean`                                                              | `true`                  | In a browser, resumes an unfinished upload of the same file, with the same metadata, by the same key, from an earlier page load. A finished upload is never resumed. A `Uint8Array` input is never resumed. |
+| `signal`      | `AbortSignal`                                                          | none                    | Aborts the upload like `handle.abort()`                                                                                                                                                                     |
+
+Before it resumes a stored upload, the SDK sends a `HEAD` to it and resumes only when the server reports `Upload-Offset` below `Upload-Length`.
+
+### AssetUploadHandle [#assetuploadhandle]
+
+```ts
+type AssetUploadHandle = Promise<void> & {
+  assetId: Promise<string>;
+  uploadId: Promise<string>;
+  pause: () => Promise<void>;
+  resume: () => void;
+  abort: () => Promise<void>;
+  readonly isPaused: boolean;
+};
+```
+
+| Member         | Behavior                                                                                                                                                                                                                                           |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `await handle` | Resolves when every byte is uploaded. Processing then continues on the server: use [`assets.waitForReady`](#assets) to wait for it.                                                                                                                |
+| `assetId`      | The id of the asset the upload created, available as soon as the server creates the upload                                                                                                                                                         |
+| `uploadId`     | The last path segment of the tus upload URL, the id `getStatus` and `cancel` take                                                                                                                                                                  |
+| `pause()`      | Stops sending and keeps the partial upload                                                                                                                                                                                                         |
+| `resume()`     | Continues a paused upload from where it stopped                                                                                                                                                                                                    |
+| `abort()`      | Stops sending, terminates the upload on the server (which discards the asset it created) and rejects the handle, `assetId` and `uploadId` (those not yet settled) with `AbortError('Upload aborted.')`. Does nothing once the upload has finished. |
+| `isPaused`     | Whether the upload is paused                                                                                                                                                                                                                       |
+
+The handle, `assetId` and `uploadId` reject with the [error class](#errors) for the HTTP status of a failed tus request (the tus error is on `cause`), or with a `SlubyError` whose message starts with `Upload failed:` for any other failure.
+
+## client.assets [#assets]
+
+```ts
+class AssetManager {
+  list(options?: ListAssetsOptions): Promise<PaginatedResponse<VideoAsset>>;
+  get(videoAssetId: string, options?: RequestOptions): Promise<VideoAsset>;
+  update(
+    videoAssetId: string,
+    data: Partial<Pick<VideoAsset, 'title' | 'description' | 'accessTier'>>,
+    options?: RequestOptions & { ifMatch?: VideoAsset | string },
+  ): Promise<VideoAsset>;
+  delete(videoAssetId: string, options?: RequestOptions): Promise<void>;
+  processing(videoAssetId: string, options?: RequestOptions): Promise<ProcessingJob>;
+  renditions(videoAssetId: string, options?: RequestOptions): Promise<Rendition[]>;
+  retry(videoAssetId: string, options?: RequestOptions): Promise<{ stage: RetryStage }>;
+  stats(options?: RequestOptions): Promise<AssetStats>;
+  usage(options?: RequestOptions & { days?: number }): Promise<UsageReport>;
+  waitForReady(
+    videoAssetId: string,
+    options?: { pollInterval?: number; timeout?: number; signal?: AbortSignal },
+  ): Promise<VideoAsset>;
+}
+
+function assetEtag(asset: Pick<VideoAsset, 'updatedAt'>): string;
+```
+
+| Method         | Request                                                                                                      | Returns                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `list`         | [`GET /api/v1/assets`](/developers/reference/api/assets/get-assets)                                          | One page of assets with `total`, `page`, `limit`, `nextCursor` and `hasMore` |
+| `get`          | [`GET /api/v1/assets/{id}`](/developers/reference/api/assets/get-assets-id)                                  | `VideoAsset`                                                                 |
+| `update`       | [`PATCH /api/v1/assets/{id}`](/developers/reference/api/assets/patch-assets-id)                              | The updated `VideoAsset`                                                     |
+| `delete`       | [`DELETE /api/v1/assets/{id}`](/developers/reference/api/assets/delete-assets-id)                            | Nothing                                                                      |
+| `processing`   | [`GET /api/v1/assets/{id}/processing`](/developers/reference/api/assets/get-assets-id-processing)            | `ProcessingJob`: stage, percent, error and log lines                         |
+| `renditions`   | [`GET /api/v1/assets/{id}/renditions`](/developers/reference/api/assets/get-assets-id-renditions)            | `Rendition[]`, tallest first, empty until the asset is ready                 |
+| `retry`        | [`POST /api/v1/assets/{id}/retry`](/developers/reference/api/assets/post-assets-id-retry)                    | The stage processing restarted from: `'transcode'` or `'upload-segments'`    |
+| `stats`        | [`GET /api/v1/stats`](/developers/reference/api/ops/get-stats)                                               | `AssetStats`. `byStatus` has every status, 0 when none.                      |
+| `usage`        | [`GET /api/v1/stats/usage`](/developers/reference/api/ops/get-stats-usage), with `?days=` when `days` is set | `UsageReport`: plays per UTC day                                             |
+| `waitForReady` | Repeated `get`                                                                                               | The asset once its status is `ready`                                         |
+
+### update and If-Match [#update-if-match]
+
+Pass `ifMatch` to apply the edit only if nobody changed the asset since you read it. Pass the asset as you read it, or an ETag string. `assetEtag(asset)` builds the ETag the server uses: `asset.updatedAt` in milliseconds since the epoch, in double quotes. It throws a `TypeError` when `updatedAt` is not a date.
+
+When the asset changed, `update` rejects with a `ConflictError` whose `statusCode` is `412` and whose `current` is the asset as the server has it now.
+
+```ts
+import { ConflictError } from '@sluby/sdk';
+
+try {
+  await client.assets.update(asset.id, { title: 'New title' }, { ifMatch: asset });
+} catch (err) {
+  if (err instanceof ConflictError && err.current) {
+    // the asset changed on the server; err.current is the version there now
+  }
+}
+```
+
+### waitForReady [#waitforready]
+
+| Option         | Default               | Behavior                                                                                                                                           |
+| -------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pollInterval` | `5000`                | Milliseconds between reads                                                                                                                         |
+| `timeout`      | `600000` (10 minutes) | Longest wait in milliseconds. The asset is read at least once, even with `timeout: 0`.                                                             |
+| `signal`       | none                  | Stops polling and rejects with an `AbortError`: `Stopped waiting: the signal was aborted.` between reads, `The request was aborted.` during a read |
+
+| Outcome         | Result                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------- |
+| Status `ready`  | Resolves with the asset                                                                            |
+| Status `failed` | Rejects with `ProcessingFailedError`, whose `asset` is the asset as last read                      |
+| Timeout         | Rejects with `TimeoutError('Timed out after <timeout>ms waiting for asset <id> to become ready.')` |
+
+### ListAssetsOptions [#listassetsoptions]
+
+| Field        | Type                                              | Query parameter | Behavior                                                                                         |
+| ------------ | ------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------ |
+| `page`       | `number`                                          | `page`          | Page number                                                                                      |
+| `limit`      | `number`                                          | `limit`         | Assets per page                                                                                  |
+| `cursor`     | `string`                                          | `cursor`        | The `nextCursor` of the previous page. Works only with the default order (`created_at`, `desc`). |
+| `status`     | `VideoAssetStatus`                                | `status`        | Only assets in this status                                                                       |
+| `accessTier` | `'public' \| 'private'`                           | `access_tier`   | Only assets with this tier                                                                       |
+| `search`     | `string`                                          | `search`        | Case-insensitive match on title or description, or an exact asset id                             |
+| `sort`       | `'created_at' \| 'title' \| 'duration' \| 'size'` | `sort`          | Default `created_at`                                                                             |
+| `order`      | `'asc' \| 'desc'`                                 | `order`         | Default `desc`                                                                                   |
+
+Defaults and limits for `page` and `limit` are on the [endpoint page](/developers/reference/api/assets/get-assets).
+
+## client.playback [#playback]
+
+```ts
+class PlaybackManager {
+  streamUrl(idOrPlaybackId: string): string;
+  getUrl(videoAssetId: string, options?: RequestOptions): Promise<PlaybackInfo>;
+  getSignedUrl(
+    videoAssetId: string,
+    options?: { expiresIn?: number; signal?: AbortSignal },
+  ): Promise<SignedPlaybackInfo>;
+}
+```
+
+| Method         | Request                                                                                                                                                   | Returns                                                                                  |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `streamUrl`    | None. It builds the URL of [`GET /v1/stream/{id}/master.m3u8`](/developers/reference/api/delivery/get-stream-videoassetid-master-m3u8) without a request. | `<deliveryBaseUrl>/v1/stream/<id>/master.m3u8` for an asset id or a `pb_...` playback id |
+| `getUrl`       | [`GET /api/v1/playback/{id}`](/developers/reference/api/playback/get-playback-id)                                                                         | `PlaybackInfo`                                                                           |
+| `getSignedUrl` | [`GET /api/v1/playback/{id}/signed`](/developers/reference/api/playback/get-playback-id-signed), with `?expires_in=` when `expiresIn` is set              | `SignedPlaybackInfo`                                                                     |
+
+`getSignedUrl` rejects with a `RangeError` before sending anything when `expiresIn` is not a whole number above 0. Without `expiresIn` the server's default lifetime applies; [Playback and delivery](/developers/concepts/playback) has the default and the maximum.
+
+| `PlaybackInfo` field | Type                    | Value                                                            |
+| -------------------- | ----------------------- | ---------------------------------------------------------------- |
+| `playbackUrl`        | `string`                | Absolute master manifest URL, resolved against `deliveryBaseUrl` |
+| `playbackPath`       | `string`                | The server-relative path the API returned                        |
+| `posterUrl`          | `string \| null`        | Absolute poster URL, `null` when the asset has no thumbnail      |
+| `durationMs`         | `number \| null`        | Duration                                                         |
+| `resolution`         | `string \| null`        | Source resolution such as `1920x1080`                            |
+| `accessTier`         | `'public' \| 'private'` | The asset's tier                                                 |
+
+| `SignedPlaybackInfo` field | Type             | Value                                                                      |
+| -------------------------- | ---------------- | -------------------------------------------------------------------------- |
+| `signedUrl`                | `string`         | Absolute signed master manifest URL, resolved against `deliveryBaseUrl`    |
+| `signedPath`               | `string`         | The server-relative signed path the API returned                           |
+| `posterUrl`                | `string \| null` | The first thumbnail, signed until the same time, `null` when there is none |
+| `expiresAt`                | `string`         | ISO 8601 time the signed URL stops working                                 |
+
+## client.playbackIds [#playback-ids]
+
+```ts
+class PlaybackIdManager {
+  list(videoAssetId: string, options?: RequestOptions): Promise<PlaybackId[]>;
+  create(
+    videoAssetId: string,
+    input?: CreatePlaybackIdInput,
+    options?: RequestOptions,
+  ): Promise<PlaybackId>;
+  delete(playbackId: string, options?: RequestOptions): Promise<void>;
+}
+
+interface CreatePlaybackIdInput {
+  policy?: 'public' | 'signed'; // default 'public'
+  name?: string;
+}
+```
+
+| Method   | Request                                                                                                                                 | Returns              |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `list`   | [`GET /api/v1/assets/{id}/playback-ids`](/developers/reference/api/playback/get-assets-id-playback-ids)                                 | `PlaybackId[]`       |
+| `create` | [`POST /api/v1/assets/{id}/playback-ids`](/developers/reference/api/playback/post-assets-id-playback-ids)                               | The new `PlaybackId` |
+| `delete` | [`DELETE /api/v1/playback-ids/{playbackId}`](/developers/reference/api/playback/delete-playback-ids-playbackid), by the `pb_...` handle | Nothing              |
+
+`PlaybackId` has `id` (the record id), `playbackId` (the `pb_...` handle to use in playback URLs), `policy`, `name` (empty string when none was given) and `createdAt`.
+
+## client.keys [#keys]
+
+```ts
+class KeyManager {
+  list(options?: ListApiKeysOptions): Promise<ApiKeyPage>;
+  create(input: CreateApiKeyInput, options?: RequestOptions): Promise<CreatedApiKey>;
+  update(keyId: string, input: { name: string }, options?: RequestOptions): Promise<ApiKey>;
+  rotate(
+    keyId: string,
+    options?: { gracePeriodSeconds?: number; signal?: AbortSignal },
+  ): Promise<RotatedApiKey>;
+  revoke(keyId: string, options?: RequestOptions): Promise<void>;
+}
+
+interface ListApiKeysOptions extends RequestOptions {
+  limit?: number;
+  cursor?: string;
+}
+
+interface CreateApiKeyInput {
+  name: string;
+  scopes?: ApiKeyScope[];
+  rateLimit?: number; // requests per minute
+}
+```
+
+| Method   | Request                                                                                                                                             | Returns                                                                                            |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `list`   | [`GET /api/v1/keys`](/developers/reference/api/keys/get-keys)                                                                                       | `ApiKeyPage`: `data`, `hasMore`, `nextCursor` and `limits` (`maxKeys`, `maxRateLimit`)             |
+| `create` | [`POST /api/v1/keys`](/developers/reference/api/keys/post-keys)                                                                                     | `CreatedApiKey`: the key plus its raw `key`, returned only here                                    |
+| `update` | [`PATCH /api/v1/keys/{id}`](/developers/reference/api/keys/patch-keys-id)                                                                           | The renamed `ApiKey`. Secret, scopes and rate limit stay.                                          |
+| `rotate` | [`POST /api/v1/keys/{id}/rotate`](/developers/reference/api/keys/post-keys-id-rotate), with `grace_period_seconds` when `gracePeriodSeconds` is set | `RotatedApiKey`: the replacement with its raw `key`, plus `rotatedFrom` and `previousKeyExpiresAt` |
+| `revoke` | [`DELETE /api/v1/keys/{id}`](/developers/reference/api/keys/delete-keys-id)                                                                         | Nothing                                                                                            |
+
+`rotate` rejects with a `ConflictError` (409) for a key that was already rotated. Rotate its replacement instead.
+
+`ApiKey` fields: `id`, `name`, `scopes` (`'upload' | 'read' | 'manage'`, see [Scopes](/developers/reference/api-conventions#scopes)), `rateLimit` (requests per minute), `isActive`, `createdAt`, `expiresAt` (set while a rotated-out key is in its grace period, otherwise `null`), `prefix` (the first 12 characters of the key, or `null`), `lastUsedAt` and `createdBy` (`{ id, name }` of the member who made it, or `null`).
+
+## client.sessions [#sessions]
+
+```ts
+class SessionManager {
+  list(options?: RequestOptions): Promise<StudioSession[]>;
+  revoke(sessionId: string, options?: RequestOptions): Promise<void>;
+  revokeAll(options?: RequestOptions): Promise<{ revoked: number }>;
+}
+```
+
+These methods work only with a Studio session cookie: create the client without `apiKey`. A client with an API key gets an `AuthenticationError` (401). On a server with sign-in turned off (`AUTH_DISABLED`), they reject with a `ConflictError` (409).
+
+| Method      | Request                                                                                       | Returns                                                                             |
+| ----------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `list`      | [`GET /api/v1/auth/sessions`](/developers/reference/api/auth/get-auth-sessions)               | The account's live sessions, newest first. `current` marks the one making the call. |
+| `revoke`    | [`DELETE /api/v1/auth/sessions/{id}`](/developers/reference/api/auth/delete-auth-sessions-id) | Nothing. Revoking the current session also clears its cookie.                       |
+| `revokeAll` | [`DELETE /api/v1/auth/sessions`](/developers/reference/api/auth/delete-auth-sessions)         | How many sessions were signed out, the current one included                         |
+
+`StudioSession` fields: `id`, `userAgent`, `createdAt`, `expiresAt`, `lastSeenAt`, `current`.
+
+## client.reconciliation [#reconciliation]
+
+```ts
+class ReconciliationManager {
+  latest(options?: RequestOptions): Promise<ReconciliationReport>;
+  run(options?: RequestOptions): Promise<ReconciliationTrigger>;
+}
+```
+
+| Method   | Request                                                                                               | Returns                                                                                               |
+| -------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `latest` | [`GET /api/v1/reconciliation`](/developers/reference/api/reconciliation/get-reconciliation)           | The latest finished storage check. Rejects with `NotFoundError` before the first check finishes.      |
+| `run`    | [`POST /api/v1/reconciliation/run`](/developers/reference/api/reconciliation/post-reconciliation-run) | `{ enqueued, alreadyPending }`. Only an admin can run it; anyone else gets a `PermissionError` (403). |
+
+`ReconciliationReport` is a union on `scope`:
+
+- `scope: 'deployment'` (for an admin): the whole deployment, with `dbObjectCount`, `indexerObjectCount`, `inSyncCount`, `orphanCount`, `orphanedIds` and `errorMessage`.
+- `scope: 'account'` (for a caller that is not an admin): the missing objects of the workspace's videos, without the deployment-wide counts.
+
+Both carry `id`, `startedAt`, `finishedAt`, `createdAt`, `status` (`'ok' | 'drift' | 'failed'`), `missingCount`, `missingIds` and `missingObjects` (each `{ objectId, videoAssetId, title }`). [Deletion and reconciliation](/developers/concepts/deletion-and-reconciliation) explains the check.
+
+## client.webhookEndpoints [#webhook-endpoints]
+
+```ts
+class WebhookEndpointManager {
+  list(options?: RequestOptions): Promise<WebhookEndpoint[]>;
+  get(endpointId: string, options?: RequestOptions): Promise<WebhookEndpoint>;
+  create(
+    input: CreateWebhookEndpointInput,
+    options?: RequestOptions,
+  ): Promise<CreatedWebhookEndpoint>;
+  update(
+    endpointId: string,
+    input: UpdateWebhookEndpointInput,
+    options?: RequestOptions,
+  ): Promise<WebhookEndpoint>;
+  delete(endpointId: string, options?: RequestOptions): Promise<void>;
+  rotateSecret(
+    endpointId: string,
+    options?: RequestOptions,
+  ): Promise<{ id: string; secret: string }>;
+  test(endpointId: string, options?: RequestOptions): Promise<WebhookTestResult>;
+  deliveries(
+    endpointId: string,
+    options?: { limit?: number; signal?: AbortSignal },
+  ): Promise<WebhookDelivery[]>;
+  redeliver(
+    endpointId: string,
+    deliveryId: string,
+    options?: RequestOptions,
+  ): Promise<{ deliveryId: string }>;
+}
+
+interface CreateWebhookEndpointInput {
+  url: string;
+  events: WebhookEventName[];
+}
+
+interface UpdateWebhookEndpointInput {
+  url?: string;
+  events?: WebhookEventName[]; // replaces the subscribed events
+  isActive?: boolean; // false pauses the endpoint, true resumes it
+}
+```
+
+| Method         | Request                                                                                                                                               | Returns                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `list`         | [`GET /api/v1/webhooks`](/developers/reference/api/webhooks/get-webhooks)                                                                             | Every endpoint, paused ones included, newest first                                           |
+| `get`          | [`GET /api/v1/webhooks/{id}`](/developers/reference/api/webhooks/get-webhooks-id)                                                                     | One endpoint, with `lastDeliveryAt` and `lastDeliveryOk`                                     |
+| `create`       | [`POST /api/v1/webhooks`](/developers/reference/api/webhooks/post-webhooks)                                                                           | `CreatedWebhookEndpoint` with the signing `secret`, returned only here                       |
+| `update`       | [`PATCH /api/v1/webhooks/{id}`](/developers/reference/api/webhooks/patch-webhooks-id)                                                                 | The updated endpoint. The secret stays.                                                      |
+| `delete`       | [`DELETE /api/v1/webhooks/{id}`](/developers/reference/api/webhooks/delete-webhooks-id)                                                               | Nothing                                                                                      |
+| `rotateSecret` | [`POST /api/v1/webhooks/{id}/rotate-secret`](/developers/reference/api/webhooks/post-webhooks-id-rotate-secret)                                       | The new `secret`, returned only here                                                         |
+| `test`         | [`POST /api/v1/webhooks/{id}/test`](/developers/reference/api/webhooks/post-webhooks-id-test)                                                         | `WebhookTestResult`: `delivered`, `statusCode`, `error`                                      |
+| `deliveries`   | [`GET /api/v1/webhooks/{id}/deliveries`](/developers/reference/api/webhooks/get-webhooks-id-deliveries), with `?limit=` when `limit` is set           | `WebhookDelivery[]`, newest first                                                            |
+| `redeliver`    | [`POST /api/v1/webhooks/{id}/deliveries/{deliveryId}/redeliver`](/developers/reference/api/webhooks/post-webhooks-id-deliveries-deliveryid-redeliver) | The id of the new delivery. Rejects with `ConflictError` (409) while the endpoint is paused. |
+
+`WebhookDelivery` fields: `id`, `eventId`, `event`, `statusCode`, `delivered`, `error`, `attempt` (1 for the first try), `createdAt`, `payload` (the JSON body that was sent) and `manual` (`true` for a resend made with `redeliver`). [Webhook events](/developers/reference/webhook-events) describes the events, payloads and retries.
+
+## client.webhooks [#webhooks]
+
+```ts
+class WebhookManager {
+  verifyRequest(
+    payload: string,
+    headers: WebhookHeaders,
+    secret: string,
+    options?: VerifyRequestOptions,
+  ): boolean;
+  verifyRequestAsync(
+    payload: string,
+    headers: WebhookHeaders,
+    secret: string,
+    options?: VerifyRequestOptions,
+  ): Promise<boolean>;
+  verifySignature(payload: string, signature: string, secret: string): boolean;
+  verifySignatureAsync(payload: string, signature: string, secret: string): Promise<boolean>;
+  parseEvent(payload: string): WebhookEvent;
+}
+
+type WebhookHeaders =
+  { get(name: string): string | null } | Record<string, string | string[] | undefined>;
+
+interface VerifyRequestOptions {
+  toleranceSeconds?: number; // default 300
+  now?: number; // current time in Unix seconds, default the clock
+}
+
+const DEFAULT_WEBHOOK_TOLERANCE_SECONDS = 300;
+```
+
+`WebhookManager` needs no credentials. Use it through any client, or construct it on its own with `new WebhookManager()`.
+
+| Method                 | Runs on                                             | Behavior                                                                                                                                                          |
+| ---------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verifyRequest`        | Node.js                                             | `true` when `X-Sluby-Signature-V1` is the hex HMAC-SHA256 of `<X-Sluby-Timestamp>.<payload>` under `secret` and the timestamp is within `toleranceSeconds` of now |
+| `verifyRequestAsync`   | Web Crypto (browsers, edge runtimes, Deno, Node.js) | Same check as `verifyRequest`                                                                                                                                     |
+| `verifySignature`      | Node.js                                             | `true` when `signature` (hex, either case) is the HMAC-SHA256 of `payload` under `secret`. Compares in constant time.                                             |
+| `verifySignatureAsync` | Web Crypto                                          | Same check as `verifySignature`                                                                                                                                   |
+| `parseEvent`           | Anywhere                                            | Parses the body into a `WebhookEvent`                                                                                                                             |
+
+Details:
+
+- Pass the raw request body as `payload`, exactly as received, before any JSON parsing.
+- `headers` takes a Fetch `Headers` object or a Node.js `req.headers` record. Header names match case-insensitively, and for an array the SDK uses the first value.
+- The timestamp must be 1 to 12 digits. A missing header, a malformed timestamp or one outside the tolerance returns `false`.
+- `verifySignature` throws where `process.getBuiltinModule` is missing (outside Node.js): `Synchronous signature verification needs Node.js 20.16+ or 22.3+ (process.getBuiltinModule). Use verifySignatureAsync() in browser or edge environments.` `verifyRequest` throws the same error once the headers pass the timestamp checks.
+- `parseEvent` throws `Invalid webhook payload: missing required "event" or "timestamp" field.` when either is not a string, and throws the `SyntaxError` of `JSON.parse` for a body that is not JSON. It keeps `id` only when it is a string and sets `data` to `{}` when it is missing.
+
+```ts
+import { WebhookManager } from '@sluby/sdk';
+
+const webhooks = new WebhookManager();
+
+// rawBody: the request body as a string; headers: req.headers
+if (webhooks.verifyRequest(rawBody, headers, process.env.SLUBY_WEBHOOK_SECRET!)) {
+  const event = webhooks.parseEvent(rawBody);
+  console.log(event.id, event.event, event.data.video_asset_id);
+}
+```
+
+`WebhookEvent` is `{ id?: string; event: WebhookEventName | (string & {}); timestamp: string; data: Record<string, unknown> }`. `data` keeps the snake_case keys of the payload. The headers, signature scheme and every payload are on [Webhook events](/developers/reference/webhook-events).
+
+## client.sia [#sia]
+
+`client.sia` is a `SiaSession` when the client was created with [`sia`](#siaviewerconfig), and `undefined` otherwise. It runs only in a browser. `@sluby/player` drives it; call it yourself only when you build your own player. [Playback and delivery](/developers/concepts/playback) explains direct-from-Sia playback.
+
+```ts
+class SiaSession {
+  static readonly MAX_CACHED_OBJECTS = 64;
+  constructor(fetchFn: FetchFn, config: SiaViewerConfig, transport?: SiaSessionTransport);
+  connect(): Promise<void>;
+  prepare(assetId: string, source?: SiaShareSource): Promise<void>;
+  getShareMap(
+    assetId: string,
+    source?: SiaShareSource,
+    options?: { renew?: boolean },
+  ): Promise<SiaShareMap>;
+  shareMapUrl(assetId: string, src: string): string;
+  masterObjectId(assetId: string, source?: SiaShareSource): Promise<string>;
+  resolveObjectId(assetId: string, objectId: string, source?: SiaShareSource): Promise<SiaObject>;
+  download(object: SiaObject, options?: SiaDownloadOptions): ReadableStream;
+  dispose(): void;
+}
+
+interface SiaShareSource {
+  src?: string;
+}
+
+interface SiaDownloadOptions {
+  offset?: number;
+  length?: number;
+}
+
+function publicShareMapUrl(assetId: string, src: string): string;
+```
+
+`FetchFn` is not exported. Use the session `SlubyClient` creates rather than constructing one.
+
+### Share map source [#share-map-source]
+
+Every method that needs an asset's share map takes an optional `source`:
+
+| `source`                                                                                                                                                                        | Share map request                                                                                                                   | Credentials                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `{ src }`, where `src` is the gateway playback URL being played (`/v1/stream/{id}/master.m3u8` or `/v1/objects/{id}`, signed or not, absolute or relative to `deliveryBaseUrl`) | [`GET /v1/share/{id}`](/developers/reference/api/delivery/get-share-id) on the delivery base, with the `expires` and `sig` of `src` | None, so a page without an API key can play direct from Sia |
+| Not set                                                                                                                                                                         | [`GET /api/v1/playback/{id}/share`](/developers/reference/api/playback/get-playback-id-share)                                       | The client's API key or session                             |
+
+### Methods [#sia-methods]
+
+| Method                                        | Behavior                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `connect()`                                   | Loads the WebAssembly SDK and connects to the indexer with the viewer app key. Resolves once connected; later calls reuse the connection. A failed attempt is not cached, so the next call tries again. Rejects when the app id or key is not 64 hex characters, or when the app key is not registered with the indexer.                                                               |
+| `prepare(assetId, source?)`                   | `connect()`, then loads the asset's share map                                                                                                                                                                                                                                                                                                                                          |
+| `getShareMap(assetId, source?, options?)`     | Fetches the share map without caching it. `renew: true` adds `renew=1` to a public request, so the server does not count another play. Rejects with a `SlubyError` when the answer has no valid `expires_at`.                                                                                                                                                                          |
+| `shareMapUrl(assetId, src)`                   | The public share map URL for `src`, after resolving a relative `src` against `deliveryBaseUrl`                                                                                                                                                                                                                                                                                         |
+| `masterObjectId(assetId, source?)`            | The object id of the asset's HLS master playlist, from the cached share map                                                                                                                                                                                                                                                                                                            |
+| `resolveObjectId(assetId, objectId, source?)` | A downloadable handle for one object of the asset. Cached per asset and object, at most `MAX_CACHED_OBJECTS` (64), least recently used dropped first. Fetches a fresh share map once when the object is missing from it, or when its share URL fails less than 60 seconds before the map's expiry or later. Rejects with `NotFoundError` when the map has no share URL for the object. |
+| `download(object, options?)`                  | A `ReadableStream` of the object's bytes from Sia, from `offset` for `length` bytes. Throws when called before the session is connected.                                                                                                                                                                                                                                               |
+| `dispose()`                                   | Frees every resolved object and the WebAssembly SDK and forgets the share maps. The session stays usable: the next call connects again.                                                                                                                                                                                                                                                |
+
+The session caches each share map per asset and source, and fetches a new one when the cached map is missing, expired, or within 60 seconds of its `expiresAt`. A map that arrived already inside those 60 seconds stays in use until it expires. A refetch of a map the session already held adds `renew=1` to a public request.
+
+`publicShareMapUrl(assetId, src)` builds the public share map URL for an absolute `src`. The share id is the `{id}` in a `/v1/stream/{id}/master.m3u8` URL, or `assetId` for a `/v1/objects/{id}` URL. It throws when `src` is neither.
+
+`SiaShareMap` is `{ masterObjectId: string; shares: Record<string, string>; expiresAt: string }`, where `shares` maps each object id (hex) to its `sia://` share URL.
+
+## Errors [#errors]
+
+Every error the SDK creates extends `SlubyError`, which extends `Error`. Check classes with `instanceof`.
+
+| Class                   | `statusCode`        | Thrown when                                                                                                                                                                         | Extra fields                                                                           |
+| ----------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `SlubyError`            | HTTP status, or `0` | Base class. Thrown directly for a status without its own class (such as 500 or 502), for a 2xx response whose body is not JSON, and for an upload failure without an HTTP response. | `responseBody?: string`, `cause`                                                       |
+| `ValidationError`       | `400` or `422`      | The request is malformed or a value is invalid                                                                                                                                      |                                                                                        |
+| `AuthenticationError`   | `401`               | The key or session is missing, wrong, revoked or expired                                                                                                                            |                                                                                        |
+| `PermissionError`       | `403`               | The caller is known but not allowed: a key without the needed scope, a member without the needed role, or a signed URL that is invalid or expired                                   |                                                                                        |
+| `NotFoundError`         | `404` or `410`      | The resource does not exist, or no longer does (410)                                                                                                                                |                                                                                        |
+| `ConflictError`         | `409` or `412`      | The resource is not in a state that allows the request (409), or an `update` with `ifMatch` found the asset changed (412)                                                           | `current?: VideoAsset` on a 412 from `assets.update`                                   |
+| `RateLimitError`        | `429`               | The key or caller went over a [rate limit](/developers/reference/api-conventions#rate-limits)                                                                                       | `retryAfter?: number`, seconds from the `Retry-After` header (seconds or an HTTP date) |
+| `TimeoutError`          | `0`                 | A request ran past `timeoutMs`, or `waitForReady` ran past its `timeout`                                                                                                            |                                                                                        |
+| `AbortError`            | `0`                 | A `signal` fired, or `abort()` was called on an upload. `name` is `'AbortError'`, like the DOM's.                                                                                   | `cause`: the signal's reason                                                           |
+| `ProcessingFailedError` | `0`                 | `waitForReady` read the asset as `failed`                                                                                                                                           | `asset: VideoAsset`                                                                    |
+
+The `message` of an HTTP error is the `error` string of a JSON body, else its `message` string. For a body that is not JSON, it is the trimmed body text when that is one line under 200 characters and does not start with `<`. Otherwise it is the HTTP status text, else `Unknown API error`. The raw body is on `responseBody`. [Errors in API conventions](/developers/reference/api-conventions#errors) describes the error body the API sends.
+
+A network failure is not a `SlubyError`: the SDK rethrows the `TypeError` from `fetch`. A `statusCode` of `0` marks an error raised in the client, not by the server.
+
+```ts
+import { SlubyError, RateLimitError } from '@sluby/sdk';
+
+try {
+  await client.assets.list();
+} catch (err) {
+  if (err instanceof RateLimitError) {
+    console.log(`retry in ${err.retryAfter ?? 60} s`);
+  } else if (err instanceof SlubyError) {
+    console.log(err.name, err.statusCode, err.message);
+  } else {
+    throw err; // a network failure from fetch
+  }
+}
+```
+
+## Types [#types]
+
+Every type below is exported from `@sluby/sdk` as a type.
+
+### VideoAsset [#videoasset]
+
+| Field                | Type               | Notes                                                             |
+| -------------------- | ------------------ | ----------------------------------------------------------------- |
+| `id`                 | `string`           |                                                                   |
+| `title`              | `string`           |                                                                   |
+| `description`        | `string`           |                                                                   |
+| `manifestObjectId`   | `string \| null`   | `null` until processing finishes                                  |
+| `thumbnailObjectIds` | `string[]`         |                                                                   |
+| `durationMs`         | `number \| null`   | `null` or `0` until processing has probed the source              |
+| `resolution`         | `string \| null`   | Source resolution such as `1920x1080`                             |
+| `status`             | `VideoAssetStatus` | `'created' \| 'uploading' \| 'processing' \| 'ready' \| 'failed'` |
+| `accessTier`         | `AccessTier`       | `'public' \| 'private'`                                           |
+| `creatorAddress`     | `string`           |                                                                   |
+| `segmentCount`       | `number`           |                                                                   |
+| `totalStorageBytes`  | `number`           |                                                                   |
+| `playCount`          | `number`           | All-time plays                                                    |
+| `lastPlayedAt`       | `string \| null`   | `null` before the first play                                      |
+| `createdAt`          | `string`           |                                                                   |
+| `updatedAt`          | `string`           | Also the asset's version for [`ifMatch`](#update-if-match)        |
+
+### ProcessingJob [#processingjob]
+
+| Field                      | Type                                                                | Notes                                                                          |
+| -------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `id`                       | `string`                                                            |                                                                                |
+| `status`                   | `'queued' \| 'processing' \| 'completed' \| 'failed' \| 'retrying'` | `retrying` means a failed attempt is queued again                              |
+| `stage`                    | `ProcessingStage`                                                   | `'queued' \| 'transcode' \| 'upload' \| 'finalize' \| 'completed' \| 'failed'` |
+| `progressPercent`          | `number`                                                            | Overall progress, 0 to 100                                                     |
+| `retryCount`               | `number`                                                            |                                                                                |
+| `errorMessage`             | `string \| null`                                                    |                                                                                |
+| `startedAt`, `completedAt` | `string \| null`                                                    |                                                                                |
+| `createdAt`                | `string`                                                            |                                                                                |
+| `logs`                     | `Array<{ timestamp: string; stage: string; message: string }>`      | The worker's log lines                                                         |
+| `retryable`                | `boolean`                                                           | Whether `assets.retry` can start a new run                                     |
+
+### Other types [#other-types]
+
+| Type                                                            | Shape                                                                                                                   |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `UploadSession`                                                 | `{ id; videoAssetId: string \| null; status: UploadSessionStatus; progressPercent; fileSize; uploadedBytes }`           |
+| `UploadSessionStatus`                                           | `'uploading' \| 'completed' \| 'cancelled' \| 'failed'`                                                                 |
+| `UploadHandle`                                                  | `AssetUploadHandle` without `assetId` and `uploadId`                                                                    |
+| `RequestOptions`                                                | `{ signal?: AbortSignal }`                                                                                              |
+| `PaginatedResponse<T>`                                          | `{ data: T[]; total; page; limit; nextCursor: string \| null; hasMore: boolean }`                                       |
+| `CursorPage<T>`                                                 | `{ data: T[]; hasMore: boolean; nextCursor: string \| null }`                                                           |
+| `AssetSortField`                                                | `'created_at' \| 'title' \| 'duration' \| 'size'`                                                                       |
+| `RetryStage`                                                    | `'transcode' \| 'upload-segments'`                                                                                      |
+| `Rendition`                                                     | `{ name; width; height; videoBitrateKbps; segmentCount; byteSize; dataObjectId; playlistObjectId }`                     |
+| `AssetStats`                                                    | `{ total; byStatus: Record<VideoAssetStatus, number>; storedBytes; readyDurationMs; objectCount }`                      |
+| `UsageReport`                                                   | `{ days: Array<{ date: string; plays: number }>; total: number }`, oldest day first                                     |
+| `PlaybackPolicy`                                                | `'public' \| 'signed'`                                                                                                  |
+| `ApiKeyScope`                                                   | `'upload' \| 'read' \| 'manage'`                                                                                        |
+| `ApiKeyPage`                                                    | `CursorPage<ApiKey>` plus `limits: { maxKeys; maxRateLimit }`                                                           |
+| `CreatedApiKey`                                                 | `ApiKey` plus `key: string`                                                                                             |
+| `RotatedApiKey`                                                 | `CreatedApiKey` plus `rotatedFrom: string; previousKeyExpiresAt: string`                                                |
+| `WebhookEventName`                                              | `'upload.started' \| 'upload.completed' \| 'upload.failed' \| 'processing.started' \| 'asset.ready' \| 'asset.errored'` |
+| `WebhookEndpoint`                                               | `{ id; url; events: WebhookEventName[]; isActive; createdAt; lastDeliveryAt; lastDeliveryOk }`                          |
+| `CreatedWebhookEndpoint`                                        | `{ id; url; events; secret }`                                                                                           |
+| `WebhookTestResult`                                             | `{ delivered: boolean; statusCode: number \| null; error: string \| null }`                                             |
+| `MissingObject`                                                 | `{ objectId: string; videoAssetId: string \| null; title: string \| null }`                                             |
+| `ReconciliationReportDeployment`, `ReconciliationReportAccount` | The two members of `ReconciliationReport`                                                                               |
+| `ReconciliationTrigger`                                         | `{ enqueued: boolean; alreadyPending: boolean }`                                                                        |
+| `SiaObject`                                                     | An opaque handle from `resolveObjectId`. Pass it only to `download` of the same session.                                |
+| `SiaSessionTransport`                                           | `{ fetchPublic?: (url: string) => Promise<Response>; resolveDeliveryUrl?: (pathOrUrl: string) => string }`              |
+
+The manager classes (`UploadManager`, `AssetManager`, `PlaybackManager`, `PlaybackIdManager`, `KeyManager`, `SessionManager`, `ReconciliationManager`, `WebhookEndpointManager`, `WebhookManager`, `SiaSession`) are exported for typing. Except for `WebhookManager`, reach them through a `SlubyClient`.

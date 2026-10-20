@@ -1,0 +1,170 @@
+---
+title: Manage your library from a server
+description: List, search, read, edit, retry and delete videos with @sluby/sdk, and wait for processing to finish.
+---
+
+`client.assets` manages the videos in your Sluby library from your server. Reading needs a key with the `read` scope; editing, retrying and deleting need the `manage` scope ([API conventions](/developers/reference/api-conventions#scopes) lists what each scope allows).
+
+Every sample on this page runs on your server with this client:
+
+```js title="sluby.mjs (server)"
+import { SlubyClient } from '@sluby/sdk';
+
+const { SLUBY_URL, SLUBY_API_KEY } = process.env;
+if (!SLUBY_URL || !SLUBY_API_KEY) throw new Error('Set SLUBY_URL and SLUBY_API_KEY.');
+export const client = new SlubyClient({ baseUrl: SLUBY_URL, apiKey: SLUBY_API_KEY });
+```
+
+## List videos
+
+`client.assets.list()` returns one page of videos, newest first by default. Walk the whole library with the cursor: pass each page's `nextCursor` back as `cursor` until it is `null`.
+
+```js title="list.mjs (server)"
+import { client } from './sluby.mjs';
+
+// every ready video, newest first, 100 at a time
+/** @type {string | undefined} */
+let cursor;
+do {
+  const page = await client.assets.list({ status: 'ready', limit: 100, cursor });
+  for (const asset of page.data) console.log(asset.id, asset.title);
+  cursor = page.nextCursor ?? undefined;
+} while (cursor);
+```
+
+The cursor works only with the default order (`created_at`, newest first), and a request takes either `cursor` or `page`, not both. [Pagination](/developers/reference/api-conventions#pagination) lists the range and default of `limit` and the other paging rules.
+
+## Search, filter and sort
+
+For any other order, page by number with `page`. The response's `total` counts every match.
+
+```js title="search.mjs (server)"
+import { client } from './sluby.mjs';
+
+const page = await client.assets.list({
+  search: 'interview',
+  accessTier: 'private',
+  sort: 'title',
+  order: 'asc',
+  page: 2,
+  limit: 20,
+});
+console.log(`${page.total} matches, showing ${page.data.length}`);
+```
+
+- `search` matches the title or description, ignoring case, or a video's exact id.
+- `status` is one of `created`, `uploading`, `processing`, `ready` and `failed`. `accessTier` is `public` or `private`.
+- `sort` is `created_at` (the default), `title`, `duration` or `size`, and `order` is `desc` (the default) or `asc`.
+
+The REST reference lists every query parameter and its limits: [`GET /api/v1/assets`](/developers/reference/api/assets/get-assets).
+
+## Wait for processing
+
+After an upload, `client.assets.waitForReady()` polls the video until its status is `ready` and returns it. `pollInterval` and `timeout`, in milliseconds, set how often it checks and when it gives up; their defaults are in the [SDK reference](/developers/reference/sdk#waitforready).
+
+```js title="wait.mjs (server)"
+import { ProcessingFailedError, TimeoutError } from '@sluby/sdk';
+import { client } from './sluby.mjs';
+
+const assetId = process.argv[2];
+
+try {
+  const asset = await client.assets.waitForReady(assetId, {
+    pollInterval: 5000,
+    timeout: 30 * 60_000,
+  });
+  console.log(`ready, ${asset.durationMs} ms`);
+} catch (err) {
+  if (err instanceof ProcessingFailedError) {
+    const job = await client.assets.processing(assetId);
+    console.log(`failed at ${job.stage}: ${job.errorMessage}`);
+  } else if (err instanceof TimeoutError) {
+    console.log('still processing, check again later');
+  } else {
+    throw err;
+  }
+}
+```
+
+`waitForReady` rejects with a `ProcessingFailedError` as soon as the video's status is `failed` (its `asset` property holds the video), and with a `TimeoutError` when the timeout passes first. Processing goes on after a timeout; only the waiting stops. Pass `signal` to stop waiting early: it then rejects with an `AbortError`.
+
+To show progress while you wait, read the processing job:
+
+```js title="progress.mjs (server)"
+import { client } from './sluby.mjs';
+
+const assetId = process.argv[2];
+
+const job = await client.assets.processing(assetId);
+console.log(`${job.status}, ${job.stage}, ${job.progressPercent}%`);
+for (const line of job.logs) console.log(line.timestamp, line.stage, line.message);
+```
+
+`stage` is `queued`, `transcode`, `upload`, `finalize`, `completed` or `failed`, and `progressPercent` runs from 0 to 100 over the whole pipeline. [Upload pipeline](/developers/concepts/upload-pipeline) explains each stage. To get notified instead of polling, [receive webhooks](/developers/guides/webhooks).
+
+## Read and edit a video
+
+`client.assets.get()` returns one video. `client.assets.update()` changes its `title`, `description` or `accessTier`. Pass the video as you read it in `ifMatch`, and the edit applies only if nobody changed the video since:
+
+```js title="edit.mjs (server)"
+import { ConflictError } from '@sluby/sdk';
+import { client } from './sluby.mjs';
+
+const assetId = process.argv[2];
+
+const asset = await client.assets.get(assetId);
+try {
+  const updated = await client.assets.update(
+    asset.id,
+    { title: 'Launch keynote', description: 'Recorded on stage' },
+    { ifMatch: asset },
+  );
+  console.log(`saved at ${updated.updatedAt}`);
+} catch (err) {
+  if (!(err instanceof ConflictError) || !err.current) throw err;
+  // someone changed the video after you read it; err.current is the video as it is now
+  console.log(`changed elsewhere, title is now "${err.current.title}"`);
+}
+```
+
+The SDK sends `ifMatch` as an `If-Match` header holding the video's ETag: its `updatedAt` in milliseconds since the epoch, in quotes. When the video changed in the meantime, the API answers `412` and the SDK throws a `ConflictError` whose `current` is the video as it is now. Without `ifMatch`, the edit always applies. `assetEtag(asset)` returns the same ETag if you call the REST API yourself.
+
+Changing `accessTier` decides who can watch; see [Serve private videos](/developers/guides/private-videos).
+
+## Retry a failed video
+
+When processing fails, `client.assets.processing()` tells you whether a retry can work: `retryable` is `true` for a failed video whose failure was not final and whose transcode output or original file is still on the server.
+
+```js title="retry.mjs (server)"
+import { client } from './sluby.mjs';
+
+const assetId = process.argv[2];
+
+const job = await client.assets.processing(assetId);
+if (job.retryable) {
+  const { stage } = await client.assets.retry(assetId);
+  console.log(`restarted from ${stage}`); // 'transcode' or 'upload-segments'
+}
+```
+
+A retry skips the transcode when its output survived and restarts at the upload to Sia (`upload-segments`); otherwise it transcodes the original file again (`transcode`). The API refuses a retry with `400` for a video that is not `failed`, and with `410` when neither the transcode output nor the original file is left on the server. Upload the video again in that case.
+
+## Delete a video
+
+```js title="delete.mjs (server)"
+import { NotFoundError } from '@sluby/sdk';
+import { client } from './sluby.mjs';
+
+const assetId = process.argv[2];
+
+try {
+  await client.assets.delete(assetId);
+} catch (err) {
+  if (!(err instanceof NotFoundError)) throw err;
+  // already deleted, or no such video
+}
+```
+
+The video leaves your library at once, and a background worker unpins its objects on Sia. Deletion cannot be undone. [Deletion and reconciliation](/developers/concepts/deletion-and-reconciliation) explains each step.
+
+The [SDK reference](/developers/reference/sdk) lists the other `client.assets` methods, such as `renditions`, `stats` and `usage`.

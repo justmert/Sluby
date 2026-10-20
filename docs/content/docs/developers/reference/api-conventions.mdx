@@ -1,0 +1,303 @@
+---
+title: API conventions
+description: Base URL, authentication, scopes, errors, pagination, rate limits, ETags, CORS and size limits that apply across the Sluby REST API.
+---
+
+These rules apply to every endpoint of the Sluby REST API. Each endpoint's own fields and responses are in the [REST API reference](/developers/reference/api/assets/get-assets).
+
+## Base URL [#base-url]
+
+The REST API lives under `/api/v1` on your server's public URL. With the Docker Compose stack from [Install Sluby](/self-hosting), that is `http://localhost:8080/api/v1`. In production it is `https://sluby.example.com/api/v1` for a server at `sluby.example.com`.
+
+The API and playback paths are grouped by prefix. The server also answers `/health` and `/metrics`, described in [Monitor and maintain](/self-hosting/operations).
+
+| Path prefix | What it serves                                                                                                                                                                                                                                                                                                                                              | Authentication                                                                             |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `/api/v1/`  | The REST API, including tus uploads at `/api/v1/uploads`                                                                                                                                                                                                                                                                                                    | API key or Studio session, see [Authentication](#authentication)                           |
+| `/v1/`      | The delivery gateway: [`/v1/stream/{id}/master.m3u8`](/developers/reference/api/delivery/get-stream-videoassetid-master-m3u8), [`/v1/objects/{objectId}`](/developers/reference/api/delivery/get-objects-objectid), [`/v1/share/{id}`](/developers/reference/api/delivery/get-share-id), [`/v1/cache/stats`](/developers/reference/api/ops/get-cache-stats) | None. Private videos use signed URLs ([how playback works](/developers/concepts/playback)) |
+| `/watch/`   | The public watch page, [`/watch/{id}`](/developers/reference/api/delivery/get-watch-id)                                                                                                                                                                                                                                                                     | None                                                                                       |
+
+A path under `/api/v1` that no route serves answers `404` with `{"error": "Route GET /api/v1/... not found"}`, whether or not you send a key.
+
+## Authentication [#authentication]
+
+Every `/api/v1` route needs credentials, except these:
+
+- the sign-in routes under `/api/v1/auth` (some of them need the Studio session cookie, none of them accept an API key)
+- [`GET /api/v1/openapi.json`](/developers/reference/api/ops/get-openapi-json), [`GET /api/v1/docs`](/developers/reference/api/ops/get-docs) and the script files that page loads from `/api/v1/docs/scalar/`
+- tus `OPTIONS` requests to `/api/v1/uploads`
+
+The server accepts two kinds of credentials: an API key in the `Authorization` header, and the Studio session cookie. When a request carries a live session cookie and a key, the session cookie wins.
+
+### API keys [#api-keys]
+
+Send the key as a bearer token:
+
+```http
+Authorization: Bearer sluby_...
+```
+
+| Property   | Value                                                                                                                                                                                                                                                                                                                                           |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format     | A key the server generates is `sluby_` followed by 43 base64url characters (32 random bytes)                                                                                                                                                                                                                                                    |
+| Storage    | The server stores only the SHA-256 hash of the key, plus its first 12 characters (`prefix`) so you can tell keys apart                                                                                                                                                                                                                          |
+| Shown      | Once, in the response that creates or rotates the key                                                                                                                                                                                                                                                                                           |
+| Scopes     | One or more of `upload`, `read`, `manage`. A new key gets `upload` and `read` when you do not list any                                                                                                                                                                                                                                          |
+| Rate limit | Per key, requests per minute. Default `100`, see [Rate limits](#rate-limits)                                                                                                                                                                                                                                                                    |
+| Role       | A key acts with the current role of the member who created it, and stops working while that member is removed. A key created on the server ([`BOOTSTRAP_API_KEY`](/self-hosting/configuration#bootstrap_api_key) or the [seed script](/self-hosting/sign-in#create-an-admin-api-key-from-the-command-line)) has no creator and acts as an admin |
+
+The header must start with `Bearer ` exactly. Create, rotate and revoke keys with the [keys endpoints](/developers/reference/api/keys/post-keys) or in the Studio ([Create and manage API keys](/studio/api-keys)). For what roles allow, see [Accounts, roles and sessions](/developers/concepts/accounts-and-roles).
+
+### Scopes [#scopes]
+
+A scope check is exact: `manage` does not include `read`, and `read` does not include `upload`. Give a key every scope it needs. A request without the scope answers `403` with `{"error": "Requires 'read' scope"}` (naming the missing scope). A tus upload request without `upload` answers `403` with the plain-text body `API key does not have upload scope`.
+
+| Scope    | Endpoints it allows                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload` | tus uploads: [`POST /api/v1/uploads`](/developers/reference/api/uploads/post-uploads), [`HEAD`](/developers/reference/api/uploads/head-uploads-id) and [`PATCH /api/v1/uploads/{id}`](/developers/reference/api/uploads/patch-uploads-id). Cancelling an upload: [`DELETE /api/v1/uploads/{id}`](/developers/reference/api/uploads/delete-uploads-id)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `read`   | [`GET /api/v1/uploads/{id}`](/developers/reference/api/uploads/get-uploads-id), [`GET /api/v1/assets`](/developers/reference/api/assets/get-assets), [`GET /api/v1/assets/{id}`](/developers/reference/api/assets/get-assets-id), [`GET /api/v1/assets/{id}/processing`](/developers/reference/api/assets/get-assets-id-processing), [`GET /api/v1/assets/{id}/renditions`](/developers/reference/api/assets/get-assets-id-renditions), [`GET /api/v1/assets/{id}/sia`](/developers/reference/api/storage/get-assets-id-sia), [`GET /api/v1/assets/{id}/playback-ids`](/developers/reference/api/playback/get-assets-id-playback-ids), [`GET /api/v1/playback/{id}`](/developers/reference/api/playback/get-playback-id), [`GET /api/v1/playback/{id}/signed`](/developers/reference/api/playback/get-playback-id-signed), [`GET /api/v1/playback/{id}/share`](/developers/reference/api/playback/get-playback-id-share), [`GET /api/v1/stats`](/developers/reference/api/ops/get-stats), [`GET /api/v1/stats/usage`](/developers/reference/api/ops/get-stats-usage), [`GET /api/v1/system/status`](/developers/reference/api/ops/get-system-status), `GET /api/v1/metrics` (admins only) |
+| `manage` | [`PATCH`](/developers/reference/api/assets/patch-assets-id) and [`DELETE /api/v1/assets/{id}`](/developers/reference/api/assets/delete-assets-id), [`POST /api/v1/assets/{id}/retry`](/developers/reference/api/assets/post-assets-id-retry), [`POST /api/v1/assets/{id}/playback-ids`](/developers/reference/api/playback/post-assets-id-playback-ids), [`DELETE /api/v1/playback-ids/{playbackId}`](/developers/reference/api/playback/delete-playback-ids-playbackid), [`POST /api/v1/playback/{id}/signed/revoke`](/developers/reference/api/playback/post-playback-id-signed-revoke), every [`/api/v1/keys`](/developers/reference/api/keys/get-keys) endpoint, every [`/api/v1/webhooks`](/developers/reference/api/webhooks/get-webhooks) endpoint, [`GET /api/v1/reconciliation`](/developers/reference/api/reconciliation/get-reconciliation), [`POST /api/v1/reconciliation/run`](/developers/reference/api/reconciliation/post-reconciliation-run) (admins only), every [`/api/v1/members`](/developers/reference/api/members/get-members) and [`/api/v1/invites`](/developers/reference/api/members/get-invites) endpoint (admins only)                                       |
+
+A Studio session holds all three scopes.
+
+#### Admin-only endpoints [#admin-only-endpoints]
+
+Some endpoints also need the caller to act as an admin. Otherwise they answer `403` with `{"error": "Only an admin may use this endpoint"}`:
+
+- `GET /api/v1/metrics` (needs `read`)
+- [`POST /api/v1/reconciliation/run`](/developers/reference/api/reconciliation/post-reconciliation-run) (needs `manage`)
+- the [members](/developers/reference/api/members/get-members) and [invites](/developers/reference/api/members/get-invites) endpoints (need `manage`)
+
+Two endpoints answer everyone with the scope but return less to a member: [`GET /api/v1/system/status`](/developers/reference/api/ops/get-system-status) returns the health summary only, and [`GET /api/v1/reconciliation`](/developers/reference/api/reconciliation/get-reconciliation) returns the account-level report instead of the deployment-wide one.
+
+The OpenAPI document marks each operation with `x-required-scope` and, for admin-only operations, `x-required-identity: admin`.
+
+### Studio session cookie [#session-cookie]
+
+Signing in through the `/api/v1/auth` routes sets a session cookie. A browser on the same site sends it with every request, so the Studio needs no key.
+
+| Property   | Value                                                                                                                 |
+| ---------- | --------------------------------------------------------------------------------------------------------------------- |
+| Name       | `sluby_session`                                                                                                       |
+| Attributes | `Path=/`, `HttpOnly`, `SameSite=Lax`, and `Secure` when `PUBLIC_URL` starts with `https://`                           |
+| Lifetime   | `Max-Age` set to the session's lifetime, see [Sessions and cookies](/developers/concepts/accounts-and-roles#sessions) |
+| Scopes     | `upload`, `read`, `manage`                                                                                            |
+| Role       | The account's current role, checked on every request                                                                  |
+| Rate limit | 1000 requests per minute per account, see [Rate limits](#rate-limits)                                                 |
+
+The server checks on every request that the session is still live and the account is not removed. [`GET /api/v1/auth/sessions`](/developers/reference/api/auth/get-auth-sessions), [`DELETE /api/v1/auth/sessions/{id}`](/developers/reference/api/auth/delete-auth-sessions-id), [`DELETE /api/v1/auth/sessions`](/developers/reference/api/auth/delete-auth-sessions), [`GET /api/v1/auth/me`](/developers/reference/api/auth/get-auth-me) and [`POST /api/v1/auth/password/change`](/developers/reference/api/auth/post-auth-password-change) work with the session cookie only. For how sessions start and end, see [Accounts, roles and sessions](/developers/concepts/accounts-and-roles).
+
+When `AUTH_DISABLED` is on, every request acts as the local development account, which is an admin with all three scopes, whatever credentials it carries ([`AUTH_DISABLED`](/self-hosting/configuration#auth_disabled)).
+
+### Cross-origin writes [#cross-origin-writes]
+
+The server refuses a write that only ambient credentials (a cookie) could authorize. A request under `/api` answers `403` with `{"error": "Cross-origin request refused"}` when all of these hold:
+
+- the method is not `GET`, `HEAD` or `OPTIONS`
+- it has an `Origin` header
+- it has no `Authorization` header
+- the origin is not the origin of `PUBLIC_URL`, not the origin the request was addressed to, and not listed in `CORS_ORIGIN`
+
+A request with an `Authorization` header, such as an API key, always passes this check.
+
+## Errors [#errors]
+
+### Error body [#error-body]
+
+Every REST error is JSON with an `error` string:
+
+```json
+{
+  "error": "title must be at most 200 characters",
+  "details": [{ "field": "title", "message": "title must be at most 200 characters" }]
+}
+```
+
+| Field              | When it is present                                                                                                                                                                                                           |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `error`            | Always. A message meant for people. For a validation error it is the first problem, prefixed with the field name when the message does not already name it. For an unexpected server failure it is `"Internal Server Error"` |
+| `details`          | A `400` from validation: one entry per problem, with `field` (dotted path, empty for the whole input) and `message`. Some sign-in errors also use it to point at a form field                                                |
+| `reason`           | A machine-readable code on some `401`, `403`, `409` and `410` answers, see [Authentication failures](#authentication-failures)                                                                                               |
+| `retry_after`      | A `429`: seconds to wait, the same value as the `Retry-After` header                                                                                                                                                         |
+| `current`          | A `412` from [`PATCH /api/v1/assets/{id}`](/developers/reference/api/assets/patch-assets-id): the asset as it is now, see [ETags](#etags)                                                                                    |
+| `message`, `stack` | Only when the server runs with `EXPOSE_ERROR_STACKS=true` ([`EXPOSE_ERROR_STACKS`](/self-hosting/configuration#expose_error_stacks))                                                                                         |
+
+The tus upload protocol requests answer errors with a plain-text body, as the tus protocol does. These are the `HEAD`, `PATCH` and `OPTIONS` requests to `/api/v1/uploads`, and any request there with a `Tus-Resumable` header.
+
+### Status codes [#status-codes]
+
+| Status | Meaning in Sluby                                                                                                                                                    |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | The body, query or a header is invalid. Also a malformed id, and malformed JSON                                                                                     |
+| `401`  | No valid API key or session                                                                                                                                         |
+| `403`  | The caller lacks a scope or the admin role, a cross-origin write was refused, or a sign-in check failed (wrong setup code, removed account, wrong current password) |
+| `404`  | No such resource in the workspace, or no such route                                                                                                                 |
+| `409`  | The request conflicts with the current state, for example the key limit is reached, a key was already rotated, or the action would leave no admin                   |
+| `410`  | An invite or reset link was used, expired or revoked                                                                                                                |
+| `412`  | `If-Match` does not match the asset's current version                                                                                                               |
+| `413`  | The JSON body is larger than 1 MiB, or a tus upload is larger than the server allows                                                                                |
+| `429`  | Over a rate limit or attempt limit                                                                                                                                  |
+| `500`  | An unexpected server failure                                                                                                                                        |
+| `502`  | An upstream did not answer, for example the Sia indexer while minting share URLs                                                                                    |
+| `503`  | A dependency did not answer, for example the database while minting share URLs                                                                                      |
+
+Each endpoint page in the [REST API reference](/developers/reference/api/assets/get-assets) lists the codes that endpoint returns. [`@sluby/sdk`](/developers/reference/sdk#errors) turns these into error classes.
+
+### Authentication failures [#authentication-failures]
+
+| Status | `error`                                                  | `reason`      | Cause                                                                      |
+| ------ | -------------------------------------------------------- | ------------- | -------------------------------------------------------------------------- |
+| `401`  | `Missing or invalid Authorization header`                | `missing`     | No `Authorization: Bearer` header and no session cookie this server signed |
+| `401`  | `This session has expired`                               | `expired`     | The session cookie is past its expiry                                      |
+| `401`  | `This session was signed out`                            | `revoked`     | The session was signed out, here or from another browser                   |
+| `401`  | `This account was removed from this workspace`           | `not_allowed` | An admin removed the account behind the session                            |
+| `401`  | `Invalid API key`                                        | none          | No key with this value exists (also a revoked key)                         |
+| `401`  | `API key is deactivated`                                 | none          | The key is marked inactive                                                 |
+| `401`  | `API key has expired`                                    | none          | The key was rotated and its grace period is over                           |
+| `401`  | `This API key's creator was removed from this workspace` | `not_allowed` | The member who created the key was removed                                 |
+| `403`  | `Requires '<scope>' scope`                               | none          | The key lacks the scope                                                    |
+| `403`  | `Only an admin may use this endpoint`                    | none          | The caller is not an admin                                                 |
+
+The `reason` on a session `401` appears only when the request carries no `Authorization: Bearer` header. The sign-in routes and the member routes use more `reason` values (`bad_credentials`, `disabled`, `bad_code`, `already_set_up`, `email_taken`, `no_password`, `used`, `last_admin`, `self`); their endpoint pages list them.
+
+## Pagination [#pagination]
+
+Two list endpoints page with a cursor:
+
+| Endpoint                                                            | Parameters                                                                    | Response fields                                             |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [`GET /api/v1/assets`](/developers/reference/api/assets/get-assets) | `limit` (1 to 100, default 20), `cursor`, or `page` (1 to 1000000, default 1) | `data`, `next_cursor`, `has_more`, `total`, `page`, `limit` |
+| [`GET /api/v1/keys`](/developers/reference/api/keys/get-keys)       | `limit` (1 to 1000, default 1000), `cursor`                                   | `data`, `next_cursor`, `has_more`, `limits`                 |
+
+To page forward, pass the `next_cursor` of one response as `cursor` in the next request, with the same filters. `has_more` is `false` and `next_cursor` is `null` on the last page. Rows inserted or deleted between requests do not shift a cursor, because the cursor encodes the position of the last row returned (its creation time and id), not an offset.
+
+Rules for `GET /api/v1/assets`:
+
+- Send either `cursor` or `page`, not both. A request with both answers `400` with `Use either cursor or page, not both`.
+- A cursor works only with the default order (`sort=created_at`, `order=desc`). With another order, use `page`: a cursor answers `400` with `cursor paging only supports the default order; use page instead`.
+- With a cursor, `page` in the response is `null`.
+
+A cursor the server cannot decode answers `400` with `cursor is not valid; start again without it`. Treat a cursor as opaque.
+
+[`GET /api/v1/webhooks/{id}/deliveries`](/developers/reference/api/webhooks/get-webhooks-id-deliveries) takes only a `limit` (1 to 100, default 50) and returns the newest deliveries.
+
+## Rate limits [#rate-limits]
+
+The backend keeps its counters in memory with fixed windows. A restart of the backend resets every window.
+
+| Limiter          | Applies to                                                                                                                                                                                                  | Limit                                                                                                                                                          | Counted per       |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Per key          | Authenticated REST requests with an API key                                                                                                                                                                 | The key's `rate_limit` per minute (default `100`), capped at 10000 per minute ([`API_KEY_RATE_LIMIT_MAX`](/self-hosting/configuration#api_key_rate_limit_max)) | API key           |
+| Per session      | Authenticated REST requests with a Studio session                                                                                                                                                           | 1000 per minute, or the key cap when that is lower                                                                                                             | Account           |
+| Per IP           | `/api/v1` requests that do not authenticate: the `/api/v1/auth` routes, the OpenAPI document and docs page, unknown routes, and requests with missing or invalid credentials                                | 600 per minute ([`API_IP_RATE_LIMIT`](/self-hosting/configuration#api_ip_rate_limit))                                                                          | Client IP address |
+| Sign-in attempts | [`POST /api/v1/auth/password`](/developers/reference/api/auth/post-auth-password) and [`POST /api/v1/auth/password/change`](/developers/reference/api/auth/post-auth-password-change)                       | 10 attempts per 10 minutes                                                                                                                                     | Client IP address |
+| Wrong passwords  | The same two routes                                                                                                                                                                                         | 5 wrong passwords per 15 minutes. A correct password clears the count                                                                                          | Email address     |
+| Setup attempts   | [`POST /api/v1/auth/setup`](/developers/reference/api/auth/post-auth-setup)                                                                                                                                 | 10 attempts per 10 minutes                                                                                                                                     | Client IP address |
+| Link attempts    | [`GET /api/v1/auth/invites/{token}`](/developers/reference/api/auth/get-auth-invites-token) and [`POST /api/v1/auth/invites/{token}/accept`](/developers/reference/api/auth/post-auth-invites-token-accept) | 30 per 10 minutes                                                                                                                                              | Client IP address |
+
+Every request through the per-key, per-session or per-IP limiter carries these headers:
+
+| Header                  | Value                                             |
+| ----------------------- | ------------------------------------------------- |
+| `X-RateLimit-Limit`     | The limit of the current window                   |
+| `X-RateLimit-Remaining` | Requests left in the window                       |
+| `X-RateLimit-Reset`     | Seconds until the window resets (not a timestamp) |
+
+Over the limit, the answer is `429` with a `Retry-After` header in seconds and this body:
+
+```json
+{
+  "error": "Too many requests. Try again in a few seconds.",
+  "retry_after": 42,
+  "retryAfter": 42
+}
+```
+
+`retryAfter` is an older spelling of `retry_after`. The attempt limits answer `429` with `Retry-After` and a body of `error` (for example `Too many attempts. Try again in 10 minutes.`) and `retry_after`. The `X-RateLimit-*` headers on those answers describe the per-IP limit.
+
+The per-IP limiter counts every `/api/v1` request first and gives the count back once the request authenticates. So an address that has used up its per-IP window gets `429` for every `/api/v1` request until the window resets, keyed requests included.
+
+tus upload requests do not count against the per-key or per-session limit. The per-IP limit counts them unless the upload server answers `401` or `403`.
+
+The per-IP limits use the client address Express resolves through the proxies it trusts ([`TRUST_PROXY`](/self-hosting/configuration#trust_proxy)). The server operator changes the key cap and the per-IP limit with the variables linked in the table. A key cannot be created with a `rate_limit` above `API_KEY_RATE_LIMIT_MAX` (the API answers `400`).
+
+### Proxy limits [#proxy-limits]
+
+The nginx proxy in the shipped Docker Compose stacks adds per-client-address limits in front of the backend:
+
+| Paths             | Request rate (burst)                                                                                                                                                  | Concurrent connections                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `/v1/` (delivery) | `100r/s` (burst 400), [`WEB_DELIVERY_RATE`](/self-hosting/configuration#web_delivery_rate) and [`WEB_DELIVERY_BURST`](/self-hosting/configuration#web_delivery_burst) | 200, [`WEB_DELIVERY_CONN`](/self-hosting/configuration#web_delivery_conn) |
+| `/api/v1/auth/`   | `10r/s` (burst 50), [`WEB_AUTH_RATE`](/self-hosting/configuration#web_auth_rate) and [`WEB_AUTH_BURST`](/self-hosting/configuration#web_auth_burst)                   | 20, [`WEB_AUTH_CONN`](/self-hosting/configuration#web_auth_conn)          |
+
+Over these limits nginx answers `429` with `Retry-After: 1` and `{"error":"Too many requests. Try again in a few seconds."}`. The server operator changes them with the variables in the table ([Web proxy configuration](/self-hosting/configuration#web-proxy)).
+
+## ETags and If-Match [#etags]
+
+Assets carry a version so two editors cannot overwrite each other's changes.
+
+| Request                                                                         | ETag behavior                                                                                                        |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| [`GET /api/v1/assets/{id}`](/developers/reference/api/assets/get-assets-id)     | Returns `ETag` with the asset's version and `Cache-Control: no-store`. Ignores `If-None-Match` (never answers `304`) |
+| [`PATCH /api/v1/assets/{id}`](/developers/reference/api/assets/patch-assets-id) | Accepts `If-Match`. Returns the new `ETag`                                                                           |
+
+The version is the asset's `updated_at` in milliseconds since the Unix epoch, in double quotes, for example `"1767225600000"`. You can build it from any asset you already hold, including one from the list endpoint. Plays do not change it.
+
+`If-Match` rules on `PATCH`:
+
+- Without `If-Match`, or with `If-Match: *`, the update applies unconditionally.
+- A comma-separated list matches when any entry matches. A weak tag (`W/"1767225600000"`) counts as its strong form.
+- A value that is not a quoted version answers `400` with `If-Match must be the ETag of the video, such as "1767225600000".`
+- When the asset changed since that version, the answer is `412` with the current `ETag` header and this body:
+
+```json
+{
+  "error": "This video was changed somewhere else.",
+  "current": { "id": "...", "title": "...", "updated_at": "..." }
+}
+```
+
+`current` holds the full asset in the same shape as `GET /api/v1/assets/{id}`. Retry with its version once you have merged your change.
+
+## CORS [#cors]
+
+The REST API (`/api`) decides CORS per request origin:
+
+| Request origin                               | Answer                                                                                                                                     |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Listed in `CORS_ORIGIN`                      | `Access-Control-Allow-Origin` set to that origin, with `Access-Control-Allow-Credentials: true`. The session cookie works from that origin |
+| Any other origin                             | `Access-Control-Allow-Origin: *` without credentials. Requests with an API key work; requests that rely on the session cookie do not       |
+| Any other origin while `AUTH_DISABLED` is on | No CORS headers                                                                                                                            |
+
+| Setting                  | Value                                                                                                                                                                                                                      |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Allowed methods          | `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`                                                                                                                                                                 |
+| Allowed request headers  | `Content-Type`, `Authorization`, `Tus-Resumable`, `Upload-Length`, `Upload-Offset`, `Upload-Metadata`, `Upload-Concat`, `Upload-Defer-Length`, `X-Requested-With`, `If-Match`                                              |
+| Exposed response headers | `Upload-Offset`, `Upload-Length`, `Upload-Metadata`, `Tus-Version`, `Tus-Resumable`, `Tus-Max-Size`, `Tus-Extension`, `Location`, `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `ETag` |
+| Preflight cache          | `Access-Control-Max-Age: 600`                                                                                                                                                                                              |
+
+When `CORS_ORIGIN` lists any origin, or `AUTH_DISABLED` is on, responses carry `Vary: Origin`. See [`CORS_ORIGIN`](/self-hosting/configuration#cors_origin) to set the list.
+
+The delivery gateway (`/v1/objects/`, `/v1/stream/`, `/v1/share/`) answers any origin with `Access-Control-Allow-Origin: *`, never with credentials. It allows the request headers `Range` and `Content-Type`. `/v1/objects/` and `/v1/stream/` allow `GET`, `HEAD` and `OPTIONS` and expose `Content-Length`, `Content-Range`, `Accept-Ranges` and `ETag`. Behind the nginx proxy of the shipped stacks, `/v1/share/` allows `GET` and `OPTIONS` and exposes the same headers without `ETag`.
+
+## Request size limits [#request-size-limits]
+
+| Body                                                                   | Limit                                                                                               | Over the limit                                         |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| JSON request body (`Content-Type: application/json`) on any REST route | 1 MiB (1048576 bytes)                                                                               | `413` with `{"error": "request entity too large"}`     |
+| Upload through tus                                                     | 10 GiB (10737418240 bytes), set by [`MAX_UPLOAD_SIZE`](/self-hosting/configuration#max_upload_size) | `413` with the plain-text body `Maximum size exceeded` |
+
+A tus `OPTIONS` request to `/api/v1/uploads` returns the upload limit in the `Tus-Max-Size` header. The nginx proxy in the shipped stacks sets no body size limit of its own.
+
+## OpenAPI document and interactive reference [#openapi]
+
+The server describes its API in an OpenAPI 3.1 document:
+
+| URL                                                                          | What it returns                                                                                                                               | Authentication |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| [`GET /api/v1/openapi.json`](/developers/reference/api/ops/get-openapi-json) | The OpenAPI document as JSON                                                                                                                  | None           |
+| [`GET /api/v1/docs`](/developers/reference/api/ops/get-docs)                 | An interactive reference page (Scalar) that reads `/api/v1/openapi.json`. The backend serves its script, so the page loads nothing from a CDN | None           |
+
+Both count against the [per-IP limit](#rate-limits). The interactive page uses `bearerAuth` by default, so you can paste a key and send requests from it.
+
+The [REST API reference](/developers/reference/api/assets/get-assets) on this site is generated from the same document, published here as [`/openapi.json`](/openapi.json).

@@ -1,0 +1,161 @@
+---
+title: Play videos without React
+description: Play Sluby videos with hls.js in any web page, through the gateway or straight from Sia with the loaders from @sluby/player/hls.
+---
+
+A Sluby video is an HLS stream, so any HLS player can play it from its playback URL. This guide uses [hls.js](https://github.com/video-dev/hls.js) in plain browser JavaScript. For direct-from-Sia playback, `@sluby/player/hls` gives you the hls.js loaders the React player uses, without React. All code on this page runs in the browser and uses no API key.
+
+## Install
+
+```bash
+npm install hls.js @sluby/sdk
+```
+
+Add `@sluby/player` too if you want to stream from Sia. Its `@sluby/player/hls` entry imports only hls.js, so React is not needed:
+
+```bash
+npm install @sluby/player
+```
+
+## Play through the gateway
+
+`client.playback.streamUrl()` builds the master playlist URL of a public video without a request. Hand it to hls.js, or to the `<video>` element where the browser plays HLS natively:
+
+```ts title="play.ts (browser)"
+import Hls from 'hls.js';
+import { SlubyClient } from '@sluby/sdk';
+
+const client = new SlubyClient({ baseUrl: 'https://sluby.example.com' });
+
+export function play(video: HTMLVideoElement, assetId: string): Hls | null {
+  const url = client.playback.streamUrl(assetId);
+
+  if (Hls.isSupported()) {
+    const hls = new Hls();
+    hls.loadSource(url);
+    hls.attachMedia(video);
+    return hls;
+  }
+  // iPhones without Managed Media Source cannot run hls.js, but play HLS natively
+  if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = url;
+    return null;
+  }
+  throw new Error('This browser cannot play HLS.');
+}
+```
+
+The gateway answers playback requests from any origin, so the page can live on another domain than your Sluby server.
+
+For a private video, use a signed URL from your server instead of `streamUrl()`; see [Serve private videos](/developers/guides/private-videos). The gateway signs every playlist and segment URL inside a private video's playlists with the same expiry, and refuses them after it. `<SlubyPlayer>` renews a signed URL during playback through its [`refreshSrc`](/developers/guides/private-videos#play-the-signed-url) prop; with hls.js alone, request an `expiresIn` that covers the viewing.
+
+## Stream from Sia
+
+`createSiaLoader` returns an hls.js loader class that downloads every playlist and segment from Sia through the client's viewer session. The client needs the `sia` option with your viewer identity ([Stream from Sia in the browser](/self-hosting/direct-playback) shows how the operator creates one).
+
+```ts title="client.ts (browser)"
+import { SlubyClient } from '@sluby/sdk';
+
+// reuse one client: its viewer session stays connected between videos
+export const client = new SlubyClient({
+  baseUrl: 'https://sluby.example.com',
+  sia: {
+    indexerUrl: import.meta.env.VITE_SLUBY_SIA_INDEXER_URL,
+    appId: import.meta.env.VITE_SLUBY_SIA_APP_ID,
+    appKey: import.meta.env.VITE_SLUBY_SIA_APP_KEY,
+  },
+});
+```
+
+This sample reads the viewer identity from Vite environment variables.
+
+```ts title="play-from-sia.ts (browser)"
+import Hls, { type HlsConfig } from 'hls.js';
+import { createSiaLoader } from '@sluby/player/hls';
+import { client } from './client';
+
+export async function playFromSia(video: HTMLVideoElement, assetId: string, url: string) {
+  const config: Partial<HlsConfig> = {};
+  if (client.sia) {
+    // connect and fetch the share map first, so a bad viewer key fails here
+    await client.sia.prepare(assetId, { src: url });
+    config.loader = createSiaLoader(client.sia, assetId, { src: url });
+  }
+  const hls = new Hls(config);
+  hls.loadSource(url);
+  hls.attachMedia(video);
+  return hls;
+}
+
+// a public video: playFromSia(video, id, client.playback.streamUrl(id))
+```
+
+Pass the gateway URL you would otherwise play as `url`: the stream URL of a public video, or a signed URL for a private one. With `{ src: url }`, the session fetches the video's share map from the public share endpoint next to that URL, carrying the URL's signature when it has one, so no API key is involved. Where hls.js cannot run (native HLS on an iPhone), no loader applies: set the gateway URL on the `<video>` element as in [Play through the gateway](#play-through-the-gateway).
+
+## Mix the gateway and Sia
+
+`createHybridLoader` loads playlists, the start of a video and any segment needed urgently through the gateway, and takes segments from Sia once enough video is buffered. The loader cuts off a Sia read that fails or runs long, and the gateway fetches that segment instead.
+
+```ts title="play-hybrid.ts (browser)"
+import Hls from 'hls.js';
+import { createHybridLoader } from '@sluby/player/hls';
+import { client } from './client';
+
+export function playHybrid(video: HTMLVideoElement, assetId: string, url: string) {
+  if (!client.sia) throw new Error('hybrid delivery needs a viewer identity');
+  const hls = new Hls({
+    // a new loader class for every Hls instance: the class holds the load's state
+    loader: createHybridLoader({
+      session: client.sia,
+      assetId,
+      source: { src: url },
+      media: () => video,
+      onStats: (s) =>
+        console.log(`${s.siaSegments} segments from Sia, ${s.gatewaySegments} from the gateway`),
+    }),
+  });
+  hls.loadSource(url);
+  hls.attachMedia(video);
+  return hls;
+}
+```
+
+`media` returns the element hls.js plays into; the loader reads from it how much video is buffered. The `policy` option tunes the thresholds; the [player reference](/developers/reference/player#hybrid-types) lists its fields and defaults (`DEFAULT_HYBRID_POLICY`), and [createHybridLoader](/developers/reference/player#createhybridloader) describes every rule the loader follows.
+
+## Recover from errors
+
+hls.js retries errors that are not fatal on its own. For fatal errors, this handler retries a network error up to 3 times and a media error up to 2 times, and resets both counters whenever hls.js buffers a segment. `<SlubyPlayer>` uses the same limits by default ([recovery props](/developers/reference/player#recovery-props)).
+
+```ts title="recovery.ts (browser)"
+import Hls from 'hls.js';
+
+export function withRecovery(hls: Hls, onGiveUp: (message: string) => void) {
+  let network = 0;
+  let media = 0;
+  let manifestParsed = false;
+  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    manifestParsed = true;
+  });
+  hls.on(Hls.Events.FRAG_BUFFERED, () => {
+    network = 0;
+    media = 0;
+  });
+  hls.on(Hls.Events.ERROR, (_event, data) => {
+    if (!data.fatal) return; // hls.js retries these itself
+    if (data.type === Hls.ErrorTypes.NETWORK_ERROR && network < 3) {
+      network += 1;
+      // startLoad resumes only after a manifest was parsed; a failed manifest loads again
+      if (manifestParsed) hls.startLoad();
+      else if (hls.url) hls.loadSource(hls.url);
+    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && media < 2) {
+      media += 1;
+      hls.recoverMediaError();
+    } else {
+      hls.destroy();
+      onGiveUp(`${data.type}: ${data.details}`);
+    }
+  });
+}
+```
+
+The `examples/vanilla` app in the Sluby repository puts these pieces together with uploads, a quality menu and a signing server.

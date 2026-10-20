@@ -1,0 +1,223 @@
+---
+title: Play videos in React
+description: Play Sluby videos with the SlubyPlayer component, stream them from Sia, and add quality menus and custom controls.
+---
+
+`<SlubyPlayer>` from `@sluby/player` plays a Sluby video in a React app. It runs hls.js with adaptive quality, uses the browser's native HLS where hls.js is not supported, shows a loading spinner and an error overlay with a **Retry** button, and streams the video bytes straight from Sia when you give it a viewer identity. Everything on this page runs in the browser and uses no API key.
+
+## Install
+
+```bash
+npm install @sluby/player @sluby/sdk
+```
+
+The React versions the player supports are in the [player reference](/developers/reference/player#package).
+
+## Play a public video
+
+Create one `SlubyClient` for your app and pass the video's stream URL as `src`:
+
+```tsx title="Video.tsx (browser)"
+import { SlubyClient } from '@sluby/sdk';
+import { SlubyPlayer } from '@sluby/player';
+
+// no API key: a public video plays from its stream URL
+const client = new SlubyClient({ baseUrl: 'https://sluby.example.com' });
+
+export function Video({ assetId }: { assetId: string }) {
+  return (
+    <SlubyPlayer src={client.playback.streamUrl(assetId)} controls style={{ width: '100%' }} />
+  );
+}
+```
+
+`client.playback.streamUrl()` builds the URL without a request and accepts an asset id or a `pb_...` playback id.
+
+The player can also resolve the URL itself when you pass `client` and `assetId` without `src`. It then asks the API for the playback URL, which takes credentials with the `read` scope (an API key or a Sluby session). On a page that anyone can open, pass `src` instead, as above.
+
+A private video does not play from its stream URL. [Serve private videos](/developers/guides/private-videos) shows how your server hands the player a signed URL.
+
+## Stream the bytes from Sia
+
+With a viewer identity in the client's `sia` option, the player downloads the video straight from Sia hosts instead of through your Sluby server's gateway. The viewer identity is publishable, not a secret: the operator of your Sluby server creates it with the `provision-viewer` script, which prints the three `VITE_SLUBY_SIA_*` values ([Stream from Sia in the browser](/self-hosting/direct-playback)).
+
+Create the client once, outside your components:
+
+```ts title="sluby.ts (browser)"
+import { SlubyClient } from '@sluby/sdk';
+
+// created once for the whole app: a new client makes the player load again
+export const client = new SlubyClient({
+  baseUrl: 'https://sluby.example.com',
+  // the viewer identity your Sluby operator gives you; omit it to play through the gateway
+  sia: {
+    indexerUrl: import.meta.env.VITE_SLUBY_SIA_INDEXER_URL,
+    appId: import.meta.env.VITE_SLUBY_SIA_APP_ID,
+    appKey: import.meta.env.VITE_SLUBY_SIA_APP_KEY,
+  },
+});
+```
+
+This sample reads the values from Vite environment variables. Then pass `client` and `assetId` along with `src`:
+
+```tsx title="Video.tsx (browser)"
+import { SlubyPlayer } from '@sluby/player';
+import { client } from './sluby';
+
+export function Video({ assetId }: { assetId: string }) {
+  return (
+    <SlubyPlayer
+      src={client.playback.streamUrl(assetId)}
+      client={client}
+      assetId={assetId}
+      controls
+      style={{ width: '100%' }}
+      onError={(err) => console.error('playback failed', err.message, err.cause)}
+    />
+  );
+}
+```
+
+With `src`, the player only uses the client's `sia` session, so this still needs no API key. The player plays through the gateway instead when the client has no `sia` option, when `assetId` is missing, or when the browser plays HLS natively. Under the default `"direct"` mode, when the Sia session cannot connect, the player logs a console warning and plays that video through the gateway. [Playback and delivery](/developers/concepts/playback#delivery-modes) explains the mechanism.
+
+## Choose a delivery mode
+
+`siaDelivery` decides how the bytes travel when the client has a viewer session:
+
+- `"direct"` (the default) streams every playlist and segment from Sia.
+- `"hybrid"` loads the playlists, the start of the video and any segment needed urgently through the gateway, and takes the other segments from Sia once enough video is buffered. Starting playback never waits for the Sia session, and a Sia read that fails or runs long falls back to the gateway.
+
+`onDeliveryChange` reports the mode of each load as `'sia'`, `'hybrid'` or `'gateway'`. Under hybrid delivery, `onDeliveryStats` reports after every segment how many bytes and segments came from each side:
+
+```tsx title="HybridVideo.tsx (browser)"
+import { useState } from 'react';
+import { SlubyPlayer, type HybridDeliveryStats } from '@sluby/player';
+import { client } from './sluby';
+
+export function HybridVideo({ assetId }: { assetId: string }) {
+  const [mode, setMode] = useState<'sia' | 'hybrid' | 'gateway' | null>(null);
+  const [stats, setStats] = useState<HybridDeliveryStats | null>(null);
+  const total = stats ? stats.siaBytes + stats.gatewayBytes : 0;
+
+  return (
+    <>
+      <SlubyPlayer
+        src={client.playback.streamUrl(assetId)}
+        client={client}
+        assetId={assetId}
+        siaDelivery="hybrid"
+        onDeliveryChange={setMode}
+        onDeliveryStats={setStats}
+        controls
+      />
+      <p>
+        {mode}
+        {stats && total > 0 && `, ${Math.round((stats.siaBytes / total) * 100)}% of bytes from Sia`}
+      </p>
+    </>
+  );
+}
+```
+
+`hybridPolicy` tunes when a segment can come from Sia; the [player reference](/developers/reference/player#hybrid-types) lists its fields and defaults.
+
+## Show a quality menu
+
+`onQualitiesChange` lists the renditions once the manifest is parsed, `onQualityChange` reports the one playing, and the player handle's `setQuality()` pins one. `-1` goes back to adaptive quality.
+
+```tsx title="VideoWithQuality.tsx (browser)"
+import { useRef, useState } from 'react';
+import { SlubyPlayer, type QualityLevel, type SlubyPlayerHandle } from '@sluby/player';
+import { client } from './sluby';
+
+export function VideoWithQuality({ assetId }: { assetId: string }) {
+  const player = useRef<SlubyPlayerHandle>(null);
+  const [levels, setLevels] = useState<QualityLevel[]>([]);
+  const [current, setCurrent] = useState<QualityLevel | null>(null);
+  const [pinned, setPinned] = useState(-1);
+
+  return (
+    <>
+      <SlubyPlayer
+        ref={player}
+        src={client.playback.streamUrl(assetId)}
+        controls
+        onQualitiesChange={setLevels}
+        onQualityChange={setCurrent}
+      />
+      <select
+        value={pinned}
+        onChange={(e) => {
+          const index = Number(e.target.value);
+          player.current?.setQuality(index); // -1 goes back to adaptive
+          setPinned(index);
+        }}
+      >
+        <option value={-1}>Auto{current ? ` (${current.name})` : ''}</option>
+        {levels.map((level) => (
+          <option key={level.index} value={level.index}>
+            {level.name}, {Math.round(level.bitrate / 1000)} kbps
+          </option>
+        ))}
+      </select>
+    </>
+  );
+}
+```
+
+`onQualitiesChange` fires only when hls.js plays the video, so on native HLS playback the menu in this sample offers only `Auto`.
+
+## React to playback events
+
+```tsx title="TrackedVideo.tsx (browser)"
+import { SlubyPlayer } from '@sluby/player';
+import { client } from './sluby';
+
+export function TrackedVideo({ assetId }: { assetId: string }) {
+  return (
+    <SlubyPlayer
+      src={client.playback.streamUrl(assetId)}
+      controls
+      onStateChange={(state) => console.log('state', state)}
+      onReady={() => console.log('ready')}
+      onPlay={() => console.log('play')}
+      onPause={() => console.log('pause')}
+      onEnd={() => console.log('ended')}
+      onError={(err) => console.error(err)}
+    />
+  );
+}
+```
+
+`onStateChange` receives `'idle'`, `'loading'`, `'ready'`, `'buffering'` or `'error'`, first with the state at mount and then on every change. `onError` fires once the player gives up; the error's `cause` holds the underlying SDK or hls.js error when there is one. Changing a callback prop does not reload the video.
+
+## Build your own controls
+
+`useVideo` follows the player and gives you its state and controls. Pass it the player's ref:
+
+```tsx title="CustomControls.tsx (browser)"
+import { useRef } from 'react';
+import { SlubyPlayer, useVideo, type SlubyPlayerHandle } from '@sluby/player';
+import { client } from './sluby';
+
+export function CustomControls({ assetId }: { assetId: string }) {
+  const player = useRef<SlubyPlayerHandle>(null);
+  const video = useVideo(player);
+
+  return (
+    <>
+      <SlubyPlayer ref={player} src={client.playback.streamUrl(assetId)} controls={false} />
+      <button onClick={video.isPlaying ? video.pause : video.play}>
+        {video.isPlaying ? 'Pause' : 'Play'}
+      </button>
+      <button onClick={() => video.seek(video.currentTime + 10)}>+10 s</button>
+      <span>
+        {Math.floor(video.currentTime)} / {Math.floor(video.duration)} s
+        {video.isBuffering && ', buffering'}
+      </span>
+    </>
+  );
+}
+```
+
+`useVideo` also returns `setVolume`, `volume`, `qualities`, `currentQuality` and `setQuality`. The [player reference](/developers/reference/player) lists every prop, the handle's methods and the full return value of `useVideo`.

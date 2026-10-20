@@ -1,0 +1,150 @@
+---
+title: Build with Sluby
+description: Upload a video from your server, wait until it is ready, and play it in a React app.
+---
+
+In this walkthrough you upload a video from a Node.js script with `@sluby/sdk`, wait until Sluby has transcoded it and stored it on Sia, and play it in the browser with `@sluby/player`. The API key stays on your server; the browser plays the public video without one.
+
+You need the address of a Sluby server, for example `https://sluby.example.com`, and a Studio account on it.
+
+<Steps>
+<Step>
+
+### Create an API key
+
+In the Studio, open **API keys** under **Developers** and click **Create key**. Give the key a name and keep the scopes `upload` and `read` selected: `upload` sends the file and `read` checks when it is ready. Click **Create key** and copy the key. The Studio shows it only once.
+
+Keep the key on your server, for example in an environment variable:
+
+```bash title=".env"
+SLUBY_URL=https://sluby.example.com
+SLUBY_API_KEY=sluby_...
+```
+
+[Create and manage API keys](/studio/api-keys) covers the page in detail, and [API conventions](/developers/reference/api-conventions#scopes) lists what each scope allows.
+
+</Step>
+<Step>
+
+### Install the packages
+
+On the server, install the SDK. Check that your Node.js version is one the SDK supports ([package facts](/developers/reference/sdk#package)).
+
+```bash
+npm install @sluby/sdk
+```
+
+In your React app, install the SDK and the player ([supported React versions](/developers/reference/player#package)):
+
+```bash
+npm install @sluby/sdk @sluby/player
+```
+
+</Step>
+<Step>
+
+### Upload the video and wait until it is ready
+
+This script runs on your server. It uploads `video.mp4`, prints the id of the new video asset, and waits until processing has finished.
+
+```js title="upload.mjs (server)"
+import { openAsBlob } from 'node:fs';
+import { SlubyClient } from '@sluby/sdk';
+
+const { SLUBY_URL, SLUBY_API_KEY } = process.env;
+if (!SLUBY_URL || !SLUBY_API_KEY) throw new Error('Set SLUBY_URL and SLUBY_API_KEY.');
+
+const client = new SlubyClient({ baseUrl: SLUBY_URL, apiKey: SLUBY_API_KEY });
+
+// a Blob backed by the file: the SDK reads it one chunk at a time
+const file = await openAsBlob('./video.mp4');
+
+const upload = client.uploads.upload(file, {
+  title: 'My first video',
+  onProgress: (percent) => console.log(`uploaded ${percent}%`),
+});
+
+const assetId = await upload.assetId;
+console.log(`asset ${assetId} created`);
+await upload;
+
+const asset = await client.assets.waitForReady(assetId, { timeout: 30 * 60_000 });
+console.log(`ready: ${asset.id}, ${asset.resolution}`);
+```
+
+Run it with your environment loaded:
+
+```bash
+node --env-file=.env upload.mjs
+```
+
+`upload.assetId` resolves as soon as the server has created the upload, before the bytes finish. `waitForReady` polls the asset until its status is `ready`, and the 30 minute `timeout` gives a long video time to process. [Wait for processing](/developers/guides/manage-library#wait-for-processing) covers its defaults and errors.
+
+</Step>
+<Step>
+
+### Play the video
+
+A public video plays from its stream URL, which the SDK builds without a request and without a key. This component runs in the browser:
+
+```tsx title="Video.tsx (browser)"
+import { SlubyClient } from '@sluby/sdk';
+import { SlubyPlayer } from '@sluby/player';
+
+// no API key: a public video plays from its stream URL
+const client = new SlubyClient({ baseUrl: 'https://sluby.example.com' });
+
+export function Video({ assetId }: { assetId: string }) {
+  return (
+    <SlubyPlayer src={client.playback.streamUrl(assetId)} controls style={{ width: '100%' }} />
+  );
+}
+```
+
+Render `<Video assetId="..." />` with the id the script printed.
+
+</Step>
+</Steps>
+
+## Next steps
+
+<Cards>
+  <Card title="Upload videos from your app" href="/developers/guides/upload">
+    Progress, pause, resume and cancel, files that start in a browser, and uploads with any tus
+    client.
+  </Card>
+  <Card title="Play videos in React" href="/developers/guides/play-react">
+    Stream from Sia, pick a delivery mode, show a quality menu and build your own controls.
+  </Card>
+  <Card title="Play videos without React" href="/developers/guides/play-hls">
+    Drive hls.js yourself, with or without the Sia loaders.
+  </Card>
+  <Card title="Serve private videos" href="/developers/guides/private-videos">
+    Mint signed URLs on your server, renew them during playback and revoke them.
+  </Card>
+  <Card title="Manage your library from a server" href="/developers/guides/manage-library">
+    List, search, edit, retry and delete videos.
+  </Card>
+  <Card title="Receive webhooks" href="/developers/guides/webhooks">
+    Get a signed request when a video is ready or fails.
+  </Card>
+</Cards>
+
+## Reference
+
+<Cards>
+  <Card title="API conventions" href="/developers/reference/api-conventions">
+    Authentication, scopes, errors, pagination and rate limits.
+  </Card>
+  <Card title="@sluby/sdk reference" href="/developers/reference/sdk">
+    Every SDK namespace, method and error class.
+  </Card>
+  <Card title="@sluby/player reference" href="/developers/reference/player">
+    Every player prop, the handle, `useVideo` and the loaders.
+  </Card>
+  <Card title="Webhook events" href="/developers/reference/webhook-events">
+    Event types, payloads, headers and the signature scheme.
+  </Card>
+</Cards>
+
+To learn how Sluby works inside, start with [Architecture](/developers/concepts/architecture).
