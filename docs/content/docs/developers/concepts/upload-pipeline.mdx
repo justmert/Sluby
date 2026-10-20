@@ -18,8 +18,8 @@ flowchart LR
   B -. "final failure" .-> F["asset failed"]
   C -. "final failure" .-> F
   D -. "final failure" .-> F
-  F -->|"POST /assets/{id}/retry"| B
-  F -->|"POST /assets/{id}/retry<br/>(transcode already finished)"| C
+  F -->|"POST /api/v1/assets/{id}/retry"| B
+  F -->|"POST /api/v1/assets/{id}/retry<br/>(transcode already finished)"| C
 ```
 
 | Stage         | What it does                                                                                 | Progress written to the processing job                           |
@@ -29,11 +29,11 @@ flowchart LR
 | Upload to Sia | uploads the data files, thumbnails and playlists in three packed uploads, pins every object  | 65 to 90                                                         |
 | Finalize      | writes the storage records, marks the asset `ready`, warms the cache, removes local files    | 90, then 100                                                     |
 
-You read the processing job (stage log, progress, retry count) with [`GET /assets/{id}/processing`](/developers/reference/api/assets/get-assets-id-processing).
+You read the processing job (stage log, progress, retry count) with [`GET /api/v1/assets/{id}/processing`](/developers/reference/api/assets/get-assets-id-processing).
 
 ## Upload with tus
 
-Uploads use the [tus resumable upload protocol](https://tus.io/protocols/resumable-upload) at `/api/v1/uploads`. A request with a `Tus-Resumable` header, or a `PATCH`, `HEAD` or `OPTIONS` request, goes to the tus server. Other requests on that path go to the REST routes for upload status ([`GET /uploads/{id}`](/developers/reference/api/uploads/get-uploads-id)) and cancel ([`DELETE /uploads/{id}`](/developers/reference/api/uploads/delete-uploads-id)). There is no JSON route that creates an upload: the tus creation request creates it.
+Uploads use the [tus resumable upload protocol](https://tus.io/protocols/resumable-upload) at `/api/v1/uploads`. A request with a `Tus-Resumable` header, or a `PATCH`, `HEAD` or `OPTIONS` request, goes to the tus server. Other requests on that path go to the REST routes for upload status ([`GET /api/v1/uploads/{id}`](/developers/reference/api/uploads/get-uploads-id)) and cancel ([`DELETE /api/v1/uploads/{id}`](/developers/reference/api/uploads/delete-uploads-id)). There is no JSON route that creates an upload: the tus creation request creates it.
 
 When a tus creation request (`POST`) arrives, the backend:
 
@@ -58,7 +58,7 @@ If any of these steps fails, the asset becomes `failed`, the backend sends `uplo
 
 An unfinished upload expires 24 hours after its creation. Once an hour, the backend removes expired incomplete uploads from disk, marks their sessions `failed`, and discards an asset that never got past `created` or `uploading`. A finished upload never expires this way, because it is the source a failed asset needs for a retry.
 
-A tus `DELETE` on an unfinished upload, or `DELETE /uploads/{id}`, cancels it: the session becomes `cancelled`, the partial file is removed and the asset is discarded. A finished upload cannot be cancelled. `DELETE /uploads/{id}` answers `409` for it, and you delete its asset instead.
+A tus `DELETE` on an unfinished upload, or `DELETE /api/v1/uploads/{id}`, cancels it: the session becomes `cancelled`, and the backend removes the partial file and discards the asset. A finished upload cannot be cancelled. `DELETE /api/v1/uploads/{id}` answers `409` for it, and you delete its asset instead.
 
 ## Transcode
 
@@ -221,7 +221,7 @@ While attempts remain, the processing job shows `retrying` with the error. After
 
 ### Manual retry
 
-[`POST /assets/{id}/retry`](/developers/reference/api/assets/post-assets-id-retry) restarts a `failed` asset:
+[`POST /api/v1/assets/{id}/retry`](/developers/reference/api/assets/post-assets-id-retry) restarts a `failed` asset:
 
 - When a finished transcode run is still on disk, the retry starts at the Sia upload and does not transcode again.
 - Otherwise it transcodes the source upload again, which needs the uploaded file on disk. When neither exists, the API answers `410` with `Could not retry because the original file is gone. Upload the video again.`
@@ -236,7 +236,7 @@ A failed asset keeps its source upload and its finished transcode output for a r
 BullMQ can hand a job to a second worker when the first one stalls, for example when the host freezes for longer than the job lock (5 minutes). The pipeline makes a second execution harmless:
 
 - Each stage queues the next one under a fixed job id (`upload-<asset id>` and `finalize-<asset id>`, with the run id appended for a retry), so a stage that runs twice starts its successor once.
-- Each transcode execution writes to its own run directory. When two finish, the upload reads only the directory queued first, and the other is removed.
+- Each transcode execution writes to its own run directory. When two finish, the upload reads only the directory queued first, and the backend removes the other.
 - The Sia upload of a job holds a lease in Redis, renewed every 10 seconds. A second execution waits until the lease is free, and an execution that loses its lease stops at its next checkpoint.
 - Finalize checks the asset's state inside its transaction, so a stale run never replaces the objects of a ready asset.
 

@@ -47,11 +47,7 @@ Its default, how the server generates one outside production, and what changing 
 
 ## What production refuses [#production-refusals]
 
-With `NODE_ENV=production`, the backend prints `Refusing to start, the configuration is not valid:` with the list of problems and exits when:
-
-- `SESSION_SECRET` is not set, is the old public development default, or is shorter than 32 characters;
-- `AUTH_DISABLED` is `true` (`AUTH_DISABLED=true gives every visitor full access.`);
-- `BOOTSTRAP_API_KEY` is set but does not have the shape of a generated key.
+With `NODE_ENV=production`, the backend runs startup checks and refuses to start with an unsafe configuration, such as a weak `SESSION_SECRET` or sign-in turned off. [`NODE_ENV`](/self-hosting/configuration#node_env) lists the checks, and [Troubleshooting](/self-hosting/troubleshooting#the-backend-refuses-to-start) quotes each message with its fix.
 
 The production Compose file sets `NODE_ENV=production` and `AUTH_DISABLED=false`, and requires `SESSION_SECRET`. See [Run in production](/self-hosting/production). [`AUTH_DISABLED`](/self-hosting/configuration#auth_disabled) is for local development only: with it on, every request acts as one local admin account.
 
@@ -84,7 +80,7 @@ The delivery routes (`/v1/objects`, `/v1/stream`, `/v1/share`) answer any origin
 A signed URL grants access to one object until one time, and nothing else:
 
 - The signature covers the object id, the expiry and the asset's signing generation, so nobody can move it to another object or extend it.
-- The gateway refuses any URL whose expiry lies more than six hours ahead, whatever minted it.
+- The gateway refuses any URL whose expiry lies further ahead than the maximum lifetime, whatever minted it ([Lifetime](/developers/concepts/playback#signed-url-lifetime)).
 - Revoking, or changing the asset's tier, raises the signing generation and stops every URL signed before.
 - nginx never stores a request that carries a signature, and responses for private assets carry `Cache-Control: no-store`.
 

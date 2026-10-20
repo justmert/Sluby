@@ -25,12 +25,12 @@ The app key and the indexer URL come from the indexer connection. [Connect Sia s
 
 Each ready video is a small set of Sia objects. For a video with N renditions and T thumbnails (T is 3 unless a thumbnail shot failed), Sluby stores 2N + 1 + T objects:
 
-| Role               | Count             | Content                                                             |
-| ------------------ | ----------------- | ------------------------------------------------------------------- |
-| `rendition_data`   | one per rendition | the rendition's `data.m4s`: the fMP4 init section and every segment |
-| `variant_playlist` | one per rendition | the rendition's HLS playlist, with byte ranges into the data object |
-| `master_manifest`  | one               | the HLS master playlist, one entry per rendition                    |
-| `thumbnail`        | up to three       | JPEG frames at 25%, 50% and 75% of the video                        |
+| Role               | Count             | Content                                                                                  |
+| ------------------ | ----------------- | ---------------------------------------------------------------------------------------- |
+| `rendition_data`   | one per rendition | the rendition's `data.m4s`: the fMP4 init section and every segment                      |
+| `variant_playlist` | one per rendition | the rendition's HLS playlist, with byte ranges into the data object                      |
+| `master_manifest`  | one               | the HLS master playlist, one entry per rendition                                         |
+| `thumbnail`        | up to three       | JPEG frames of the video ([Thumbnails](/developers/concepts/upload-pipeline#thumbnails)) |
 
 The playlists refer to other objects by path: a variant playlist names its data object as `/v1/objects/<object id>`, and the master playlist names each variant playlist the same way. A player that has the master playlist's object id can therefore find every other object of the video. [Playback and delivery](/developers/concepts/playback) explains how those paths are served.
 
@@ -40,17 +40,11 @@ In the database, the `artifacts` table ties every object id to its video, its ro
 
 On Sia, even a 1-byte upload occupies a full slab, with all of its data and parity shards. Uploading each small file on its own would cost one full slab per file. Sluby uses packed uploads instead: one upload that places several objects into shared slabs. Each object references its own byte range inside the slabs it shares.
 
-A video takes three packed uploads, because each playlist must name the ids of the objects it points at:
-
-1. every rendition data file and every thumbnail
-2. every variant playlist
-3. the master playlist
-
-The playlist uploads each fill one slab even though the playlists are a few kilobytes. Rendition data larger than the room left in a slab spans several slabs.
+A video takes three packed uploads, because each playlist must name the ids of the objects it points at. [Upload to Sia](/developers/concepts/upload-pipeline#upload-to-sia) lists what each one carries. The two playlist uploads each fill one slab even though the playlists are a few kilobytes. Rendition data larger than the room left in a slab spans several slabs.
 
 ## Redundancy
 
-Every slab is erasure coded into data shards plus parity shards, and each shard is stored as one sector on a different host. For a slab with `d` data shards and `p` parity shards:
+Erasure coding turns every slab into data shards plus parity shards, and each shard goes to a different host as one sector. For a slab with `d` data shards and `p` parity shards:
 
 | Quantity                          | Value                  |
 | --------------------------------- | ---------------------- |
@@ -101,7 +95,7 @@ A row in `pending_objects` is in one of two states:
 | State       | Meaning                                                                                                            |
 | ----------- | ------------------------------------------------------------------------------------------------------------------ |
 | `uploading` | A processing run recorded the object right before pinning it. Finalize can still promote it to an `artifacts` row. |
-| `release`   | Nothing will use the object. It is to be unpinned, and its row is deleted once the unpin succeeds.                 |
+| `release`   | Nothing uses the object. Sluby unpins it and deletes the row once the unpin succeeds.                              |
 
 What moves a row to `release`:
 
@@ -126,7 +120,7 @@ Leases expire after four renewal intervals, so a process that dies while holding
 
 ## Storage breakdown
 
-[`GET /assets/{id}/sia`](/developers/reference/api/storage/get-assets-id-sia) returns what the indexer reports about every object of one video, with totals. It needs the `read` [scope](/developers/reference/api-conventions#scopes). The Studio shows the same data on a video's page ([See how a video is stored on Sia](/studio/storage)).
+[`GET /api/v1/assets/{id}/sia`](/developers/reference/api/storage/get-assets-id-sia) returns what the indexer reports about every object of one video, with totals. It needs the `read` [scope](/developers/reference/api-conventions#scopes). The Studio shows the same data on a video's page ([See how a video is stored on Sia](/studio/storage)).
 
 The backend lists the video's objects from the `artifacts` table. For a video stored before that table existed, it falls back to the object ids on the video row, where a playlist and a data file cannot be told apart, so their `role` is `null`.
 

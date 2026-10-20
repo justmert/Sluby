@@ -86,15 +86,7 @@ Hybrid mode starts as fast as the gateway and still takes most bytes from Sia. T
 - A Sia read gets a time budget of `maxSiaWaitMs`, or the buffered seconds minus `safetyMarginSec`, whichever is smaller. The player cancels a read that fails or runs past its budget and fetches the same segment from the gateway, so playback does not wait on a slow host.
 - After `maxFailures` failures in a row, the player pauses Sia for `pauseMs`. A failed session start also pauses Sia for `pauseMs`, and the player retries the start after that.
 
-| Policy field      | Default |
-| ----------------- | ------- |
-| `minBufferSec`    | `10`    |
-| `safetyMarginSec` | `4`     |
-| `maxSiaWaitMs`    | `20000` |
-| `maxFailures`     | `3`     |
-| `pauseMs`         | `60000` |
-
-You can override any field with the player's `hybridPolicy` prop. The player reports how many bytes and segments came from each side, and how many segments fell back to the gateway, through `onDeliveryStats`.
+The defaults of these policy fields are in the [player reference](/developers/reference/player#hybrid-types). You can override any field with the player's `hybridPolicy` prop. The player reports how many bytes and segments came from each side, and how many segments fell back to the gateway, through `onDeliveryStats`.
 
 ## Access tiers
 
@@ -208,7 +200,7 @@ A playback id gates only its entry points. The objects themselves follow the ass
 - **Public video**: the page needs nothing, carries Open Graph tags (title, URL, and the poster when the video has one) for link previews, and is sent with `Cache-Control: no-cache`, so making the video private or deleting it takes effect on the next load.
 - **Private video or signed playback id**: the page needs the `expires` and `sig` of the video's signed master URL, as `/watch/{id}?expires=...&sig=...`. It passes them on to the stream and signs the poster with the same expiry. The page is sent with `Cache-Control: private, no-store` and `noindex`, and has no Open Graph tags.
 
-Query options: `autoplay=1` (starts muted), `muted=1`, `loop=1`.
+The page takes the query options `autoplay`, `muted` and `loop`; [Change how the embed plays](/studio/share#change-how-the-embed-plays) describes each.
 
 What a viewer sees when the page cannot play:
 
@@ -245,11 +237,11 @@ For objects, the cache key is the method, the path and the `type` query value, s
 
 ### Backend memory
 
-- Whole objects up to 8 MB are kept in an in-memory LRU cache whose size `CACHE_MAX_SIZE_MB` sets ([configuration](/self-hosting/configuration#cache_max_size_mb)). Master playlists for `/v1/stream` sit in a separate cache of up to 1000 entries and 32 MB, so object reads cannot evict them.
+- The backend keeps whole objects up to 8 MB in an in-memory LRU cache whose size `CACHE_MAX_SIZE_MB` sets ([configuration](/self-hosting/configuration#cache_max_size_mb)). Master playlists for `/v1/stream` sit in a separate cache of up to 1000 entries and 32 MB, so object reads cannot evict them.
 - When a video finishes processing, the backend loads its master playlist, rendition playlists and thumbnails into these caches, so the first play comes from memory.
 - When an asset is deleted, the backend evicts its objects.
 - The backend answers range requests for an object already in memory from memory.
-- Which asset owns an object is kept for five minutes; an asset's tier and signing state for at most one minute, and dropped at once on a tier change, a revoke or a delete made through the same process.
+- The backend keeps which asset owns an object for five minutes, and an asset's tier and signing state for at most one minute. It drops the tier and signing state at once on a tier change, a revoke or a delete made through the same process.
 
 [`GET /v1/cache/stats`](/developers/reference/api/ops/get-cache-stats) reports the in-memory cache's size, item counts, hits and misses. Object and master playlist responses carry an `X-Cache-Status` header; through nginx it is nginx's own cache status.
 

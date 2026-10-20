@@ -53,7 +53,7 @@ flowchart TD
 ```
 
 - **Studio session.** A valid session cookie wins over an API key. A session carries all three scopes (`upload`, `read` and `manage`), and acts as an admin when the member's role is `admin`.
-- **API key.** A key carries the scopes it was created with. It acts with its creator's role as it stands at that request. Removing the creator stops the key with `401` and `This API key's creator was removed from this workspace`; restoring the creator makes the key work again. A key with no creator acts as an admin: these are keys made on the server itself, the `BOOTSTRAP_API_KEY` and keys from `npm run db:seed-key`.
+- **API key.** A key carries the scopes it was created with. It acts with its creator's role as it stands at that request. Removing the creator stops the key with `401` and `This API key's creator was removed from this workspace`; restoring the creator makes the key work again. A key with no creator acts as an admin: these are keys made on the server itself, from [`BOOTSTRAP_API_KEY`](/self-hosting/configuration#bootstrap_api_key) or the [seed script](/self-hosting/sign-in#create-an-admin-api-key-from-the-command-line).
 - **AUTH_DISABLED.** With `AUTH_DISABLED` on, every request acts as one local development account with the admin role and all scopes. A server with `NODE_ENV=production` refuses to start with it (see [Configuration](/self-hosting/configuration#auth_disabled)).
 
 ## Sign-in methods [#sign-in-methods]
@@ -80,9 +80,9 @@ The server offers GitHub sign-in only when it has both `GITHUB_CLIENT_ID` and `G
 
 ## Sessions and cookies [#sessions]
 
-Each Studio sign-in creates a row in `studio_sessions` with the member, the sign-in method used, the browser's user agent (first 500 characters) and an expiry 7 days after sign-in.
+Each Studio sign-in creates a row in `studio_sessions` with the member, the sign-in method used, the browser's user agent (first 500 characters) and its expiry.
 
-The browser gets a cookie named `sluby_session` with these attributes: `Path=/`, `HttpOnly`, `SameSite=Lax`, `Max-Age=604800` (7 days), and `Secure` when `PUBLIC_URL` starts with `https://`. The cookie value holds the session row id, the account id and the expiry, signed with HMAC-SHA256 using `SESSION_SECRET`.
+The browser gets the `sluby_session` cookie ([its attributes](/developers/reference/api-conventions#session-cookie)). The cookie value holds the session row id, the account id and the expiry, signed with HMAC-SHA256 using `SESSION_SECRET`.
 
 On every request the backend checks the signature and the expiry, then that the session row is neither ended nor expired, then that the member is not removed. Because the backend checks the row each time, the server can end a session at any moment.
 
@@ -118,7 +118,7 @@ An admin creates an invite with a role (`POST /api/v1/invites`, [endpoint refere
 
 ### Reset links
 
-A reset link lets one member set a new password. An admin creates it for a member (`POST /api/v1/members/{id}/reset-link`, [endpoint reference](/developers/reference/api/members/post-members-id-reset-link)), and an operator who is locked out can print one on the server, for an account that signs in with an email, with `npm run admin:reset-link -- --email <email>` (see [Set up sign-in](/self-hosting/sign-in)). The link has the form `https://sluby.example.com/studio/reset/<token>`.
+A reset link lets one member set a new password. An admin creates it for a member (`POST /api/v1/members/{id}/reset-link`, [endpoint reference](/developers/reference/api/members/post-members-id-reset-link)), and an operator who is locked out can print one on the server for an account that signs in with an email ([Make a reset link from the command line](/self-hosting/sign-in#make-a-reset-link-from-the-command-line)). The link has the form `https://sluby.example.com/studio/reset/<token>`.
 
 - A member who already has a password sets a new one.
 - A member who signs in with GitHub only sets their first password and chooses the email they will sign in with.

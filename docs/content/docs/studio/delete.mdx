@@ -6,8 +6,8 @@ description: Delete one video or many from the Studio, and what happens to the v
 Delete a video from its page, or delete several at once from the **Videos** page. Deleting is final: there is no trash and no undo.
 
 <Callout type="warn" title="Deletion cannot be undone">
-  A deleted video leaves your library at once, its files are removed from Sia, and every link and
-  embed of it stops working. To keep a copy, keep the original file.
+  A deleted video leaves your library at once, the server removes its files from Sia, and every link
+  and embed of it stops working. To keep a copy, keep the original file.
 </Callout>
 
 ## Delete one video
@@ -49,13 +49,13 @@ The Studio confirms with "3 videos deleted". If some videos could not be deleted
 ## What happens when you delete
 
 - The video leaves your library and every Studio list at once.
-- Its files are removed from Sia in the background. A video whose file never arrived has nothing on Sia, so only the library entry goes.
+- The server removes its files from Sia in the background. A video whose file never arrived has nothing on Sia, so only the library entry goes.
 - The video's watch page, stream URL and embed code stop working for public and private videos alike: a player that opens them finds no video.
 - Anyone who opens the video's Studio page sees **Video not found**.
 
 For the steps the server takes, see [deletion and reconciliation](/developers/concepts/deletion-and-reconciliation).
 
-If a video you uploaded in this tab is deleted before its processing finishes, its row on the upload page shows **Deleted** and "This video was deleted before processing finished."
+If someone deletes a video you uploaded in this tab before its processing finishes, its row on the upload page shows **Deleted** and "This video was deleted before processing finished."
 
 ## Delete an unfinished upload
 

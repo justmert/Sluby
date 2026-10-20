@@ -74,7 +74,7 @@ Open a ready video in the Studio. The badge on the player reads **Sia and this s
 - **The public watch page** (`/watch/<id>`, which the Studio's watch links and iframe embed codes open): streams through your server.
 - **Your own apps**: `@sluby/player` streams from Sia when you give its client a viewer identity. See [Play videos in React](/developers/guides/play-react).
 
-In hybrid delivery, when a read from Sia fails or would take longer than the buffered video lasts, the player fetches that segment through your server instead.
+How hybrid delivery picks between Sia and your server for each segment: [Hybrid](/developers/concepts/playback#hybrid).
 
 ## Turn it off
 

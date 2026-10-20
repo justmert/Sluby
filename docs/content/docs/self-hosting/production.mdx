@@ -124,7 +124,7 @@ docker compose up -d --build
 Configure your proxy to:
 
 - pass the original `Host` header, `X-Forwarded-For` and `X-Forwarded-Proto: https`. The web service takes the client address from `X-Forwarded-For` when the connection comes from a loopback or private address, and passes the scheme on to the backend.
-- accept request bodies of at least 10 MiB. The Studio uploads in 8 MiB chunks and `@sluby/sdk` in 10 MiB chunks by default.
+- accept request bodies of at least 10 MiB. The Studio uploads in 8 MiB chunks and `@sluby/sdk` in 10 MiB chunks by default ([`chunkSize`](/developers/reference/sdk#uploadfileoptions)).
 - send `Strict-Transport-Security` if you want HSTS. The web service does not send it.
 
 ## Related

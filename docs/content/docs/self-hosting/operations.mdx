@@ -83,16 +83,21 @@ Besides the Node.js process metrics, the backend exports:
 
 ## Storage check
 
-The storage check (reconciliation) compares the objects your database expects with what the indexer stores, and reports the differences. By default it runs every hour, and a separate sweep every 15 minutes finishes deletions that stopped partway. What the report means: [Deletion and reconciliation](/developers/concepts/deletion-and-reconciliation).
+The storage check (reconciliation) compares the objects your database expects with what the indexer stores, and reports the differences. It runs on a schedule, and a separate sweep on its own schedule finishes deletions that stopped partway. What the report means: [Deletion and reconciliation](/developers/concepts/deletion-and-reconciliation).
 
 - **In the Studio**: an admin sees the result on the **Storage check** card of the Health page and starts a run with **Check now**.
 - **With the API**: read the latest report with [`GET /api/v1/reconciliation`](/developers/reference/api/reconciliation/get-reconciliation) and start a run with [`POST /api/v1/reconciliation/run`](/developers/reference/api/reconciliation/post-reconciliation-run), which needs an admin's key with the `manage` scope.
 
-To change the schedules, set [`RECONCILE_ENABLED`](/self-hosting/configuration#reconcile_enabled), [`RECONCILE_INTERVAL_MS`](/self-hosting/configuration#reconcile_interval_ms), [`DELETION_GC_ENABLED`](/self-hosting/configuration#deletion_gc_enabled) and [`DELETION_GC_INTERVAL_MS`](/self-hosting/configuration#deletion_gc_interval_ms).
+Turn the schedules on or off and change their intervals with [`RECONCILE_ENABLED`](/self-hosting/configuration#reconcile_enabled), [`RECONCILE_INTERVAL_MS`](/self-hosting/configuration#reconcile_interval_ms), [`DELETION_GC_ENABLED`](/self-hosting/configuration#deletion_gc_enabled) and [`DELETION_GC_INTERVAL_MS`](/self-hosting/configuration#deletion_gc_interval_ms). The configuration reference lists each default.
 
 ## Housekeeping the backend does
 
-At startup and then every hour, the backend removes uploads that are still unfinished 24 hours after they were created, deletes source files it no longer needs, and prunes Studio sessions that ended more than 30 days ago and webhook delivery records older than 30 days. Nothing needs to be scheduled for this.
+At startup and then every hour, the backend cleans up on its own. Nothing needs to be scheduled for this. It removes:
+
+- uploads that expired unfinished ([when an upload expires](/developers/concepts/upload-pipeline#unfinished-and-cancelled-uploads));
+- source files it no longer needs;
+- ended Studio sessions past their retention ([sessions](/developers/concepts/accounts-and-roles#sessions));
+- webhook delivery records past their retention ([delivery log](/developers/reference/webhook-events#delivery-log)).
 
 ## Upgrade
 

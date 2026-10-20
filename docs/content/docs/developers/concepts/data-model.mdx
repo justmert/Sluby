@@ -47,15 +47,7 @@ Tables without foreign keys: `pending_objects`, `reconciliation_runs`, `indexer_
 
 One row per video: title, description, duration, resolution, status, access tier (`public` or `private`), the owner, and the Sia objects the video is stored as (`manifest_object_id`, `thumbnail_object_ids`, `sia_object_ids`), with `segment_count` and `total_storage_bytes`.
 
-The `status` column moves through these values:
-
-| Status       | Meaning                                                                      |
-| ------------ | ---------------------------------------------------------------------------- |
-| `created`    | The row exists; no bytes have arrived.                                       |
-| `uploading`  | The source file is being uploaded.                                           |
-| `processing` | The pipeline is transcoding the source and uploading it to Sia.              |
-| `ready`      | Every object is on Sia and the video plays.                                  |
-| `failed`     | Processing failed, or the finished upload could not be handed to processing. |
+The `status` column is `created`, `uploading`, `processing`, `ready` or `failed`. [Asset status](/developers/concepts/upload-pipeline#asset-status) lists when each one is set.
 
 Other columns worth knowing:
 
@@ -116,7 +108,7 @@ The email and password hash of an account that signs in with a password. The ema
 
 ### studio_sessions
 
-One row per Studio sign-in. The session cookie carries only the row id, signed, so the server can end a session on sign-out, from the sessions list, or when an admin removes the member. Each row records the account, the identity used to sign in, the user agent, `expires_at`, `revoked_at` and `last_seen_at`.
+One row per Studio sign-in. The signed session cookie names its row ([Sessions and cookies](/developers/concepts/accounts-and-roles#sessions)), so the server can end a session on sign-out, from the sessions list, or when an admin removes the member. Each row records the account, the identity used to sign in, the user agent, `expires_at`, `revoked_at` and `last_seen_at`.
 
 ### invites
 
@@ -138,13 +130,13 @@ The workspace's webhook URLs: `url`, `events` (the event types the endpoint rece
 
 ### webhook_deliveries
 
-One row per delivery attempt: `event_type`, `payload`, the receiver's `status_code`, an `error` message written by Sluby, `delivered_at`, `retry_count` and `manual` (a resend someone asked for). Sluby never stores the receiver's response body. Retries wait in Redis, not in this table. See [Receive webhooks](/developers/guides/webhooks).
+One row per delivery attempt: `event_type`, `payload`, the receiver's `status_code`, an `error` message written by Sluby, `delivered_at`, `retry_count` and `manual` (a resend someone asked for). Sluby never stores the receiver's response body. Retries wait in Redis, not in this table. See [Delivery log](/developers/reference/webhook-events#delivery-log).
 
 ## Reconciliation
 
 ### reconciliation_runs
 
-One row per reconciliation pass: start and finish time, `status` (`ok`, `drift` or `failed`), object counts (`db_object_count`, `indexer_object_count`, `in_sync_count`, `orphan_count`, `missing_count`), the full lists `orphaned_ids` and `missing_ids`, and `error_message` for a failed run. Sluby keeps the latest 100 runs.
+One row per reconciliation pass: start and finish time, `status` (`ok`, `drift` or `failed`), object counts (`db_object_count`, `indexer_object_count`, `in_sync_count`, `orphan_count`, `missing_count`), the full lists `orphaned_ids` and `missing_ids`, and `error_message` for a failed run.
 
 ### indexer_objects and reconcile_feed
 
