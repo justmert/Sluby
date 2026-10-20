@@ -213,6 +213,24 @@ For each playback the client fetches a share map: a short-lived `sia://` share U
 
 `onDeliveryChange` tells you which path a load took. The player uses the gateway when no viewer identity is configured, on the native HLS path, and when the viewer session fails to start, in which case it logs `Sluby: direct-from-Sia delivery unavailable, using the gateway.` as a console warning with the cause.
 
+### Hybrid delivery
+
+A browser that streams everything from Sia starts slowly: it has to connect to the hosts of the master, a playlist and the first segment one after another, which took over 30 seconds from a home connection (see [hybrid delivery](/architecture/playback#hybrid-delivery) for the measurements). `siaDelivery="hybrid"` starts as fast as the gateway and still takes most of a longer video from Sia:
+
+```tsx
+<SlubyPlayer
+  src={client.playback.streamUrl(assetId)}
+  client={client}
+  assetId={assetId}
+  siaDelivery="hybrid"
+  onDeliveryStats={(s) =>
+    console.log(`${s.siaBytes} bytes from Sia, ${s.gatewayBytes} through the gateway`)
+  }
+/>
+```
+
+Playlists and the first segments come through the gateway while the viewer session connects. Once a rendition's hosts have answered and at least 10 seconds are buffered ahead, the next segments come from Sia, and a Sia read that fails or would outlast the buffer is handed to the gateway. `hybridPolicy` tunes the thresholds (`minBufferSec`, `safetyMarginSec`, `maxSiaWaitMs`, `maxFailures`, `pauseMs`). `onDeliveryChange` reports `hybrid` for such a load. The default, `siaDelivery="direct"`, streams everything from Sia as before. Plain hls.js apps get the same loader from `@sluby/player/hls` as `createHybridLoader`.
+
 The viewer session talks to many Sia hosts at once, and some of them are always unreachable. Chrome logs each failed host connection in the console (for example `ERR_CONNECTION_REFUSED`, a QUIC idle timeout, or a WebTransport warning about too many pending sessions). Playback carries on as long as enough hosts answer, because every object is erasure-coded across many of them.
 
 ## Keeping keys out of the browser

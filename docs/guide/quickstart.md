@@ -72,7 +72,7 @@ Enter it with your name, email and a password of at least 10 characters. That ma
 3. The bar follows the pipeline: Upload, Transcode, Store on Sia and Publish. When it reaches **Ready**, press **Open video**.
 4. The video page plays it. Its **Storage** tab lists every Sia object behind it, with slab, sector and host counts.
 
-The Studio plays through this server's gateway, which reads the video from Sia. To have browsers fetch the bytes straight from Sia hosts instead, give the Studio a viewer identity, see [the direct-from-Sia path](/architecture/playback#the-direct-from-sia-path).
+The Studio plays through this server's gateway, which reads the video from Sia. To have browsers fetch most of the bytes straight from Sia hosts instead, give the Studio a viewer identity, see [the direct-from-Sia path](/architecture/playback#the-direct-from-sia-path). The Studio then starts each video through the gateway and takes the rest from Sia ([hybrid delivery](/architecture/playback#hybrid-delivery)).
 
 ### How long it takes
 
