@@ -80,6 +80,25 @@ describe('/watch/:id', () => {
     expect(res.headers['x-frame-options']).toBeUndefined();
     expect(res.text).toContain('<script src="/watch/assets/hls.min.js"></script>');
     expect(res.text).not.toMatch(/<script>(?!<\/script>)/);
+    expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval'");
+    expect(csp).toContain("connect-src 'self' https:");
+  });
+
+  it('loads the hybrid player after the gateway player, with the id it was opened with', async () => {
+    const res = await request(app()).get(`/watch/${ASSET}`);
+    expect(res.text).toContain(`data-id="${ASSET}"`);
+    const gateway = res.text.indexOf('/watch/assets/watch.js');
+    const hybrid = res.text.indexOf(
+      '<script type="module" src="/studio/watch-player.js"></script>',
+    );
+    expect(gateway).toBeGreaterThan(-1);
+    expect(hybrid).toBeGreaterThan(gateway);
+  });
+
+  it('serves a gateway player that steps aside for the hybrid one', async () => {
+    const res = await request(app()).get('/watch/assets/watch.js');
+    expect(res.text).toContain('if (window.slubyWatchHybrid) return;');
+    expect(res.text).toContain("addEventListener('DOMContentLoaded', run)");
   });
 
   it('asks for a signed link on a private video', async () => {

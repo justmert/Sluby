@@ -121,6 +121,7 @@ watchRouter.get('/watch/:id', async (req: Request, res: Response) => {
     .send(
       renderWatchPage({
         title: asset.title,
+        videoId: param,
         streamPath: `/v1/stream/${encodeURIComponent(param)}/master.m3u8${query}`,
         posterPath,
         pageUrl: `${base}/watch/${encodeURIComponent(param)}`,

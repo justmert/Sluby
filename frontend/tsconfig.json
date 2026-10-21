@@ -18,7 +18,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@sluby/sdk": ["../packages/sdk/src/index.ts"],
-      "@sluby/player": ["../packages/player/src/index.ts"]
+      "@sluby/player": ["../packages/player/src/index.ts"],
+      "@sluby/player/hls": ["../packages/player/src/hls.ts"]
     },
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom", "node"]
   },

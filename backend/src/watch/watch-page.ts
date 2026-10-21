@@ -3,10 +3,16 @@ import { readFileSync } from 'node:fs';
 
 /**
  * The public watch page at /watch/:id: one video on a page of its own, for a
- * link to send or an iframe to embed. The page is rendered here and plays
- * through hls.js from the installed npm package, so it loads nothing from a
- * CDN and works wherever the gateway does.
+ * link to send or an iframe to embed. The page is rendered here. When the web
+ * image was built with a viewer identity, its player (/studio/watch-player.js)
+ * plays the video hybrid: the first seconds relayed by this server, the rest
+ * read by the browser straight from the Sia hosts. Otherwise, and where that
+ * player cannot run, hls.js from the installed npm package plays it through
+ * the gateway. Nothing loads from a CDN.
  */
+
+/** The web image serves the hybrid player here, next to the studio build. */
+export const WATCH_HYBRID_PLAYER = '/studio/watch-player.js';
 
 export const WATCH_ASSET_PATH = '/watch/assets';
 
@@ -19,6 +25,15 @@ const HLS_SCRIPT = readFileSync(require.resolve('hls.js/dist/hls.min.js'), 'utf8
 // fatal network errors retry a few times, media errors try a recovery, and
 // anything else says the video cannot play rather than leaving a black box
 const PLAYER_SCRIPT = `(function () {
+  // the hybrid player is a module, which runs after this script but before
+  // DOMContentLoaded, and says so when it takes the video
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    run();
+  }
+  function run() {
+  if (window.slubyWatchHybrid) return;
   var video = document.getElementById('video');
   var notice = document.getElementById('notice');
   var src = video.getAttribute('data-src');
@@ -70,6 +85,7 @@ const PLAYER_SCRIPT = `(function () {
   } else {
     fail('This browser cannot play this video.');
   }
+  }
 })();
 `;
 
@@ -93,15 +109,17 @@ export const WATCH_ASSETS: Record<string, { type: string; body: string }> = {
 
 /**
  * Only this origin's own files and media, and any page may frame it, since
- * being embedded is what the page is for.
+ * being embedded is what the page is for. The hybrid player compiles the Sia
+ * SDK's WebAssembly and connects over https and WebTransport to the indexer
+ * and to Sia hosts, whose addresses are not known in advance.
  */
 export const WATCH_CSP = [
   "default-src 'none'",
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self'",
   "img-src 'self' data:",
   "media-src 'self' blob:",
-  "connect-src 'self'",
+  "connect-src 'self' https:",
   // hls.js transmuxes in a worker it starts from a blob url
   "worker-src 'self' blob:",
   'frame-ancestors *',
@@ -136,6 +154,8 @@ function shell(opts: { title: string; head?: string; body: string; index: boolea
 
 export interface WatchPageInput {
   title: string;
+  /** The asset or pb_ playback id the page was opened with. */
+  videoId: string;
   /** The stream to play, a path on this server with any signature on it. */
   streamPath: string;
   /** A poster path on this server, or null when the video has none. */
@@ -167,11 +187,12 @@ export function renderWatchPage(input: WatchPageInput): string {
     head: meta,
     index: !input.signed,
     body: `<main>
-      <video id="video" controls playsinline preload="metadata"${poster} data-src="${escapeHtml(input.streamPath)}" aria-label="${escapeHtml(title)}"></video>
+      <video id="video" controls playsinline preload="metadata"${poster} data-src="${escapeHtml(input.streamPath)}" data-id="${escapeHtml(input.videoId)}" aria-label="${escapeHtml(title)}"></video>
       <p id="notice" role="alert" hidden></p>
     </main>
     <script src="${WATCH_ASSET_PATH}/hls.min.js"></script>
-    <script src="${WATCH_ASSET_PATH}/watch.js"></script>`,
+    <script src="${WATCH_ASSET_PATH}/watch.js"></script>
+    <script type="module" src="${WATCH_HYBRID_PLAYER}"></script>`,
   });
 }
 

@@ -52,7 +52,7 @@ If the script ends with `Account is not ready yet: contracts are still forming.`
 
 ### Rebuild the web image
 
-The values are compiled into the Studio, so rebuild and restart the `web` service:
+The values are compiled into the Studio and the watch page player, so rebuild and restart the `web` service:
 
 ```bash
 docker compose up -d --build web
@@ -71,7 +71,7 @@ Open a ready video in the Studio. The badge on the player reads **From Sia, star
 ## Where it applies
 
 - **The Studio player**: hybrid delivery, as above.
-- **The public watch page** (`/watch/<id>`, which the Studio's watch links and iframe embed codes open): streams through your server.
+- **The public watch page** (`/watch/<id>`, which the Studio's watch links and iframe embed codes open): hybrid delivery, as above, also when it is embedded in another site.
 - **Your own apps**: `@sluby/player` streams from Sia when you give its client a viewer identity. See [Play videos in React](/developers/guides/play-react).
 
 How hybrid delivery picks between Sia and your server for each segment: [Hybrid](/developers/concepts/playback#hybrid).
