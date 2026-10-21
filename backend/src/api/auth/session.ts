@@ -219,11 +219,14 @@ export async function whySessionEnded(
   if (!payload) return 'missing';
   if (cookieExpired(payload)) return 'expired';
   const row = await opts.findSession(payload.sid);
-  if (!row || row.userId !== payload.uid || row.revokedAt) return 'revoked';
-  if (row.expiresAt <= new Date()) return 'expired';
+  if (!row || row.userId !== payload.uid) return 'revoked';
   const account = await opts.getAccount(row.userId);
+  // removing a member also ends their sessions, so the account is checked
+  // before the revocation: they are told they were removed, not signed out
+  if (account && !isAccountAllowed(account)) return 'not_allowed';
+  if (row.revokedAt) return 'revoked';
+  if (row.expiresAt <= new Date()) return 'expired';
   if (!account) return 'revoked';
-  if (!isAccountAllowed(account)) return 'not_allowed';
   // live by now: it ended and came back between the two reads, which only a
   // race allows; the browser should simply try again
   return 'missing';

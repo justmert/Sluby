@@ -582,6 +582,32 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
     });
   });
 
+  describe('logs', () => {
+    it('keeps link tokens, signatures and sign-in codes out of its logs', async () => {
+      await fetchThroughNginx(base, '/studio/join/SECRETJOINTOKEN');
+      await fetchThroughNginx(base, '/api/v1/auth/invites/SECRETINVITETOKEN/accept');
+      await fetchThroughNginx(base, '/v1/objects/master?expires=1&sig=SECRETSIGNATURE');
+      await fetchThroughNginx(
+        base,
+        '/api/v1/auth/github/callback?code=SECRETCODE&state=SECRETSTATE',
+      );
+      await fetchThroughNginx(base, '/health', {
+        Referer: 'https://video.example.com/studio/reset/SECRETRESETTOKEN?x=SECRETQUERY',
+      });
+      // nginx writes the access log to stdout and the error log to stderr
+      const logs = execFileSync('docker', ['logs', PROXY], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        encoding: 'utf8',
+      });
+      expect(logs).toContain('/studio/join/[redacted]');
+      expect(logs).toContain('/api/v1/auth/invites/[redacted]/accept');
+      expect(logs).toContain('/v1/objects/master?[redacted]');
+      expect(logs).toContain('/api/v1/auth/github/callback?[redacted]');
+      expect(logs).toContain('"https://video.example.com/studio/reset/[redacted]"');
+      expect(logs).not.toContain('SECRET');
+    });
+  });
+
   describe('client address', () => {
     it('passes on the client a trusted proxy in front reported, alone', async () => {
       // the test runner reaches the container from a private docker address,

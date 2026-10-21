@@ -268,8 +268,8 @@ export function createPipelineWorkers(opts: PipelineOptions): PipelineWorkers {
         return { skipped: 'stopped' };
       }
 
-      // the upload worker may not pick this up for a while (it runs one Sia
-      // upload at a time), so the log and the stage say what the video waits
+      // the upload worker may not pick this up for a while (it runs four
+      // videos at a time), so the log and the stage say what the video waits
       // for instead of leaving it at "transcode, 65%"
       await note(pj, 'upload', 'Waiting for the Sia uploader');
       await queues.uploadSegments.add(

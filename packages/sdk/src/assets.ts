@@ -56,7 +56,7 @@ export class AssetManager {
     return {
       data: (body.data as Array<Record<string, unknown>>).map(mapAsset),
       total: body.total as number,
-      page: body.page as number,
+      page: body.page as number | null,
       limit: body.limit as number,
       nextCursor: (body.next_cursor as string | null | undefined) ?? null,
       hasMore: body.has_more === true,

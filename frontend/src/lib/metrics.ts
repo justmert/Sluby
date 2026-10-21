@@ -32,7 +32,7 @@ export interface MetricsSnapshot {
     /** Share of whole-object cache lookups served from memory; null before any. */
     cacheHitRatio: number | null;
   };
-  playback: Record<'public' | 'signed' | 'sia', number>;
+  playback: Record<'public' | 'private' | 'signed' | 'sia', number>;
   process: { startedAt: number | null; residentBytes: number | null; heapUsedBytes: number | null };
 }
 
@@ -95,6 +95,7 @@ export function summarizeMetrics(metrics: PromMetric[], takenAt: number): Metric
     },
     playback: {
       public: sum(playback, { mode: 'public' }),
+      private: sum(playback, { mode: 'private' }),
       signed: sum(playback, { mode: 'signed' }),
       sia: sum(playback, { mode: 'sia' }),
     },

@@ -401,8 +401,9 @@ export function PlaybackIdsCard({ asset }: { asset: Asset }) {
         title="Delete this playback ID?"
         description={(row) => (
           <>
-            Players using <code className="font-mono">{row.playbackId}</code> stop working at once.
-            The video and its other playback IDs are not affected. This cannot be undone.
+            New plays with <code className="font-mono">{row.playbackId}</code> stop working at once;
+            a player already playing it keeps going until it reloads. The video and its other
+            playback IDs are not affected. This cannot be undone.
           </>
         )}
         confirmLabel="Delete"

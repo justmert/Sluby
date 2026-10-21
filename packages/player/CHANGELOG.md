@@ -9,6 +9,7 @@
 ### Changed
 
 - `onDeliveryChange` can also report `hybrid`. A handler typed for only `'sia' | 'gateway'` needs the wider type.
+- `useVideo` names renditions by the short side of the picture, like the player, so a portrait 720 × 1280 rendition is `720p` in both (`useVideo` said `1280p`).
 
 ## 0.2.0 (2026-10-08)
 

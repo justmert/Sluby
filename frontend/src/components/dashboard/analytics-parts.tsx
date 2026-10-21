@@ -105,7 +105,7 @@ function serverStats(m?: MetricsSnapshot): Stat[] {
       longHint: true,
       icon: Play,
       label: 'Playback URLs',
-      value: m && m.playback.public + m.playback.signed + m.playback.sia,
+      value: m && m.playback.public + m.playback.private + m.playback.signed + m.playback.sia,
       hint: m
         ? `${formatCount(m.playback.sia)} direct from Sia, ${formatCount(m.playback.signed)} signed`
         : null,
