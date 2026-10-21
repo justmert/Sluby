@@ -1,6 +1,6 @@
 ---
 title: Manage your account
-description: Change your password, link GitHub, sign out other browsers and pick a theme from the Settings page.
+description: Change your name, email and password, link or remove GitHub, sign out other browsers and pick a theme from the Settings page.
 ---
 
 The **Settings** page shows who you are signed in as and lets you change how you sign in, end sessions on other browsers, and choose the Studio's theme. Open it from **Settings** at the bottom of the sidebar. Every member and admin can use it.
@@ -8,6 +8,27 @@ The **Settings** page shows who you are signed in as and lets you change how you
 ## Account
 
 The **Account** section shows your name, the email or GitHub `@login` you signed in with, and your role: **Admin** or **Member**.
+
+## Change your name
+
+<Steps>
+  <Step>In the **Account** section, click **Edit name**.</Step>
+  <Step>Type your **Name**, up to 100 characters, and click **Save name**.</Step>
+</Steps>
+
+Your team sees the new name on the **Members** page. Signing in with GitHub keeps the name you chose.
+
+## Change your email
+
+The email is the one you sign in with. Your password stays the same.
+
+<Steps>
+  <Step>Under **Sign-in methods**, click **Change email** in the **Password** row.</Step>
+  <Step>Enter the **New email** and your **Current password**.</Step>
+  <Step>Click **Change email**.</Step>
+</Steps>
+
+From then on you sign in with the new email; the old one no longer works. If another member already signs in with that email, the dialog says "Another account already signs in with this email." under **New email**.
 
 ## Change your password
 
@@ -38,6 +59,19 @@ The **GitHub** row appears when the server offers GitHub sign-in. If it says **N
 GitHub sends you back to **Settings**, and the row shows your `@login`. From then on you can use **Continue with GitHub** on the sign-in screen ([Sign in with GitHub](/studio/sign-in#sign-in-with-github)).
 
 A GitHub account can belong to only one member. If it already belongs to someone else, nothing is linked and the Studio shows, for example, "GitHub account example-dev already belongs to another member."
+
+## Remove GitHub
+
+When your account has both a password and GitHub, the **GitHub** row has a **Remove** button:
+
+<Steps>
+  <Step>Click **Remove** in the **GitHub** row.</Step>
+  <Step>Click **Remove** again in the dialog.</Step>
+</Steps>
+
+You then sign in with your email and password only, and browsers that signed in with GitHub are signed out. You can link GitHub again later.
+
+The **Remove** button does not appear when this browser signed in with GitHub (sign in with your password first), or when GitHub is your only way to sign in.
 
 ## Sign out other browsers
 

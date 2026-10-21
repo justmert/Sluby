@@ -67,6 +67,8 @@ A member can have more than one way to sign in. Each way is a row in `user_ident
 - The server stores passwords as scrypt hashes (N=32768, r=8, p=1, 16-byte random salt).
 - A wrong email and a wrong password get the same answer, `401` with `Wrong email or password`. An unknown email costs the same hashing time as a known one, so response timing does not reveal which emails exist.
 - A removed member's correct password gets `403` with `This account was removed from this workspace`.
+- Changing the sign-in email (`POST /api/v1/auth/email/change`) also needs the current password, counts against the same attempt limits, and keeps the password. Another account's email gets `409` with `reason: email_taken`.
+- A member changes their own name with `PATCH /api/v1/auth/me`.
 - Changing the password (`POST /api/v1/auth/password/change`) needs the current password, and ends every other session of the account while keeping the current one. A member who signs in with GitHub only has no password yet and gets `409` with `This account has no password yet. Ask an admin for a reset link to set one.`
 
 ### GitHub
@@ -74,7 +76,8 @@ A member can have more than one way to sign in. Each way is a row in `user_ident
 The server offers GitHub sign-in only when it has both `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` set. `GET /api/v1/auth/config` reports it in `methods.github`.
 
 - Sluby asks GitHub for the `read:user` scope only.
-- Sluby identifies a GitHub account by its numeric account id, not its login, so renaming a GitHub login does not change who it signs in as. Sluby stores the login for display and refreshes it at each sign-in.
+- Sluby identifies a GitHub account by its numeric account id, not its login, so renaming a GitHub login does not change who it signs in as. Sluby stores the login for display and refreshes it at each sign-in. The member's name stays the one they chose.
+- A member removes GitHub from their account with `DELETE /api/v1/auth/identities/github`. Sessions that signed in with GitHub end. The server refuses with `409` when this browser signed in with GitHub (`current_sign_in`) or when GitHub is the account's only way to sign in (`last_sign_in`).
 - Signing in with GitHub never creates an account. Sign-in refuses a GitHub account that belongs to no member (`not_a_member`). A person joins with GitHub through an invite link, and an existing member adds GitHub from their account settings.
 - The sign-in keeps its state in a cookie named `sluby_signin` in the browser that started it (path `/api/v1/auth`, HttpOnly, valid for 10 minutes). The callback accepts only the state that cookie holds, so it refuses a callback opened in another browser, or after 10 minutes, with `expired_handshake`.
 
