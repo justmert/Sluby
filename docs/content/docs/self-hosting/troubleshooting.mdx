@@ -172,7 +172,7 @@ A client went over a per-address limit and got status `429` with this message in
 
 ## Direct playback [#direct-playback]
 
-**The player badge keeps reading Through this server.** The Studio streams from Sia only when all three `VITE_SLUBY_SIA_` values were set when the web image was built. Check the three lines in `.env`, then rebuild with `docker compose up -d --build web`. See [Stream from Sia in the browser](/self-hosting/direct-playback). The badge also reads **Through this server** in a browser where hls.js cannot run and the video plays natively, such as Safari on some iPhones.
+**The player badge keeps reading From Sia via this server.** The Studio streams from Sia only when all three `VITE_SLUBY_SIA_` values were set when the web image was built. Check the three lines in `.env`, then rebuild with `docker compose up -d --build web`. See [Stream from Sia in the browser](/self-hosting/direct-playback). The badge also reads **From Sia via this server** in a browser where hls.js cannot run and the video plays natively, such as Safari on some iPhones.
 
 **The browser console shows `Sluby: Sia is unavailable for now, playing through the gateway.`** The player could not read from Sia and plays through your server. Check that `VITE_SLUBY_SIA_INDEXER_URL` starts with `https://` (the Studio's Content Security Policy blocks other addresses), and that the viewer account is ready: `provision-viewer.mjs` reports when contracts are still forming and the account needs a balance to pay egress.
 

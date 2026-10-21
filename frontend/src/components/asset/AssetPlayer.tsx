@@ -39,15 +39,24 @@ const describe = (level: QualityLevel) =>
 
 type Delivery = 'sia' | 'hybrid' | 'gateway';
 
-/** The pill's words: where this video's bytes have come from so far. */
+/**
+ * The pill's words. The video always comes from Sia; what differs is whether
+ * this server relays the bytes or the browser reads them from the hosts.
+ */
 function deliveryLabel(delivery: Delivery, stats: HybridDeliveryStats | null): string {
-  if (delivery === 'sia') return 'Direct from Sia';
-  if (delivery === 'gateway') return 'Through this server';
+  if (delivery === 'sia') return 'From Sia, direct';
+  if (delivery === 'gateway') return 'From Sia via this server';
   const total = stats ? stats.siaBytes + stats.gatewayBytes : 0;
   // the start always plays through the server, so there is nothing to split yet
-  if (!stats || total === 0) return 'Sia and this server';
-  return `${Math.round((stats.siaBytes / total) * 100)}% from Sia`;
+  if (!stats || total === 0) return 'From Sia, starting via this server';
+  return `From Sia, ${Math.round((stats.siaBytes / total) * 100)}% direct`;
 }
+
+// measured on a 10 second video from a home connection: with 5 s buffered
+// and 2 s kept in hand, about a third came straight from Sia in every run and
+// no read fell back; the package defaults (10 s and 4 s) leave short videos
+// entirely to this server
+const STUDIO_HYBRID_POLICY = { minBufferSec: 5, safetyMarginSec: 2 };
 
 /**
  * The Studio's preview: @sluby/player driven by the same sdk client in the
@@ -81,6 +90,7 @@ export function AssetPlayer({ assetId, signed, title }: AssetPlayerProps) {
           expiresIn={signed ? 3600 : undefined}
           title={title}
           siaDelivery="hybrid"
+          hybridPolicy={STUDIO_HYBRID_POLICY}
           controls
           className="aspect-video w-full"
           style={{ width: '100%', aspectRatio: '16 / 9' }}

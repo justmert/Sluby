@@ -306,7 +306,7 @@ describe('AssetDetailPage', () => {
       expect(playerProps).toHaveBeenLastCalledWith(
         expect.objectContaining({ assetId: 'a1', signed: true, expiresIn: 3600 }),
       );
-      expect(screen.getByText('Direct from Sia')).toBeInTheDocument();
+      expect(screen.getByText('From Sia, direct')).toBeInTheDocument();
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Quality' }), '360p');
       expect(setQuality).toHaveBeenLastCalledWith(1);
     });
