@@ -469,7 +469,7 @@ export class Landing extends Component<object, State> {
     const phaseTexts = [
       'By default, every video is split into thirty pieces, and each piece goes to a different independent host.',
       'Now twenty of those hosts go dark. Maybe they are down, maybe they are gone for good.',
-      'Any ten pieces are enough to rebuild the rest. The video never stops playing.',
+      'Any ten pieces are enough to rebuild the rest, so the video keeps playing.',
     ];
     const phases = [cl(p / 0.25), cl((p - 0.25) / 0.33), cl((p - 0.58) / 0.38)].map((v) =>
       (v * 100).toFixed(1),
