@@ -1,18 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-21)
 
 ### Added
-
-- `title`: the video's name for screen readers, set as the `<video>`'s `aria-label`. Without it a screen reader announced only "video".
-- `tracks`: WebVTT caption and subtitle files rendered as `<track>` elements, and `crossOrigin` for the `<video>`, which tracks on another origin need. The player sets no `crossorigin` unless asked, so media loads as before.
 
 - Hybrid delivery: `siaDelivery="hybrid"` plays playlists, the start and any urgent segment through the gateway, and takes segments from Sia once the buffer holds `minBufferSec` and the rendition's hosts have answered a warm-up read. A Sia read that fails or would outlast the buffer is handed to the gateway, and repeated failures pause Sia. `hybridPolicy` tunes it and `onDeliveryStats` reports where the bytes came from. On a home connection a 10 second video started in about 6 seconds this way, against 33 to 36 seconds direct from Sia. `createHybridLoader` brings the same loader to plain hls.js from `@sluby/player/hls`. The default stays `direct`.
 
 ### Changed
 
 - `onDeliveryChange` can also report `hybrid`. A handler typed for only `'sia' | 'gateway'` needs the wider type.
-- Quality names use the short side of the picture, so a portrait 720 × 1280 rendition is `720p` (it was `1280p`), matching the landscape ladder.
 
 ## 0.2.0 (2026-10-08)
 
@@ -46,6 +42,12 @@
 - Quality control on the player handle: `getQualities()`, `setQuality(index)` and `isAutoQuality()`.
 - `@sluby/player/hls`: a React-free entry that exports `createSiaLoader`, so plain hls.js apps can stream straight from Sia.
 - `LICENSE` and `NOTICE` ship in the package.
+- `title`: the video's name for screen readers, set as the `<video>`'s `aria-label`. Without it a screen reader announced only "video".
+- `tracks`: WebVTT caption and subtitle files rendered as `<track>` elements, and `crossOrigin` for the `<video>`, which tracks on another origin need. The player sets no `crossorigin` unless asked, so media loads as before.
+
+### Changed
+
+- Quality names use the short side of the picture, so a portrait 720 × 1280 rendition is `720p` (it was `1280p`), matching the landscape ladder.
 
 ### Fixed
 
