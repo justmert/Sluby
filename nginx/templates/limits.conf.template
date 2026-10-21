@@ -6,15 +6,17 @@
 resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=off;
 
 # per-client limits on the unauthenticated surfaces: delivery (every request
-# can pull bytes from sia) and sign-in. The key is the client address after
-# realip, and an empty key is not counted, so each limit only touches its own
-# paths. Set at http level so the locations need no copy of the numbers.
+# can pull bytes from sia) and the routes that check a secret (sign-in and
+# the metrics token). The key is the client address after realip, and an
+# empty key is not counted, so each limit only touches its own paths. Set at
+# http level so the locations need no copy of the numbers.
 map $uri $delivery_limit_key {
     ~^/v1/          $binary_remote_addr;
     default         "";
 }
 map $uri $auth_limit_key {
     ~^/api/v1/auth/ $binary_remote_addr;
+    /metrics        $binary_remote_addr;
     default         "";
 }
 

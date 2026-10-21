@@ -179,6 +179,22 @@ describe('PlaybackManager.getSignedUrl()', () => {
   });
 });
 
+describe('PlaybackManager.revokeSignedUrls()', () => {
+  it('posts to the revoke route and maps the new generation', async () => {
+    mockFetch.mockResolvedValueOnce(makeJsonResponse({ success: true, signing_generation: 3 }));
+
+    const manager = new PlaybackManager(mockFetch, resolve);
+    const controller = new AbortController();
+    const result = await manager.revokeSignedUrls('id/special', { signal: controller.signal });
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/v1/playback/id%2Fspecial/signed/revoke', {
+      method: 'POST',
+      signal: controller.signal,
+    });
+    expect(result).toEqual({ signingGeneration: 3 });
+  });
+});
+
 describe('PlaybackManager.streamUrl()', () => {
   it('builds the public master url on the delivery base without a request', () => {
     const manager = new PlaybackManager(mockFetch, resolve);

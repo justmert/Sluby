@@ -263,8 +263,9 @@ export const envSchema = z.object({
   /** How many usable API keys the workspace may hold. */
   API_KEYS_PER_ACCOUNT_MAX: z.coerce.number().int().positive().default(100),
 
-  /** When set, GET /metrics (Prometheus) needs `Authorization: Bearer <token>`.
-   *  Unset, it answers anyone who reaches the backend port. */
+  /** When set, GET /metrics (Prometheus) needs `Authorization: Bearer <token>`,
+   *  also through the web proxy. Unset, it answers only requests made straight
+   *  to the backend port and a proxied request gets a 404. */
   METRICS_TOKEN: z.string().optional(),
 });
 

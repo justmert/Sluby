@@ -147,4 +147,6 @@ const res = await fetch(
 if (!res.ok) throw new Error(`revoke failed: ${res.status}`);
 ```
 
+With the SDK, the same call is `await client.playback.revokeSignedUrls(assetId)`, which resolves `{ signingGeneration }`. In the Studio, it is **Revoke signed URLs** on the video's page ([Revoke signed URLs](/studio/privacy#revoke-signed-urls)).
+
 The REST reference documents the endpoint: [`POST /api/v1/playback/{id}/signed/revoke`](/developers/reference/api/playback/post-playback-id-signed-revoke).

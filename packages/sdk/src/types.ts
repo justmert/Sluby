@@ -110,6 +110,15 @@ export interface SignedPlaybackInfo {
   expiresAt: string;
 }
 
+/** What `playback.revokeSignedUrls` resolves. */
+export interface SignedUrlRevocation {
+  /**
+   * The asset's signing generation after the revoke. Every signed url carries
+   * the generation it was signed under, so the ones signed before stop working.
+   */
+  signingGeneration: number;
+}
+
 /** One HLS rendition of a ready asset, as `assets.renditions()` lists it. */
 export interface Rendition {
   /** Rung name such as `720p`. */
