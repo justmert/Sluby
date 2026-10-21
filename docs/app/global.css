@@ -26,3 +26,22 @@ html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;
 }
+
+/* a step written inline (<Step>text</Step>) has no paragraph margins, so a
+   one-line step is shorter than its 2rem number badge and the badges overlap.
+   give every step at least the badge's height, center one line of text on
+   the badge, and space the steps apart. */
+.fd-steps > .fd-step {
+  min-height: 2rem;
+  padding-top: 0.25rem;
+}
+
+.fd-steps > .fd-step + .fd-step {
+  margin-top: 1.25rem;
+}
+
+/* block steps start with a heading or paragraph, which brings its own top
+   margin; drop it so the first line sits next to the badge */
+.fd-steps > .fd-step > :first-child {
+  margin-top: 0;
+}
