@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { GitHubMark } from '@/components/brand/GitHubMark';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { InlineError } from '@/components/shared/InlineError';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { useUnlinkProvider } from '@/hooks/useAccount';
 import { useAuthConfig } from '@/hooks/useAuthConfig';
 import { loadPage } from '@/lib/navigation';
-import { useSession } from '@/lib/session';
+import { useRefreshSession, useSession } from '@/lib/session';
+import { toastSuccess } from '@/lib/toast';
+import { ChangeEmailDialog } from './ChangeEmailDialog';
 import { ChangePasswordDialog } from './ChangePasswordDialog';
 import { SETTINGS_SECTION } from './section';
 import { METHODS_LIST, MethodRow, PasswordRow, SignInMethodsHeader } from './SignInMethodsHeader';
@@ -46,24 +50,61 @@ function LinkGitHubButton() {
 export function SignInMethodsSection() {
   const session = useSession();
   const config = useAuthConfig();
+  const refresh = useRefreshSession();
+  const unlink = useUnlinkProvider();
   const [changing, setChanging] = useState(false);
+  const [changingEmail, setChangingEmail] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const password = session.signIn.find((m) => m.provider === 'password');
   const github = session.signIn.find((m) => m.provider === 'github');
+  // the server keeps the way this browser signed in, and the only way in
+  const githubRemovable = Boolean(github && password && session.provider !== 'github');
+  const githubKept = !github
+    ? null
+    : !password
+      ? 'Your only way to sign in, so it stays.'
+      : session.provider === 'github'
+        ? 'You signed in with it in this browser. Sign in with your password to remove it.'
+        : null;
 
   return (
     <section aria-labelledby="settings-sign-in" className={SETTINGS_SECTION}>
       <SignInMethodsHeader />
       <div className="flex flex-col gap-3">
         <ul className={METHODS_LIST}>
-          <PasswordRow onChange={() => setChanging(true)} />
+          <PasswordRow
+            onChange={() => setChanging(true)}
+            onChangeEmail={() => setChangingEmail(true)}
+          />
           {config.data?.methods.github && (
             <MethodRow
               icon={<GitHubMark className="size-4.5" />}
               title="GitHub"
               detail={
-                github ? <span dir="auto">@{github.username}</span> : 'Not linked to this account.'
+                github ? (
+                  <>
+                    <span dir="auto">@{github.username}</span>
+                    {githubKept && <span className="block">{githubKept}</span>}
+                  </>
+                ) : (
+                  'Not linked to this account.'
+                )
               }
-              action={!github && <LinkGitHubButton />}
+              action={
+                !github ? (
+                  <LinkGitHubButton />
+                ) : (
+                  githubRemovable && (
+                    <Button
+                      variant="outline"
+                      className="h-8 pointer-coarse:h-10"
+                      onClick={() => setRemoving(true)}
+                    >
+                      Remove
+                    </Button>
+                  )
+                )
+              }
             />
           )}
         </ul>
@@ -76,12 +117,33 @@ export function SignInMethodsSection() {
         />
       </div>
       {password && (
-        <ChangePasswordDialog
-          open={changing}
-          onOpenChange={setChanging}
-          email={password.username}
-        />
+        <>
+          <ChangePasswordDialog
+            open={changing}
+            onOpenChange={setChanging}
+            email={password.username}
+          />
+          <ChangeEmailDialog
+            open={changingEmail}
+            onOpenChange={setChangingEmail}
+            email={password.username}
+          />
+        </>
       )}
+      <ConfirmDialog
+        item={removing ? true : null}
+        onClose={() => setRemoving(false)}
+        title="Remove GitHub?"
+        description="You will sign in with your email and password only. Browsers that signed in with GitHub are signed out. You can link GitHub again later."
+        confirmLabel="Remove"
+        pendingLabel="Removing…"
+        errorTitle="Could not remove GitHub"
+        onConfirm={async () => {
+          await unlink.mutateAsync('github');
+          await refresh();
+          toastSuccess('GitHub removed.');
+        }}
+      />
     </section>
   );
 }

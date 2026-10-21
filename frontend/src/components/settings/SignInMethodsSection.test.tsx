@@ -181,3 +181,90 @@ describe('SignInMethodsSection', () => {
     );
   });
 });
+
+describe('SignInMethodsSection account changes', () => {
+  it('changes the sign-in email with the current password', async () => {
+    const { fetch } = setup(
+      { provider: 'password', signIn: [PASSWORD] },
+      { 'POST /api/v1/auth/email/change': { email: 'alice@new.example' } },
+    );
+    await userEvent.click(within(section()).getByRole('button', { name: 'Change email' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Change email' });
+    expect(dialog).toHaveTextContent('You sign in with alice@example.com now.');
+    await userEvent.type(within(dialog).getByLabelText('New email'), 'Alice@New.example');
+    await userEvent.type(
+      within(dialog).getByLabelText('Current password'),
+      'correct horse battery',
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Change email' }));
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith(
+        'Email changed. Sign in with the new one from now on.',
+      ),
+    );
+    expect(fetch.calls.find((c) => c.path === '/api/v1/auth/email/change')?.body).toEqual({
+      email: 'Alice@New.example',
+      current_password: 'correct horse battery',
+    });
+  });
+
+  it('shows a wrong password under its field and keeps the dialog open', async () => {
+    setup(
+      { provider: 'password', signIn: [PASSWORD] },
+      {
+        'POST /api/v1/auth/email/change': reply(403, {
+          error: 'Your current password is wrong.',
+          reason: 'bad_credentials',
+          details: [{ field: 'current_password', message: 'Your current password is wrong.' }],
+        }),
+      },
+    );
+    await userEvent.click(within(section()).getByRole('button', { name: 'Change email' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Change email' });
+    await userEvent.type(within(dialog).getByLabelText('New email'), 'alice@new.example');
+    await userEvent.type(within(dialog).getByLabelText('Current password'), 'wrong password!');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Change email' }));
+    expect(await within(dialog).findByText('Your current password is wrong.')).toBeInTheDocument();
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('refuses the email the account already has before asking the server', async () => {
+    const { fetch } = setup({ provider: 'password', signIn: [PASSWORD] });
+    await userEvent.click(within(section()).getByRole('button', { name: 'Change email' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Change email' });
+    await userEvent.type(within(dialog).getByLabelText('New email'), 'ALICE@example.com');
+    await userEvent.type(within(dialog).getByLabelText('Current password'), 'x');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Change email' }));
+    expect(within(dialog).getByText('This is already your email.')).toBeInTheDocument();
+    expect(fetch.calls.some((c) => c.path === '/api/v1/auth/email/change')).toBe(false);
+  });
+
+  it('removes GitHub after asking, when the password signed this browser in', async () => {
+    const { fetch } = setup(
+      { provider: 'password', signIn: [PASSWORD, GITHUB] },
+      { 'DELETE /api/v1/auth/identities/github': { success: true } },
+    );
+    await userEvent.click(await within(section()).findByRole('button', { name: 'Remove' }));
+    const confirm = await screen.findByRole('alertdialog', { name: 'Remove GitHub?' });
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('GitHub removed.'));
+    expect(fetch.calls.some((c) => c.method === 'DELETE')).toBe(true);
+  });
+
+  it('keeps GitHub when this browser signed in with it, or when it is the only way in', async () => {
+    const first = setup({ provider: 'github', signIn: [PASSWORD, GITHUB] });
+    expect(
+      await within(section()).findByText(
+        'You signed in with it in this browser. Sign in with your password to remove it.',
+      ),
+    ).toBeInTheDocument();
+    expect(within(section()).queryByRole('button', { name: 'Remove' })).toBeNull();
+    first.unmount();
+
+    setup({ provider: 'github', signIn: [GITHUB] });
+    expect(
+      await within(section()).findByText('Your only way to sign in, so it stays.'),
+    ).toBeInTheDocument();
+    expect(within(section()).queryByRole('button', { name: 'Remove' })).toBeNull();
+  });
+});
