@@ -42,6 +42,7 @@ export type {
   RetryStage,
   PlaybackInfo,
   SignedPlaybackInfo,
+  SignedUrlRevocation,
   UploadFileOptions,
   UploadHandle,
   RequestOptions,

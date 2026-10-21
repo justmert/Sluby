@@ -1,5 +1,11 @@
 import { readJson } from './errors.js';
-import type { AccessTier, PlaybackInfo, RequestOptions, SignedPlaybackInfo } from './types.js';
+import type {
+  AccessTier,
+  PlaybackInfo,
+  RequestOptions,
+  SignedPlaybackInfo,
+  SignedUrlRevocation,
+} from './types.js';
 import type { FetchFn } from './uploads.js';
 
 /**
@@ -94,5 +100,24 @@ export class PlaybackManager {
       posterUrl: posterPath ? this._resolveDeliveryUrl(posterPath) : null,
       expiresAt: body.expires_at as string,
     };
+  }
+
+  /**
+   * Stop every signed URL of an asset minted so far, without changing its
+   * access tier. Signed URLs minted after this work as usual.
+   * Needs a key with the `manage` scope.
+   *
+   * @param videoAssetId - Asset id or `pb_...` playback id.
+   */
+  async revokeSignedUrls(
+    videoAssetId: string,
+    options?: RequestOptions,
+  ): Promise<SignedUrlRevocation> {
+    const res = await this._fetch(
+      `/api/v1/playback/${encodeURIComponent(videoAssetId)}/signed/revoke`,
+      { method: 'POST', signal: options?.signal },
+    );
+    const body = await readJson(res);
+    return { signingGeneration: body.signing_generation as number };
   }
 }

@@ -13,6 +13,7 @@ import { PlaybackIdsCard } from '@/components/asset/PlaybackIdsCard';
 import { ProcessingCard } from '@/components/asset/ProcessingCard';
 import { isInterrupted } from '@/components/asset/processing';
 import { RenditionsTable } from '@/components/asset/RenditionsTable';
+import { RevokeSignedUrlsCard } from '@/components/asset/RevokeSignedUrlsCard';
 import { SiaStorageBreakdown } from '@/components/asset/SiaStorageBreakdown';
 import { VideoActionsMenu } from '@/components/asset/VideoActionsMenu';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -154,6 +155,8 @@ export default function AssetDetailPage() {
   const forgetAsset = useForgetAsset();
   const [confirmDelete, setConfirmDelete] = useState<VideoAsset | null>(null);
   const deletedHere = useRef<string | null>(null);
+  // a new key starts the preview over, for when its signed URLs were revoked
+  const [playerRun, setPlayerRun] = useState(0);
   // the version an inline edit started from, sent as If-Match (FLW-06)
   const editBase = useRef<VideoAsset | null>(null);
 
@@ -307,6 +310,10 @@ export default function AssetDetailPage() {
     editBase.current = a;
   };
 
+  // a public video has signed URLs only through its signed playback IDs
+  const hasSignedUrls =
+    ready && (a.accessTier === 'private' || !!playbackIds.data?.some((p) => p.policy === 'signed'));
+
   const objectCount = sia.data?.totals.object_count;
   const qualities = renditions.data?.data.map((r) => r.name);
 
@@ -325,7 +332,7 @@ export default function AssetDetailPage() {
           onAnimationComplete={() => setJustReady(false)}
         >
           <LazyAssetPlayer
-            key={a.id}
+            key={`${a.id}:${playerRun}`}
             assetId={a.id}
             signed={a.accessTier === 'private'}
             title={a.title}
@@ -563,6 +570,17 @@ export default function AssetDetailPage() {
               display={(shown) => <DescriptionValue text={shown} />}
             />
           </section>
+
+          {hasSignedUrls && (
+            <RevokeSignedUrlsCard
+              asset={a}
+              className={cn(CARD, 'px-5 py-4.5')}
+              // the preview of a private video plays through signed URLs too
+              onRevoked={() => {
+                if (a.accessTier === 'private') setPlayerRun((n) => n + 1);
+              }}
+            />
+          )}
 
           <section
             aria-labelledby="delete-heading"

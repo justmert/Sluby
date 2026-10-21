@@ -151,6 +151,31 @@ describe('construction and request shape', () => {
   });
 });
 
+describe('playback.revokeSignedUrls', () => {
+  it('posts with the key and reads the new generation', async () => {
+    respond = json(200, { success: true, signing_generation: 4 });
+    const client = new SlubyClient({ apiKey: 'sluby_live', baseUrl: origin });
+
+    await expect(client.playback.revokeSignedUrls('pb_x')).resolves.toEqual({
+      signingGeneration: 4,
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].method).toBe('POST');
+    expect(seen[0].url).toBe('/api/v1/playback/pb_x/signed/revoke');
+    expect(seen[0].headers.authorization).toBe('Bearer sluby_live');
+    expect(seen[0].body).toBe('');
+  });
+
+  it('rejects a key without the manage scope with a PermissionError', async () => {
+    respond = json(403, { error: 'This API key does not have the manage scope' });
+    const client = new SlubyClient({ apiKey: 'k', baseUrl: origin });
+
+    const err = await client.playback.revokeSignedUrls('a1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PermissionError);
+    expect((err as PermissionError).message).toBe('This API key does not have the manage scope');
+  });
+});
+
 describe('status to error class', () => {
   const client = () => new SlubyClient({ apiKey: 'k', baseUrl: origin });
 
