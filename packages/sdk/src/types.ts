@@ -459,7 +459,8 @@ export interface ListAssetsOptions extends RequestOptions {
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
-  page: number;
+  /** The page number asked for with `page`; null on a page fetched with a cursor. */
+  page: number | null;
   limit: number;
   /** Pass as `cursor` to get the next page; null on the last page. */
   nextCursor: string | null;

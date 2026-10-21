@@ -677,7 +677,7 @@ Every type below is exported from `@sluby/sdk` as a type.
 | `UploadSessionStatus`                                           | `'uploading' \| 'completed' \| 'cancelled' \| 'failed'`                                                                 |
 | `UploadHandle`                                                  | `AssetUploadHandle` without `assetId` and `uploadId`                                                                    |
 | `RequestOptions`                                                | `{ signal?: AbortSignal }`                                                                                              |
-| `PaginatedResponse<T>`                                          | `{ data: T[]; total; page; limit; nextCursor: string \| null; hasMore: boolean }`                                       |
+| `PaginatedResponse<T>`                                          | `{ data: T[]; total; page: number \| null; limit; nextCursor: string \| null; hasMore: boolean }`                       |
 | `CursorPage<T>`                                                 | `{ data: T[]; hasMore: boolean; nextCursor: string \| null }`                                                           |
 | `AssetSortField`                                                | `'created_at' \| 'title' \| 'duration' \| 'size'`                                                                       |
 | `RetryStage`                                                    | `'transcode' \| 'upload-segments'`                                                                                      |

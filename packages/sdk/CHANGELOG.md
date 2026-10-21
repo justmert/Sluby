@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `PaginatedResponse.page` is typed `number | null`, since the API answers `null` for a page fetched with a cursor. Code that does arithmetic on `page` after a cursor request needs a null check.
+
 ## 0.2.1 (2026-10-21)
 
 ### Changed
