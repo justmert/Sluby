@@ -3,7 +3,12 @@ import express from 'express';
 import request from 'supertest';
 import pino from 'pino';
 import { Writable } from 'node:stream';
-import { createHealthHandler, createPrometheusHandler } from '../api/service-routes.js';
+import {
+  createHealthHandler,
+  createPrometheusHandler,
+  requireMetricsToken,
+} from '../api/service-routes.js';
+import { notFoundHandler } from '../api/middleware/error-handler.js';
 import { createApiRouter, type ApiRouterDeps } from '../api/router.js';
 import { openapiDocument } from '../api/openapi.js';
 import { setMetricSources, uploadSuccessTotal } from '../metrics/collector.js';
@@ -92,6 +97,82 @@ describe('GET /metrics (prometheus)', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0].msg).toBe('Failed to collect metrics');
     expect((lines[0].err as { message: string }).message).toBe('cache stats unavailable');
+  });
+});
+
+describe('GET /metrics guard', () => {
+  const TOKEN = 'scrape-token-0123456789';
+
+  // as app.ts mounts it, with the app's own not-found answer behind it
+  function guardedApp(token: string | undefined) {
+    const app = express();
+    app.get('/metrics', requireMetricsToken(token), createPrometheusHandler(silent));
+    app.use(notFoundHandler);
+    return app;
+  }
+
+  describe('without METRICS_TOKEN', () => {
+    it('answers a scrape made straight to the backend port', async () => {
+      const res = await request(guardedApp(undefined)).get('/metrics');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('# TYPE sluby_upload_success_total counter');
+    });
+
+    it('treats an empty token, as compose passes an unset one, like no token', async () => {
+      expect((await request(guardedApp('')).get('/metrics')).status).toBe(200);
+      expect(
+        (await request(guardedApp('')).get('/metrics').set('X-Forwarded-For', '198.51.100.7'))
+          .status,
+      ).toBe(404);
+    });
+
+    it('answers a request through the proxy with the 404 of an unknown route', async () => {
+      const app = guardedApp(undefined);
+      const proxied = await request(app).get('/metrics').set('X-Forwarded-For', '198.51.100.7');
+      const unknown = await request(app).get('/nope').set('X-Forwarded-For', '198.51.100.7');
+      expect(proxied.status).toBe(404);
+      expect(proxied.body).toEqual({ error: 'Route GET /metrics not found' });
+      expect(proxied.text).not.toContain('sluby_');
+      expect(proxied.headers['www-authenticate']).toBeUndefined();
+      expect(proxied.headers['content-type']).toBe(unknown.headers['content-type']);
+    });
+
+    it('refuses a proxy that sends only the standard Forwarded header, and an empty one', async () => {
+      const app = guardedApp(undefined);
+      expect((await request(app).get('/metrics').set('Forwarded', 'for=198.51.100.7')).status).toBe(
+        404,
+      );
+      expect((await request(app).get('/metrics').set('X-Forwarded-For', '')).status).toBe(404);
+    });
+  });
+
+  describe('with METRICS_TOKEN', () => {
+    it('serves the right bearer token through the proxy and straight to the port', async () => {
+      const app = guardedApp(TOKEN);
+      const proxied = await request(app)
+        .get('/metrics')
+        .set('X-Forwarded-For', '198.51.100.7')
+        .set('Authorization', `Bearer ${TOKEN}`);
+      expect(proxied.status).toBe(200);
+      expect(proxied.text).toContain('# TYPE sluby_upload_success_total counter');
+      const direct = await request(app).get('/metrics').set('Authorization', `Bearer ${TOKEN}`);
+      expect(direct.status).toBe(200);
+    });
+
+    it('asks for the token, wherever the request comes from', async () => {
+      const app = guardedApp(TOKEN);
+      for (const headers of [
+        {},
+        { 'X-Forwarded-For': '198.51.100.7' },
+        { 'X-Forwarded-For': '198.51.100.7', Authorization: 'Bearer nope' },
+        { Authorization: TOKEN },
+      ]) {
+        const res = await request(app).get('/metrics').set(headers);
+        expect(res.status, JSON.stringify(headers)).toBe(401);
+        expect(res.headers['www-authenticate']).toBe('Bearer');
+        expect(res.body).toEqual({ error: 'Metrics token required' });
+      }
+    });
   });
 });
 

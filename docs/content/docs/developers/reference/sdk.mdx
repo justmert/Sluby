@@ -273,14 +273,16 @@ class PlaybackManager {
     videoAssetId: string,
     options?: { expiresIn?: number; signal?: AbortSignal },
   ): Promise<SignedPlaybackInfo>;
+  revokeSignedUrls(videoAssetId: string, options?: RequestOptions): Promise<SignedUrlRevocation>;
 }
 ```
 
-| Method         | Request                                                                                                                                                   | Returns                                                                                  |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `streamUrl`    | None. It builds the URL of [`GET /v1/stream/{id}/master.m3u8`](/developers/reference/api/delivery/get-stream-videoassetid-master-m3u8) without a request. | `<deliveryBaseUrl>/v1/stream/<id>/master.m3u8` for an asset id or a `pb_...` playback id |
-| `getUrl`       | [`GET /api/v1/playback/{id}`](/developers/reference/api/playback/get-playback-id)                                                                         | `PlaybackInfo`                                                                           |
-| `getSignedUrl` | [`GET /api/v1/playback/{id}/signed`](/developers/reference/api/playback/get-playback-id-signed), with `?expires_in=` when `expiresIn` is set              | `SignedPlaybackInfo`                                                                     |
+| Method             | Request                                                                                                                                                   | Returns                                                                                  |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `streamUrl`        | None. It builds the URL of [`GET /v1/stream/{id}/master.m3u8`](/developers/reference/api/delivery/get-stream-videoassetid-master-m3u8) without a request. | `<deliveryBaseUrl>/v1/stream/<id>/master.m3u8` for an asset id or a `pb_...` playback id |
+| `getUrl`           | [`GET /api/v1/playback/{id}`](/developers/reference/api/playback/get-playback-id)                                                                         | `PlaybackInfo`                                                                           |
+| `getSignedUrl`     | [`GET /api/v1/playback/{id}/signed`](/developers/reference/api/playback/get-playback-id-signed), with `?expires_in=` when `expiresIn` is set              | `SignedPlaybackInfo`                                                                     |
+| `revokeSignedUrls` | [`POST /api/v1/playback/{id}/signed/revoke`](/developers/reference/api/playback/post-playback-id-signed-revoke). Needs the `manage` scope.                | `SignedUrlRevocation`: `{ signingGeneration: number }`, the asset's new generation       |
 
 `getSignedUrl` rejects with a `RangeError` before sending anything when `expiresIn` is not a whole number above 0. Without `expiresIn` the server's default lifetime applies; [Playback and delivery](/developers/concepts/playback) has the default and the maximum.
 

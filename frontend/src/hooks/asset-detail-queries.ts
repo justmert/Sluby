@@ -192,3 +192,20 @@ export function useUpdateVideo() {
     },
   });
 }
+
+/**
+ * Revoke every signed URL of a video handed out so far. The video itself
+ * does not change, so nothing in the cache needs replacing.
+ */
+export function useRevokeSignedUrls(assetId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => sluby.playback.revokeSignedUrls(assetId),
+    onError: (err) => {
+      // deleted somewhere else: read it again, so the page says so (FLW-44)
+      if (errorStatus(err) === 404) {
+        void queryClient.invalidateQueries({ queryKey: ['assets', 'one', assetId], exact: true });
+      }
+    },
+  });
+}

@@ -183,3 +183,5 @@ A client went over a per-address limit and got status `429` with this message in
 ```
 
 [`METRICS_TOKEN`](/self-hosting/configuration#metrics_token) is set and the request to `/metrics` sent no token or a different one. Send `Authorization: Bearer <token>` with the value of `METRICS_TOKEN`. See [Monitor and maintain](/self-hosting/operations#prometheus-metrics).
+
+When `METRICS_TOKEN` is not set, `/metrics` through the web proxy answers `404` instead (`Route GET /metrics not found`): set a token to scrape from outside the Compose network.

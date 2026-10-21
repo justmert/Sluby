@@ -11,6 +11,7 @@ import AssetDetailPage from './AssetDetailPage';
 
 const setQuality = vi.fn();
 const playerProps = vi.fn();
+const playerMounts = vi.fn();
 
 // the real player needs MSE and hls.js; this stand-in drives the same callbacks
 vi.mock('@sluby/player', () => ({
@@ -30,6 +31,7 @@ vi.mock('@sluby/player', () => ({
         name: '720p',
       });
       (props.onDeliveryChange as (m: string) => void)?.('sia');
+      playerMounts();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     return <video data-testid="player" aria-label={props.title as string} />;
@@ -210,6 +212,7 @@ beforeEach(() => {
   ifMatch = [];
   setQuality.mockClear();
   playerProps.mockClear();
+  playerMounts.mockClear();
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -402,6 +405,59 @@ describe('AssetDetailPage', () => {
       expect(
         await screen.findByRole('alertdialog', { name: 'Delete “Big Buck Bunny”?' }),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe('revoking signed URLs', () => {
+    const pb = (policy: string) => ({
+      id: '00000000-0000-4000-8000-000000000001',
+      playback_id: 'pb_aaaaaaaaaaaaaaaaaaaaa',
+      policy,
+      name: null,
+      created_at: '2026-10-01T00:00:00Z',
+    });
+    const sideHeadings = () =>
+      within(screen.getByRole('complementary', { name: 'About this video' }))
+        .getAllByRole('heading', { level: 2 })
+        .map((h) => h.textContent);
+
+    it('offers it on a private video, before Delete video, and restarts the preview after', async () => {
+      const { server } = render(asset(), {
+        'POST /api/v1/playback/a1/signed/revoke': { success: true, signing_generation: 1 },
+      });
+      await screen.findByTestId('player');
+      expect(sideHeadings()).toEqual(['Details', 'Description', 'Signed URLs', 'Delete video']);
+      expect(playerMounts).toHaveBeenCalledTimes(1);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Revoke signed URLs' }));
+      const dialog = await screen.findByRole('alertdialog', { name: 'Revoke signed URLs?' });
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Revoke' }));
+
+      expect(await screen.findByText('Signed URLs revoked')).toBeInTheDocument();
+      expect(server.calls.filter((c) => c.method === 'POST').map((c) => c.path)).toEqual([
+        '/api/v1/playback/a1/signed/revoke',
+      ]);
+      // the preview's own signed URLs were among those revoked, so it signs again
+      await waitFor(() => expect(playerMounts).toHaveBeenCalledTimes(2));
+      // the access did not change
+      expect(server.calls.some((c) => c.method === 'PATCH')).toBe(false);
+    });
+
+    it('offers it on a public video only once it has a signed playback ID', async () => {
+      render(asset({ access_tier: 'public' }), {
+        '/api/v1/assets/a1/playback-ids': { data: [pb('signed')] },
+      });
+      expect(await screen.findByRole('button', { name: 'Revoke signed URLs' })).toBeInTheDocument();
+    });
+
+    it('leaves it out of a public video whose playback IDs are all open', async () => {
+      render(asset({ access_tier: 'public' }), {
+        '/api/v1/assets/a1/playback-ids': { data: [pb('public')] },
+      });
+      // the list has arrived once the tab counts it
+      expect(await screen.findByRole('tab', { name: /Playback IDs\s*1/ })).toBeInTheDocument();
+      expect(sideHeadings()).toEqual(['Details', 'Description', 'Delete video']);
+      expect(screen.queryByRole('button', { name: 'Revoke signed URLs' })).toBeNull();
     });
   });
 

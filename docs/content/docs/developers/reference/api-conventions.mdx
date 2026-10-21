@@ -225,10 +225,10 @@ The per-IP limits use the client address Express resolves through the proxies it
 
 The nginx proxy in the shipped Docker Compose stacks adds per-client-address limits in front of the backend:
 
-| Paths             | Request rate (burst)                                                                                                                                                  | Concurrent connections                                                    |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `/v1/` (delivery) | `100r/s` (burst 400), [`WEB_DELIVERY_RATE`](/self-hosting/configuration#web_delivery_rate) and [`WEB_DELIVERY_BURST`](/self-hosting/configuration#web_delivery_burst) | 200, [`WEB_DELIVERY_CONN`](/self-hosting/configuration#web_delivery_conn) |
-| `/api/v1/auth/`   | `10r/s` (burst 50), [`WEB_AUTH_RATE`](/self-hosting/configuration#web_auth_rate) and [`WEB_AUTH_BURST`](/self-hosting/configuration#web_auth_burst)                   | 20, [`WEB_AUTH_CONN`](/self-hosting/configuration#web_auth_conn)          |
+| Paths                          | Request rate (burst)                                                                                                                                                  | Concurrent connections                                                    |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `/v1/` (delivery)              | `100r/s` (burst 400), [`WEB_DELIVERY_RATE`](/self-hosting/configuration#web_delivery_rate) and [`WEB_DELIVERY_BURST`](/self-hosting/configuration#web_delivery_burst) | 200, [`WEB_DELIVERY_CONN`](/self-hosting/configuration#web_delivery_conn) |
+| `/api/v1/auth/` and `/metrics` | `10r/s` (burst 50), [`WEB_AUTH_RATE`](/self-hosting/configuration#web_auth_rate) and [`WEB_AUTH_BURST`](/self-hosting/configuration#web_auth_burst)                   | 20, [`WEB_AUTH_CONN`](/self-hosting/configuration#web_auth_conn)          |
 
 Over these limits nginx answers `429` with `Retry-After: 1` and `{"error":"Too many requests. Try again in a few seconds."}`. The server operator changes them with the variables in the table ([Web proxy configuration](/self-hosting/configuration#web-proxy)).
 

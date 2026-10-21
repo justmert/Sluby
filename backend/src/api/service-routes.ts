@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { Logger } from 'pino';
 import { getMetrics, registry } from '../metrics/collector.js';
+import { notFoundHandler } from './middleware/error-handler.js';
 
 /**
  * GET /health. Liveness only: answers while the process is up. Dependency
@@ -19,12 +20,34 @@ export function createHealthHandler(version: string): RequestHandler {
 }
 
 /**
+ * Whether a request reached the backend through a reverse proxy. The shipped
+ * nginx sets X-Forwarded-For on every location it proxies, overwriting what
+ * the client sent, and other proxies add it or the standard Forwarded header.
+ * A scraper on the internal network talks to the backend port directly and
+ * sends neither.
+ */
+function cameThroughProxy(req: Request): boolean {
+  return req.headers['x-forwarded-for'] !== undefined || req.headers.forwarded !== undefined;
+}
+
+/**
  * Guard for GET /metrics. With a token configured the scraper must send it as
- * a bearer token; without one the endpoint stays open to whoever reaches the
- * backend port, which the shipped compose files keep on the internal network.
+ * a bearer token, wherever it connects from. Without one the endpoint answers
+ * only requests made straight to the backend port, which the shipped compose
+ * files keep on the internal network; through a proxy it answers the same 404
+ * as an unknown route, so an open endpoint is never reachable or advertised
+ * from outside.
  */
 export function requireMetricsToken(token: string | undefined): RequestHandler {
-  if (!token) return (_req, _res, next) => next();
+  if (!token) {
+    return (req, res, next) => {
+      if (cameThroughProxy(req)) {
+        notFoundHandler(req, res);
+        return;
+      }
+      next();
+    };
+  }
   const expected = createHash('sha256').update(token).digest();
   return (req: Request, res: Response, next: NextFunction) => {
     const header = req.headers.authorization ?? '';

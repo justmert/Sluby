@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `playback.revokeSignedUrls(id)` calls `POST /api/v1/playback/{id}/signed/revoke`, which stops every signed URL of the asset minted so far without changing its access tier, and resolves the new `signingGeneration`. It needs a key with the `manage` scope.
+
 ### Fixed
 
 - `PaginatedResponse.page` is typed `number | null`, since the API answers `null` for a page fetched with a cursor. Code that does arithmetic on `page` after a cursor request needs a null check.

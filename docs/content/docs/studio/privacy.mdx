@@ -86,7 +86,28 @@ To use the ID in any code sample, pick it in **Play by** on the **Share** tab.
 ## Stop links you already shared
 
 - **Delete the playback ID** the links use. Its stream URL, watch page and embed code stop working for anyone who opens them after you delete it. The video and its other playback IDs keep working. Deleting cannot be undone.
+- **Revoke signed URLs** to stop the signed URLs you already gave out without changing who can watch (see [Revoke signed URLs](#revoke-signed-urls)).
 - **Make the video private** to stop every link without a signature, and every signed URL created before the change (see [What changes for viewers](#what-changes-for-viewers)).
 - **Delete the video** to stop every link for good. See [Delete videos](/studio/delete).
 
-To cancel a private video's signed URLs without changing its access, your server calls the revoke endpoint ([Revoke signed URLs](/developers/guides/private-videos#revoke-signed-urls)).
+### Revoke signed URLs
+
+The **Signed URLs** card on a ready video's page cancels every signed URL created for it so far. It shows on a private video, and on a public video that has a playback ID set to **Signed URL required**.
+
+<Steps>
+  <Step>Open the video from **Videos**.</Step>
+  <Step>In the **Signed URLs** card, click **Revoke signed URLs**.</Step>
+  <Step>In the **Revoke signed URLs?** box, click **Revoke**.</Step>
+</Steps>
+
+When it is done, you see "Signed URLs revoked". If it fails, the reason shows in the same box and nothing changes. Revoking cannot be undone, but signed URLs created after it work as usual.
+
+On a private video:
+
+- Every signed URL created before stops working within a minute, including those of its playback IDs. A player that plays one through your server stops once it has played what it already loaded.
+- A player that streams the video straight from Sia keeps playing until its Sia links expire, at most an hour ([why](/developers/concepts/playback#revocation)).
+- The preview on the video's page starts again with a new signed URL.
+
+On a public video, the signed URLs of its **Signed URL required** playback IDs stop working at once, so a player needs a new one to start. Players that are already playing are not cut off, because the video's files are public. The watch page link, the embed code and the stream URL of the video and of its open playback IDs keep working.
+
+Your server can do the same with the revoke endpoint ([Revoke signed URLs](/developers/guides/private-videos#revoke-signed-urls)).
