@@ -70,6 +70,14 @@ npm ci --prefix docs
 npm run docs:dev
 ```
 
+The landing page (`landing/`), a static Vite and React site:
+
+```sh
+npm ci --prefix landing
+npm run landing:dev      # http://localhost:5180
+npm run landing:build    # static site in landing/dist
+```
+
 ## Checks
 
 CI runs the same checks on every pull request. Run them locally first:
