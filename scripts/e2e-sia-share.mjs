@@ -7,8 +7,7 @@
 //   3. so the backend only ever serves the small json share map.
 //
 // it does not run the browser SiaSession or SiaLoader (the wasm build, covered
-// by the browser suites); the readme's "Direct-from-Sia playback" section has
-// the manual browser check.
+// by the browser suites).
 //
 // skips (exit 0) unless every variable below is set:
 //   SIA_E2E_BACKEND_URL     e.g. http://localhost:8080
