@@ -35,8 +35,7 @@ export const LINKS = {
   API_REFERENCE: '/api/v1/docs',
   SOURCE: 'https://github.com/justmert/Sluby',
   /** How to turn sign-in on, for the warning a server with AUTH_DISABLED shows. */
-  SIGN_IN_SETUP:
-    'https://github.com/justmert/Sluby/blob/main/docs/content/docs/self-hosting/sign-in.mdx',
+  SIGN_IN_SETUP: 'https://docs.sluby.app/self-hosting/sign-in',
 } as const;
 
 /** `?upload=1` on any route once opened the upload sheet; it now redirects to the upload page. */
