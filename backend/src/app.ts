@@ -115,8 +115,11 @@ import {
   hasSignInAdmin,
   linkIdentity,
   recordSignIn,
+  changeSignInEmail,
+  setDisplayName,
   setPassword,
   signInIdentity,
+  unlinkIdentity,
 } from './db/queries/accounts.js';
 import {
   acceptInvite,
@@ -560,6 +563,9 @@ export function buildApiDeps(
     recordSignIn,
     getPasswordCredential,
     setPassword,
+    setDisplayName,
+    changeSignInEmail,
+    unlinkIdentity,
     linkIdentity,
     findLink,
     acceptInvite,

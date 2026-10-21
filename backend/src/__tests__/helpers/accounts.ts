@@ -100,13 +100,13 @@ export function memoryAccounts() {
     if (!identity) return { status: 'refused', reason: 'not_a_member' };
     const user = users.get(identity.userId)!;
     if (user.disabledAt) return { status: 'refused', reason: 'disabled' };
+    // like signInIdentity: the handle is refreshed, the member's name is theirs
     identity.username = input.username;
-    user.displayName = input.displayName;
     return {
       status: 'signed_in',
       userId: identity.userId,
       identityId: identity.id,
-      displayName: input.displayName,
+      displayName: user.displayName,
     };
   };
 
@@ -258,6 +258,36 @@ export function memoryAccounts() {
     getPasswordCredential: async (userId) => passwords.get(userId) ?? null,
     setPassword: async (userId, passwordHash) => {
       passwords.get(userId)!.passwordHash = passwordHash;
+    },
+    setDisplayName: async (userId, name) => {
+      const user = users.get(userId);
+      if (!user) return false;
+      user.displayName = name;
+      return true;
+    },
+    changeSignInEmail: async (userId, email) => {
+      const own = passwords.get(userId);
+      if (!own) return 'no_password';
+      if (own.email === email) return 'changed';
+      for (const [other, cred] of passwords) {
+        if (other !== userId && cred.email === email) return 'email_taken';
+      }
+      own.email = email;
+      const identity = identities.find((i) => i.userId === userId && i.provider === 'password');
+      if (identity) identity.username = email;
+      return 'changed';
+    },
+    unlinkIdentity: async (userId, provider) => {
+      const own = identities.filter((i) => i.userId === userId && i.provider !== 'local');
+      const target = own.find((i) => i.provider === provider);
+      if (!target) return { status: 'not_found' };
+      if (own.length === 1) return { status: 'last' };
+      identities.splice(identities.indexOf(target), 1);
+      // sessions signed in through it end with it, as the table's cascade does
+      for (let i = sessions.length - 1; i >= 0; i--) {
+        if (sessions[i].identityId === target.id) sessions.splice(i, 1);
+      }
+      return { status: 'unlinked', identityId: target.id };
     },
     linkIdentity: async (userId, input) => {
       const existing = identities.find(

@@ -48,7 +48,13 @@ export function MethodRow({
  * The password row, from the session alone: the email it signs in with and
  * Change password, or how to get a password.
  */
-export function PasswordRow({ onChange }: { onChange?: () => void }) {
+export function PasswordRow({
+  onChange,
+  onChangeEmail,
+}: {
+  onChange?: () => void;
+  onChangeEmail?: () => void;
+}) {
   const password = useSession().signIn.find((m) => m.provider === 'password');
   return (
     <MethodRow
@@ -63,9 +69,14 @@ export function PasswordRow({ onChange }: { onChange?: () => void }) {
       }
       action={
         password && (
-          <Button variant="outline" className="h-8 pointer-coarse:h-10" onClick={onChange}>
-            Change password
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className="h-8 pointer-coarse:h-10" onClick={onChangeEmail}>
+              Change email
+            </Button>
+            <Button variant="outline" className="h-8 pointer-coarse:h-10" onClick={onChange}>
+              Change password
+            </Button>
+          </div>
         )
       }
     />

@@ -521,3 +521,172 @@ describe('POST /auth/password/change', () => {
     ]);
   });
 });
+
+describe('PATCH /auth/me', () => {
+  it('renames the signed-in member, trimming the name', async () => {
+    const ada = await accounts.addPasswordAccount('ada@example.com', PASSWORD, { name: 'Ada' });
+    const { cookie } = await sessionFor(ada.userId, ada.identityId);
+    const server = app();
+    const res = await request(server)
+      .patch('/api/v1/auth/me')
+      .set('Cookie', cookie)
+      .send({ name: '  Ada Lovelace ' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ name: 'Ada Lovelace' });
+    expect((await whoIs(server, cookie)).body.name).toBe('Ada Lovelace');
+  });
+
+  it('needs a session and a name', async () => {
+    const server = app();
+    expect((await request(server).patch('/api/v1/auth/me').send({ name: 'X' })).status).toBe(401);
+    const ada = await accounts.addPasswordAccount('ada@example.com', PASSWORD);
+    const { cookie } = await sessionFor(ada.userId, ada.identityId);
+    for (const body of [{}, { name: '   ' }, { name: 'Ada', role: 'admin' }]) {
+      const res = await request(server).patch('/api/v1/auth/me').set('Cookie', cookie).send(body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+  });
+});
+
+describe('POST /auth/email/change', () => {
+  it('changes the email the member signs in with, keeping the password', async () => {
+    const ada = await accounts.addPasswordAccount('ada@example.com', PASSWORD);
+    const { cookie } = await sessionFor(ada.userId, ada.identityId);
+    const server = app();
+    const res = await request(server)
+      .post('/api/v1/auth/email/change')
+      .set('Cookie', cookie)
+      .send({ email: ' Ada@Lovelace.example ', current_password: PASSWORD });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ email: 'ada@lovelace.example' });
+
+    const old = await request(server)
+      .post('/api/v1/auth/password')
+      .send({ email: 'ada@example.com', password: PASSWORD });
+    expect(old.status).toBe(401);
+    const signedIn = await request(server)
+      .post('/api/v1/auth/password')
+      .send({ email: 'ada@lovelace.example', password: PASSWORD });
+    expect(signedIn.status).toBe(200);
+    expect((await whoIs(server, cookie)).body.sign_in).toEqual([
+      { provider: 'password', username: 'ada@lovelace.example' },
+    ]);
+  });
+
+  it('needs the current password, and refuses an email another account has', async () => {
+    const ada = await accounts.addPasswordAccount('ada@example.com', PASSWORD);
+    await accounts.addPasswordAccount('bea@example.com', PASSWORD);
+    const { cookie } = await sessionFor(ada.userId, ada.identityId);
+    const server = app();
+    const wrong = await request(server)
+      .post('/api/v1/auth/email/change')
+      .set('Cookie', cookie)
+      .send({ email: 'new@example.com', current_password: 'not the password' });
+    expect(wrong.status).toBe(403);
+    expect(wrong.body).toMatchObject({
+      reason: 'bad_credentials',
+      details: [{ field: 'current_password' }],
+    });
+    const taken = await request(server)
+      .post('/api/v1/auth/email/change')
+      .set('Cookie', cookie)
+      .send({ email: 'bea@example.com', current_password: PASSWORD });
+    expect(taken.status).toBe(409);
+    expect(taken.body.reason).toBe('email_taken');
+    expect(accounts.passwords.get(ada.userId)!.email).toBe('ada@example.com');
+  });
+
+  it('needs a session and an account with a password', async () => {
+    const server = app();
+    const anonymous = await request(server)
+      .post('/api/v1/auth/email/change')
+      .send({ email: 'new@example.com', current_password: PASSWORD });
+    expect(anonymous.status).toBe(401);
+    const octo = accounts.addAccount('github', '1', 'octocat');
+    const { cookie } = await sessionFor(octo.userId, octo.id);
+    const res = await request(server)
+      .post('/api/v1/auth/email/change')
+      .set('Cookie', cookie)
+      .send({ email: 'new@example.com', current_password: PASSWORD });
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe('no_password');
+  });
+});
+
+describe('DELETE /auth/identities/:provider', () => {
+  async function adaWithGithub() {
+    const ada = await accounts.addPasswordAccount('ada@example.com', PASSWORD);
+    const linked = await accounts.authDeps.linkIdentity(ada.userId, {
+      provider: 'github',
+      subject: '7',
+      username: 'ada-gh',
+    });
+    if (linked.status !== 'linked') throw new Error('could not link');
+    return { ...ada, githubId: linked.identityId };
+  }
+
+  it('stops signing in with github, ending the sessions it started', async () => {
+    const ada = await adaWithGithub();
+    const viaPassword = await sessionFor(ada.userId, ada.identityId);
+    const viaGithub = await sessionFor(ada.userId, ada.githubId);
+    const server = app();
+    const res = await request(server)
+      .delete('/api/v1/auth/identities/github')
+      .set('Cookie', viaPassword.cookie);
+    expect(res.status).toBe(200);
+    expect((await whoIs(server, viaPassword.cookie)).body.sign_in).toEqual([
+      { provider: 'password', username: 'ada@example.com' },
+    ]);
+    expect(liveSessions(ada.userId).map((s) => s.id)).toEqual([viaPassword.id]);
+    expect(viaGithub.id).not.toBe(viaPassword.id);
+    const again = await request(server)
+      .delete('/api/v1/auth/identities/github')
+      .set('Cookie', viaPassword.cookie);
+    expect(again.status).toBe(404);
+  });
+
+  it('keeps the way this browser signed in, and the only way in', async () => {
+    const ada = await adaWithGithub();
+    const viaGithub = await sessionFor(ada.userId, ada.githubId);
+    const server = app();
+    const current = await request(server)
+      .delete('/api/v1/auth/identities/github')
+      .set('Cookie', viaGithub.cookie);
+    expect(current.status).toBe(409);
+    expect(current.body.reason).toBe('current_sign_in');
+
+    const octo = accounts.addAccount('github', '1', 'octocat');
+    const only = await sessionFor(octo.userId, octo.id);
+    // signed in another way than github, the only way left is still github
+    accounts.sessions.find((s) => s.id === only.id)!.identityId = 'elsewhere';
+    const last = await request(server)
+      .delete('/api/v1/auth/identities/github')
+      .set('Cookie', only.cookie);
+    expect(last.status).toBe(409);
+    expect(last.body.reason).toBe('last_sign_in');
+  });
+
+  it('removes only providers, never the email and password', async () => {
+    const ada = await adaWithGithub();
+    const { cookie } = await sessionFor(ada.userId, ada.githubId);
+    const res = await request(app())
+      .delete('/api/v1/auth/identities/password')
+      .set('Cookie', cookie);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('github sign-in and the member name', () => {
+  it('keeps the name the member chose', async () => {
+    const octo = accounts.addAccount('github', '1', 'octocat');
+    await accounts.authDeps.setDisplayName(octo.userId, 'Octo Cat');
+    const result = await accounts.authDeps.signIn({
+      provider: 'github',
+      subject: '1',
+      username: 'octocat-renamed',
+      displayName: 'The Octocat',
+    });
+    expect(result).toMatchObject({ status: 'signed_in', displayName: 'Octo Cat' });
+    expect(accounts.users.get(octo.userId)!.displayName).toBe('Octo Cat');
+  });
+});

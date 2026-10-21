@@ -1941,6 +1941,39 @@ describe.skipIf(!hasTestDatabase)('api contract (postgres, one workspace)', () =
       const ended = await request(app).get('/api/v1/auth/me').set('Cookie', setupCookie);
       check('GET', '/api/v1/auth/me', ended);
       expect(ended.status).toBe(401);
+      const renamed = await request(app)
+        .patch('/api/v1/auth/me')
+        .set('Cookie', cookie)
+        .send({ name: 'Ada Lovelace' });
+      check('PATCH', '/api/v1/auth/me', renamed);
+      expect(renamed.body).toEqual({ name: 'Ada Lovelace' });
+
+      const badEmail = await request(app)
+        .post('/api/v1/auth/email/change')
+        .set('Cookie', cookie)
+        .send({ email: 'ada@lovelace.example', current_password: 'not the password' });
+      check('POST', '/api/v1/auth/email/change', badEmail);
+      expect(badEmail.status).toBe(403);
+      const newEmail = await request(app)
+        .post('/api/v1/auth/email/change')
+        .set('Cookie', cookie)
+        .send({ email: 'ada@lovelace.example', current_password: 'a brand new password' });
+      check('POST', '/api/v1/auth/email/change', newEmail);
+      expect(newEmail.body).toEqual({ email: 'ada@lovelace.example' });
+
+      const notLinked = await request(app)
+        .delete('/api/v1/auth/identities/github')
+        .set('Cookie', cookie);
+      check('DELETE', '/api/v1/auth/identities/{provider}', notLinked);
+      expect(notLinked.status).toBe(404);
+      await tdb.sql`
+        insert into user_identities (user_id, provider, subject, username)
+        values (${me.body.id}, 'github', '4242', 'ada-gh')`;
+      const unlinked = await request(app)
+        .delete('/api/v1/auth/identities/github')
+        .set('Cookie', cookie);
+      check('DELETE', '/api/v1/auth/identities/{provider}', unlinked);
+      expect(unlinked.body).toEqual({ success: true });
     });
 
     it('joins with an invite and sets a password with a reset link', async () => {

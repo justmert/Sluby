@@ -1,5 +1,8 @@
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { useSession } from '@/lib/session';
+import { RenameDialog } from './RenameDialog';
 import { SETTINGS_SECTION, SectionLabel } from './section';
 
 const AUTH_OFF_SENTENCE = 'Anyone who can open this address has admin access.';
@@ -18,6 +21,7 @@ function initialsOf(name: string): string {
 /** Who is signed in, how, and with what role. */
 export function AccountSection() {
   const session = useSession();
+  const [renaming, setRenaming] = useState(false);
   const name = session.name || session.username;
   const byPassword = session.provider === 'password';
 
@@ -66,7 +70,17 @@ export function AccountSection() {
         ) : (
           <Badge className="h-5.5 font-semibold">Member</Badge>
         )}
+        {!session.authDisabled && (
+          <Button
+            variant="outline"
+            className="h-8 pointer-coarse:h-10"
+            onClick={() => setRenaming(true)}
+          >
+            Edit name
+          </Button>
+        )}
       </div>
+      <RenameDialog open={renaming} onOpenChange={setRenaming} name={session.name} />
     </section>
   );
 }

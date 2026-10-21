@@ -68,6 +68,14 @@ export function sessionFromMe(me: MeResponse): AuthSession {
 
 export const SessionContext = createContext<AuthSession | null>(null);
 
+/** Read the signed-in account again, after it changed its own name or ways in. */
+export const SessionRefreshContext = createContext<() => Promise<void>>(async () => {});
+
+/** Re-reads the session the AuthGate holds; for Settings after an account change. */
+export function useRefreshSession(): () => Promise<void> {
+  return useContext(SessionRefreshContext);
+}
+
 /** The signed-in Studio session. Only valid below the AuthGate. */
 export function useSession(): AuthSession {
   const session = useContext(SessionContext);

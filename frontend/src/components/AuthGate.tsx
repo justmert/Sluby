@@ -16,6 +16,7 @@ import {
   SessionContext,
   sessionEndReasonOf,
   sessionFromMe,
+  SessionRefreshContext,
   type AuthSession,
   type MeResponse,
   type SessionEndReason,
@@ -191,6 +192,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Settings changes the account's own name, email and ways in; the session
+  // shown everywhere is read again so it says the same
+  const refreshSession = useCallback(async () => {
+    const me = await apiClient.get<MeResponse>('/auth/me');
+    setState((prev) =>
+      prev.kind === 'signedIn' ? { kind: 'signedIn', session: sessionFromMe(me) } : prev,
+    );
+  }, []);
+
   const signedIn = state.kind === 'signedIn';
   useEffect(() => {
     // runs after the pages unmounted, so nothing refetches what is dropped
@@ -209,7 +219,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (link) return <LinkScreen link={link} onSignedIn={finishLink} />;
 
   if (state.kind === 'signedIn') {
-    return <SessionContext.Provider value={state.session}>{children}</SessionContext.Provider>;
+    return (
+      <SessionRefreshContext.Provider value={refreshSession}>
+        <SessionContext.Provider value={state.session}>{children}</SessionContext.Provider>
+      </SessionRefreshContext.Provider>
+    );
   }
 
   if (state.kind === 'loading') {

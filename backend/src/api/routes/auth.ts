@@ -24,12 +24,14 @@ import {
 import type { Account } from '../auth/access.js';
 import { getProvider, SignInError, type SignInProvider } from '../auth/providers/index.js';
 import type {
+  ChangeEmailResult,
   FirstAdminResult,
   LinkIdentityResult,
   PasswordAccount,
   PasswordAccountInput,
   SignInInput,
   SignInResult,
+  UnlinkIdentityResult,
 } from '../../db/queries/accounts.js';
 import type {
   AcceptInviteResult,
@@ -250,6 +252,12 @@ export interface AuthRouteDeps {
     userId: string,
   ) => Promise<{ email: string; passwordHash: string } | null>;
   setPassword: (userId: string, passwordHash: string) => Promise<void>;
+  /** Rename an account; false when there is none. */
+  setDisplayName: (userId: string, name: string) => Promise<boolean>;
+  /** Change the email an account signs in with, see changeSignInEmail. */
+  changeSignInEmail: (userId: string, email: string) => Promise<ChangeEmailResult>;
+  /** Take a provider's identity off an account, see unlinkIdentity. */
+  unlinkIdentity: (userId: string, provider: string) => Promise<UnlinkIdentityResult>;
   linkIdentity: (
     userId: string,
     input: Omit<SignInInput, 'displayName'>,
@@ -336,6 +344,18 @@ const inviteAcceptSchema = z
 
 const resetAcceptSchema = z
   .object({ password: newPasswordSchema, email: emailSchema.optional() })
+  .strict();
+
+const renameSchema = z.object({ name: personNameSchema }).strict();
+
+const changeEmailSchema = z
+  .object({
+    email: emailSchema,
+    current_password: z
+      .string({ message: 'current_password must be a string' })
+      .min(1, { message: 'Enter your current password.' })
+      .max(1024, { message: 'That password is too long.' }),
+  })
   .strict();
 
 const changePasswordSchema = z
@@ -554,6 +574,91 @@ export function createAuthRoutes(
     await deps.setPassword(account.id, await hashPassword(body.new_password));
     const revoked = await deps.revokeOtherSessions(account.id, session.id);
     res.json({ success: true, revoked });
+  });
+
+  /**
+   * PATCH /api/v1/auth/me
+   * Change the signed-in member's name, as the members list and the Studio
+   * show it.
+   */
+  router.patch('/me', async (req: Request, res: Response) => {
+    const { account } = await requireSession(req);
+    const body = parseOrThrow(renameSchema, req.body ?? {});
+    if (!(await deps.setDisplayName(account.id, body.name))) throw await notSignedIn(req);
+    res.json({ name: body.name });
+  });
+
+  /**
+   * POST /api/v1/auth/email/change
+   * Change the email the signed-in member signs in with. Needs their current
+   * password, like a password change; the password itself stays.
+   */
+  router.post('/email/change', async (req: Request, res: Response) => {
+    const { account } = await requireSession(req);
+    spendAttempt(res, limits.passwordPerIp, clientIp(req));
+    const body = parseOrThrow(changeEmailSchema, req.body ?? {});
+    const credential = await deps.getPasswordCredential(account.id);
+    if (!credential) {
+      throw new AppError(
+        409,
+        'This account has no password yet. Ask an admin for a reset link to set one.',
+        undefined,
+        { reason: 'no_password' },
+      );
+    }
+    const perEmail = limits.passwordPerEmail.check(credential.email);
+    if (!perEmail.ok) throw tooManyAttempts(res, perEmail.retryAfterSec);
+    if (!(await verifyPassword(body.current_password, credential.passwordHash))) {
+      limits.passwordPerEmail.fail(credential.email);
+      const message = 'Your current password is wrong.';
+      throw new AppError(403, message, [{ field: 'current_password', message }], {
+        reason: 'bad_credentials',
+      });
+    }
+    limits.passwordPerEmail.reset(credential.email);
+    const result = await deps.changeSignInEmail(account.id, body.email);
+    if (result === 'email_taken') throw emailTaken();
+    if (result === 'no_password') {
+      throw new AppError(409, 'This account has no password yet.', undefined, {
+        reason: 'no_password',
+      });
+    }
+    res.json({ email: body.email });
+  });
+
+  /**
+   * DELETE /api/v1/auth/identities/:provider
+   * Stop signing in with a provider such as GitHub. Refused for the way this
+   * browser signed in, and for the account's only way to sign in. An email
+   * and password are changed, not removed.
+   */
+  router.delete('/identities/:provider', async (req: Request, res: Response) => {
+    const { session, account } = await requireSession(req);
+    const provider = String(req.params.provider);
+    if (!getProvider(provider)) throw new AppError(404, 'No such sign-in provider');
+    const identity = account.identities.find((i) => i.provider === provider);
+    if (!identity) throw new AppError(404, 'This account does not sign in with that provider');
+    if (identity.id === session.identityId) {
+      throw new AppError(
+        409,
+        `You signed in with ${providerLabel(provider) ?? provider} in this browser. Sign in another way to remove it.`,
+        undefined,
+        { reason: 'current_sign_in' },
+      );
+    }
+    const result = await deps.unlinkIdentity(account.id, provider);
+    if (result.status === 'not_found') {
+      throw new AppError(404, 'This account does not sign in with that provider');
+    }
+    if (result.status === 'last') {
+      throw new AppError(
+        409,
+        'This is your only way to sign in. Add another before removing it.',
+        undefined,
+        { reason: 'last_sign_in' },
+      );
+    }
+    res.json({ success: true });
   });
 
   /**
