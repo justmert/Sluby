@@ -151,6 +151,12 @@ http {
       default_type application/json;
       return 200 '{"status":"ok"}';
     }
+    # echoes what the backend's metrics guard reads: the forwarded-for the
+    # proxy set and the bearer token the client sent
+    location = /metrics {
+      default_type text/plain;
+      return 200 "xff=$http_x_forwarded_for auth=$http_authorization";
+    }
     # the watch page sends its own csp and nosniff, as the backend does
     location /watch/ {
       default_type text/html;
@@ -512,7 +518,7 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
     });
 
     it('answers unknown paths with a 404 that is the studio, so its not-found page shows', async () => {
-      for (const path of ['/nope', '/metrics', '/some/deep/path']) {
+      for (const path of ['/nope', '/some/deep/path']) {
         const r = await rawGet(base + path);
         expect(r.status, path).toBe(404);
         expect(r.body.toString(), path).toContain('<div id="root">');
@@ -579,6 +585,39 @@ describe.skipIf(!HAS_DOCKER)('the web proxy (nginx) in front of the backend', ()
       expect(headerValues(r.raw, 'x-content-type-options')).toEqual([]);
       expect(headerValues(r.raw, 'x-frame-options')).toEqual([]);
       expect(headerValues(r.raw, 'access-control-allow-origin')).toEqual(['*']);
+    });
+  });
+
+  describe('metrics', () => {
+    it('proxies /metrics to the backend with the bearer token and a forwarded-for it set', async () => {
+      const r = await rawGet(`${base}/metrics`, { Authorization: 'Bearer scrape' });
+      expect(r.status).toBe(200);
+      // the client sent no X-Forwarded-For; nginx sets one anyway, which is
+      // how the backend tells a request from outside
+      expect(r.body.toString()).toMatch(/^xff=\S+ auth=Bearer scrape$/);
+      // never kept, and the security headers once each
+      expect(headerValues(r.raw, 'x-cache-status')).toEqual([]);
+      expect(headerValues(r.raw, 'x-content-type-options')).toEqual(['nosniff']);
+      expect(headerValues(r.raw, 'x-frame-options')).toEqual(['DENY']);
+      expect(headerValues(r.raw, 'content-security-policy')).toEqual([]);
+    });
+
+    it('replaces what a client puts in X-Forwarded-For, so it cannot pass for the internal network', async () => {
+      const chained = await rawGet(`${base}/metrics`, {
+        'X-Forwarded-For': '6.6.6.6, 198.51.100.7',
+      });
+      expect(chained.body.toString()).toBe('xff=198.51.100.7 auth=');
+      const empty = await rawGet(`${base}/metrics`, { 'X-Forwarded-For': '' });
+      expect(empty.body.toString()).toMatch(/^xff=\S+ auth=$/);
+    });
+
+    it('limits /metrics per client like sign-in', async () => {
+      const client = { 'X-Forwarded-For': '203.0.113.6' };
+      const statuses: number[] = [];
+      for (let i = 0; i < 5; i++) {
+        statuses.push((await fetchThroughNginx(limited, '/metrics', client)).status);
+      }
+      expect(statuses).toEqual([200, 200, 200, 429, 429]);
     });
   });
 
@@ -777,6 +816,7 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
     let base: string;
     let closeDatabase: () => Promise<void>;
     let sharedWindowSec: number;
+    let direct: string;
     const OWNER = 'workspace';
     const KEY = `sluby_${'f'.repeat(40)}`;
     const auth = { Authorization: `Bearer ${KEY}` };
@@ -868,6 +908,10 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
       };
       vi.mocked(siaClient.openObject).mockImplementation(handle);
 
+      // the metrics guard is set up when the app is made: this suite checks
+      // the default, no token
+      (await import('../config/env.js')).env.METRICS_TOKEN = undefined;
+
       const queue = { add: async () => undefined, getJobCounts: async () => ({}) };
       const { app } = appModule.createApp({
         logger: (await import('pino')).default({ level: 'silent' }),
@@ -881,6 +925,7 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
       server = http.createServer(app);
       await new Promise<void>((ok) => server.listen(0, '0.0.0.0', ok));
       const port = (server.address() as { port: number }).port;
+      direct = `http://127.0.0.1:${port}`;
 
       cleanupBackend();
       try {
@@ -1007,6 +1052,22 @@ describe.skipIf(!HAS_DOCKER || !hasTestDatabase)(
         403,
       );
     }, 180_000);
+
+    it('keeps metrics without a token off the proxy, and serves them on the backend port', async () => {
+      const proxied = await fetchThroughNginx(base, '/metrics');
+      expect(proxied.status).toBe(404);
+      expect(JSON.parse(proxied.buf.toString())).toEqual({
+        error: 'Route GET /metrics not found',
+      });
+      // a client cannot clear the header nginx sets to get past the guard
+      const spoofed = await fetchThroughNginx(base, '/metrics', { 'X-Forwarded-For': '' });
+      expect(spoofed.status).toBe(404);
+
+      // what a scraper on the internal network does: straight to the port
+      const scrape = await fetch(`${direct}/metrics`, { signal: AbortSignal.timeout(4000) });
+      expect(scrape.status).toBe(200);
+      expect(await scrape.text()).toContain('# HELP');
+    });
 
     it('takes the etag gzip weakened on the way out back in If-Match', async () => {
       const url = `${base}/api/v1/assets/${assets.handle.id}`;

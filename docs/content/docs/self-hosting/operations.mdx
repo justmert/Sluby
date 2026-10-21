@@ -50,11 +50,34 @@ docker compose logs -f backend
 
 ## Prometheus metrics
 
-The backend serves Prometheus metrics at `GET /metrics` on its port 3000. The Compose files publish no backend port and the web proxy does not pass `/metrics` on, so the endpoint is reachable only from inside the Compose network, at `http://backend:3000/metrics`. Run your scraper on that network, and set [`METRICS_TOKEN`](/self-hosting/configuration#metrics_token) to require a bearer token:
+The backend serves Prometheus metrics at `GET /metrics` on its port 3000. The Compose files publish no backend port, so a scraper reaches it in one of two ways:
+
+| Scraper                              | URL                                                 | Without `METRICS_TOKEN`                  | With `METRICS_TOKEN`                        |
+| ------------------------------------ | --------------------------------------------------- | ---------------------------------------- | ------------------------------------------- |
+| On the Compose network               | `http://backend:3000/metrics`                       | Served                                   | Served with `Authorization: Bearer <token>` |
+| Anywhere else, through the web proxy | `https://<your domain>/metrics` (your `PUBLIC_URL`) | `404`, as for a path that does not exist | Served with `Authorization: Bearer <token>` |
+
+So metrics are never public: through the web proxy they need [`METRICS_TOKEN`](/self-hosting/configuration#metrics_token), and without it the proxy answers `404` and does not reveal that the endpoint exists. The backend tells the two apart by the `X-Forwarded-For` header, which the web proxy always sets on `/metrics`, replacing any value the client sent. A request with `X-Forwarded-For` or `Forwarded` counts as proxied, so a proxy of your own in front of port 3000 that adds either header is treated the same way.
+
+To scrape from outside the server, set a token:
 
 ```bash title=".env"
 METRICS_TOKEN=<generated value>
 ```
+
+and give your scraper the same value as a bearer token, for example in Prometheus:
+
+```yaml title="prometheus.yml"
+scrape_configs:
+  - job_name: sluby
+    scheme: https
+    authorization:
+      credentials: <generated value>
+    static_configs:
+      - targets: ['video.example.com']
+```
+
+The web proxy limits `/metrics` per client address like sign-in ([`WEB_AUTH_RATE`](/self-hosting/configuration#web_auth_rate) and the settings next to it), which a scrape every few seconds stays well under.
 
 To look at the metrics from the server:
 

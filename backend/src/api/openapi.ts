@@ -1494,14 +1494,22 @@ export const openapiDocument = {
         tags: ['Ops'],
         summary: 'Prometheus metrics, in the text exposition format.',
         description:
-          'For a scraper on the backend port. Not authenticated: keep the port private, the ' +
-          'shipped nginx front door does not proxy it.',
+          'Guarded by the METRICS_TOKEN setting rather than an API key. With METRICS_TOKEN set, ' +
+          'every request needs `Authorization: Bearer <METRICS_TOKEN>`, straight to the backend ' +
+          'port or through the shipped nginx. Without it, the endpoint answers only requests ' +
+          'made straight to the backend port; a request that came through a proxy (one that ' +
+          'carries X-Forwarded-For or Forwarded, which nginx always sets) gets the same 404 as ' +
+          'an unknown route.',
         security: [],
         responses: {
           '200': {
             description: 'The registry in Prometheus text format.',
             content: { 'text/plain': { schema: { type: 'string' } } },
           },
+          '401': errorWith(
+            'METRICS_TOKEN is set and the request did not send it as a bearer token.',
+          ),
+          '404': errorWith('METRICS_TOKEN is not set and the request came through a proxy.'),
           '500': errorWith('The registry could not be read.'),
         },
       },
