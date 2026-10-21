@@ -2,15 +2,10 @@ import { useState, useEffect, useCallback, type RefObject } from 'react';
 import type Hls from 'hls.js';
 import type { SlubyPlayerHandle } from '../SlubyPlayer.js';
 import type { QualityLevel, UseVideoReturn } from '../types.js';
+import { toQualityLevel } from '../quality.js';
 
 function toQualities(hls: Hls): QualityLevel[] {
-  return hls.levels.map((level, index) => ({
-    index,
-    width: level.width,
-    height: level.height,
-    bitrate: level.bitrate,
-    name: `${level.height}p`,
-  }));
+  return hls.levels.map((level, index) => toQualityLevel(level, index));
 }
 
 /**

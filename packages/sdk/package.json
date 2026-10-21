@@ -1,6 +1,6 @@
 {
   "name": "@sluby/sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "TypeScript client for the Sluby video API: assets, resumable tus uploads, playback URLs, keys, webhooks and direct-from-Sia playback.",
   "license": "Apache-2.0",
   "type": "module",

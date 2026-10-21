@@ -1,14 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 (2026-10-21)
 
 ### Changed
 
 - Requires `@siafoundation/sia-storage` 0.1.5 (was 0.1.1 or later).
-
-### Fixed
-
-- An error response whose body is HTML (a proxy's `502 Bad Gateway` page, say) or several lines of text no longer becomes the error `message`; the message falls back to the status text, and the body stays on `responseBody`.
 
 ## 0.2.0 (2026-10-08)
 
@@ -85,6 +81,7 @@
 - `upload.abort()` now rejects the upload handle (it used to stay pending forever), and aborting before the upload starts no longer uploads the file anyway.
 - `RateLimitError.retryAfter` reads a `Retry-After` given as an HTTP date instead of returning `NaN`.
 - CommonJS consumers now get CommonJS type declarations (`index.d.cts`) instead of the ESM ones.
+- An error response whose body is HTML (a proxy's `502 Bad Gateway` page, say) or several lines of text no longer becomes the error `message`; the message falls back to the status text, and the body stays on `responseBody`.
 
 ## 0.1.0
 

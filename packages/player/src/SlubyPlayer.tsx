@@ -19,6 +19,7 @@ import type {
 import type { SiaPlaybackSession, SiaShareSource } from './sia-types.js';
 import { createSiaLoader } from './SiaLoader.js';
 import { createHybridLoader } from './HybridLoader.js';
+import { toQualityLevel } from './quality.js';
 import { renewingLoader, signedUrlsFor, withoutQuery, type SignedUrls } from './renewal.js';
 
 export interface SlubyPlayerHandle {
@@ -83,20 +84,6 @@ const NETWORK_RETRY_BACKOFF_MS = 1000;
 const REFRESH_LEAD_MS = 60_000;
 // setTimeout fires at once for longer delays
 const MAX_TIMER_MS = 2_147_483_647;
-
-function toQualityLevel(
-  level: { width: number; height: number; bitrate: number },
-  index: number,
-): QualityLevel {
-  return {
-    index,
-    width: level.width,
-    height: level.height,
-    bitrate: level.bitrate,
-    // by the short side, so a portrait 720x1280 is 720p like a landscape 1280x720
-    name: `${Math.min(level.width, level.height) || level.height}p`,
-  };
-}
 
 /** The `expires` (unix seconds) a signed gateway url carries, in ms. */
 function expiresFromUrl(url: string): number | undefined {

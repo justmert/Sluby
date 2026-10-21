@@ -1,6 +1,6 @@
 {
   "name": "@sluby/player",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "React player for Sluby: hls.js with adaptive quality, bounded error recovery, loading and error states, Safari's native HLS fallback, and direct-from-Sia playback.",
   "license": "Apache-2.0",
   "type": "module",
