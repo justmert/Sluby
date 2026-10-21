@@ -1,0 +1,90 @@
+---
+title: Stream from Sia in the browser
+description: Give the Studio player a viewer identity so viewers' browsers fetch video bytes from Sia.
+---
+
+By default the Studio player streams every video through your server. With a viewer identity built into the Studio, the player streams hybrid: playlists, the start of a video and any segment needed urgently come through your server, and the rest comes from Sia hosts straight to the viewer's browser. This page registers that identity and builds it into the Studio. How the delivery modes work: [Playback and delivery](/developers/concepts/playback).
+
+## The viewer identity
+
+The viewer identity is a second app registered with your indexer, separate from the one in `SIA_APP_ID` and `SIA_APP_KEY` that uploads your videos. The browser uses it to read the objects your server shares with it. Its key is compiled into the Studio's JavaScript, so every visitor can read it.
+
+<Callout type="warn" title="Use the viewer key only">
+  Put only the values from `provision-viewer.mjs` in the `VITE_SLUBY_SIA_` lines. Never put
+  `SIA_APP_KEY` there: it can read and delete everything your server stores, and the Studio build
+  puts these values into the JavaScript every visitor downloads.
+</Callout>
+
+## Turn it on
+
+Run these commands in the Sluby folder. On a production server, add `-f docker-compose.yml -f docker-compose.prod.yml` after `docker compose`.
+
+<Steps>
+<Step>
+
+### Register the viewer identity
+
+```bash
+docker compose run --rm --no-deps backend node scripts/provision-viewer.mjs
+```
+
+The script uses the indexer URL you pass as its argument, and `SIA_INDEXER_URL` from `.env` without one. It prints a URL: open it in the browser where you are signed in to your indexer account and approve it, as you did for [Connect Sia storage](/self-hosting/sia-storage).
+
+</Step>
+<Step>
+
+### Copy the lines into .env
+
+The script prints:
+
+```bash title=".env"
+VITE_SLUBY_SIA_INDEXER_URL=https://sia.storage
+VITE_SLUBY_SIA_APP_ID=<64 hex characters>
+VITE_SLUBY_SIA_APP_KEY=<64 hex characters>
+```
+
+Put all three lines in `.env`, without the leading spaces the script prints. The indexer URL must start with `https://`: the Studio page's Content Security Policy allows connections to its own origin and to `https:` addresses only. See [`VITE_SLUBY_SIA_INDEXER_URL`](/self-hosting/configuration#vite_sluby_sia_indexer_url).
+
+If the script ends with `Account is not ready yet: contracts are still forming.`, it also notes that the account needs a small balance to pay egress before playback works. Until then, the player keeps playing through your server.
+
+</Step>
+<Step>
+
+### Rebuild the web image
+
+The values are compiled into the Studio, so rebuild and restart the `web` service:
+
+```bash
+docker compose up -d --build web
+```
+
+</Step>
+<Step>
+
+### Check it in the Studio
+
+Open a ready video in the Studio. The badge on the player reads **Sia and this server** while the video starts, then shows how much has come from Sia, for example **62% from Sia**. Without a viewer identity it reads **Through this server**. It reads the same in a browser that cannot run hls.js and plays the video with its own HLS support. More about the badge: [Watch a video](/studio/watch).
+
+</Step>
+</Steps>
+
+## Where it applies
+
+- **The Studio player**: hybrid delivery, as above.
+- **The public watch page** (`/watch/<id>`, which the Studio's watch links and iframe embed codes open): streams through your server.
+- **Your own apps**: `@sluby/player` streams from Sia when you give its client a viewer identity. See [Play videos in React](/developers/guides/play-react).
+
+How hybrid delivery picks between Sia and your server for each segment: [Hybrid](/developers/concepts/playback#hybrid).
+
+## Turn it off
+
+Remove the three `VITE_SLUBY_SIA_` lines from `.env` (or leave them empty) and rebuild the web image:
+
+```bash
+docker compose up -d --build web
+```
+
+## Related
+
+- [Playback and delivery](/developers/concepts/playback)
+- [Direct playback problems](/self-hosting/troubleshooting#direct-playback)

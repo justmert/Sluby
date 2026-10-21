@@ -1,0 +1,316 @@
+---
+title: Webhook events
+description: Every webhook event Sluby sends, its payload, the request headers, the signature scheme, retries and the delivery log.
+---
+
+Sluby sends an HTTP `POST` with a JSON body to each of your webhook endpoints that is active and subscribed to the event. This page lists every event and describes exactly what each request contains and how delivery behaves. For a step-by-step setup, see [Receive webhooks](/developers/guides/webhooks).
+
+You manage endpoints with the `manage` [scope](/developers/reference/api-conventions#scopes):
+
+| Action                                               | Endpoint                                                                                                                                              |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create an endpoint (returns the signing secret once) | [`POST /api/v1/webhooks`](/developers/reference/api/webhooks/post-webhooks)                                                                           |
+| List endpoints                                       | [`GET /api/v1/webhooks`](/developers/reference/api/webhooks/get-webhooks)                                                                             |
+| Get one endpoint                                     | [`GET /api/v1/webhooks/{id}`](/developers/reference/api/webhooks/get-webhooks-id)                                                                     |
+| Change the URL or events, pause or resume            | [`PATCH /api/v1/webhooks/{id}`](/developers/reference/api/webhooks/patch-webhooks-id)                                                                 |
+| Replace the signing secret                           | [`POST /api/v1/webhooks/{id}/rotate-secret`](/developers/reference/api/webhooks/post-webhooks-id-rotate-secret)                                       |
+| Send a test event                                    | [`POST /api/v1/webhooks/{id}/test`](/developers/reference/api/webhooks/post-webhooks-id-test)                                                         |
+| Read the delivery log                                | [`GET /api/v1/webhooks/{id}/deliveries`](/developers/reference/api/webhooks/get-webhooks-id-deliveries)                                               |
+| Resend a logged delivery                             | [`POST /api/v1/webhooks/{id}/deliveries/{deliveryId}/redeliver`](/developers/reference/api/webhooks/post-webhooks-id-deliveries-deliveryid-redeliver) |
+| Delete an endpoint and its delivery log              | [`DELETE /api/v1/webhooks/{id}`](/developers/reference/api/webhooks/delete-webhooks-id)                                                               |
+
+## Event types
+
+You subscribe an endpoint to one or more of these six events. The API answers any other name in `events` with `400` and the message `Invalid events: <names>`.
+
+| Event                                       | Sent when                                                              |
+| ------------------------------------------- | ---------------------------------------------------------------------- |
+| [`upload.started`](#upload-started)         | A tus upload has been created and its asset exists.                    |
+| [`upload.completed`](#upload-completed)     | All bytes of an upload arrived and the asset is queued for processing. |
+| [`upload.failed`](#upload-failed)           | Sluby could not finish an upload whose bytes all arrived.              |
+| [`processing.started`](#processing-started) | A processing run of an asset starts.                                   |
+| [`asset.ready`](#asset-ready)               | An asset finished processing and is playable.                          |
+| [`asset.errored`](#asset-errored)           | Processing of an asset failed for good.                                |
+
+Sluby sends a seventh event, [`webhook.test`](#test-events), only through the test endpoint, to that one endpoint, whatever its subscriptions.
+
+## Event envelope
+
+Every request body is one JSON object with four fields:
+
+| Field       | Type   | Description                                                                                                                                       |
+| ----------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`        | string | Event id, `evt_` followed by a UUID. Every endpoint receives the same `id` for one event, and every retry and resend of it carries the same `id`. |
+| `event`     | string | The event name, for example `asset.ready`.                                                                                                        |
+| `timestamp` | string | ISO 8601 time at which Sluby created the event. Retries and resends keep it.                                                                      |
+| `data`      | object | Event fields, listed per event below. Keys are snake_case.                                                                                        |
+
+```json title="Example body"
+{
+  "id": "evt_6f1c2a4e-3b5d-4f7a-9c8e-1d2b3a4c5e6f",
+  "event": "processing.started",
+  "timestamp": "2026-10-20T09:15:02.481Z",
+  "data": {
+    "video_asset_id": "0b6f7c8e-2d4a-4e1b-9f3c-5a6b7c8d9e0f"
+  }
+}
+```
+
+## Event payloads
+
+### upload.started [#upload-started]
+
+Sluby sends it after the tus creation request (`POST /api/v1/uploads`) has created the upload, its upload session and its video asset.
+
+| Field            | Type           | Description                                                          |
+| ---------------- | -------------- | -------------------------------------------------------------------- |
+| `upload_id`      | string         | The tus upload id (a UUID), the last path segment of the upload URL. |
+| `session_id`     | string         | The upload session id. It is the same value as `upload_id`.          |
+| `video_asset_id` | string or null | The asset created for this upload.                                   |
+| `file_size`      | number         | The file size in bytes declared when the upload was created.         |
+
+```json
+{
+  "upload_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "session_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "video_asset_id": "0b6f7c8e-2d4a-4e1b-9f3c-5a6b7c8d9e0f",
+  "file_size": 52428800
+}
+```
+
+### upload.completed [#upload-completed]
+
+Sluby sends it once the last byte has arrived and it has hashed the file, marked the upload completed and queued the asset for transcoding.
+
+| Field            | Type   | Description                                  |
+| ---------------- | ------ | -------------------------------------------- |
+| `upload_id`      | string | The tus upload id.                           |
+| `session_id`     | string | The upload session id, equal to `upload_id`. |
+| `video_asset_id` | string | The asset the upload belongs to.             |
+| `sha256`         | string | Lowercase hex SHA-256 of the uploaded file.  |
+| `file_size`      | number | The file size in bytes.                      |
+
+```json
+{
+  "upload_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "session_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "video_asset_id": "0b6f7c8e-2d4a-4e1b-9f3c-5a6b7c8d9e0f",
+  "sha256": "3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b",
+  "file_size": 52428800
+}
+```
+
+### upload.failed [#upload-failed]
+
+Sluby sends it when all bytes arrived but finishing the upload failed: hashing the file, marking the upload completed, or queuing the transcode. Sluby also marks the asset `failed`.
+
+| Field            | Type           | Description                                  |
+| ---------------- | -------------- | -------------------------------------------- |
+| `upload_id`      | string         | The tus upload id.                           |
+| `session_id`     | string         | The upload session id, equal to `upload_id`. |
+| `video_asset_id` | string or null | The asset the upload belongs to.             |
+| `error`          | string         | The error message.                           |
+
+### processing.started [#processing-started]
+
+Sluby sends it once per processing run of an asset:
+
+- when the transcode stage starts the run after an upload or after a [retry](/developers/reference/api/assets/post-assets-id-retry) that starts at transcoding;
+- when a retry restarts at the Sia upload stage, because the transcode output already exists.
+
+Automatic retries of a stage inside one run do not send it again.
+
+| Field            | Type   | Description                |
+| ---------------- | ------ | -------------------------- |
+| `video_asset_id` | string | The asset being processed. |
+
+### asset.ready [#asset-ready]
+
+Sluby sends it when the finalize stage has stored the asset's records and the asset is `ready`. If the finalize job runs again for an asset that is already ready, Sluby sends `asset.ready` again, so one asset can produce more than one `asset.ready` event (each with its own `id`).
+
+| Field                  | Type     | Description                                                                                                             |
+| ---------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `video_asset_id`       | string   | The asset.                                                                                                              |
+| `manifest_object_id`   | string   | Sia object id of the HLS master playlist (64 lowercase hex characters).                                                 |
+| `thumbnail_object_ids` | string[] | Sia object ids of the thumbnails.                                                                                       |
+| `duration_ms`          | number   | Duration in milliseconds.                                                                                               |
+| `resolution`           | string   | Source resolution as `<width>x<height>`, for example `1920x1080`.                                                       |
+| `segment_count`        | number   | Number of media segments in a rendition (the highest count among the renditions).                                       |
+| `total_storage_bytes`  | number   | Size in bytes of the renditions' media, their playlists and the master playlist stored on Sia. Thumbnails do not count. |
+| `status`               | string   | Always `ready`.                                                                                                         |
+
+```json
+{
+  "video_asset_id": "0b6f7c8e-2d4a-4e1b-9f3c-5a6b7c8d9e0f",
+  "manifest_object_id": "5d41402abc4b2a76b9719d911017c5925d41402abc4b2a76b9719d911017c592",
+  "thumbnail_object_ids": ["7c6a180b36896a0a8c02787eeafb0e4c7c6a180b36896a0a8c02787eeafb0e4c"],
+  "duration_ms": 63480,
+  "resolution": "1920x1080",
+  "segment_count": 11,
+  "total_storage_bytes": 48211968,
+  "status": "ready"
+}
+```
+
+[Upload pipeline](/developers/concepts/upload-pipeline) describes the rendition ladder and segment format.
+
+### asset.errored [#asset-errored]
+
+Sluby sends it when a processing stage fails for good (its automatic retries are used up or the failure is unrecoverable) and Sluby moves the asset to `failed`. Sluby sends nothing if the asset was deleted or is already `ready` or `failed`.
+
+| Field            | Type   | Description                                                 |
+| ---------------- | ------ | ----------------------------------------------------------- |
+| `video_asset_id` | string | The asset.                                                  |
+| `stage`          | string | The stage that failed: `transcode`, `upload` or `finalize`. |
+| `error`          | string | The error message.                                          |
+
+```json
+{
+  "video_asset_id": "0b6f7c8e-2d4a-4e1b-9f3c-5a6b7c8d9e0f",
+  "stage": "transcode",
+  "error": "No video stream found"
+}
+```
+
+## Request headers
+
+Every delivery is a `POST` to the endpoint URL with these headers:
+
+| Header                 | Value                                                                                                                                         |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Content-Type`         | `application/json`                                                                                                                            |
+| `User-Agent`           | `Sluby-Webhooks`                                                                                                                              |
+| `X-Sluby-Event`        | The event name, the same as `event` in the body.                                                                                              |
+| `X-Sluby-Delivery`     | Delivery id, `dlv_` followed by a UUID. All attempts of one delivery to one endpoint share it. A resend and a test event each get a new one.  |
+| `X-Sluby-Timestamp`    | Unix time in seconds at which this attempt was signed.                                                                                        |
+| `X-Sluby-Signature-V1` | Lowercase hex HMAC-SHA256 of `<X-Sluby-Timestamp>.<body>`. See [Signature scheme](#signature-scheme).                                         |
+| `X-Sluby-Signature`    | Lowercase hex HMAC-SHA256 of the body alone. Deprecated: it binds no time, so a captured request keeps verifying. Use `X-Sluby-Signature-V1`. |
+| `Content-Length`       | Length of the body in bytes.                                                                                                                  |
+
+## Signature scheme
+
+Each endpoint has a signing secret: 64 hex characters (32 random bytes), returned once when you create the endpoint and once when you rotate it.
+
+To verify a request:
+
+1. Read the raw request body as a string, exactly as received, before any JSON parsing.
+2. Build the signed string: the `X-Sluby-Timestamp` value, a period, then the raw body.
+3. Compute HMAC-SHA256 of the signed string, using the secret string as the key (its UTF-8 bytes, not the bytes the hex decodes to).
+4. Hex-encode the result and compare it with `X-Sluby-Signature-V1` in constant time. Hex comparison is case-insensitive.
+5. Check the timestamp against your clock (see [Timestamps and replay window](#timestamps-and-replay-window)).
+
+`@sluby/sdk` does all five steps in `verifyRequest` (Node.js) and `verifyRequestAsync` (Web Crypto). See [the SDK reference](/developers/reference/sdk#webhooks).
+
+```ts title="verify.ts"
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+// rawBody is the request body exactly as received, before JSON parsing
+export function verifySluby(
+  rawBody: string,
+  timestamp: string,
+  signatureV1: string,
+  secret: string,
+): boolean {
+  const ts = Number(timestamp);
+  if (!/^\d+$/.test(timestamp) || Math.abs(Date.now() / 1000 - ts) > 300) return false;
+  const expected = createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex');
+  const given = signatureV1.toLowerCase();
+  if (given.length !== expected.length || !/^[0-9a-f]+$/.test(given)) return false;
+  return timingSafeEqual(Buffer.from(given, 'hex'), Buffer.from(expected, 'hex'));
+}
+```
+
+Sluby reads the secret when it sends each attempt. After you [rotate the secret](/developers/reference/api/webhooks/post-webhooks-id-rotate-secret), every later attempt, including retries already queued, is signed with the new secret, and the old secret stops verifying at once.
+
+## Timestamps and replay window
+
+Sluby sets `X-Sluby-Timestamp` for each attempt, so a retry carries a new timestamp and a new `X-Sluby-Signature-V1` over the same body. The body's `timestamp` field is the time the event was created and stays the same.
+
+Sluby does not enforce a window; your receiver does. The SDK refuses a request whose `X-Sluby-Timestamp` is more than 300 seconds from the receiver's clock in either direction (`DEFAULT_WEBHOOK_TOLERANCE_SECONDS`), and accepts a `toleranceSeconds` option to change that. The SDK also requires the timestamp to be 1 to 12 digits.
+
+## Response and timeout
+
+| Your endpoint                                                | Result                                           |
+| ------------------------------------------------------------ | ------------------------------------------------ |
+| Answers `2xx`                                                | Delivered.                                       |
+| Answers `3xx`                                                | Failed attempt. Sluby does not follow redirects. |
+| Answers any other status                                     | Failed attempt.                                  |
+| Sends no status line within 10 seconds (DNS lookup included) | Failed attempt.                                  |
+| Cannot be resolved, connected to, or reached over TLS        | Failed attempt.                                  |
+
+Sluby decides on the status line alone. It never reads or stores the response body.
+
+## Retries
+
+A delivery gets 4 attempts. The first runs as soon as the event is queued; after a failed attempt, the next one waits:
+
+| Attempt | Wait after the previous failure |
+| ------- | ------------------------------- |
+| 1       | none                            |
+| 2       | 10 seconds                      |
+| 3       | 1 minute                        |
+| 4       | 5 minutes                       |
+
+After the fourth failed attempt Sluby gives up on that delivery. You can [resend it](#redelivery) from the delivery log. Sluby keeps pending deliveries and retries in Redis, so they survive a restart of the backend. Failed deliveries do not pause or disable an endpoint.
+
+## Duplicates and ordering
+
+- Use the body's `id` to drop duplicates. Retries and resends of one event keep its `id`.
+- `asset.ready` can arrive more than once for one asset, with different `id`s (see [asset.ready](#asset-ready)).
+- A retried delivery arrives after events that happened later. Order events by the body's `timestamp` if order matters to you.
+
+## Paused and deleted endpoints
+
+Setting `is_active` to `false` with [`PATCH /api/v1/webhooks/{id}`](/developers/reference/api/webhooks/patch-webhooks-id) pauses an endpoint. A paused endpoint receives no new events, and deliveries already queued for it are dropped when their turn comes, without a delivery log entry. Deleting an endpoint does the same and also deletes its delivery log.
+
+## Receiver addresses
+
+An endpoint URL must start with `https://` or `http://` and be at most 2,048 characters. Every address its host resolves to must be a public address: Sluby refuses loopback, private, link-local, shared (CGNAT), documentation, multicast and other reserved ranges, including IPv6 forms that carry such an IPv4 address. The server operator can allow specific networks with [`WEBHOOK_ALLOWED_NETWORKS`](/self-hosting/configuration#webhook_allowed_networks).
+
+Sluby checks the URL when you create or change the endpoint and again before every attempt, and connects only to the addresses it checked. An attempt to a host that now resolves to a refused address fails.
+
+## Test events
+
+[`POST /api/v1/webhooks/{id}/test`](/developers/reference/api/webhooks/post-webhooks-id-test) sends one `webhook.test` event to the endpoint right away and answers with the outcome (`delivered`, `status_code`, `error`). Sluby makes a single attempt with no retries, signed and with the same headers as any delivery, and records it in the delivery log. Sluby sends it whatever the endpoint's subscriptions, and also when the endpoint is paused.
+
+```json title="webhook.test body"
+{
+  "id": "evt_2c4e6a8b-0d1f-4a3c-8e5b-7d9f1b3d5e7a",
+  "event": "webhook.test",
+  "timestamp": "2026-10-20T09:20:44.102Z",
+  "data": {
+    "webhook_id": "e1d2c3b4-a596-4877-8695-a4b3c2d1e0f9"
+  }
+}
+```
+
+## Redelivery
+
+[`POST /api/v1/webhooks/{id}/deliveries/{deliveryId}/redeliver`](/developers/reference/api/webhooks/post-webhooks-id-deliveries-deliveryid-redeliver) queues the logged payload again. `deliveryId` is the `id` of a delivery log entry.
+
+- The resend keeps the event's `id` and `timestamp`, so a receiver that already handled the event can drop it.
+- It gets a new `X-Sluby-Delivery`, which the endpoint returns as `delivery_id` with status `202`.
+- It gets the same 4 attempts and retry waits as any delivery, and its attempts are logged with `manual: true`.
+- The resent body is the stored JSON serialized again, so its key order can differ from the original bytes. The signature covers the bytes that are sent, so verify against the raw body you receive.
+- A paused endpoint answers `409` with `This webhook is paused. Resume it to resend.`
+
+## Delivery log
+
+Sluby records one log entry per attempt, including test events and resends, but not deliveries dropped for a paused or deleted endpoint. Each entry holds the event name, the event `id`, the exact payload sent, the HTTP status your endpoint answered (or none when no response arrived), whether it was delivered, the attempt number (1 to 4), the time, whether it was a manual resend, and for a failed attempt the reason. Sluby never stores the response body.
+
+Sluby writes these failure reasons:
+
+| Reason                                                                                                                                            | Cause                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `Your endpoint answered <status>`                                                                                                                 | A status outside `2xx` and `3xx`.                                                                                 |
+| `Your endpoint answered <status>. Redirects are not followed.`                                                                                    | A `3xx` status.                                                                                                   |
+| `No response within 10 seconds`                                                                                                                   | The 10 second timeout ran out.                                                                                    |
+| `<host> could not be found. Check the address.`                                                                                                   | DNS lookup failed or returned no address.                                                                         |
+| `Webhooks can only reach public addresses, and <host> points to <place>. To allow it, add the network to WEBHOOK_ALLOWED_NETWORKS on the server.` | The host resolves to a refused address. `<place>` is `this machine`, `a private network` or `a reserved address`. |
+| `Could not connect (<code>)`                                                                                                                      | Connection refused, reset or unreachable.                                                                         |
+| `Could not make a secure connection (<code>)`                                                                                                     | A TLS or certificate error.                                                                                       |
+| `The request failed` or `The request failed (<code>)`                                                                                             | Any other request error.                                                                                          |
+
+[`GET /api/v1/webhooks/{id}/deliveries`](/developers/reference/api/webhooks/get-webhooks-id-deliveries) returns the newest entries first and takes a `limit` ([Pagination](/developers/reference/api-conventions#pagination)). Sluby keeps entries for 30 days: a sweep that runs when the backend starts and then every hour deletes older ones.
+
+[`GET /api/v1/webhooks`](/developers/reference/api/webhooks/get-webhooks) and [`GET /api/v1/webhooks/{id}`](/developers/reference/api/webhooks/get-webhooks-id) also report `last_delivery_at` and `last_delivery_ok` for each endpoint, taken from its newest log entry.

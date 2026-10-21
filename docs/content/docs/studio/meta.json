@@ -1,0 +1,23 @@
+{
+  "title": "Studio",
+  "description": "Upload, share and manage videos",
+  "root": true,
+  "pages": [
+    "index",
+    "---Videos---",
+    "upload",
+    "processing",
+    "library",
+    "watch",
+    "share",
+    "privacy",
+    "storage",
+    "delete",
+    "---Team and account---",
+    "sign-in",
+    "account",
+    "members",
+    "api-keys",
+    "overview"
+  ]
+}

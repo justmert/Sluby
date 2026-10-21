@@ -1,0 +1,20 @@
+{
+  "title": "Developers",
+  "description": "API, SDK, player and how Sluby works",
+  "root": true,
+  "pages": [
+    "index",
+    "---Guides---",
+    "...guides",
+    "---Reference---",
+    "reference/api-conventions",
+    "reference/api",
+    "reference/sdk",
+    "reference/player",
+    "reference/webhook-events",
+    "---How it works---",
+    "...concepts",
+    "---AI agents---",
+    "ai-agents"
+  ]
+}

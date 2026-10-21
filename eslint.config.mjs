@@ -14,8 +14,10 @@ export default tseslint.config(
       '**/node_modules/',
       '**/drizzle/',
       '**/build/',
-      // the docs dev server's bundled dependencies
-      '**/.vitepress/cache/',
+      // the docs site's next.js build output
+      'docs/.next/',
+      'docs/out/',
+      'docs/next-env.d.ts',
       'resources/',
       '.claude/',
     ],

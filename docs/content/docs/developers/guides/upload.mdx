@@ -1,0 +1,222 @@
+---
+title: Upload videos from your app
+description: Upload video files with @sluby/sdk or any tus client, track progress, and pause, resume or cancel an upload.
+---
+
+Uploading a file creates a video asset in your Sluby library. After the last byte arrives, Sluby transcodes the video and stores it on Sia; [Upload pipeline](/developers/concepts/upload-pipeline) explains those steps. This guide shows how to send the file.
+
+Uploads use the [tus](https://tus.io) resumable upload protocol at `POST /api/v1/uploads`. `@sluby/sdk` speaks tus for you. Any other tus client works too, as shown [at the end](#upload-with-any-tus-client).
+
+Every upload needs credentials with the `upload` scope. An API key in browser code is readable by anyone who loads the page, so the samples here upload from your server.
+
+## Upload a file from your server
+
+`client.uploads.upload()` takes a `Blob` or `File`, or the raw bytes as a `Uint8Array` (a Node.js `Buffer` is one). It does not take a Node.js stream. In Node.js, `openAsBlob` gives you a `Blob` backed by the file on disk, and the SDK reads it one chunk at a time, so a large file never sits in memory whole.
+
+```js title="upload.mjs (server)"
+import { openAsBlob } from 'node:fs';
+import { basename } from 'node:path';
+import { SlubyClient } from '@sluby/sdk';
+
+const { SLUBY_URL, SLUBY_API_KEY } = process.env;
+if (!SLUBY_URL || !SLUBY_API_KEY) throw new Error('Set SLUBY_URL and SLUBY_API_KEY.');
+const client = new SlubyClient({ baseUrl: SLUBY_URL, apiKey: SLUBY_API_KEY });
+
+const path = process.argv[2];
+if (!path) throw new Error('usage: node upload.mjs <file>');
+
+// Ctrl+C cancels the upload and discards the asset it created
+const controller = new AbortController();
+process.once('SIGINT', () => controller.abort());
+
+const upload = client.uploads.upload(await openAsBlob(path), {
+  title: basename(path),
+  description: 'Uploaded from my server',
+  accessTier: 'private',
+  signal: controller.signal,
+  onProgress: (percent, sent, total) => console.log(`${percent}% (${sent} of ${total} bytes)`),
+});
+
+console.log(`asset ${await upload.assetId}, upload ${await upload.uploadId}`);
+await upload;
+console.log('all bytes received, processing starts');
+```
+
+The options in this sample:
+
+- `title` is required. `description` is optional.
+- `accessTier` is `'public'` (the default) or `'private'`. A private video plays only through a signed URL; see [Serve private videos](/developers/guides/private-videos).
+- `onProgress` receives the percentage (0 to 100, rounded), the bytes sent and the total bytes.
+- `signal` cancels the upload when it fires, the same as `upload.abort()`.
+
+The [SDK reference](/developers/reference/sdk#uploads) lists the remaining options: `chunkSize`, `retryDelays`, `onSuccess`, `onError` and `resume`.
+
+## Get the asset id before the upload finishes
+
+`upload()` returns a handle that is a promise: `await upload` resolves when the server has every byte. The handle also carries two promises that resolve as soon as the server has created the upload, before the bytes finish:
+
+- `upload.assetId`: the id of the video asset this upload creates. Use it to store the video in your own database, or to start waiting for processing.
+- `upload.uploadId`: the id of the upload itself, for `client.uploads.getStatus(uploadId)` and `client.uploads.cancel(uploadId)`.
+
+When the bytes are in, wait for processing with `client.assets.waitForReady(assetId)`, described in [Wait for processing](/developers/guides/manage-library#wait-for-processing), or let a [webhook](/developers/guides/webhooks) tell you.
+
+## Pause, resume and cancel
+
+```ts
+const upload = client.uploads.upload(file, { title: 'Long recording' });
+
+await upload.pause(); // stops sending; the bytes received so far stay on the server
+console.log(upload.isPaused); // true
+upload.resume(); // continues from the last byte the server has
+
+await upload.abort(); // ends the upload and deletes the asset it created
+await upload.catch((err) => console.log(err.name)); // AbortError
+```
+
+After `abort()`, the handle rejects with an `AbortError`, so attach a handler to it as the last line does. After the upload has finished, `abort()` does nothing, so cleanup code that always calls it never deletes a finished video. To remove a finished video, delete the asset ([Manage your library](/developers/guides/manage-library#delete-a-video)).
+
+An upload that never finishes expires ([Unfinished and cancelled uploads](/developers/concepts/upload-pipeline#unfinished-and-cancelled-uploads)).
+
+## Handle upload errors
+
+The handle, `upload.assetId` and `upload.uploadId` reject with a `SlubyError`. An HTTP error from the server becomes the subclass for its status, for example `PermissionError` for a key without the `upload` scope. After `abort()`, they reject with an `AbortError`:
+
+```js
+import { AbortError, PermissionError, SlubyError } from '@sluby/sdk';
+
+const upload = client.uploads.upload(file, { title: 'Demo' });
+try {
+  await upload;
+} catch (err) {
+  if (err instanceof AbortError) console.log('cancelled');
+  else if (err instanceof PermissionError) console.log('the key has no upload scope');
+  else if (err instanceof SlubyError)
+    console.log(`upload failed (${err.statusCode}): ${err.message}`);
+  else throw err;
+}
+```
+
+Before the handle rejects, the SDK retries a request that fails on the network or with a 5xx status, waiting the delays in [`retryDelays`](/developers/reference/sdk#uploadfileoptions) between attempts. The count starts over whenever the server has received more bytes. A 4xx status other than 409 or 423 fails the upload at once.
+
+## Files that start in a browser
+
+When your users pick the file in your web app, send it to your own server and upload it from there with your key. The browser code:
+
+```ts title="sendVideo.ts (browser)"
+export async function sendVideo(file: File): Promise<string> {
+  const res = await fetch(`/videos?title=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    body: file,
+  });
+  if (!res.ok) throw new Error(`Upload failed with status ${res.status}`);
+  const { assetId } = (await res.json()) as { assetId: string };
+  return assetId;
+}
+```
+
+The server writes the request body to a temporary file and uploads that file to Sluby:
+
+```js title="server.mjs (server)"
+import { createServer } from 'node:http';
+import { createWriteStream, openAsBlob } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import { SlubyClient } from '@sluby/sdk';
+
+const { SLUBY_URL, SLUBY_API_KEY } = process.env;
+if (!SLUBY_URL || !SLUBY_API_KEY) throw new Error('Set SLUBY_URL and SLUBY_API_KEY.');
+const client = new SlubyClient({ baseUrl: SLUBY_URL, apiKey: SLUBY_API_KEY });
+
+createServer(async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  if (req.method !== 'POST' || url.pathname !== '/videos') {
+    res.writeHead(404).end();
+    return;
+  }
+  // check your own user's session here before you accept the file
+
+  const path = join(tmpdir(), randomUUID());
+  try {
+    await pipeline(req, createWriteStream(path));
+    const upload = client.uploads.upload(await openAsBlob(path), {
+      title: url.searchParams.get('title') || 'Untitled',
+    });
+    const assetId = await upload.assetId;
+    await upload;
+    res.writeHead(201, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ assetId }));
+  } catch (err) {
+    console.error(err);
+    res.writeHead(502, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Upload failed' }));
+  } finally {
+    await rm(path, { force: true });
+  }
+}).listen(3000);
+```
+
+The SDK also uploads from a browser with the Sluby session cookie instead of a key, when the Sluby server itself serves the page. The Studio uploads this way.
+
+In a browser, the SDK resumes an upload that a closed tab or a reload interrupted. Upload the same file again with the same title, description and access tier, and the same API key (or, without a key, the session cookie): the SDK continues the unfinished upload instead of creating a new asset. Pass `resume: false` to always start a new one.
+
+## Upload with any tus client
+
+Any tus 1.0.0 client can upload to Sluby. Send it to:
+
+| Item           | Value                                                                 |
+| -------------- | --------------------------------------------------------------------- |
+| Endpoint       | `POST https://sluby.example.com/api/v1/uploads`                       |
+| Authentication | `Authorization: Bearer <your API key>`, a key with the `upload` scope |
+
+Sluby reads these keys from the tus `Upload-Metadata`:
+
+| Key           | Value                                                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `title`       | Up to 200 characters, no control characters. Missing or blank becomes `Untitled`.                                              |
+| `description` | Up to 5000 characters. Tabs and line breaks are allowed, other control characters are not.                                     |
+| `accessTier`  | `public` or `private`. Default `public`. Sluby also accepts the key `access_tier`.                                             |
+| `filetype`    | The file's MIME type. When set, it must start with `video/`, or the server answers `415` with `Only video files are accepted`. |
+| `filename`    | The original file name.                                                                                                        |
+
+The server refuses an empty file with `400` and `The file is empty`. The operator of the Sluby server sets the largest accepted file with `MAX_UPLOAD_SIZE` ([Configuration reference](/self-hosting/configuration#max_upload_size)).
+
+The upload id is the last path segment of the upload URL that tus returns. Pass it to `GET /api/v1/uploads/{id}` (a key with the `read` scope) to read the upload's status and the id of the asset it created, in `video_asset_id`. This sample uses [tus-js-client](https://github.com/tus/tus-js-client) in Node.js:
+
+```js title="tus-upload.mjs (server)"
+import { readFile } from 'node:fs/promises';
+import * as tus from 'tus-js-client';
+
+const { SLUBY_URL, SLUBY_API_KEY } = process.env;
+if (!SLUBY_URL || !SLUBY_API_KEY) throw new Error('Set SLUBY_URL and SLUBY_API_KEY.');
+
+const file = await readFile('./video.mp4');
+
+const upload = new tus.Upload(file, {
+  endpoint: `${SLUBY_URL}/api/v1/uploads`,
+  headers: { Authorization: `Bearer ${SLUBY_API_KEY}` },
+  chunkSize: 10 * 1024 * 1024,
+  metadata: {
+    filename: 'video.mp4',
+    filetype: 'video/mp4',
+    title: 'Uploaded with tus-js-client',
+    description: '',
+    accessTier: 'public',
+  },
+  onError: (err) => console.error('upload failed', err),
+  onSuccess: async () => {
+    // the upload id is the last path segment of the upload URL
+    const uploadId = String(upload.url).split('/').pop();
+    const res = await fetch(`${SLUBY_URL}/api/v1/uploads/${uploadId}`, {
+      headers: { Authorization: `Bearer ${SLUBY_API_KEY}` },
+    });
+    const session = await res.json();
+    console.log(`asset ${session.video_asset_id}`);
+  },
+});
+upload.start();
+```
+
+A tus `DELETE` on the upload URL, or `DELETE /api/v1/uploads/{id}`, cancels an unfinished upload and discards its asset. The REST API reference documents [the upload status](/developers/reference/api/uploads/get-uploads-id) and [cancel](/developers/reference/api/uploads/delete-uploads-id) endpoints.

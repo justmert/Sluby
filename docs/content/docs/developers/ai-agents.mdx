@@ -1,0 +1,122 @@
+---
+title: Use Sluby with AI agents
+description: Install the Sluby agent skill in your coding agent, and point agents at the plain-text versions of these docs.
+---
+
+The Sluby agent skill teaches a coding agent (Claude Code, Claude, Codex, Gemini CLI, GitHub Copilot and others that read Agent Skills) how to build on a Sluby server: which calls to make, which scopes they need, and the mistakes to avoid. This site also serves every page as plain markdown for agents that read docs directly.
+
+## What the skill covers
+
+The skill is a `SKILL.md` file plus four reference files in the [Agent Skills](https://agentskills.io/specification) format. An agent loads `SKILL.md` when a task involves Sluby, and opens a reference file only when the task needs it.
+
+| File                     | What it teaches                                                                                                                                                                                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SKILL.md`               | Authenticating with an API key, the upload and wait-for-ready flow with `@sluby/sdk`, managing assets, playing videos, webhooks, the SDK's error classes, and the rules that prevent common mistakes: keys stay on the server, the smallest scopes, rate limits, signed URLs for private videos |
+| `references/rest-api.md` | The REST API: authentication, what each scope allows, the main endpoints, errors, listing and cursor paging, ETags with `If-Match`, rate limit headers, and where each server publishes its OpenAPI document                                                                                    |
+| `references/uploads.md`  | Upload rules and limits, the SDK upload handle (progress, pause, resume, abort), uploading with any tus client or with `curl`, following processing and retrying                                                                                                                                |
+| `references/playback.md` | Playback URLs, `@sluby/player` in React for public and private videos, signed URLs and their renewal, the watch page in an iframe, playback ids, revoking access, streaming straight from Sia                                                                                                   |
+| `references/webhooks.md` | Webhook events, registering an endpoint, verifying `X-Sluby-Signature-V1` with and without the SDK, retries and duplicate events                                                                                                                                                                |
+
+## Download the skill
+
+- [sluby.zip](/skills/sluby.zip): the whole skill, with a `sluby` folder at the top.
+- [SKILL.md](/skills/sluby/SKILL.md): the main file alone.
+- [Source on GitHub](https://github.com/justmert/Sluby/tree/main/docs/public/skills/sluby).
+
+## Install the skill
+
+Pick your agent. Each method installs the full skill, reference files included.
+
+<Tabs items={['Claude Code', 'Claude', 'Codex', 'Gemini CLI', 'GitHub Copilot', 'Other agents']}>
+<Tab value="Claude Code">
+
+Download [sluby.zip](/skills/sluby.zip), then unzip it into your personal skills folder to use it in every project:
+
+```sh
+mkdir -p ~/.claude/skills && unzip sluby.zip -d ~/.claude/skills
+```
+
+Or into one project (commit the folder so everyone who works in that repository gets it):
+
+```sh
+mkdir -p .claude/skills && unzip sluby.zip -d .claude/skills
+```
+
+Claude Code picks up the new skill in the current session, without a restart. If the `skills` folder did not exist when the session started, run `/reload-skills`.
+
+</Tab>
+<Tab value="Claude">
+
+1. On Free, Pro and Max plans, turn on **Code execution and file creation** under **Settings**, **Capabilities**. On Team and Enterprise plans, an organization owner turns on **Cloud code execution and file creation** and **Skills** under **Organization settings**, **Plugins & skills**, in the **Policy** tab.
+2. Download [sluby.zip](/skills/sluby.zip).
+3. In Claude, open **Customize**, then **Skills**.
+4. Click **+**, then **+ Create skill**, then **Upload a skill**.
+5. Upload `sluby.zip`.
+
+</Tab>
+<Tab value="Codex">
+
+Download [sluby.zip](/skills/sluby.zip), then unzip it into your personal skills folder:
+
+```sh
+mkdir -p ~/.agents/skills && unzip sluby.zip -d ~/.agents/skills
+```
+
+Or into a repository, so Codex uses it there:
+
+```sh
+mkdir -p .agents/skills && unzip sluby.zip -d .agents/skills
+```
+
+</Tab>
+<Tab value="Gemini CLI">
+
+```sh
+gemini skills install https://github.com/justmert/Sluby.git --path docs/public/skills/sluby
+```
+
+This installs for your user. Add `--scope workspace` to install into the current project instead.
+
+</Tab>
+<Tab value="GitHub Copilot">
+
+With GitHub CLI's `skill` command:
+
+```sh
+gh skill install justmert/Sluby sluby --scope user
+```
+
+Leave out `--scope user` to install into the current project. Without `--agent`, the command asks which agent to install for when you run it in an interactive terminal, and installs for GitHub Copilot otherwise. Pass `--agent` to pick another one ([`gh skill install`](https://cli.github.com/manual/gh_skill_install) lists the agent names).
+
+</Tab>
+<Tab value="Other agents">
+
+The [`skills`](https://github.com/vercel-labs/skills) command line tool installs into many agents, including Cursor, OpenCode, goose and Windsurf. It needs Node.js 22.20 or later.
+
+```sh
+npx skills add https://github.com/justmert/Sluby/tree/main/docs/public/skills/sluby
+```
+
+Pass `-a <agent>` to choose the agents (for example `-a cursor`), and `-g` to install for your user instead of the current project.
+
+</Tab>
+</Tabs>
+
+## Give the agent your server's address
+
+The skill does not know where your Sluby server runs. Tell the agent its address, for example `https://sluby.example.com`, and keep the API key in an environment variable such as `SLUBY_API_KEY` rather than in the chat. To create a key, see [Create and manage API keys](/studio/api-keys).
+
+Each Sluby server publishes its own OpenAPI document, and the skill tells the agent to read it for anything the skill does not show. Where it lives is on [API conventions](/developers/reference/api-conventions#openapi).
+
+## Docs for agents
+
+This site serves its pages in forms that agents and other tools read without a browser:
+
+| Path                               | Contents                                                                                                                      |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| [`/llms.txt`](/llms.txt)           | An index of every page, with links and one-line descriptions                                                                  |
+| [`/llms-full.txt`](/llms-full.txt) | Every page in one plain text file                                                                                             |
+| `/llms.mdx/<page path>/content.md` | One page as markdown. For this page: [`/llms.mdx/developers/ai-agents/content.md`](/llms.mdx/developers/ai-agents/content.md) |
+| [`/openapi.json`](/openapi.json)   | The OpenAPI document behind the [REST API reference](/developers/reference/api/assets/get-assets)                             |
+
+To give an agent one page, take the page's path and wrap it: `/developers/guides/webhooks` becomes `/llms.mdx/developers/guides/webhooks/content.md`.

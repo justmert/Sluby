@@ -1,0 +1,168 @@
+---
+title: Receive webhooks
+description: Register a webhook endpoint, verify each request's signature, and use retries, the delivery log and test sends.
+---
+
+A webhook sends a signed `POST` request to your server when something happens to a video, for example when it is ready to play or when processing fails. This guide registers an endpoint, verifies its requests, sends a test event, and resends a failed delivery. [Webhook events](/developers/reference/webhook-events) lists every event, its payload and the headers, and describes how delivery, retries and the delivery log behave.
+
+## Register an endpoint
+
+### In the Studio
+
+Open **Webhooks** under **Developers** and click **Add webhook**. Enter the **Endpoint URL**, choose the **Events** to receive, and click **Add webhook**. The Studio then shows the signing secret once: copy it before you close the dialog.
+
+### With the SDK
+
+Registering, listing and changing endpoints needs a key with the `manage` scope. This runs on your server:
+
+```js title="create-webhook.mjs (server)"
+import { SlubyClient } from '@sluby/sdk';
+
+const { SLUBY_URL, SLUBY_API_KEY } = process.env;
+if (!SLUBY_URL || !SLUBY_API_KEY) throw new Error('Set SLUBY_URL and SLUBY_API_KEY.');
+// managing webhooks needs a key with the manage scope
+const client = new SlubyClient({ baseUrl: SLUBY_URL, apiKey: SLUBY_API_KEY });
+
+const endpoint = await client.webhookEndpoints.create({
+  url: 'https://app.example.com/sluby-webhook',
+  events: ['asset.ready', 'asset.errored'],
+});
+// shown only now: store it where your receiver reads it, for example SLUBY_WEBHOOK_SECRET
+console.log(endpoint.id, endpoint.secret);
+```
+
+By default Sluby delivers only to public addresses. [Receiver addresses](/developers/reference/webhook-events#receiver-addresses) lists the URL rules and how the operator of your Sluby server allows a private network.
+
+## Verify every request
+
+Each request carries an `X-Sluby-Timestamp` header and an `X-Sluby-Signature-V1` header ([signature scheme](/developers/reference/webhook-events#signature-scheme)). `webhooks.verifyRequest()` checks both: the signature must match your endpoint's secret, and the timestamp must fall inside the replay window ([Timestamps and replay window](/developers/reference/webhook-events#timestamps-and-replay-window)), so a captured request stops verifying after that. Pass the raw body exactly as it arrived, before any JSON parsing.
+
+This receiver uses only Node.js built-ins and `@sluby/sdk`:
+
+```js title="receiver.mjs (server)"
+import { createServer } from 'node:http';
+import { WebhookManager } from '@sluby/sdk';
+
+const secret = process.env.SLUBY_WEBHOOK_SECRET;
+if (!secret) throw new Error('Set SLUBY_WEBHOOK_SECRET.');
+const webhooks = new WebhookManager();
+const handled = new Set(); // use your database in production
+
+createServer(async (req, res) => {
+  if (req.method !== 'POST' || req.url !== '/sluby-webhook') {
+    res.writeHead(404).end();
+    return;
+  }
+  // the signature covers the exact bytes, so read the raw body before parsing it
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const body = Buffer.concat(chunks).toString('utf8');
+
+  if (!webhooks.verifyRequest(body, req.headers, secret)) {
+    res.writeHead(401).end();
+    return;
+  }
+  const event = webhooks.parseEvent(body);
+
+  // a retry or a resend carries the same id: handle each event once
+  if (event.id && handled.has(event.id)) {
+    res.writeHead(200).end();
+    return;
+  }
+  if (event.id) handled.add(event.id);
+
+  if (event.event === 'asset.ready') {
+    console.log(`video ${event.data.video_asset_id} is ready`);
+  } else if (event.event === 'asset.errored') {
+    console.log(`video ${event.data.video_asset_id} failed: ${event.data.error}`);
+  }
+  res.writeHead(200).end();
+}).listen(3000);
+```
+
+`WebhookManager` needs no API key, so a receiver does not need a `SlubyClient`; `client.webhooks` is an instance of the same class. `parseEvent()` returns the event as `{ id, event, timestamp, data }`. The keys inside `data` stay as Sluby sends them, in snake case, such as `video_asset_id`.
+
+`verifyRequest()` needs Node.js ([supported versions](/developers/reference/sdk#package)). In browsers, edge runtimes and Deno, use `verifyRequestAsync()`, which runs on Web Crypto:
+
+```ts title="webhook.ts (server)"
+import { WebhookManager } from '@sluby/sdk';
+
+const webhooks = new WebhookManager();
+
+// for runtimes with Web Crypto and the Fetch API, such as edge runtimes and Deno
+export async function handleWebhook(request: Request, secret: string): Promise<Response> {
+  const body = await request.text();
+  if (!(await webhooks.verifyRequestAsync(body, request.headers, secret))) {
+    return new Response(null, { status: 401 });
+  }
+  const event = webhooks.parseEvent(body);
+  console.log(event.event, event.data);
+  return new Response(null, { status: 200 });
+}
+```
+
+## Answer quickly, and expect retries
+
+Answer with a `2xx` status before the delivery timeout, and do slow work after you answer. [Response and timeout](/developers/reference/webhook-events#response-and-timeout) lists which answers count as delivered.
+
+Sluby retries a failed delivery on a fixed schedule ([Retries](/developers/reference/webhook-events#retries)). Every attempt carries the same event `id`, so drop an id you have already handled, as the receiver above does ([Duplicates and ordering](/developers/reference/webhook-events#duplicates-and-ordering)).
+
+## Send a test event
+
+To check your receiver, send a signed `webhook.test` event:
+
+- In the Studio, click **Send test** on the webhook's page, or in its row on the **Webhooks** page.
+- With the SDK:
+
+```js title="test-webhook.mjs (server)"
+const result = await client.webhookEndpoints.test(endpointId);
+console.log(result.delivered ? `answered ${result.statusCode}` : `not delivered: ${result.error}`);
+```
+
+[Test events](/developers/reference/webhook-events#test-events) describes how Sluby sends and logs a test.
+
+## Read the delivery log and resend
+
+Sluby logs every delivery attempt. [Delivery log](/developers/reference/webhook-events#delivery-log) lists what each entry holds, the failure reasons and how long Sluby keeps entries.
+
+In the Studio, the **Deliveries** table on the webhook's page shows the log. **Show payload** opens the body that was sent, and **Send again** resends it. With the SDK:
+
+```js title="deliveries.mjs (server)"
+const deliveries = await client.webhookEndpoints.deliveries(endpointId, { limit: 100 });
+for (const d of deliveries) {
+  console.log(
+    d.createdAt,
+    d.event,
+    `attempt ${d.attempt}`,
+    d.delivered ? 'ok' : (d.error ?? d.statusCode),
+  );
+}
+
+// send a failed one again, with the same event id
+const failed = deliveries.find((d) => !d.delivered);
+if (failed) {
+  const { deliveryId } = await client.webhookEndpoints.redeliver(endpointId, failed.id);
+  console.log(`queued as ${deliveryId}`);
+}
+```
+
+`deliveries()` returns the newest attempts first. [Redelivery](/developers/reference/webhook-events#redelivery) describes what a resend carries and when Sluby refuses one; the SDK rejects a refused resend with a `ConflictError`.
+
+## Pause, change or remove an endpoint
+
+```js title="manage-webhook.mjs (server)"
+await client.webhookEndpoints.update(endpointId, { isActive: false }); // pause
+await client.webhookEndpoints.update(endpointId, { isActive: true }); // resume
+await client.webhookEndpoints.update(endpointId, { events: ['asset.ready'] });
+
+const { secret } = await client.webhookEndpoints.rotateSecret(endpointId);
+console.log(secret);
+
+await client.webhookEndpoints.delete(endpointId);
+```
+
+- `isActive: false` pauses the endpoint ([Paused and deleted endpoints](/developers/reference/webhook-events#paused-and-deleted-endpoints)). In the Studio, use **Pause** and **Resume**.
+- `rotateSecret()` replaces the signing secret, for example after it leaked, and only this answer contains the new one. [Signature scheme](/developers/reference/webhook-events#signature-scheme) describes when the old secret stops verifying. In the Studio, use **Rotate secret** on the webhook's page.
+- `delete()` removes the endpoint and its delivery log. In the Studio, use **Delete webhook** under **More** on the webhook's page.
+
+The REST reference documents each webhook endpoint, starting with [`POST /api/v1/webhooks`](/developers/reference/api/webhooks/post-webhooks).

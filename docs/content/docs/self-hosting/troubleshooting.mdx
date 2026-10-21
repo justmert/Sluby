@@ -1,0 +1,185 @@
+---
+title: Troubleshooting
+description: Errors and log lines a Sluby server produces, what each one means, and how to fix it.
+---
+
+Each entry quotes the exact text Sluby prints or shows, then gives the cause and the fix. To read the backend's log, run `docker compose logs backend` in the Sluby folder. On a production server, add `-f docker-compose.yml -f docker-compose.prod.yml` after `docker compose` in every command on this page.
+
+After you change `.env`, run `docker compose up -d` so Compose recreates the containers whose settings changed. Variable meanings are in the [configuration reference](/self-hosting/configuration).
+
+## Docker Compose and image builds
+
+### required variable DOMAIN is missing a value
+
+```text
+required variable DOMAIN is missing a value: set DOMAIN in .env
+```
+
+`docker-compose.prod.yml` stops before starting anything while a variable it requires is empty, and the message names the variable ([the list](/self-hosting/configuration#production-with-caddy)). For `SIA_APP_ID` and `SIA_APP_KEY` the message ends with `run the indexer connect step and set SIA_APP_ID` (or `SIA_APP_KEY`). Set the variable in `.env` ([Run in production](/self-hosting/production)); for the Sia values, run the connect step in [Connect Sia storage](/self-hosting/sia-storage).
+
+### The backend image builds only with BuildKit
+
+```text
+the backend image builds for linux/amd64 and linux/arm64 with buildkit only, not '<arch>'
+```
+
+The backend image builds for `linux/amd64` and `linux/arm64` only, and only with BuildKit. The build targeted another platform, or ran without BuildKit, which leaves the architecture empty (`''` in the message). Build for `amd64` or `arm64` with BuildKit enabled.
+
+### A web proxy limit is not valid
+
+```text
+WEB_DELIVERY_RATE=fast is not valid (expected a rate such as 50r/s or 600r/m)
+```
+
+The `web` container checks its `WEB_` limits at start and exits when one is malformed. Rates take the form `<number>r/s` or `<number>r/m`; bursts and connection counts are whole numbers. Fix the value in `.env`. See [`WEB_DELIVERY_RATE`](/self-hosting/configuration#web_delivery_rate).
+
+## The backend refuses to start [#the-backend-refuses-to-start]
+
+The backend checks its settings before it does anything else. When one is wrong it prints this and exits:
+
+```text
+Refusing to start, the configuration is not valid:
+  <one line per problem>
+```
+
+The problem lines it prints:
+
+| Problem line                                                                                                                                                                        | Fix                                                                                                                             |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `SESSION_SECRET is not set. Set a strong one (openssl rand -base64 32), so sessions survive restarts and cannot be forged.`                                                         | Production only. Set [`SESSION_SECRET`](/self-hosting/configuration#session_secret) to the output of `openssl rand -base64 32`. |
+| `SESSION_SECRET is only <n> characters (minimum 32).`                                                                                                                               | Production only. Use a secret of at least 32 characters, such as the output of `openssl rand -base64 32`.                       |
+| `SESSION_SECRET is the old development default, which is public.`                                                                                                                   | Production only. Generate a new secret with `openssl rand -base64 32`.                                                          |
+| `AUTH_DISABLED=true gives every visitor full access.`                                                                                                                               | Production only. Set `AUTH_DISABLED=false`.                                                                                     |
+| `BOOTSTRAP_API_KEY is not a generated key (sluby_ and at least 32 more letters, digits, - or _). Generate one: ...`                                                                 | Production only. Generate a key with the `node -e` command the message prints, or remove the line.                              |
+| `AUTH_DISABLED: Invalid option: expected one of "0"\|"1"\|"true"\|"false"`                                                                                                          | On/off settings accept only `true`, `false`, `1` and `0`. The same message names any other on/off setting.                      |
+| `CORS_ORIGIN: "https://a.example.com/" is not an origin (scheme://host[:port], no path or trailing slash). Leave CORS_ORIGIN unset to let any origin call the API without cookies.` | Write each origin as `https://host` or `https://host:port`, with no path and no trailing slash.                                 |
+| `TRANSCODE_MAX_RENDITION: Invalid option: expected one of "2160p"\|"1440p"\|"1080p"\|"720p"\|"540p"\|"360p"`                                                                        | Use one of the listed values.                                                                                                   |
+| `RECONCILE_PAGE_SIZE: Too big: expected number to be <=500`                                                                                                                         | Use `500` or less.                                                                                                              |
+| `WEBHOOK_ALLOWED_NETWORKS: not an IP address or network: <value>`                                                                                                                   | List CIDRs or addresses, such as `10.0.5.0/24`.                                                                                 |
+| `OPERATOR_USERS: "<value>" names no sign-in provider: write <provider>:<entry>, such as github:id:583231 or github:octocat`                                                         | Fix the entry or remove the setting.                                                                                            |
+
+Any other line has the form `<VARIABLE>: <problem>` and names the setting to fix.
+
+### Migration failed
+
+```text
+Migration failed: <error>
+```
+
+The backend could not apply the database migrations at start, so the container stops. The error that follows says why. When the backend cannot log in to PostgreSQL, check `POSTGRES_PASSWORD`: the database keeps the password it was created with, see [Move a local install to production](/self-hosting/production#move-a-local-install-to-production).
+
+### Could not load or store the session secret
+
+```text
+Could not load or store the session secret
+```
+
+Outside production, without `SESSION_SECRET`, the backend keeps a generated secret in its database. This line means it could not read or write it, which stops the start. The error logged with it says why; check that PostgreSQL is up with `docker compose ps`.
+
+### Could not seed BOOTSTRAP_API_KEY
+
+```text
+Could not seed BOOTSTRAP_API_KEY
+```
+
+The backend could not create the key from [`BOOTSTRAP_API_KEY`](/self-hosting/configuration#bootstrap_api_key) and stops. The error logged with it says why.
+
+## Warnings at startup
+
+| Log line                                                                                                                            | What to do                                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `PUBLIC_URL is http on <host>: Studio session cookies are sent without TLS and are not marked Secure. Serve the Studio over https.` | Serve the Studio over HTTPS and set `PUBLIC_URL` to the `https://` address: [Run in production](/self-hosting/production). |
+| `GITHUB_ALLOWED_USERS is set but ignored: ...`                                                                                      | The setting was read once during the upgrade to members and roles. Remove it from `.env`.                                  |
+| `OPERATOR_USERS is set but ignored: ...`                                                                                            | Same as above. Remove it from `.env`.                                                                                      |
+| `BOOTSTRAP_API_KEY was deleted or rotated away earlier and is not seeded again. Remove it from the environment, or set a new key.`  | Remove the line, or set a new generated key to get another bootstrap key.                                                  |
+| `EXPOSE_ERROR_STACKS is on: error responses carry internal messages and stack traces`                                               | Set `EXPOSE_ERROR_STACKS=false` once you are done debugging.                                                               |
+
+## Sia storage [#sia-storage]
+
+### SIA_APP_KEY is not set
+
+```text
+SIA_APP_KEY is not set: uploads need an indexer connection (see connect-indexer)
+```
+
+The backend runs, but uploads cannot reach Sia. Run the connect step in [Connect Sia storage](/self-hosting/sia-storage) and put `SIA_APP_ID` and `SIA_APP_KEY` in `.env`.
+
+### SIA_APP_KEY is not registered with the indexer
+
+```text
+Could not connect to the Sia indexer at startup
+```
+
+The error logged with it reads:
+
+```text
+SIA_APP_KEY is not registered with the indexer at SIA_INDEXER_URL. Run npm run connect-indexer against that indexer and set the SIA_APP_ID and SIA_APP_KEY it prints.
+```
+
+The indexer at `SIA_INDEXER_URL` does not know this app key. Check that `SIA_INDEXER_URL` is the indexer you ran the connect step against. If it is, run the connect step again and put the new values in `.env`. For any other error logged with `Could not connect to the Sia indexer at startup`, the backend tries again on the next upload or status check; check that the indexer URL is reachable from the server.
+
+### The connect script fails
+
+```text
+Connecting failed: <message>
+```
+
+`connect-indexer.mjs` stopped before it finished. `provision-viewer.mjs` prints `Provisioning failed: <message>` in the same case. The text after the colon says why. Run the script again, open the URL it prints while signed in to your indexer account, and approve the connection.
+
+```text
+"<value>" is not an http or https url
+```
+
+The indexer URL passed to the script, or `SIA_INDEXER_URL`, is not an `http` or `https` URL. Pass the full URL, such as `https://sia.storage`.
+
+### The account is not ready yet
+
+```text
+The account is not ready yet: it is still forming storage contracts. Uploads start working once the dashboard shows the indexer as operational.
+```
+
+The connection worked and the values it printed are valid. Put them in `.env` and wait until your indexer dashboard shows the indexer as operational before you upload.
+
+### An upload to Sia stored nothing
+
+```text
+Sia upload stored nothing for 600s and was cancelled
+```
+
+The backend stopped an upload to Sia because no part of it was stored on a host for 10 minutes. Check the Sia indexer on the Studio's Health page ([Overview, health and metrics](/studio/overview)), then retry the video ([Follow processing and retry](/studio/processing)).
+
+## Sign-in [#sign-in]
+
+| Message                                                                                                | Cause and fix                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `That setup code is wrong. Copy it from the server log.`                                               | Read the current code with `docker compose logs backend \| grep "setup code"` and use the newest line. The code changes when `SESSION_SECRET` changes.                                                                                                                                                                                    |
+| `This server already has an admin. Sign in instead.`                                                   | An admin exists. Sign in, or make a reset link: [Set up sign-in](/self-hosting/sign-in#make-a-reset-link-from-the-command-line).                                                                                                                                                                                                          |
+| `Sign-in with GitHub is not set up on this server.`                                                    | Set both `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` and restart: [Add GitHub sign-in](/self-hosting/sign-in#add-github-sign-in).                                                                                                                                                                                                       |
+| `GitHub account <login> is not a member of this workspace. Ask an admin for an invite.`                | GitHub sign-in works only for members whose account has GitHub linked and for people joining with an invite. An admin invites the person: [Invite someone](/studio/members#invite-someone).                                                                                                                                               |
+| `You signed in, but this browser did not keep the session. Allow cookies for this site and try again.` | The browser blocks cookies for this site, or the Studio is open at another address than `PUBLIC_URL`. When `PUBLIC_URL` starts with `https://`, the session cookie is marked `Secure`, and a browser does not keep a `Secure` cookie on a plain `http://` address other than `localhost`. Open the Studio at the address in `PUBLIC_URL`. |
+
+If GitHub refuses to send you back to Sluby after sign-in, compare the OAuth app's **Authorization callback URL** with `PUBLIC_URL` followed by `/api/v1/auth/github/callback`. Sluby sends that address to GitHub, and GitHub accepts it only when it matches the app's callback URL.
+
+For a member who forgot their password, an admin makes a reset link on the Members page. For a locked-out admin, see [Make a reset link from the command line](/self-hosting/sign-in#make-a-reset-link-from-the-command-line).
+
+## Rate limits
+
+```text
+Too many requests. Try again in a few seconds.
+```
+
+A client went over a per-address limit and got status `429` with this message in the `error` field of the JSON body. The web proxy limits video delivery and sign-in per client address ([`WEB_DELIVERY_RATE`](/self-hosting/configuration#web_delivery_rate), [`WEB_AUTH_RATE`](/self-hosting/configuration#web_auth_rate) and the settings next to them). The backend limits API calls made without a valid key or session per client address ([`API_IP_RATE_LIMIT`](/self-hosting/configuration#api_ip_rate_limit)), and holds each API key and session to its own per-minute limit ([Rate limits](/developers/reference/api-conventions#rate-limits)). When many viewers share one address, such as an office network, raise the matching per-address limit.
+
+## Direct playback [#direct-playback]
+
+**The player badge keeps reading Through this server.** The Studio streams from Sia only when all three `VITE_SLUBY_SIA_` values were set when the web image was built. Check the three lines in `.env`, then rebuild with `docker compose up -d --build web`. See [Stream from Sia in the browser](/self-hosting/direct-playback). The badge also reads **Through this server** in a browser where hls.js cannot run and the video plays natively, such as Safari on some iPhones.
+
+**The browser console shows `Sluby: Sia is unavailable for now, playing through the gateway.`** The player could not read from Sia and plays through your server. Check that `VITE_SLUBY_SIA_INDEXER_URL` starts with `https://` (the Studio's Content Security Policy blocks other addresses), and that the viewer account is ready: `provision-viewer.mjs` reports when contracts are still forming and the account needs a balance to pay egress.
+
+## Metrics
+
+```json
+{ "error": "Metrics token required" }
+```
+
+[`METRICS_TOKEN`](/self-hosting/configuration#metrics_token) is set and the request to `/metrics` sent no token or a different one. Send `Authorization: Bearer <token>` with the value of `METRICS_TOKEN`. See [Monitor and maintain](/self-hosting/operations#prometheus-metrics).

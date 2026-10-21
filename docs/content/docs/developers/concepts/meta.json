@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "architecture",
+    "upload-pipeline",
+    "storage-on-sia",
+    "playback",
+    "deletion-and-reconciliation",
+    "data-model",
+    "accounts-and-roles",
+    "security"
+  ]
+}

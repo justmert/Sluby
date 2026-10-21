@@ -1,0 +1,48 @@
+---
+title: Watch a video
+description: Play a video in the Studio, pick a quality, and read the badge that shows where the video streams from.
+---
+
+Play any ready video on its video page in the Studio, choose the quality, and see whether the video streams from Sia or through your server.
+
+## Play a video
+
+<Steps>
+  <Step>Open **Videos** in the sidebar and click the video's title.</Step>
+  <Step>Press play in the player at the top of the page.</Step>
+</Steps>
+
+The player appears once the video's status is **Ready**. Before that, the same area shows its processing progress ([Follow processing and retry](/studio/processing)).
+
+Private videos play in the Studio too. The Studio asks your server for a signed link for you.
+
+The player uses your browser's own video controls, including its fullscreen button.
+
+To watch without leaving the video list, use **Preview** on the **Videos** page ([Find and edit videos](/studio/library#open-or-preview-a-video)).
+
+To send the video to someone or put it on your site, see [Share or embed a video](/studio/share).
+
+## Pick a quality
+
+A **Quality** menu sits on the top right of the player once the video loads.
+
+- **Auto** lets the player choose and switch the quality as it plays. While **Auto** is on, the menu shows the quality playing now, for example "Auto (720p)".
+- Pick a named quality, such as **1080p**, to keep the player on it.
+
+The qualities offered are the ones the server made for this video. They are also listed in the **Quality** row of the video's **Details** card. For how the server picks them, see [the upload pipeline](/developers/concepts/upload-pipeline).
+
+## Where the video streams from
+
+A badge next to the **Quality** menu shows where the video's data comes from:
+
+| Badge                   | Meaning                                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Sia and this server** | The video starts through your server and the rest streams straight from Sia to your browser. Shown before the first part of the video has loaded. |
+| **75% from Sia**        | The same mix, with the share of the data loaded so far that came straight from Sia. The number updates as the video plays.                        |
+| **Through this server** | Your server fetches the video from Sia and passes it to your browser.                                                                             |
+
+The Studio streams from Sia in your browser when the server is set up for it ([Stream from Sia in the browser](/self-hosting/direct-playback)). Otherwise, and in browsers that play the video with their built-in player (such as Safari on some iPhones), the badge reads **Through this server**. For how the delivery modes work, see [playback and delivery](/developers/concepts/playback).
+
+## When a video does not play
+
+If the player cannot play the video, a message **Could not play this video** appears under it with the reason. Reload the page to try again. If the video was deleted in another tab or browser while you had it open, the Studio says "This video was deleted in another tab or browser" and shows **Video not found**.

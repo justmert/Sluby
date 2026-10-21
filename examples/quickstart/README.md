@@ -1,6 +1,6 @@
 # Sluby quickstart example
 
-A minimal React app that exercises the full flow with `@sluby/sdk` and `@sluby/player`. The [React guide](../../docs/guide/react.md) walks through it.
+A minimal React app that exercises the full flow with `@sluby/sdk` and `@sluby/player`. The [React guide](../../docs/content/docs/developers/guides/play-react.mdx) walks through it.
 
 1. Upload a file with resumable tus upload (progress, pause and resume), public or private.
 2. Follow processing (stage and percentage) until the asset is ready.

@@ -1,0 +1,28 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+@import 'fumadocs-openapi/css/preset.css';
+
+/* studio brand teal, same values as frontend/src/index.css */
+@theme {
+  --color-fd-primary: #0f6b7a;
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-ring: #0f6b7a;
+  --font-sans: var(--font-figtree), system-ui, sans-serif;
+  --font-mono: var(--font-dm-mono), ui-monospace, monospace;
+}
+
+.dark {
+  --color-fd-primary: #5bbfcc;
+  --color-fd-primary-foreground: #06262b;
+  --color-fd-ring: #5bbfcc;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}

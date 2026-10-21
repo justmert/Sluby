@@ -24,7 +24,7 @@ describe('AuthOffBanner (FLW-29, D-15)', () => {
     const link = screen.getByRole('link', { name: 'Turn on sign-in, opens in a new tab' });
     expect(link).toHaveAttribute(
       'href',
-      'https://github.com/justmert/Sluby/blob/main/docs/guide/configuration.md#sign-in',
+      'https://github.com/justmert/Sluby/blob/main/docs/content/docs/self-hosting/sign-in.mdx',
     );
     expect(link).toHaveAttribute('target', '_blank');
   });

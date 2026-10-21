@@ -1,0 +1,132 @@
+---
+title: Sign in and out
+description: Sign in to the Studio with your email and password or with GitHub, join from an invite link, set a new password from a reset link, and sign out.
+---
+
+Sign in to the Studio, join a team from an invite link, or set a new password from a reset link. This page also explains the messages the sign-in screen shows and what to do about each.
+
+## Sign in with email and password
+
+<Steps>
+  <Step>
+    Open the Studio at your server's address, for example `https://sluby.example.com/studio`. The
+    screen reads **Sign in to Sluby Studio**.
+  </Step>
+  <Step>
+    Enter your **Email** and **Password**. The eye button in the password field (**Show password**)
+    shows what you typed.
+  </Step>
+  <Step>Click **Sign in**. The Studio opens.</Step>
+</Steps>
+
+Your email is not case sensitive. There is no sign-up form: the line under the form reads "New here? Ask an admin for an invite link."
+
+## Sign in with GitHub
+
+When the server has GitHub sign-in set up, the sign-in screen shows **Continue with GitHub** under the form. Click it, approve the request on GitHub, and you return to the Studio page you started from.
+
+GitHub sign-in works only for a GitHub account that already belongs to a member of this Studio. That is the case when you joined with GitHub from an invite link, or when you linked GitHub in [Settings](/studio/account#link-your-github-account). Otherwise the screen says "GitHub account `<handle>` is not a member of this workspace. Ask an admin for an invite."
+
+## Join from an invite link
+
+An admin sends you an invite link that starts with your server's address and contains `/studio/join/`.
+
+<Steps>
+  <Step>
+    Open the link. The screen reads **Join Sluby Studio** and says whether you join as an admin or a
+    member, and until when the invite works.
+  </Step>
+  <Step>
+    Fill in **Your name**, **Email** and **Password**. You choose your own email. The password needs
+    at least 10 characters.
+  </Step>
+  <Step>Click **Join**. You are signed in and the Studio opens on the Overview page.</Step>
+</Steps>
+
+To join with your GitHub account instead, click **Continue with GitHub** on the same screen. The button shows only when the server has GitHub sign-in set up.
+
+An invite link stops working when it expires, when an admin revokes it, or once as many people have joined with it as the admin allowed. If yours no longer works, ask the admin for a new one ([how admins create invites](/studio/members#invite-someone)).
+
+## Set a new password from a reset link
+
+You cannot reset your own password from the sign-in screen. If you forgot it, ask an admin for a reset link ([how admins create reset links](/studio/members#give-someone-a-reset-link)). The link contains `/studio/reset/`.
+
+<Steps>
+  <Step>
+    Open the link. The screen reads **Set a new password** and shows until when the link works.
+  </Step>
+  <Step>
+    Enter a **New password** (at least 10 characters) and type it again in **Confirm new password**.
+  </Step>
+  <Step>
+    Click **Set password**. You are signed in, and every other browser signed in to your account is
+    signed out.
+  </Step>
+</Steps>
+
+If you signed in only with GitHub until now, the screen reads "Choose the email and password you will sign in with." and also asks for an **Email**. After that you can sign in with either method.
+
+## Sign out
+
+Click your initials at the top right to open the account menu, then click **Sign out**. On a phone, open the menu button at the top left: the account menu sits at the bottom of the sheet. The Studio returns to the sign-in screen.
+
+You can also press `Ctrl K` (`⌘K` on a Mac), type "Sign out" and press Enter.
+
+To sign out every browser at once, or one browser you do not recognize, use **Signed-in browsers** in [Settings](/studio/account#sign-out-other-browsers).
+
+## Password rules
+
+These rules apply wherever you choose a password: when you join, set up the first admin, use a reset link, or change your password.
+
+- At least 10 characters.
+- At most 256 characters.
+
+## Messages on the sign-in screen
+
+### When sign-in fails
+
+| Message                                                                                                                                       | What to do                                                                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Wrong email or password.                                                                                                                      | Check both and try again. If you forgot the password, ask an admin for a reset link.                                          |
+| This account was removed from this workspace. Ask an admin to restore it.                                                                     | An admin removed you. Only an admin can restore your account.                                                                 |
+| Too many attempts. Try again in 5 minutes.                                                                                                    | The server limits sign-in attempts. Wait for the time the message names, then try again.                                      |
+| You signed in, but this browser did not keep the session. Allow cookies for this site and try again.                                          | Allow cookies for the Studio's address in your browser settings, then sign in again.                                          |
+| GitHub account `<handle>` is not a member of this workspace. Ask an admin for an invite.                                                      | Join from an invite link first, or link GitHub in Settings while signed in with your password.                                |
+| GitHub account `<handle>` already belongs to another member.                                                                                  | That GitHub account is linked to a different person in this Studio. Use another GitHub account or sign in with your password. |
+| Sign-in was canceled on GitHub.                                                                                                               | You declined on GitHub. Click **Continue with GitHub** again to retry.                                                        |
+| That sign-in link expired. Try again.                                                                                                         | The GitHub sign-in took too long or finished in a different browser. Click **Continue with GitHub** again in this browser.    |
+| GitHub did not confirm the sign-in. Try again.                                                                                                | Click **Continue with GitHub** again.                                                                                         |
+| Sign-in with GitHub is not set up on this server.                                                                                             | Sign in with your email and password.                                                                                         |
+| That invite link does not exist, was already used, has expired, or was withdrawn (one sentence each, ending in "Ask an admin for a new one.") | Joining with GitHub from an invite link failed because the link no longer works. Ask the admin for a new invite link.         |
+| Sign-in did not finish. Try again.                                                                                                            | Start the sign-in again.                                                                                                      |
+
+The number in "Too many attempts" is the wait the server asks for, so it differs from case to case.
+
+### When your session ends
+
+If your session ends while the Studio is open, the Studio returns to the sign-in screen with one of these notices. Sign in again to continue.
+
+| Notice                                           | Why                                                                                                                                                                                                  |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Your session expired. Sign in again to continue. | Your session reached its end date.                                                                                                                                                                   |
+| You were signed out from another browser.        | This browser's session was ended elsewhere: from **Signed-in browsers** in Settings, with **Sign out everywhere**, by a password change, by a reset link, or by an admin removing you from the team. |
+| Your session ended. Sign in again to continue.   | The browser no longer has a session, for example after its cookies were cleared.                                                                                                                     |
+
+For how long a session lasts, see [accounts, roles and sessions](/developers/concepts/accounts-and-roles#sessions).
+
+### When an invite or reset link does not work
+
+The link screen shows one of these messages and a **Go to sign in** button. Ask an admin for a new link.
+
+- This link does not exist. Ask an admin for a new one.
+- This link was already used. Ask an admin for a new one.
+- This link has expired. Ask an admin for a new one.
+- This link was withdrawn. Ask an admin for a new one.
+
+### When the Studio cannot reach the server
+
+Instead of the sign-in form, the Studio shows one of these, with a **Try again** button:
+
+- **Could not reach the server**: check your connection, or ask the person who runs the server whether it is running.
+- **The server ran into a problem**: the server answered with an error. Try again in a moment.
+- **Could not check your session**: the server gave an answer the Studio could not use. The screen shows the reason.

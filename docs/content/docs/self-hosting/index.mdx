@@ -1,0 +1,132 @@
+---
+title: Install Sluby
+description: Run Sluby on one machine with Docker Compose, connect it to Sia, and create the first admin.
+---
+
+This page takes you from an empty machine to a running Sluby server with the Studio open in your browser and your first admin account created. Everything runs in Docker Compose on one machine and listens on `http://localhost:8080`. To serve it on a domain with TLS afterwards, continue with [Run in production](/self-hosting/production).
+
+## Requirements
+
+- Docker with the Docker Compose plugin (the `docker compose` command) and BuildKit. The backend image builds only with BuildKit.
+- An x86-64 (`amd64`) or ARM64 (`arm64`) processor. On ARM64 the backend image compiles the Sia storage module from source while it builds.
+- Git.
+- An account on [sia.storage](https://sia.storage), the hosted Sia indexer Sluby connects to by default.
+
+## What runs
+
+The stack in `docker-compose.yml` has four services:
+
+| Service    | Image                            | Role                                                                     |
+| ---------- | -------------------------------- | ------------------------------------------------------------------------ |
+| `postgres` | `postgres:18-alpine`             | the database                                                             |
+| `redis`    | `redis:8-alpine`                 | the job queues                                                           |
+| `backend`  | built from `backend/Dockerfile`  | the API, the upload and transcoding workers, and video delivery          |
+| `web`      | built from `frontend/Dockerfile` | nginx serving the Studio and passing the API and delivery to the backend |
+
+Only `web` is published, on `127.0.0.1:8080`. Data lives in the Docker volumes `pgdata`, `redis-data`, `uploads`, `transcode-output` and `nginx-cache`. How the parts work together: [Architecture](/developers/concepts/architecture).
+
+## Install
+
+<Steps>
+<Step>
+
+### Get the code
+
+```bash
+git clone https://github.com/justmert/Sluby.git
+cd Sluby
+```
+
+Run every later command in this folder.
+
+</Step>
+<Step>
+
+### Create .env
+
+```bash
+cp .env.example .env
+```
+
+The defaults in `.env.example` run the local stack against sia.storage with sign-in turned on. Every setting is described in the [configuration reference](/self-hosting/configuration).
+
+</Step>
+<Step>
+
+### Build the images
+
+```bash
+docker compose build
+```
+
+</Step>
+<Step>
+
+### Connect to Sia
+
+```bash
+docker compose run --rm --no-deps backend node scripts/connect-indexer.mjs
+```
+
+The script prints a URL. Open it in the browser where you are signed in to sia.storage and approve the connection. The script then prints three lines:
+
+```bash title=".env"
+SIA_INDEXER_URL=https://sia.storage
+SIA_APP_ID=<64 hex characters>
+SIA_APP_KEY=<64 hex characters>
+```
+
+In `.env`, replace the `SIA_INDEXER_URL`, `SIA_APP_ID` and `SIA_APP_KEY` lines with these three. Details, and how to use another indexer: [Connect Sia storage](/self-hosting/sia-storage).
+
+</Step>
+<Step>
+
+### Start Sluby
+
+```bash
+docker compose up -d
+```
+
+The backend applies the database migrations before it starts. `web` starts once the backend reports healthy. Check that all four services are up:
+
+```bash
+docker compose ps
+```
+
+</Step>
+<Step>
+
+### Find the setup code
+
+```bash
+docker compose logs backend | grep "setup code"
+```
+
+The matching line ends with this message, with your code in place of `XXXXX-XXXXX`:
+
+```text
+No admin can sign in yet. Open http://localhost:8080/studio and set up the first admin with the setup code XXXXX-XXXXX.
+```
+
+More about the setup code: [Set up sign-in](/self-hosting/sign-in).
+
+</Step>
+<Step>
+
+### Create the first admin
+
+Open `http://localhost:8080`. It redirects to the Studio at `/studio`. Click **Set up the first admin**, then fill in **Setup code**, **Your name**, **Email** and **Password** (at least 10 characters) and click **Create admin account**. The Studio signs you in.
+
+</Step>
+</Steps>
+
+## Next steps
+
+<Cards>
+  <Card title="Upload a video" href="/studio/upload" />
+  <Card title="Invite members" href="/studio/members" />
+  <Card title="Run in production" href="/self-hosting/production" />
+  <Card title="Set up sign-in" href="/self-hosting/sign-in" />
+  <Card title="Stream from Sia in the browser" href="/self-hosting/direct-playback" />
+  <Card title="Monitor and maintain" href="/self-hosting/operations" />
+</Cards>

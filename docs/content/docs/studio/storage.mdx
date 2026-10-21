@@ -1,0 +1,65 @@
+---
+title: See how a video is stored on Sia
+description: Read the Storage tab of a video, which shows the files, hosts and countries that hold it on Sia.
+---
+
+Check where a video lives on Sia: how many files it has, how much space it takes with redundancy, and which hosts and countries hold it. The details come from the Sia indexer the server is connected to.
+
+## Open the Storage tab
+
+<Steps>
+  <Step>
+    Open the video from **Videos**. The video must be **Ready**: the tab appears once processing is
+    done.
+  </Step>
+  <Step>Click the **Storage** tab under the player.</Step>
+</Steps>
+
+## Sia storage
+
+The card opens with one sentence in the form "This video is stored as N files on N hosts in N countries. Sia keeps N× the data, so the video stays playable if some hosts go offline."
+
+Click **What do these numbers mean?** for a short definition of each Sia term. The figures:
+
+| Figure         | What it means                                                                                                                                                                                    |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Objects**    | How many files make up the video on Sia: playlists, video files and thumbnails.                                                                                                                  |
+| **Size**       | The size of those files.                                                                                                                                                                         |
+| **On Sia**     | The space they take on Sia, with redundancy. When small files leave part of a slab empty, the line under it also shows how much of that is padding.                                              |
+| **Redundancy** | How many times over Sia stores the data, as a ratio such as **3×**, with the shard counts under it in the form "N data + N parity shards". **Mixed** means the slabs use different shard counts. |
+| **Slabs**      | The fixed-size blocks the files are packed into. A slab shared by several files counts once.                                                                                                     |
+| **Sectors**    | The pieces hosts store, about 4.2 MB each, each on one host.                                                                                                                                     |
+| **Hosts**      | How many hosts store part of the video.                                                                                                                                                          |
+| **Countries**  | How many countries those hosts are in.                                                                                                                                                           |
+
+Under the figures, "From the Sia indexer at" names the indexer's address and its network.
+
+## Objects
+
+One row per Sia object of the video:
+
+| Column        | What it shows                                                                                                         |
+| ------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Object**    | What the object is: **Main playlist**, **Playlist**, **Video** (with its quality, for example 720p) or **Thumbnail**. |
+| **Object ID** | The object's ID on Sia, with a copy button.                                                                           |
+| **Size**      | The object's size.                                                                                                    |
+| **Slabs**     | How many slabs it uses. A badge such as **2 shared** counts slabs it shares with other objects of this video.         |
+| **Sectors**   | How many sectors hold it.                                                                                             |
+| **Hosts**     | How many hosts hold it.                                                                                               |
+
+## Host distribution and countries
+
+**Host distribution** lists each host with its country and how many sectors of the video it stores. Each host links to its page on Siascan (Zen Siascan when the server uses the Zen test network), or on another explorer if the person who runs the server set one. A host shows **Unknown** when the indexer did not report its location. The first 12 hosts show; click **Show all N hosts** for the rest.
+
+**Countries** shows how many sectors and hosts of the video are in each country. Its bar compares the country's sectors with the country that holds the most. The first 8 show; click **Show all N countries** for the rest.
+
+## On-chain
+
+When the server knows them, an **On-chain** card links the indexer's wallet and the file contracts with the hosts that store this video. File contracts are the on-chain agreements that pay hosts to keep their sectors. Each link opens the same explorer as the host links, in a new tab.
+
+## When details are missing
+
+- **Could not load Sia storage details**: the server could not get the details. Click **Try again** when it is offered.
+- **The Sia indexer did not describe N of N objects**: the indexer answered for only some objects, and the figures cover only those. Reload the page to ask again.
+
+For how Sluby splits and stores video on Sia, see [Storage on Sia](/developers/concepts/storage-on-sia).

@@ -1,0 +1,120 @@
+---
+title: Connect Sia storage
+description: Register your Sluby server with a Sia indexer and put its app ID and key in .env.
+---
+
+Sluby stores every video on Sia through an indexer: a service your server talks to over HTTP that keeps track of the hosts holding your data. This page connects your server to an indexer once and gives you the two lines that identify it, `SIA_APP_ID` and `SIA_APP_KEY`.
+
+The default indexer is [sia.storage](https://sia.storage). Before you start, create an account there and sign in to it in your browser.
+
+## Connect the server
+
+Run these commands in the folder where you cloned Sluby, with `.env` already created from `.env.example`.
+
+<Steps>
+<Step>
+
+### Build the backend image
+
+```bash
+docker compose build backend
+```
+
+</Step>
+<Step>
+
+### Run the connect script
+
+```bash
+docker compose run --rm --no-deps backend node scripts/connect-indexer.mjs
+```
+
+The script prints `Connecting Sluby to the indexer at https://sia.storage`, then a URL under `1. Open this URL while signed in to your indexer account and approve it:`.
+
+</Step>
+<Step>
+
+### Approve the connection
+
+Open the URL in the browser where you are signed in to your indexer account and approve it. The script waits at `2. Waiting for approval...` and continues on its own once you approve. You never enter a recovery phrase or password in the script.
+
+</Step>
+<Step>
+
+### Copy the lines into .env
+
+After approval the script prints:
+
+```text
+Connected. Add these to .env:
+
+SIA_INDEXER_URL=https://sia.storage
+SIA_APP_ID=<64 hex characters>
+SIA_APP_KEY=<64 hex characters>
+```
+
+In `.env`, replace the `SIA_INDEXER_URL`, `SIA_APP_ID` and `SIA_APP_KEY` lines with these three.
+
+If the script also prints `The account is not ready yet: it is still forming storage contracts.`, start Sluby anyway. Uploads start working once your indexer dashboard shows the indexer as operational.
+
+</Step>
+<Step>
+
+### Start or restart Sluby
+
+```bash
+docker compose up -d
+```
+
+On a production server, add the same `-f docker-compose.yml -f docker-compose.prod.yml` you start it with.
+
+The backend logs `sia-storage SDK ready` once it is connected:
+
+```bash
+docker compose logs backend | grep "sia-storage SDK ready"
+```
+
+</Step>
+</Steps>
+
+<Callout type="warn" title="Keep SIA_APP_KEY secret">
+  `SIA_APP_KEY` can read and delete everything this server stores on Sia. Keep `.env` out of version
+  control and out of backups that other people can read.
+</Callout>
+
+## Use another indexer
+
+To connect to an indexer other than sia.storage, pass its base URL to the script. The URL must use `http` or `https`, and the backend container must be able to reach it.
+
+```bash
+docker compose run --rm --no-deps backend node scripts/connect-indexer.mjs https://indexer.example.com
+```
+
+The script prints `SIA_INDEXER_URL` with that URL; copy it into `.env` together with the app ID and key. Without an argument the script uses `SIA_INDEXER_URL` from `.env`, and `https://sia.storage` when that is empty.
+
+Set [`SIA_NETWORK`](/self-hosting/configuration#sia_network) to the network that indexer runs on, for example:
+
+```bash title=".env"
+SIA_NETWORK=zen
+```
+
+For a self-hosted indexd, four more lines are optional: its admin API address and password, and the shard counts. Read what each one does in the configuration reference before you set it:
+
+```bash title=".env"
+SIA_ADMIN_URL=http://indexd.example.com:9980
+SIA_ADMIN_PASSWORD=<indexd admin password>
+SIA_DATA_SHARDS=<data shards>
+SIA_PARITY_SHARDS=<parity shards>
+```
+
+See [`SIA_ADMIN_URL`](/self-hosting/configuration#sia_admin_url), [`SIA_ADMIN_PASSWORD`](/self-hosting/configuration#sia_admin_password), [`SIA_DATA_SHARDS`](/self-hosting/configuration#sia_data_shards) and [`SIA_PARITY_SHARDS`](/self-hosting/configuration#sia_parity_shards).
+
+## Connect again
+
+Each run of the script registers a new app with the indexer. When `SIA_APP_KEY` is already set, the script says so first: `SIA_APP_KEY is already set; connecting again registers a second app.` The backend uses the app in `.env` for every upload, read and delete on Sia, so keep the app ID and key your videos were uploaded with.
+
+## Related
+
+- [How Sluby stores videos on Sia](/developers/concepts/storage-on-sia)
+- [Stream from Sia in the browser](/self-hosting/direct-playback), which registers a second, public viewer identity
+- [Troubleshooting Sia connection errors](/self-hosting/troubleshooting#sia-storage)

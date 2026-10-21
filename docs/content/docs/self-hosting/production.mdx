@@ -1,0 +1,134 @@
+---
+title: Run in production
+description: Serve Sluby on your domain over HTTPS with the production override and Caddy.
+---
+
+This page puts your Sluby server on a public domain over HTTPS. The production override, `docker-compose.prod.yml`, adds Caddy in front of the stack, which gets and renews a TLS certificate for your domain. It also turns on the production checks, requires the secrets, and publishes nothing but ports 80 and 443.
+
+Install the stack first with [Install Sluby](/self-hosting) and connect it to Sia with [Connect Sia storage](/self-hosting/sia-storage). This page assumes the Sluby folder and its `.env`.
+
+## Before you start
+
+- A domain or subdomain, for example `sluby.example.com`, whose A or AAAA record points at the server.
+- Ports 80 and 443 of the server reachable from the internet. The override publishes `80/tcp`, `443/tcp` and `443/udp` for Caddy.
+
+## Deploy
+
+<Steps>
+<Step>
+
+### Generate the secrets
+
+Generate one value for the database password and one for the session secret:
+
+```bash
+openssl rand -hex 32
+openssl rand -base64 32
+```
+
+Use the hex value for the database password. Compose puts the password inside the database URL, and a `/` (which base64 output can contain) makes that URL invalid, so the backend refuses to start.
+
+</Step>
+<Step>
+
+### Set the production lines in .env
+
+```bash title=".env"
+DOMAIN=sluby.example.com
+ACME_EMAIL=you@example.com
+POSTGRES_PASSWORD=<the hex value>
+SESSION_SECRET=<the base64 value>
+SIA_APP_ID=<from connect-indexer.mjs>
+SIA_APP_KEY=<from connect-indexer.mjs>
+```
+
+Compose refuses to start the production stack while any of these six is empty. What each one does: [`DOMAIN`](/self-hosting/configuration#domain), [`ACME_EMAIL`](/self-hosting/configuration#acme_email), [`POSTGRES_PASSWORD`](/self-hosting/configuration#postgres_password), [`SESSION_SECRET`](/self-hosting/configuration#session_secret), [`SIA_APP_ID`](/self-hosting/configuration#sia_app_id), [`SIA_APP_KEY`](/self-hosting/configuration#sia_app_key).
+
+</Step>
+<Step>
+
+### Start the stack
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+Use both `-f` files in every later `docker compose` command on this server, so Compose keeps the production settings.
+
+</Step>
+<Step>
+
+### Create the first admin
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs backend | grep "setup code"
+```
+
+Open `https://sluby.example.com/studio`, click **Set up the first admin** and enter the code. More on the setup code: [Create the first admin](/self-hosting/sign-in#create-the-first-admin).
+
+</Step>
+</Steps>
+
+## What the override changes
+
+| Setting                                            | Base stack                | With `docker-compose.prod.yml`                                                             |
+| -------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------ |
+| Published ports                                    | `web` on `127.0.0.1:8080` | `caddy` on `80`, `443` and `443/udp`; nothing else                                         |
+| TLS                                                | none                      | Caddy, for `DOMAIN`                                                                        |
+| [`NODE_ENV`](/self-hosting/configuration#node_env) | `development`             | `production`                                                                               |
+| `PUBLIC_URL`                                       | `http://localhost:8080`   | `https://` plus `DOMAIN`                                                                   |
+| `CORS_ORIGIN`                                      | empty                     | `https://` plus `DOMAIN`                                                                   |
+| `AUTH_DISABLED`                                    | from `.env`               | always `false`                                                                             |
+| Required in `.env`                                 | nothing                   | `DOMAIN`, `ACME_EMAIL`, `POSTGRES_PASSWORD`, `SESSION_SECRET`, `SIA_APP_ID`, `SIA_APP_KEY` |
+
+The override sets `NODE_ENV`, `PUBLIC_URL`, `CORS_ORIGIN` and `AUTH_DISABLED` itself, so values for them in `.env` have no effect on the production stack.
+
+With `NODE_ENV=production` the backend runs its startup checks and writes JSON logs. What it checks: [`NODE_ENV`](/self-hosting/configuration#node_env).
+
+Caddy compresses responses with zstd or gzip, sends `Strict-Transport-Security: max-age=31536000`, removes the `Server` header and passes every request to the `web` service.
+
+## Move a local install to production
+
+The production stack uses the same volumes as the local stack, so your videos and accounts stay. Two settings behave differently when the data already exists:
+
+- **`POSTGRES_PASSWORD`**: the `postgres` image sets the password only when it creates the database on an empty volume. A database created by the local stack keeps the password it started with: `sluby`, unless you set `POSTGRES_PASSWORD` before its first start. While the local stack is still running, change the password inside the database to the hex value you generated:
+
+  ```bash
+  docker compose exec postgres psql -U sluby -d sluby -c "ALTER USER sluby PASSWORD '<the hex value>'"
+  ```
+
+  Then set the same value as `POSTGRES_PASSWORD` in `.env`.
+
+- **`SESSION_SECRET`**: the local stack ran with a secret it generated and stored in its database. Setting your own secret signs everyone out and makes signed links handed out earlier stop working ([`SESSION_SECRET`](/self-hosting/configuration#session_secret)). Accounts stay in the database, so an admin who could sign in before can sign in again. When no admin can sign in, the backend logs a new setup code at start: [Create the first admin](/self-hosting/sign-in#create-the-first-admin).
+
+## Run behind your own proxy
+
+If the server already has a reverse proxy that terminates TLS, run the base stack without the override and point your proxy at the web service on `127.0.0.1:8080` (or the port in [`WEB_PORT`](/self-hosting/configuration#web_port)).
+
+Set these lines in `.env`:
+
+```bash title=".env"
+NODE_ENV=production
+PUBLIC_URL=https://sluby.example.com
+CORS_ORIGIN=https://sluby.example.com
+POSTGRES_PASSWORD=<openssl rand -hex 32>
+SESSION_SECRET=<openssl rand -base64 32>
+```
+
+Start the base stack:
+
+```bash
+docker compose up -d --build
+```
+
+Configure your proxy to:
+
+- pass the original `Host` header, `X-Forwarded-For` and `X-Forwarded-Proto: https`. The web service takes the client address from `X-Forwarded-For` when the connection comes from a loopback or private address, and passes the scheme on to the backend.
+- accept request bodies of at least 10 MiB. The Studio uploads in 8 MiB chunks and `@sluby/sdk` in 10 MiB chunks by default ([`chunkSize`](/developers/reference/sdk#uploadfileoptions)).
+- send `Strict-Transport-Security` if you want HSTS. The web service does not send it.
+
+## Related
+
+- [Configuration reference](/self-hosting/configuration)
+- [Set up sign-in](/self-hosting/sign-in), including GitHub sign-in for your domain
+- [Monitor and maintain](/self-hosting/operations)

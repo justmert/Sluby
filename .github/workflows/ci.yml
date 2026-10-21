@@ -242,8 +242,8 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
 
-      # the docs site has its own lockfile so its vite 5 (from vitepress) stays
-      # out of the app workspaces
+      # the docs site has its own lockfile so its next.js and fumadocs stay
+      # out of the app workspaces. the build also checks every internal link.
       - name: Install docs dependencies
         run: npm ci --prefix docs
 

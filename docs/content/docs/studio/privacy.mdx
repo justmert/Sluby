@@ -1,0 +1,92 @@
+---
+title: Choose who can watch
+description: Make a video public or private, manage its playback IDs, and stop links you already shared.
+---
+
+Decide whether anyone with a link can play a video, or only viewers your own site lets in with a signed link. You set this when you [upload a video](/studio/upload) and can change it at any time.
+
+## Public and private
+
+| Access      | Who can play the video                                                                                                                                    |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Public**  | Anyone with its watch page link, embed code or stream URL.                                                                                                |
+| **Private** | Only viewers with a signed URL: a link that carries an expiry and a signature. Opening the watch page without one shows "This video needs a signed link". |
+
+To give viewers a private video, see [Share a private video](/studio/share#share-a-private-video).
+
+## Change one video
+
+<Steps>
+  <Step>Open the video from **Videos**.</Step>
+  <Step>In the **Details** card, find **Access** and click **Public** or **Private**.</Step>
+  <Step>
+    In the **Make this video private?** or **Make this video public?** box, click **Make private**
+    or **Make public**.
+  </Step>
+</Steps>
+
+When it saves, you see "The video is private now" or "The video is public now". If saving fails, the reason shows in the same box and nothing changes.
+
+## Change several videos
+
+<Steps>
+  <Step>
+    On the **Videos** page, select the videos ([work with several
+    videos](/studio/library#work-with-several-videos)).
+  </Step>
+  <Step>
+    In the bar that appears, click **Make private** or **Make public**. The bar shows **Make
+    private** when at least one selected video is public, and **Make public** when at least one is
+    private.
+  </Step>
+  <Step>Confirm in the dialog.</Step>
+</Steps>
+
+The Studio reports how many changed, for example "3 videos are now private". To change a single video from the list, open its actions menu and choose **Make private** or **Make public**.
+
+## What changes for viewers
+
+When you make a video private:
+
+- Players without a signed URL stop working within a minute. This covers the watch page link, the embed code and the stream URL, including players that are already playing.
+- Signed URLs created before the change stop working. Create new ones after the change.
+- A player that already streams the video straight from Sia keeps playing until its Sia links expire ([why](/developers/concepts/playback#revocation)).
+
+When you make a video public, anyone with its watch page link, embed code or stream URL can play it. Signed URLs created before the change stop working on playback IDs set to **Signed URL required**, so create new ones for those.
+
+## Playback IDs
+
+A playback ID is a second ID for the same video. Share or embed with it, and delete it later to stop those links without touching the video or its other IDs. The video ID itself keeps working either way.
+
+Playback IDs are on the **Playback IDs** tab of a ready video. The table shows each ID's **Name**, **Playback ID**, **Access**, **Stream URL** and **Created** date. **Access** is **Open** or **Signed URL**.
+
+### Create a playback ID
+
+<Steps>
+  <Step>Click **New playback ID**.</Step>
+  <Step>
+    Optionally enter a **Name** (up to 100 characters), for example the site where you use it.
+  </Step>
+  <Step>
+    Under **Who can play**, pick **Anyone with the URL** or **Signed URL required**, then click
+    **Create**.
+  </Step>
+</Steps>
+
+**Signed URL required** protects only that playback ID's own links. The Studio says so: "Players need a signed URL from your server. The video's files on Sia stay public unless the video itself is private." To keep the whole video behind signed URLs, make the video private.
+
+On a private video, the form starts on **Signed URL required**, and every playback ID needs a signed URL, whatever you pick.
+
+### Use or delete a playback ID
+
+Each row has copy buttons for the ID and its stream URL. Its actions menu has **Copy embed code**, **Copy stream URL** and **Delete**. When the ID needs a signed URL, the row also has **Copy signed URL**, which copies a stream URL that works for 1 hour.
+
+To use the ID in any code sample, pick it in **Play by** on the **Share** tab.
+
+## Stop links you already shared
+
+- **Delete the playback ID** the links use. Its stream URL, watch page and embed code stop working for anyone who opens them after you delete it. The video and its other playback IDs keep working. Deleting cannot be undone.
+- **Make the video private** to stop every link without a signature, and every signed URL created before the change (see [What changes for viewers](#what-changes-for-viewers)).
+- **Delete the video** to stop every link for good. See [Delete videos](/studio/delete).
+
+To cancel a private video's signed URLs without changing its access, your server calls the revoke endpoint ([Revoke signed URLs](/developers/guides/private-videos#revoke-signed-urls)).

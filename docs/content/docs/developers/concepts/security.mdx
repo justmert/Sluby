@@ -1,0 +1,116 @@
+---
+title: Security model
+description: What Sluby exposes without authentication, how it authenticates requests, and how it protects keys, sessions, signed URLs, cross-origin calls, webhooks and logs.
+---
+
+This page explains how a Sluby server decides who can do what: which routes are public, how API keys and Studio sessions are checked and stored, what `SESSION_SECRET` protects, what the server refuses to run with in production, and the guarantees behind signed URLs, CORS, webhook signing and logging.
+
+## What is public without authentication [#public-routes]
+
+These routes answer without an API key or a session:
+
+| Route                                          | What it gives out                                                                                                                                                             |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                                  | Liveness of the backend                                                                                                                                                       |
+| `GET /v1/objects/{objectId}`                   | Objects of public assets; objects of private assets only with a valid signed URL                                                                                              |
+| `GET /v1/stream/{id}/master.m3u8`              | The master playlist of a public video; a private video or a playback id with the `signed` policy needs a signed URL                                                           |
+| `GET /v1/share/{id}`                           | The `sia://` share map of a video, gated like `/v1/stream`                                                                                                                    |
+| `GET /watch/{id}`                              | The watch page, gated like `/v1/stream`                                                                                                                                       |
+| `GET /v1/cache/stats`                          | The delivery cache's size and hit counts                                                                                                                                      |
+| `/api/v1/auth/...`                             | The sign-in, setup and invite routes, so a browser can get a session. The routes that list or end your sessions and change your password check the session cookie themselves. |
+| `GET /api/v1/openapi.json`, `GET /api/v1/docs` | The API description and its reference page                                                                                                                                    |
+
+Everything else under `/api/v1` needs a Studio session or an API key, and tus uploads authenticate the same way. How each gated delivery route decides is on [Playback and delivery](/developers/concepts/playback).
+
+The backend also serves Prometheus metrics at `GET /metrics`. When `METRICS_TOKEN` is set ([configuration](/self-hosting/configuration#metrics_token)), the route needs `Authorization: Bearer <token>` and answers `401` with `Metrics token required` otherwise; the server compares the token in constant time. The shipped nginx does not proxy `/metrics`, and the Compose files publish no backend port, so only containers on the Compose network reach it. The JSON metrics at `GET /api/v1/metrics` are for admins only.
+
+## How a request is authenticated [#authentication]
+
+Every other request under `/api/v1`, and every tus upload request, must carry a Studio session cookie or an API key in `Authorization: Bearer <key>`. A session cookie wins when a request carries both. Admin-only routes then check the caller's role, and each route checks for the scope it needs. The order of these checks, the roles and how a key takes its creator's role are on [Accounts, roles and sessions](/developers/concepts/accounts-and-roles#callers). The scopes and what each allows are on [API conventions](/developers/reference/api-conventions#scopes).
+
+## API keys [#api-keys]
+
+- The server keeps only a SHA-256 hash of each key and its first 12 characters, so you can tell keys apart in a list. The raw key appears once, in the response that creates or rotates it, and nobody can read it back, including from a copy of the database. The key format is on [API conventions](/developers/reference/api-conventions#api-keys).
+- A key never acts beyond its creator's current role, so removing a member stops their keys on the next request ([details](/developers/concepts/accounts-and-roles#callers)).
+- [Rotating a key](/developers/reference/api/keys/post-keys-id-rotate) issues a new secret with the same name, scopes and rate limit. The old key stops at once, or after a grace period of up to one week.
+- The server remembers the hash of every `BOOTSTRAP_API_KEY` it has seeded and never seeds the same key again. A bootstrap key you deleted or rotated away stays gone across restarts, even while the variable is still set ([configuration](/self-hosting/configuration#bootstrap_api_key)).
+
+## SESSION_SECRET [#session-secret]
+
+`SESSION_SECRET` is the root of three things:
+
+- The server signs Studio session cookies with HMAC-SHA256 under it.
+- Signed playback URLs use an HMAC key derived from it for that purpose alone, so a URL signature can never pass as a cookie signature, or the other way round.
+- The server derives the setup code that claims a fresh install from it.
+
+Its default, how the server generates one outside production, and what changing it does are on [Configuration reference](/self-hosting/configuration#session_secret).
+
+## What production refuses [#production-refusals]
+
+With `NODE_ENV=production`, the backend runs startup checks and refuses to start with an unsafe configuration, such as a weak `SESSION_SECRET` or sign-in turned off. [`NODE_ENV`](/self-hosting/configuration#node_env) lists the checks, and [Troubleshooting](/self-hosting/troubleshooting#the-backend-refuses-to-start) quotes each message with its fix.
+
+The production Compose file sets `NODE_ENV=production` and `AUTH_DISABLED=false`, and requires `SESSION_SECRET`. See [Run in production](/self-hosting/production). [`AUTH_DISABLED`](/self-hosting/configuration#auth_disabled) is for local development only: with it on, every request acts as one local admin account.
+
+## Sessions and cookies [#cookies]
+
+The Studio session cookie is `HttpOnly`, so page scripts cannot read it, and `SameSite=Lax` so that it rides along on the redirect back from GitHub sign-in. Its value is signed, but a valid signature alone is not enough: on every request the server also checks that the session row is still live and that the account has not been removed, which is what makes signing out and removing a member take effect at once. The cookie's attributes are on [API conventions](/developers/reference/api-conventions#session-cookie), and how sessions start and end is on [Accounts, roles and sessions](/developers/concepts/accounts-and-roles#sessions).
+
+The shipped nginx sends the Studio page with `Cache-Control: no-store`, so Back after signing out does not show the signed-in Studio from the browser's cache.
+
+## Passwords, setup code and links [#sign-in-secrets]
+
+- **Passwords**: the server stores only scrypt hashes. A sign-in with an unknown email still runs a full hash, so response time does not reveal which emails exist.
+- **The setup code**: the server derives it from `SESSION_SECRET` and, while sign-in is on and the install has no admin, writes it to its log at startup. Only someone who can read the server's logs or its secret can claim a fresh install.
+- **Invite and reset links**: each carries a random token, and the server stores only the token's SHA-256 hash, so the database alone cannot be used to join or take over an account. A reset link works once. An invite link lets in as many people as the admin chose. Both expire.
+
+The parameters behind each of these are on [Accounts, roles and sessions](/developers/concepts/accounts-and-roles#sign-in-methods). Sign-in, setup and link attempts have their own per-address and per-email limits, listed on [API conventions](/developers/reference/api-conventions#rate-limits).
+
+## CORS and cross-origin writes [#cors]
+
+The API trusts the session cookie only from the origins you list in `CORS_ORIGIN` ([configuration](/self-hosting/configuration#cors_origin)). A page on any other origin can call the API with a bearer key, but its requests never carry the session cookie. While `AUTH_DISABLED` is on, unlisted origins get no CORS headers at all, so other pages cannot read responses made as the local admin account.
+
+CORS only decides who can read a response, so the API also refuses writes that a page on another origin could send without a preflight and that rely on the cookie alone. The exact rules for both are on [API conventions](/developers/reference/api-conventions#cors) and [Cross-origin writes](/developers/reference/api-conventions#cross-origin-writes).
+
+The production Compose file sets `CORS_ORIGIN` to `https://` plus your domain, so only the Studio's own origin rides the cookie.
+
+The delivery routes (`/v1/objects`, `/v1/stream`, `/v1/share`) answer any origin without credentials, because players on other sites fetch them.
+
+## Signed URLs [#signed-urls]
+
+A signed URL grants access to one object until one time, and nothing else:
+
+- The signature covers the object id, the expiry and the asset's signing generation, so nobody can move it to another object or extend it.
+- The gateway refuses any URL whose expiry lies further ahead than the maximum lifetime, whatever minted it ([Lifetime](/developers/concepts/playback#signed-url-lifetime)).
+- Revoking, or changing the asset's tier, raises the signing generation and stops every URL signed before.
+- nginx never stores a request that carries a signature, and responses for private assets carry `Cache-Control: no-store`.
+
+The lifetimes, the revocation steps and what a revoke does not reach are on [Playback and delivery](/developers/concepts/playback#signed-urls).
+
+## Webhook signing and egress [#webhooks]
+
+Each webhook endpoint has its own signing secret, and every delivery carries a timestamped HMAC-SHA256 signature of its body, so a receiver can check that a request came from your server and refuse replayed requests. The headers, the scheme and secret rotation are on [Webhook events](/developers/reference/webhook-events#signature-scheme).
+
+API callers choose the receiver URLs, so the server checks every address a receiver's host resolves to, refuses private and other non-public addresses, and connects only to the addresses it checked. It never follows redirects and never reads the response body. The refused ranges are on [Webhook events](/developers/reference/webhook-events#receiver-addresses); to allow receivers on your own network, set [`WEBHOOK_ALLOWED_NETWORKS`](/self-hosting/configuration#webhook_allowed_networks).
+
+## Rate limits [#rate-limits]
+
+Requests are limited at two layers:
+
+- **nginx** limits each client address on the delivery routes (`/v1/`) and the sign-in routes (`/api/v1/auth/`), and answers `429` over the limit.
+- **The backend** limits unauthenticated `/api/v1` requests per client address, and authenticated requests per API key or Studio session.
+
+The numbers, headers and `429` body are on [API conventions](/developers/reference/api-conventions#rate-limits).
+
+## Logs and error responses [#logs-and-errors]
+
+- The backend logs request URLs with every query value replaced by `[redacted]`, except a fixed list of keys that carry no secret, such as `limit`, `cursor` and `expires`. URL signatures (`sig`) and the OAuth `code` and `state` never reach the backend's logs, and it redacts invite and reset tokens in paths too. The access log of the shipped nginx records each full request line, query string included.
+- Play counts store a hash of the viewer's address and user agent, not the address.
+- An unexpected server error answers `500` with `Internal Server Error` and no internal detail. Only with [`EXPOSE_ERROR_STACKS`](/self-hosting/configuration#expose_error_stacks) on do error responses carry messages and stack traces. The error format is on [API conventions](/developers/reference/api-conventions#errors).
+
+## Response headers [#headers]
+
+The shipped nginx sends `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: strict-origin-when-cross-origin` on the Studio and API, and hides its version. The Studio page carries a Content Security Policy with `frame-ancestors 'none'`. The delivery routes and the watch page set their own headers instead, because other sites load and frame them: the watch page's policy sets `frame-ancestors *` and loads scripts, styles and media only from its own origin.
+
+## Sia credentials [#sia-credentials]
+
+The backend uploads to Sia with the app key in `SIA_APP_KEY` ([configuration](/self-hosting/configuration#sia_app_key)), which stays on the server. Direct playback in the browser uses a separate viewer identity, made with the `provision-viewer` script and built into the Studio as `VITE_SLUBY_SIA_*` values. See [Stream from Sia in the browser](/self-hosting/direct-playback).

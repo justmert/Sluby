@@ -1,0 +1,407 @@
+---
+title: '@sluby/player reference'
+description: Every export, prop, callback, handle method and loader of the Sluby React player and its hls.js entry.
+---
+
+`@sluby/player` plays Sluby videos in React: an hls.js player with adaptive quality, bounded error recovery, renewal of signed URLs, Safari's native HLS and direct-from-Sia delivery. Its `@sluby/player/hls` entry gives the same Sia loaders to apps that run hls.js without React. For a walkthrough, see [Play videos in React](/developers/guides/play-react) and [Play videos without React](/developers/guides/play-hls).
+
+## Install [#install]
+
+```bash
+npm install @sluby/player react react-dom
+```
+
+For the `@sluby/player/hls` entry alone, React is not needed:
+
+```bash
+npm install @sluby/player hls.js
+```
+
+To resolve playback URLs from an asset id or to stream from Sia, also install [`@sluby/sdk`](/developers/reference/sdk) and pass a `SlubyClient` as `client`.
+
+## Package [#package]
+
+| Fact              | Value                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| Version           | This page describes `@sluby/player` 0.3.0                                                           |
+| Entry points      | `@sluby/player` (React) and `@sluby/player/hls` (no React)                                          |
+| Module formats    | ESM (`import`) and CommonJS (`require`) for both entries, each with type declarations               |
+| Dependencies      | `hls.js`                                                                                            |
+| Peer dependencies | `react` and `react-dom`, `^18 \|\| ^19`, both optional so `@sluby/player/hls` installs without them |
+| Node.js           | `^20.16.0 \|\| >=22.3.0` (the `engines` field)                                                      |
+| Side effects      | None (`"sideEffects": false`)                                                                       |
+
+## Exports [#exports]
+
+| Entry               | Export                                                                                                                                                                                                                                                                                          | Kind            |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `@sluby/player`     | [`SlubyPlayer`](#slubyplayer)                                                                                                                                                                                                                                                                   | React component |
+| `@sluby/player`     | [`useVideo`](#usevideo)                                                                                                                                                                                                                                                                         | React hook      |
+| `@sluby/player`     | [`SlubyPlayerHandle`](#handle), `SlubyPlayerProps`, `UseVideoReturn`, [`QualityLevel`, `TextTrackSource`, `PlayerState`, `PlaybackResolver`, `SiaPlaybackClient`](#types), [`SiaPlaybackSession`, `SiaShareSource`](#sia-session-types), [`HybridPolicy`, `HybridDeliveryStats`](#hybrid-types) | Types           |
+| `@sluby/player/hls` | [`createSiaLoader`](#createsialoader)                                                                                                                                                                                                                                                           | Function        |
+| `@sluby/player/hls` | [`createHybridLoader`](#createhybridloader)                                                                                                                                                                                                                                                     | Function        |
+| `@sluby/player/hls` | [`DEFAULT_HYBRID_POLICY`](#hybrid-types)                                                                                                                                                                                                                                                        | Constant        |
+| `@sluby/player/hls` | `HybridLoaderOptions`, `HybridPolicy`, `HybridDeliveryStats`, `SiaPlaybackSession`, `SiaShareSource`                                                                                                                                                                                            | Types           |
+
+## SlubyPlayer [#slubyplayer]
+
+```tsx
+import { SlubyPlayer } from '@sluby/player';
+
+<SlubyPlayer client={client} assetId={assetId} title="Launch video" />;
+```
+
+`SlubyPlayer` renders a `<div>` around a `<video>` and forwards a ref of type [`SlubyPlayerHandle`](#handle). The `<video>` always has `playsInline`.
+
+### Choose the source [#source]
+
+| Props                                             | What the player plays                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src`                                             | The URL as given, through the gateway                                                                                                                                                                                                                                                                                                         |
+| `src` + `assetId` + `client` with a `sia` session | The same video straight from Sia, with the share map from the public share endpoint for `src`. No API key needed.                                                                                                                                                                                                                             |
+| `client` + `assetId`, no `src`                    | The player calls `client.playback.getUrl(assetId)`. When that reports a private asset, it then calls `client.playback.getSignedUrl(assetId, { expiresIn })` and plays the signed URL. With `signed`, it calls only `getSignedUrl`. With a `sia` session on `client` it streams from Sia, with the share map from the authenticated API route. |
+
+`assetId` takes an asset id or a `pb_...` playback id.
+
+Without `src`, `client` needs a `playback` member (a `SlubyClient` has one). Otherwise the player fails with `SlubyPlayer needs a client with playback (a SlubyClient) to play an assetId without src.`
+
+### Source props [#source-props]
+
+| Prop         | Type                                         | Default        | Behavior                                                                                                                                                                                                                                |
+| ------------ | -------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src`        | `string`                                     | none           | Absolute HLS master manifest URL on the gateway, such as `client.playback.streamUrl(id)` or a URL your server signed. A new `src` for the same video (same URL without its query) keeps playing without a reload while hls.js plays it. |
+| `refreshSrc` | `(src: string) => string \| Promise<string>` | none           | For a signed `src`: called with the current `src` before it expires, and when a load fails after that. The player continues on the returned URL. Without it, playback of a signed `src` fails at its expiry.                            |
+| `client`     | `PlaybackResolver \| SiaPlaybackClient`      | none           | A `SlubyClient`, or any object of either [type](#types). With `src`, the player uses only `client.sia`, so `{ sia }` is enough. Create it once: a different object resolves and loads the video again.                                  |
+| `assetId`    | `string`                                     | none           | Asset id or `pb_...` playback id                                                                                                                                                                                                        |
+| `signed`     | `boolean`                                    | `false`        | Play a signed URL from `client.playback.getSignedUrl`. Ignored with `src`.                                                                                                                                                              |
+| `expiresIn`  | `number`                                     | server default | Lifetime in seconds of each signed URL the player fetches. Ignored with `src`.                                                                                                                                                          |
+
+Passing `signed` or `expiresIn` together with `src` logs a console warning: `Sluby: signed and expiresIn are ignored when src is given; sign src on your server and pass refreshSrc to renew it before it expires.`
+
+### Display props [#display-props]
+
+| Prop              | Type                                     | Default             | Behavior                                                                                                                      |
+| ----------------- | ---------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `poster`          | `string`                                 | the resolved poster | `<video poster>`. Without it, the player uses the poster that `getUrl` or `getSignedUrl` returned.                            |
+| `title`           | `string`                                 | none                | Set as the `<video>`'s `aria-label`, the name screen readers announce                                                         |
+| `tracks`          | `TextTrackSource[]`                      | none                | WebVTT caption and subtitle files, rendered as `<track>` elements                                                             |
+| `crossOrigin`     | `'' \| 'anonymous' \| 'use-credentials'` | not set             | The `<video>`'s `crossorigin` attribute. Tracks on another origin need it, and that origin must send CORS headers.            |
+| `controls`        | `boolean`                                | `true`              | The browser's native controls                                                                                                 |
+| `muted`           | `boolean`                                | `false`             | Start muted                                                                                                                   |
+| `autoPlay`        | `boolean`                                | `false`             | Start playing once the manifest is parsed and the element is ready to play. The browser's autoplay policy can still block it. |
+| `width`, `height` | `number \| string`                       | none                | Applied to the wrapper's style and to the `<video>`                                                                           |
+| `className`       | `string`                                 | none                | On the wrapper `<div>`                                                                                                        |
+| `style`           | `CSSProperties`                          | none                | Merged over the wrapper's base style, `position: relative; display: inline-block`                                             |
+| `overlay`         | `boolean`                                | `true`              | The built-in loading spinner and error overlay with a **Retry** button                                                        |
+
+### Recovery props [#recovery-props]
+
+| Prop                | Type     | Default | Behavior                                                        |
+| ------------------- | -------- | ------- | --------------------------------------------------------------- |
+| `maxNetworkRetries` | `number` | `3`     | Recoveries from fatal network errors before the player gives up |
+| `maxMediaRetries`   | `number` | `2`     | Recoveries from fatal media errors before the player gives up   |
+
+### Delivery props [#delivery-props]
+
+| Prop           | Type                    | Default                                  | Behavior                                                                                              |
+| -------------- | ----------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `siaDelivery`  | `'direct' \| 'hybrid'`  | `'direct'`                               | How a video with a viewer session is delivered. Ignored without a session. See [Delivery](#delivery). |
+| `hybridPolicy` | `Partial<HybridPolicy>` | [`DEFAULT_HYBRID_POLICY`](#hybrid-types) | Tuning for `siaDelivery="hybrid"`. Read when a load starts.                                           |
+
+### Callbacks [#callbacks]
+
+| Prop                | Type                                             | Called                                                                                                                                |
+| ------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `onReady`           | `() => void`                                     | When the manifest is parsed (hls.js) or on `loadedmetadata` (native HLS)                                                              |
+| `onPlay`            | `() => void`                                     | On the `<video>`'s `play` event                                                                                                       |
+| `onPause`           | `() => void`                                     | On the `<video>`'s `pause` event                                                                                                      |
+| `onEnd`             | `() => void`                                     | On the `<video>`'s `ended` event                                                                                                      |
+| `onError`           | `(error: Error) => void`                         | When the player gives up. `error.cause` holds the underlying error when there is one, such as an SDK `SlubyError` or an hls.js error. |
+| `onStateChange`     | `(state: PlayerState) => void`                   | Once with the starting state on mount, then on every [state](#states) change, in order                                                |
+| `onQualityChange`   | `(level: QualityLevel) => void`                  | On every rendition switch, and once the manifest is parsed when hls.js has already picked a rendition                                 |
+| `onQualitiesChange` | `(levels: QualityLevel[]) => void`               | With every rendition once the manifest is parsed. hls.js path only.                                                                   |
+| `onDeliveryChange`  | `(mode: 'sia' \| 'hybrid' \| 'gateway') => void` | When each load starts, with how its bytes travel. See [Delivery](#delivery).                                                          |
+| `onDeliveryStats`   | `(stats: HybridDeliveryStats) => void`           | Under hybrid delivery, after every media segment, with the totals of the load so far                                                  |
+
+Changing a callback, `autoPlay`, `refreshSrc`, the retry limits or `hybridPolicy` does not reload the video.
+
+### States [#states]
+
+| `PlayerState` | Meaning                                                                      |
+| ------------- | ---------------------------------------------------------------------------- |
+| `idle`        | Nothing to play yet                                                          |
+| `loading`     | Resolving the URL or loading the manifest                                    |
+| `ready`       | The manifest is loaded, or the video is playing                              |
+| `buffering`   | The `<video>` is waiting for data, or the player is recovering from an error |
+| `error`       | The player gave up. The overlay shows the message and **Retry**.             |
+
+**Retry** resolves the source again and continues from the same position.
+
+### Error recovery [#error-recovery]
+
+| hls.js fatal error | Recovery                                                           | Message when the player gives up                        |
+| ------------------ | ------------------------------------------------------------------ | ------------------------------------------------------- |
+| Network error      | Reloads after `1000 ms × attempt`, up to `maxNetworkRetries` times | `Network error, gave up after <n> retries (<details>).` |
+| Media error        | `hls.recoverMediaError()`, up to `maxMediaRetries` times           | `Media error, gave up after <n> retries (<details>).`   |
+| Any other type     | None                                                               | `Fatal HLS error: <type> / <details>`                   |
+
+The retry counters reset each time a segment is buffered. A new load of the same video (after **Retry** or a renewal that reloads) resumes at the same position and play state.
+
+When hls.js is unsupported and the browser has no native HLS, the player fails with `HLS is not supported in this browser and native HLS is unavailable.` When hls.js is unsupported but the browser plays HLS natively (such as Safari on an iPhone without Managed Media Source), the player sets the URL on the `<video>` and plays through the gateway. Quality callbacks and `getQualities()` have nothing to report there.
+
+### Signed URL renewal [#renewal]
+
+The player renews a signed URL when it knows the expiry and either it signed the URL itself (`client` + `assetId`) or you passed `refreshSrc`. The expiry comes from `expiresAt` of `getSignedUrl`, or from the `expires` query parameter (Unix seconds) of the URL.
+
+| Step                                                         | Behavior                                                                                                                                   |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| When                                                         | 60 seconds before the expiry, or halfway through the URL's remaining life when that is under 2 minutes                                     |
+| How                                                          | `refreshSrc(currentSrc)` for a `src`; a new `getUrl` / `getSignedUrl` call with the same `signed` and `expiresIn` for `client` + `assetId` |
+| Same video, same delivery path, hls.js playing               | The player switches to the new URLs in place and keeps the buffer                                                                          |
+| Native HLS, or the delivery path changed                     | The player reloads and resumes at the same position                                                                                        |
+| Renewal fails                                                | Logs `Sluby: could not renew the signed playback URL.` and keeps playing until the expiry                                                  |
+| Network error at most 60 seconds before the expiry, or later | The player renews instead of retrying. If that fails: `The playback URL expired and could not be renewed (<details>).`                     |
+
+Direct-from-Sia playback from `client` + `assetId` does not depend on the signed URL's expiry: the session renews its share map on its own.
+
+## Delivery [#delivery]
+
+A load uses Sia only when there is a viewer session (`client.sia`) and hls.js runs in the browser. [Playback and delivery](/developers/concepts/playback) explains the three modes.
+
+| Condition                                                      | `onDeliveryChange` | Loader                                                                                                    |
+| -------------------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------- |
+| Session, `siaDelivery="direct"`, `session.prepare()` succeeded | `'sia'`            | [`createSiaLoader`](#createsialoader): every playlist and segment from Sia                                |
+| Session, `siaDelivery="direct"`, `session.prepare()` failed    | `'gateway'`        | hls.js's HTTP loader. The console shows `Sluby: direct-from-Sia delivery unavailable, using the gateway.` |
+| Session, `siaDelivery="hybrid"`                                | `'hybrid'`         | [`createHybridLoader`](#createhybridloader): starts on the gateway without waiting for the session        |
+| No session, or `src` without `assetId`                         | `'gateway'`        | hls.js's HTTP loader                                                                                      |
+| Native HLS                                                     | `'gateway'`        | The browser                                                                                               |
+
+## Handle [#handle]
+
+```ts
+interface SlubyPlayerHandle {
+  getVideoElement: () => HTMLVideoElement | null;
+  getHlsInstance: () => Hls | null;
+  getQualities: () => QualityLevel[];
+  setQuality: (levelIndex: number) => void;
+  isAutoQuality: () => boolean;
+}
+```
+
+| Method                   | Returns                                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `getVideoElement()`      | The `<video>`, or `null` before mount                                                                                                                                                                  |
+| `getHlsInstance()`       | The current hls.js instance, or `null` on native HLS. The player creates a new instance for every load (another video, a retry), so read it when you need it. A renewed signed URL keeps the instance. |
+| `getQualities()`         | The renditions of the loaded manifest. Empty on native HLS.                                                                                                                                            |
+| `setQuality(levelIndex)` | Pins the rendition with that `index`. `-1`, or any index out of range, goes back to adaptive.                                                                                                          |
+| `isAutoQuality()`        | Whether hls.js picks the rendition. `true` when there is no hls.js instance.                                                                                                                           |
+
+## useVideo [#usevideo]
+
+```ts
+function useVideo(player: RefObject<SlubyPlayerHandle | null>): UseVideoReturn;
+function useVideo(
+  videoRef: RefObject<HTMLVideoElement | null>,
+  hlsRef: RefObject<Hls | null>,
+): UseVideoReturn;
+```
+
+A headless hook for custom controls. Pass the ref of a `SlubyPlayer`, or a `<video>` ref and an hls.js instance ref for a player of your own. The hook follows the element once it mounts and every hls.js instance attached to it.
+
+```tsx
+import { useRef } from 'react';
+import { SlubyPlayer, useVideo, type SlubyPlayerHandle } from '@sluby/player';
+
+function Player({ src }: { src: string }) {
+  const player = useRef<SlubyPlayerHandle>(null);
+  const video = useVideo(player);
+  return (
+    <>
+      <SlubyPlayer ref={player} src={src} controls={false} />
+      <button onClick={video.isPlaying ? video.pause : video.play}>
+        {video.isPlaying ? 'Pause' : 'Play'}
+      </button>
+    </>
+  );
+}
+```
+
+| Member           | Type                           | Behavior                                                                                                |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `play`           | `() => void`                   | Calls `video.play()`. A rejection, such as an autoplay block, is ignored and `isPlaying` stays `false`. |
+| `pause`          | `() => void`                   | Pauses                                                                                                  |
+| `seek`           | `(time: number) => void`       | Seeks to `time` seconds, clamped to 0 and, once known, the duration                                     |
+| `setQuality`     | `(levelIndex: number) => void` | Same as the handle's `setQuality`                                                                       |
+| `setVolume`      | `(vol: number) => void`        | Sets the volume, clamped to 0 to 1. `0` also mutes, and any other value unmutes.                        |
+| `qualities`      | `QualityLevel[]`               | The renditions, empty until the manifest is parsed                                                      |
+| `currentQuality` | `QualityLevel \| null`         | The playing rendition                                                                                   |
+| `duration`       | `number`                       | Seconds, `0` while unknown                                                                              |
+| `currentTime`    | `number`                       | Seconds                                                                                                 |
+| `isPlaying`      | `boolean`                      |                                                                                                         |
+| `isBuffering`    | `boolean`                      | `true` after `waiting`, `false` after `playing`, `canplay` or `seeked`                                  |
+| `volume`         | `number`                       | `0` when muted. Starts at `1`.                                                                          |
+
+The hook updates from `<video>` events and hls.js events; it runs no timer.
+
+## @sluby/player/hls [#hls-entry]
+
+The loaders that `SlubyPlayer` uses, for apps that create hls.js themselves. Each returns a loader class for hls.js's `loader` config option.
+
+### createSiaLoader [#createsialoader]
+
+```ts
+function createSiaLoader(
+  session: SiaPlaybackSession,
+  assetId: string,
+  source?: SiaShareSource,
+): { new (config: HlsConfig): Loader<LoaderContext> };
+```
+
+```ts
+import Hls from 'hls.js';
+import { createSiaLoader } from '@sluby/player/hls';
+
+const src = client.playback.streamUrl(assetId);
+await client.sia!.prepare(assetId, { src });
+const hls = new Hls({ loader: createSiaLoader(client.sia!, assetId, { src }) });
+hls.attachMedia(video);
+hls.loadSource(src);
+```
+
+| Behavior      | Detail                                                                                                                                                                                                                                              |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| URLs it loads | `.../v1/objects/{id}` (the loader reads the object id from the path) and `.../v1/stream/{id}/master.m3u8` (the master object id comes from `session.masterObjectId`). Any other URL fails with status 400 and `SiaLoader: no object id in "<url>"`. |
+| `source`      | `{ src }` with the playback URL hls.js loads: the share map comes from the public share endpoint for it, with no API key. Leave it out to use the authenticated API route.                                                                          |
+| Byte ranges   | Honored. The loader reads a segment without a range whole.                                                                                                                                                                                          |
+| Timeouts      | hls.js's `loadPolicy.maxLoadTimeMs`                                                                                                                                                                                                                 |
+| Failures      | A session error with a `statusCode` from 400 to 499 goes to hls.js with that status, which hls.js's default retry policy does not retry. Any other failure goes to hls.js with status 502, which that policy retries.                               |
+
+A `/v1/stream/...` URL with a session that has no `masterObjectId` fails with status 502 and `SiaLoader: this session cannot resolve a /v1/stream master url; use a SlubyClient session or play the /v1/objects/{id} master url`.
+
+### createHybridLoader [#createhybridloader]
+
+```ts
+function createHybridLoader(options: HybridLoaderOptions): {
+  new (config: HlsConfig): Loader<LoaderContext>;
+};
+
+interface HybridLoaderOptions {
+  session: SiaPlaybackSession;
+  assetId: string;
+  source?: SiaShareSource;
+  media: () => HTMLMediaElement | null;
+  urls?: { readonly current: Map<string, string> };
+  policy?: Partial<HybridPolicy>;
+  onStats?: (stats: HybridDeliveryStats) => void;
+}
+```
+
+| Option                         | Behavior                                                                                                                                                 |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session`, `assetId`, `source` | As for `createSiaLoader`                                                                                                                                 |
+| `media`                        | Returns the element hls.js feeds. The loader reads how much is buffered ahead of the playhead.                                                           |
+| `urls`                         | Current gateway URL per object, keyed by URL without its query. Requests go to these URLs when set. `SlubyPlayer` uses it to renew signed URLs in place. |
+| `policy`                       | Merged over [`DEFAULT_HYBRID_POLICY`](#hybrid-types)                                                                                                     |
+| `onStats`                      | Called after every media segment with a copy of the totals                                                                                               |
+
+The loader extends hls.js's default loader:
+
+- Playlists, keys and anything that is not a media segment with a `/v1/objects/` id go through the gateway.
+- A media segment comes from Sia only when no other Sia read is running, Sia is not paused, a 1-byte warm-up read of that object succeeded, and at least `minBufferSec` seconds are buffered ahead. Otherwise it comes from the gateway.
+- A Sia read gets `min(maxSiaWaitMs, (bufferAhead - safetyMarginSec) × 1000)` milliseconds. When it fails or runs out of time, the gateway fetches the segment and the segment counts as a fallback.
+- `maxFailures` failed reads in a row, warm-up reads included, pause Sia for `pauseMs`. A successful segment read resets the count.
+- When `session.prepare()` fails, the console shows `Sluby: Sia is unavailable for now, playing through the gateway.` and Sia is paused for `pauseMs`, then tried again.
+
+Every loader of one class shares the same state (warm objects, failures, totals). Create a new class for every hls.js instance.
+
+### HybridPolicy and HybridDeliveryStats [#hybrid-types]
+
+| `HybridPolicy` field | `DEFAULT_HYBRID_POLICY` | Meaning                                                                                    |
+| -------------------- | ----------------------- | ------------------------------------------------------------------------------------------ |
+| `minBufferSec`       | `10`                    | Seconds buffered ahead before a segment can come from Sia                                  |
+| `safetyMarginSec`    | `4`                     | Seconds of buffer kept in hand: a Sia read is cut off while this much is left              |
+| `maxSiaWaitMs`       | `20000`                 | Longest single Sia read, in milliseconds                                                   |
+| `maxFailures`        | `3`                     | Failed or cut-off Sia reads in a row, warm-up reads included, before the loader pauses Sia |
+| `pauseMs`            | `60000`                 | How long Sia stays paused, in milliseconds                                                 |
+
+| `HybridDeliveryStats` field | Meaning                                                     |
+| --------------------------- | ----------------------------------------------------------- |
+| `siaBytes`                  | Media bytes read from Sia hosts                             |
+| `gatewayBytes`              | Media bytes fetched through the gateway, fallbacks included |
+| `siaSegments`               | Segments read from Sia                                      |
+| `gatewaySegments`           | Segments fetched through the gateway                        |
+| `fallbacks`                 | Segments Sia started but the gateway delivered              |
+
+The totals count the media segments of one load and leave out playlists.
+
+## Types [#types]
+
+### QualityLevel [#qualitylevel]
+
+| Field             | Type     | Value                                                                                                                                                                                                   |
+| ----------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index`           | `number` | The hls.js level index, the value `setQuality` takes                                                                                                                                                    |
+| `width`, `height` | `number` | Pixels                                                                                                                                                                                                  |
+| `bitrate`         | `number` | The rendition's `BANDWIDTH` in the manifest, in bits per second                                                                                                                                         |
+| `name`            | `string` | The shorter side plus `p`, so a 720 × 1280 portrait rendition is `720p`, the same as a 1280 × 720 landscape one. `SlubyPlayer` callbacks, `getQualities()` and `useVideo` name renditions the same way. |
+
+### TextTrackSource [#texttracksource]
+
+| Field     | Type                        | Value                                           |
+| --------- | --------------------------- | ----------------------------------------------- |
+| `src`     | `string`                    | URL of a WebVTT file                            |
+| `kind`    | `'subtitles' \| 'captions'` |                                                 |
+| `srclang` | `string`                    | BCP 47 language tag, such as `en`               |
+| `label`   | `string`                    | The name shown in the track menu                |
+| `default` | `boolean`                   | Show this track unless the viewer picks another |
+
+### PlaybackResolver and SiaPlaybackClient [#playbackresolver]
+
+Structural types, so the player has no hard dependency on `@sluby/sdk`. A `SlubyClient` fits both.
+
+```ts
+interface SiaPlaybackClient {
+  sia?: SiaPlaybackSession;
+}
+
+interface PlaybackResolver extends SiaPlaybackClient {
+  playback: {
+    getUrl(assetId: string): Promise<{
+      playbackUrl: string;
+      posterUrl: string | null;
+      accessTier?: 'public' | 'private';
+    }>;
+    getSignedUrl(
+      assetId: string,
+      options?: { expiresIn?: number },
+    ): Promise<{ signedUrl: string; expiresAt?: string; posterUrl?: string | null }>;
+  };
+}
+```
+
+### SiaPlaybackSession and SiaShareSource [#sia-session-types]
+
+```ts
+interface SiaShareSource {
+  src?: string;
+}
+
+interface SiaPlaybackSession {
+  prepare(assetId: string, source?: SiaShareSource): Promise<void>;
+  resolveObjectId(assetId: string, objectId: string, source?: SiaShareSource): Promise<unknown>;
+  download(object: unknown, options?: { offset?: number; length?: number }): ReadableStream;
+  masterObjectId?(assetId: string, source?: SiaShareSource): Promise<string>;
+}
+```
+
+The SDK's [`SiaSession`](/developers/reference/sdk#sia) (`client.sia`) implements it. `masterObjectId` is needed only to play a `/v1/stream/{id}/master.m3u8` URL.
+
+## Overlay markup [#overlay]
+
+The built-in overlay renders no `<style>` element, so it needs no `style-src 'unsafe-inline'` in a Content Security Policy. The spinner turns through the Web Animations API, slower under `prefers-reduced-motion`. Style the overlay with these attributes:
+
+| Selector                         | Element                                                          |
+| -------------------------------- | ---------------------------------------------------------------- |
+| `[data-sluby-overlay="loading"]` | The loading overlay, `role="status"`                             |
+| `[data-sluby-overlay="error"]`   | The error overlay with the message and **Retry**, `role="alert"` |
+| `[data-sluby-spinner]`           | The spinner                                                      |

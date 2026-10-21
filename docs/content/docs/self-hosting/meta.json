@@ -1,0 +1,16 @@
+{
+  "title": "Self-hosting",
+  "description": "Install and run a Sluby server",
+  "root": true,
+  "pages": [
+    "index",
+    "sia-storage",
+    "production",
+    "sign-in",
+    "direct-playback",
+    "operations",
+    "troubleshooting",
+    "---Reference---",
+    "configuration"
+  ]
+}

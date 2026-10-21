@@ -1,0 +1,62 @@
+---
+title: Delete videos
+description: Delete one video or many from the Studio, and what happens to the video's files and links.
+---
+
+Delete a video from its page, or delete several at once from the **Videos** page. Deleting is final: there is no trash and no undo.
+
+<Callout type="warn" title="Deletion cannot be undone">
+  A deleted video leaves your library at once, the server removes its files from Sia, and every link
+  and embed of it stops working. To keep a copy, keep the original file.
+</Callout>
+
+## Delete one video
+
+<Steps>
+  <Step>Open the video from **Videos**.</Step>
+  <Step>
+    Click **Delete video** in the **Delete video** card beside or below the player, or open **More**
+    next to **Copy embed code** and choose **Delete video**.
+  </Step>
+  <Step>
+    Read the confirmation, for example "It is removed from your library now and its 9 files are
+    removed from Sia in the background. Every embed stops working. This cannot be undone." Click
+    **Delete video**.
+  </Step>
+</Steps>
+
+The Studio says "Video deleted" and returns to **Videos**.
+
+You can also delete from the list: open the video's actions menu (the button at the end of its row) and choose **Delete…**. The dialog asks "Delete this video?" Click **Delete**.
+
+A video that failed processing or whose upload was interrupted has a **Delete video** button in the player area too.
+
+## Delete several videos
+
+<Steps>
+  <Step>
+    On the **Videos** page, tick the box at the start of each video you want to delete. To select a
+    whole page, use the box in the table heading or **Select all** in the grid. To go beyond one
+    page, click **Select all N results** in the bar that appears. Above 500 results it reads
+    **Select the first 500 results**: one delete takes at most 500 videos.
+  </Step>
+  <Step>Click **Delete** in the bar at the bottom of the page.</Step>
+  <Step>The dialog asks, for example, "Delete 3 videos?" Click **Delete**.</Step>
+</Steps>
+
+The Studio confirms with "3 videos deleted". If some videos could not be deleted, it names each one with the reason, for example "Could not delete “Intro”." followed by why. With more than three failures it gives the count and the first reason instead. Videos that could not be deleted stay selected, so you can try again.
+
+## What happens when you delete
+
+- The video leaves your library and every Studio list at once.
+- The server removes its files from Sia in the background. A video whose file never arrived has nothing on Sia, so only the library entry goes.
+- The video's watch page, stream URL and embed code stop working for public and private videos alike: a player that opens them finds no video.
+- Anyone who opens the video's Studio page sees **Video not found**.
+
+For the steps the server takes, see [deletion and reconciliation](/developers/concepts/deletion-and-reconciliation).
+
+If someone deletes a video you uploaded in this tab before its processing finishes, its row on the upload page shows **Deleted** and "This video was deleted before processing finished."
+
+## Delete an unfinished upload
+
+Uploads that stopped partway, for example when a tab closed, are listed under **Unfinished from earlier** on the upload page. Click **Delete** on a row and confirm to remove the part already sent and its video entry ([Upload a video](/studio/upload#continue-an-upload-after-closing-the-tab)).
