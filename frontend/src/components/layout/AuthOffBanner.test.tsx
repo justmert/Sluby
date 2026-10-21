@@ -22,10 +22,7 @@ describe('AuthOffBanner (FLW-29, D-15)', () => {
       'Sign-in is off. Anyone who can open this address has admin access.',
     );
     const link = screen.getByRole('link', { name: 'Turn on sign-in, opens in a new tab' });
-    expect(link).toHaveAttribute(
-      'href',
-      'https://docs.sluby.app/self-hosting/sign-in',
-    );
+    expect(link).toHaveAttribute('href', 'https://docs.sluby.app/self-hosting/sign-in');
     expect(link).toHaveAttribute('target', '_blank');
   });
 
