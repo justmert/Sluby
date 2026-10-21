@@ -8,7 +8,12 @@
 // entities, so they never appear on an explorer and are not linked. hosts,
 // contracts and addresses are.
 
-const OVERRIDE = (import.meta.env.VITE_SIA_EXPLORER_URL as string | undefined)?.replace(/\/$/, '');
+// compose passes the build argument as an empty string when it is unset,
+// which must not count as an override: it made every link relative to the
+// studio's own origin
+const OVERRIDE =
+  (import.meta.env.VITE_SIA_EXPLORER_URL as string | undefined)?.trim().replace(/\/$/, '') ||
+  undefined;
 
 export interface Explorer {
   base: string;
@@ -27,7 +32,8 @@ export function explorerFor(network: string | undefined): Explorer {
   return {
     base,
     label,
-    host: (publicKey) => `${base}/host/${enc(publicKey)}`,
+    // siascan takes the key with its ed25519: prefix as is
+    host: (publicKey) => `${base}/host/${enc(publicKey).replace(/%3A/gi, ':')}`,
     contract: (id) => `${base}/contract/${enc(id)}`,
     address: (address) => `${base}/address/${enc(address)}`,
   };
