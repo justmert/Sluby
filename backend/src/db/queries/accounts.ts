@@ -67,7 +67,8 @@ export type SignInResult =
 
 /**
  * Sign in an identity that already belongs to a member, refreshing the
- * handle and name the provider reports now. Signing in never makes an
+ * handle the provider reports now. The member's name is theirs to change in
+ * Settings, so a sign-in leaves it as it is. Signing in never makes an
  * account: people join through an invite, so an identity nobody added is
  * refused, and so is the identity of a removed member.
  */
@@ -80,6 +81,7 @@ export async function signInIdentity(input: SignInInput): Promise<SignInResult> 
         id: userIdentities.id,
         userId: userIdentities.userId,
         disabledAt: users.disabledAt,
+        displayName: users.displayName,
       })
       .from(userIdentities)
       .innerJoin(users, eq(users.id, userIdentities.userId))
@@ -91,15 +93,11 @@ export async function signInIdentity(input: SignInInput): Promise<SignInResult> 
       .update(userIdentities)
       .set({ username: input.username, lastSignInAt: new Date() })
       .where(eq(userIdentities.id, existing.id));
-    await tx
-      .update(users)
-      .set({ displayName: input.displayName })
-      .where(eq(users.id, existing.userId));
     return {
       status: 'signed_in' as const,
       userId: existing.userId,
       identityId: existing.id,
-      displayName: input.displayName,
+      displayName: existing.displayName,
     };
   });
 }
@@ -351,5 +349,82 @@ export async function linkIdentity(
       })
       .returning({ id: userIdentities.id });
     return { status: 'linked' as const, identityId: identity.id };
+  });
+}
+
+/** Rename an account. False when there is no such account. */
+export async function setDisplayName(userId: string, name: string): Promise<boolean> {
+  const rows = await db
+    .update(users)
+    .set({ displayName: name })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  return rows.length > 0;
+}
+
+export type ChangeEmailResult = 'changed' | 'no_password' | 'email_taken';
+
+/**
+ * Change the email an account signs in with (already trimmed and
+ * lowercased). The password stays. Refused when another account signs in
+ * with that email.
+ */
+export async function changeSignInEmail(userId: string, email: string): Promise<ChangeEmailResult> {
+  return db.transaction(async (tx) => {
+    await lockIdentity(tx, 'password-email', email);
+    const [own] = await tx
+      .select({ email: passwordCredentials.email })
+      .from(passwordCredentials)
+      .where(eq(passwordCredentials.userId, userId));
+    if (!own) return 'no_password' as const;
+    if (own.email === email) return 'changed' as const;
+    const [taken] = await tx
+      .select({ userId: passwordCredentials.userId })
+      .from(passwordCredentials)
+      .where(eq(passwordCredentials.email, email));
+    if (taken) return 'email_taken' as const;
+    await tx
+      .update(passwordCredentials)
+      .set({ email, updatedAt: new Date() })
+      .where(eq(passwordCredentials.userId, userId));
+    await tx
+      .update(userIdentities)
+      .set({ username: email })
+      .where(
+        and(eq(userIdentities.userId, userId), eq(userIdentities.provider, PASSWORD_PROVIDER)),
+      );
+    return 'changed' as const;
+  });
+}
+
+export type UnlinkIdentityResult =
+  { status: 'unlinked'; identityId: string } | { status: 'not_found' } | { status: 'last' };
+
+/**
+ * Take a provider's identity, such as github, off an account, so it no
+ * longer signs in with it. Refused when it is the account's only way to sign
+ * in, and for the email and password. Sessions that
+ * signed in through it end with it (their rows cascade).
+ */
+export async function unlinkIdentity(
+  userId: string,
+  provider: string,
+): Promise<UnlinkIdentityResult> {
+  return db.transaction(async (tx) => {
+    // two unlinks at once could each see the other's way in still there and
+    // leave the account with none, so unlinks of one account take turns
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`unlink:${userId}`}, 0))`);
+    const rows = await tx
+      .select({ id: userIdentities.id, provider: userIdentities.provider })
+      .from(userIdentities)
+      .where(and(eq(userIdentities.userId, userId), ne(userIdentities.provider, LOCAL_PROVIDER)));
+    // an email and password is changed, never removed: its credentials row
+    // would be left without a way to use it
+    const target =
+      provider === PASSWORD_PROVIDER ? undefined : rows.find((r) => r.provider === provider);
+    if (!target) return { status: 'not_found' as const };
+    if (rows.length === 1) return { status: 'last' as const };
+    await tx.delete(userIdentities).where(eq(userIdentities.id, target.id));
+    return { status: 'unlinked' as const, identityId: target.id };
   });
 }

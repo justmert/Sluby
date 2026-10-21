@@ -49,18 +49,88 @@ describe.skipIf(!hasTestDatabase)('accounts and identities (postgres)', () => {
     expect((await q.getAccount(userId))?.disabledAt).toBeInstanceOf(Date);
   });
 
-  it('signs a member in by the numeric id, updating its handle and name', async () => {
+  it('signs a member in by the numeric id, updating its handle but keeping its name', async () => {
     const { userId, identityId } = await member('1', 'octocat');
+    expect(await q.setDisplayName(userId, 'Octo Cat')).toBe(true);
     expect(await signIn('1', 'octocat-renamed')).toEqual({
       status: 'signed_in',
       userId,
       identityId,
-      displayName: 'octocat-renamed',
+      displayName: 'Octo Cat',
     });
     const [row] = await tdb.sql`select username from user_identities`;
     expect(row.username).toBe('octocat-renamed');
     const [user] = await tdb.sql`select display_name from users`;
-    expect(user.display_name).toBe('octocat-renamed');
+    expect(user.display_name).toBe('Octo Cat');
+  });
+
+  /** A member with an email and password, and optionally github too. */
+  async function passwordMember(email: string, withGithub = false) {
+    const { userId, identityId } = await database.db.transaction(async (tx) => {
+      const made = await q.insertPasswordAccount(tx, {
+        name: email,
+        email,
+        passwordHash: 'hash',
+        role: 'member',
+      });
+      if (made === 'email_taken') throw new Error('email taken');
+      return made;
+    });
+    if (withGithub) {
+      await tdb.sql`
+        insert into user_identities (user_id, provider, subject, username)
+        values (${userId}, 'github', ${email}, ${email})`;
+    }
+    return { userId, identityId };
+  }
+
+  it('changes the sign-in email, and refuses one another account has', async () => {
+    const ada = await passwordMember('ada@example.com');
+    await passwordMember('bea@example.com');
+    expect(await q.changeSignInEmail(ada.userId, 'ada@lovelace.example')).toBe('changed');
+    expect(await q.findPasswordAccount('ada@lovelace.example')).toMatchObject({
+      userId: ada.userId,
+    });
+    expect(await q.findPasswordAccount('ada@example.com')).toBeNull();
+    const [identity] = await tdb.sql`
+      select username from user_identities where user_id = ${ada.userId} and provider = 'password'`;
+    expect(identity.username).toBe('ada@lovelace.example');
+    expect(await q.changeSignInEmail(ada.userId, 'bea@example.com')).toBe('email_taken');
+    expect(await q.changeSignInEmail(ada.userId, 'ada@lovelace.example')).toBe('changed');
+    const { userId: octo } = await member('1', 'octocat');
+    expect(await q.changeSignInEmail(octo, 'octo@example.com')).toBe('no_password');
+  });
+
+  it('unlinks github, ending its sessions, but never the only way in', async () => {
+    const ada = await passwordMember('ada@example.com', true);
+    const [github] = await tdb.sql`
+      select id from user_identities where user_id = ${ada.userId} and provider = 'github'`;
+    await tdb.sql`
+      insert into studio_sessions (user_id, identity_id, expires_at)
+      values (${ada.userId}, ${github.id}, now() + interval '1 day')`;
+    expect(await q.unlinkIdentity(ada.userId, 'github')).toEqual({
+      status: 'unlinked',
+      identityId: github.id,
+    });
+    const [{ n }] = await tdb.sql`select count(*)::int as n from studio_sessions`;
+    expect(n).toBe(0);
+    expect(await q.unlinkIdentity(ada.userId, 'github')).toEqual({ status: 'not_found' });
+
+    const { userId: octo } = await member('1', 'octocat');
+    expect(await q.unlinkIdentity(octo, 'github')).toEqual({ status: 'last' });
+  });
+
+  it('unlinks once when two requests race, and never the password', async () => {
+    const ada = await passwordMember('ada@example.com', true);
+    expect(await q.unlinkIdentity(ada.userId, 'password')).toEqual({ status: 'not_found' });
+    const results = await Promise.all([
+      q.unlinkIdentity(ada.userId, 'github'),
+      q.unlinkIdentity(ada.userId, 'github'),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual(['not_found', 'unlinked']);
+    const [{ n }] = await tdb.sql`
+      select count(*)::int as n from user_identities where user_id = ${ada.userId}`;
+    expect(n).toBe(1);
   });
 
   it('refuses an identity nobody added, and makes no account for it', async () => {
