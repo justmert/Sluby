@@ -44,6 +44,7 @@ const metrics: PromMetric[] = [
     values: [
       { value: 4, labels: { mode: 'sia' } },
       { value: 1, labels: { mode: 'signed' } },
+      { value: 2, labels: { mode: 'private' } },
     ],
   },
   {
@@ -59,7 +60,7 @@ describe('summarizeMetrics', () => {
   it('reads counters and gauges', () => {
     expect(s.uploads).toEqual({ succeeded: 5, failed: 1, bytes: 2048 });
     expect(s.delivery.requests).toEqual({ manifest: 6, media: 40, object: 0 });
-    expect(s.playback).toEqual({ public: 0, signed: 1, sia: 4 });
+    expect(s.playback).toEqual({ public: 0, private: 2, signed: 1, sia: 4 });
     expect(s.delivery.cacheHitRatio).toBe(0.75);
     expect(s.process.startedAt).toBe(1_790_000_000_000);
   });
