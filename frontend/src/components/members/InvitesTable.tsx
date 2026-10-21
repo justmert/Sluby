@@ -6,14 +6,14 @@ import type { PendingInvite } from '@/hooks/useMembers';
 import { NO_VALUE, formatDate, formatTimeLeft } from '@/lib/formatters';
 import { Icons } from '@/lib/icons';
 import { INVITE_COLUMNS } from './columns';
-import { ROLE_LABEL } from './link-copy';
+import { ROLE_LABEL, inviteUses } from './link-copy';
 
 export const INVITES_TABLE = 'Pending invites';
 
 const inviteLabel = (i: PendingInvite) =>
   `${ROLE_LABEL[i.role]} invite from ${formatDate(i.created_at)}`;
 
-/** Invites nobody used yet that still work. Their links are not shown again. */
+/** Invites that still let someone join. Their links are not shown again. */
 export function InvitesTable({
   rows,
   error,
@@ -29,6 +29,7 @@ export function InvitesTable({
 }) {
   const columns = withCells<PendingInvite>(INVITE_COLUMNS, {
     role: (i) => <span className="font-semibold">{ROLE_LABEL[i.role]}</span>,
+    joined: (i) => inviteUses(i.uses, i.max_uses),
     'created-by': (i) =>
       i.created_by ? (
         <span dir="auto" className="wrap-anywhere">
@@ -67,7 +68,7 @@ export function InvitesTable({
           variant="section"
           icon={Link2}
           title="No pending invites"
-          description="Links you make show here until someone uses them."
+          description="Links you make show here until they are used up or expire."
         />
       }
     />

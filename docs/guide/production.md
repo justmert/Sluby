@@ -165,7 +165,7 @@ No admin can sign in yet. Open https://video.example.com/studio and set up the f
 
 Open the Studio, enter the code with your name, email and a password (10 to 256 characters), and you are signed in as the first admin. The code is derived from `SESSION_SECRET`, so only someone who can read the server's logs or environment can use it, and setup is refused once an admin exists.
 
-Everyone else joins by invite: on the Members page, make an invite link with the role `member` or `admin` and pass it on. A link works once, for 7 days. Members upload, edit and share videos and manage keys and webhooks; admins also see the server's operations views (indexer account, storage, cache, reconciliation, metrics) and manage members. There is no email: when someone forgets their password, an admin makes them a reset link on the Members page. If you are the admin who is locked out, print one from the server:
+Everyone else joins by invite: on the Members page, make an invite link with the role `member` or `admin` and pass it on. By default a link lets one person join and works for 7 days; a member link can also let a number of people or anyone with it join, for 1, 7 or 30 days. Members upload, edit and share videos and manage keys and webhooks; admins also see the server's operations views (indexer account, storage, cache, reconciliation, metrics) and manage members. There is no email: when someone forgets their password, an admin makes them a reset link on the Members page. If you are the admin who is locked out, print one from the server:
 
 ```sh
 docker compose exec backend node dist/db/reset-link.js --email you@example.com

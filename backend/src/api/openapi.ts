@@ -1150,12 +1150,20 @@ export const openapiDocument = {
       },
       Invite: {
         type: 'object',
-        required: ['id', 'role', 'created_at', 'expires_at', 'created_by'],
+        required: ['id', 'role', 'created_at', 'expires_at', 'max_uses', 'uses', 'created_by'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           role: { type: 'string', enum: ['admin', 'member'] },
           created_at: { type: 'string', format: 'date-time' },
           expires_at: { type: 'string', format: 'date-time' },
+          max_uses: {
+            type: ['integer', 'null'],
+            minimum: 1,
+            maximum: 1000,
+            description:
+              'How many people may join with it; null lets anyone join until it expires or is revoked.',
+          },
+          uses: { type: 'integer', minimum: 0, description: 'How many people joined with it.' },
           created_by: {
             type: ['object', 'null'],
             required: ['id', 'name'],
@@ -1171,16 +1179,46 @@ export const openapiDocument = {
       },
       InviteCreated: {
         type: 'object',
-        required: ['id', 'url', 'role', 'expires_at'],
+        required: ['id', 'url', 'role', 'max_uses', 'uses', 'expires_at'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           url: {
             type: 'string',
-            description:
-              '`<PUBLIC_URL>/studio/join/<token>`. Single use; only shown here, so pass it on now.',
+            description: '`<PUBLIC_URL>/studio/join/<token>`. Only shown here, so pass it on now.',
           },
           role: { type: 'string', enum: ['admin', 'member'] },
+          max_uses: {
+            type: ['integer', 'null'],
+            minimum: 1,
+            maximum: 1000,
+            description:
+              'How many people may join with it; null lets anyone join until it expires or is revoked.',
+          },
+          uses: { type: 'integer', minimum: 0, description: 'How many people joined with it.' },
           expires_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      InviteRequest: {
+        type: 'object',
+        required: ['role'],
+        additionalProperties: false,
+        properties: {
+          role: { type: 'string', enum: ['admin', 'member'] },
+          max_uses: {
+            type: ['integer', 'null'],
+            minimum: 1,
+            maximum: 1000,
+            default: 1,
+            description:
+              'How many people may join with the link; null lets anyone join until it expires or ' +
+              'is revoked. Anything but 1 needs `role: member`.',
+          },
+          expires_in_days: {
+            type: 'integer',
+            enum: [1, 7, 30],
+            default: 7,
+            description: 'How many days the link works.',
+          },
         },
       },
       SignInMethod: {
@@ -2388,7 +2426,9 @@ export const openapiDocument = {
       get: {
         tags: ['Members'],
         summary: 'Pending invites, newest first.',
-        description: 'Only invites nobody used yet that still work. Their links are not shown.',
+        description:
+          'Invites that still let someone join, with how many people joined with each. Their ' +
+          'links are not shown.',
         'x-required-scope': 'manage',
         'x-required-identity': 'admin',
         security: memberSecurity,
@@ -2396,15 +2436,19 @@ export const openapiDocument = {
       },
       post: {
         tags: ['Members'],
-        summary: 'Invite one new member with a role.',
+        summary: 'Invite new people with a role.',
         description:
-          'Single use, valid for 7 days. Sluby sends no email: pass the link on yourself.',
+          'By default the link lets one person join and works for 7 days. `max_uses` lets more ' +
+          'people join with it (members only) and `expires_in_days` sets 1, 7 or 30 days. ' +
+          'Sluby sends no email: pass the link on yourself.',
         'x-required-scope': 'manage',
         'x-required-identity': 'admin',
         security: memberSecurity,
         requestBody: {
           required: true,
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/RoleRequest' } } },
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/InviteRequest' } },
+          },
         },
         responses: {
           '201': jsonResponse('InviteCreated', 'The invite, with its link shown only here.'),

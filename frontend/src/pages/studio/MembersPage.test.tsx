@@ -43,6 +43,8 @@ const invite: PendingInvite = {
   role: 'member',
   created_at: '2026-10-18T09:00:00.000Z',
   expires_at: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+  max_uses: 1,
+  uses: 0,
   created_by: { id: testSession.id, name: 'Alice' },
 };
 
@@ -261,10 +263,91 @@ describe('MembersPage', () => {
     );
     expect(
       fetchStub.calls.find((c) => c.path === '/api/v1/invites' && c.method === 'POST')?.body,
-    ).toEqual({ role: 'admin' });
+    ).toEqual({ role: 'admin', max_uses: 1, expires_in_days: 7 });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
     const table = screen.getByRole('table', { name: 'Pending invites' });
     await waitFor(() => expect(within(table).getByText('Admin')).toBeInTheDocument());
+  });
+
+  it('makes a member link for a number of people, for as long as asked', async () => {
+    routes['POST /api/v1/invites'] = ({ body }: RecordedCall) => {
+      const b = body as { max_uses: number | null };
+      invites = [{ ...invite, id: 'i2', max_uses: b.max_uses, uses: 0 }, ...invites];
+      return reply(201, {
+        id: 'i2',
+        url: 'https://studio.example/studio/join/tok789',
+        role: 'member',
+        max_uses: b.max_uses,
+        expires_at: '2026-11-19T15:04:00.000Z',
+      });
+    };
+    render();
+    await userEvent.click(await screen.findByRole('button', { name: 'Invite people' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Who can join' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'A number of people' }));
+    const count = within(dialog).getByRole('spinbutton', { name: 'Number of people' });
+    await userEvent.clear(count);
+    await userEvent.type(count, '1');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create link' }));
+    expect(within(dialog).getByText('Enter a whole number from 2 to 1000.')).toBeInTheDocument();
+    expect(fetchStub.calls.some((c) => c.method === 'POST' && c.path === '/api/v1/invites')).toBe(
+      false,
+    );
+    await userEvent.clear(count);
+    await userEvent.type(count, '25');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Link works for' }));
+    await userEvent.click(await screen.findByRole('option', { name: '30 days' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create link' }));
+    expect(dialog).toHaveTextContent(
+      /Up to 25 people can join as members with this link until Nov 19, 2026 at /,
+    );
+    expect(
+      fetchStub.calls.find((c) => c.path === '/api/v1/invites' && c.method === 'POST')?.body,
+    ).toEqual({ role: 'member', max_uses: 25, expires_in_days: 30 });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    const table = screen.getByRole('table', { name: 'Pending invites' });
+    await waitFor(() => expect(within(table).getByText('0 of 25')).toBeInTheDocument());
+  });
+
+  it('makes a link anyone can join with until it ends, and counts who joined', async () => {
+    invites = [{ ...invite, max_uses: null, uses: 4 }];
+    routes['POST /api/v1/invites'] = () =>
+      reply(201, {
+        id: 'i2',
+        url: 'https://studio.example/studio/join/tok000',
+        role: 'member',
+        max_uses: null,
+        expires_at: '2026-10-27T15:04:00.000Z',
+      });
+    render();
+    const table = await screen.findByRole('table', { name: 'Pending invites' });
+    expect(await within(table).findByText('4 (no limit)')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Invite people' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Who can join' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Anyone with the link' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create link' }));
+    expect(dialog).toHaveTextContent(
+      /Anyone with this link can join as a member until .*\. Revoke it on this page to stop new people joining\./,
+    );
+    expect(
+      fetchStub.calls.find((c) => c.path === '/api/v1/invites' && c.method === 'POST')?.body,
+    ).toEqual({ role: 'member', max_uses: null, expires_in_days: 7 });
+  });
+
+  it('keeps an admin invite to one person', async () => {
+    render();
+    await userEvent.click(await screen.findByRole('button', { name: 'Invite people' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Who can join' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Anyone with the link' }));
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Role' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Admin' }));
+    const who = within(dialog).getByRole('combobox', { name: 'Who can join' });
+    expect(who).toBeDisabled();
+    expect(who).toHaveTextContent('One person');
+    expect(dialog).toHaveTextContent('An admin invite lets one person join.');
   });
 
   it('revokes a pending invite after asking', async () => {

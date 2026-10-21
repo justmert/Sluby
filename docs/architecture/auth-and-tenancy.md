@@ -124,9 +124,9 @@ Every failure redirects back to the page the sign-in started from with `signin_e
 
 ## Invites and reset links
 
-People join through invite links; nobody signs up on their own. Both kinds of link are rows in `invites` (`kind` `invite` or `reset`) with a token of 32 random bytes in base64url. The token is shown once, in the link, and only its SHA-256 is stored, so the table alone cannot be used to join or to take over an account. A link works once and for 7 days (`backend/src/api/auth/link-token.ts`):
+People join through invite links; nobody signs up on their own. Both kinds of link are rows in `invites` (`kind` `invite` or `reset`) with a token of 32 random bytes in base64url. The token is shown once, in the link, and only its SHA-256 is stored, so the table alone cannot be used to join or to take over an account. A reset link works once and for 7 days (`backend/src/api/auth/link-token.ts`). An invite works for one person and 7 days unless the admin chooses otherwise: up to a number of people or anyone with the link (`max_uses`, members only, since a forwarded link would otherwise hand out admin), for 1, 7 or 30 days (`backend/src/api/routes/members.ts`):
 
-- an invite: `<PUBLIC_URL>/studio/join/<token>`, for one new member with the role the admin chose;
+- an invite: `<PUBLIC_URL>/studio/join/<token>`, for new members with the role the admin chose;
 - a reset link: `<PUBLIC_URL>/studio/reset/<token>`, for one member to set a new password, or a first one when they sign in with GitHub only.
 
 There is no email: an admin copies the link from the Studio and passes it on.

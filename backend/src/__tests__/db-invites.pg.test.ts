@@ -274,6 +274,94 @@ describe.skipIf(!hasTestDatabase)('password accounts, setup and links (postgres)
       expect(results.map((r) => r.status).sort()).toEqual(['gone', 'joined']);
     });
 
+    const week = () => new Date(Date.now() + 7 * 24 * 3600_000);
+    const as = (n: number) => ({ ...person, email: `p${n}@example.com` });
+
+    it('lets as many people join as the invite allows, counting each, then refuses', async () => {
+      await links.createInvite({
+        tokenHash: 'h3',
+        role: 'member',
+        maxUses: 3,
+        createdBy: null,
+        expiresAt: week(),
+      });
+      for (const n of [1, 2]) {
+        expect(await links.acceptInvite('h3', as(n))).toMatchObject({ status: 'joined' });
+        const [pending] = await links.listPendingInvites();
+        expect(pending).toMatchObject({ maxUses: 3, uses: n });
+      }
+      expect(await links.acceptInvite('h3', as(3))).toMatchObject({ status: 'joined' });
+      expect(await links.listPendingInvites()).toEqual([]);
+      expect(await links.acceptInvite('h3', as(4))).toEqual({ status: 'gone', reason: 'used' });
+      const [row] = await tdb.sql`select use_count, used_at from invites where token_hash = 'h3'`;
+      expect(row.use_count).toBe(3);
+      expect(row.used_at).toBeInstanceOf(Date);
+      const [{ n }] = await tdb.sql`select count(*)::int as n from users`;
+      expect(n).toBe(3);
+    });
+
+    it('lets anyone join an invite without a limit until it is revoked, keeping who joined', async () => {
+      await links.createInvite({
+        tokenHash: 'open',
+        role: 'member',
+        maxUses: null,
+        createdBy: null,
+        expiresAt: week(),
+      });
+      for (const n of [1, 2, 3, 4, 5]) {
+        expect(await links.acceptInvite('open', as(n))).toMatchObject({ status: 'joined' });
+      }
+      const [pending] = await links.listPendingInvites();
+      expect(pending).toMatchObject({ maxUses: null, uses: 5 });
+      expect((await links.findLink('open'))?.usedAt).toBeNull();
+
+      expect(await links.revokeInvite(pending.id)).toBe(true);
+      expect(await links.acceptInvite('open', as(6))).toEqual({
+        status: 'gone',
+        reason: 'revoked',
+      });
+      const [{ n }] = await tdb.sql`
+        select count(*)::int as n from users where role = 'member' and disabled_at is null`;
+      expect(n).toBe(5);
+    });
+
+    it('lets two browsers take the last two places of an invite, and no third', async () => {
+      await links.createInvite({
+        tokenHash: 'two',
+        role: 'member',
+        maxUses: 2,
+        createdBy: null,
+        expiresAt: week(),
+      });
+      const results = await Promise.all([1, 2, 3].map((n) => links.acceptInvite('two', as(n))));
+      expect(results.map((r) => r.status).sort()).toEqual(['gone', 'joined', 'joined']);
+    });
+
+    it('stores no admin invite or reset link that works more than once', async () => {
+      for (const maxUses of [2, null]) {
+        await expect(
+          links.createInvite({
+            tokenHash: `admin-${maxUses}`,
+            role: 'admin',
+            maxUses,
+            createdBy: null,
+            expiresAt: week(),
+          }),
+        ).rejects.toThrow();
+      }
+      const m = await githubMember('1', 'octocat');
+      await expect(
+        tdb.sql`
+          insert into invites (token_hash, kind, user_id, expires_at, max_uses)
+          values ('reset-many', 'reset', ${m.userId}, now() + interval '1 day', 2)`,
+      ).rejects.toThrow(/invites_multi_use_check/);
+      await expect(
+        tdb.sql`
+          insert into invites (token_hash, kind, role, expires_at, max_uses)
+          values ('zero', 'invite', 'member', now() + interval '1 day', 0)`,
+      ).rejects.toThrow(/invites_max_uses_check/);
+    });
+
     it('joins with a github identity, but not one that is already a member', async () => {
       await link('h1');
       const joined = await links.joinWithIdentity('h1', {

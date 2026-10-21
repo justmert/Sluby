@@ -101,8 +101,18 @@ async function claimLink(
 
 const isRefusal = (r: LinkRecord | LinkRefusal): r is LinkRefusal => 'status' in r;
 
+/**
+ * Count one use of a claimed link, and mark it used once that was its last.
+ * The row is locked by claimLink, so the count cannot race.
+ */
 async function markUsed(tx: Tx, id: string): Promise<void> {
-  await tx.update(invites).set({ usedAt: new Date() }).where(eq(invites.id, id));
+  await tx
+    .update(invites)
+    .set({
+      useCount: sql`${invites.useCount} + 1`,
+      usedAt: sql`case when ${invites.maxUses} is not null and ${invites.useCount} + 1 >= ${invites.maxUses} then now() else null end`,
+    })
+    .where(eq(invites.id, id));
 }
 
 export type AcceptInviteResult =
@@ -222,13 +232,23 @@ export interface PendingInvite {
   role: Role;
   createdAt: Date;
   expiresAt: Date;
+  /** How many people may join with it; null until it expires or is revoked. */
+  maxUses: number | null;
+  /** How many people joined with it so far. */
+  uses: number;
   createdBy: { id: string; name: string } | null;
 }
 
-/** Store a new invite; the caller made the token and keeps it. */
+/**
+ * Store a new invite; the caller made the token and keeps it. `maxUses` is
+ * how many people may join with it, null for no limit; only a member invite
+ * may take more than one (the table refuses anything else).
+ */
 export async function createInvite(data: {
   tokenHash: string;
   role: Role;
+  /** Defaults to one person. */
+  maxUses?: number | null;
   createdBy: string | null;
   expiresAt: Date;
 }): Promise<{ id: string; createdAt: Date; expiresAt: Date }> {
@@ -264,7 +284,7 @@ const pending = and(
   gt(invites.expiresAt, sql`now()`),
 );
 
-/** Invites nobody used yet that still work, newest first. */
+/** Invites that still let someone join, newest first. */
 export async function listPendingInvites(): Promise<PendingInvite[]> {
   const rows = await db
     .select({
@@ -272,6 +292,8 @@ export async function listPendingInvites(): Promise<PendingInvite[]> {
       role: invites.role,
       createdAt: invites.createdAt,
       expiresAt: invites.expiresAt,
+      maxUses: invites.maxUses,
+      uses: invites.useCount,
       creatorId: users.id,
       creatorName: users.displayName,
     })
@@ -284,6 +306,8 @@ export async function listPendingInvites(): Promise<PendingInvite[]> {
     role: r.role ?? 'member',
     createdAt: r.createdAt,
     expiresAt: r.expiresAt,
+    maxUses: r.maxUses,
+    uses: r.uses,
     createdBy: r.creatorId && r.creatorName ? { id: r.creatorId, name: r.creatorName } : null,
   }));
 }

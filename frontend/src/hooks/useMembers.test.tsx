@@ -107,7 +107,9 @@ describe('useMembers hooks', () => {
     const made = await act(() => reset.result.current.mutateAsync('m2'));
     expect(made.url).toBe('https://s.example/studio/reset/t');
     const create = renderHook(() => useCreateInvite(), { wrapper });
-    await act(() => create.result.current.mutateAsync('admin'));
+    await act(() =>
+      create.result.current.mutateAsync({ role: 'admin', maxUses: 1, expiresInDays: 7 }),
+    );
     act(() => {
       reset.result.current.reset();
       create.result.current.reset();

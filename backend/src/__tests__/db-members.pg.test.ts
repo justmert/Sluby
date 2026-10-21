@@ -162,6 +162,8 @@ describe.skipIf(!hasTestDatabase)('members and invites (postgres)', () => {
         role: 'admin',
         createdAt: second.createdAt,
         expiresAt: second.expiresAt,
+        maxUses: 1,
+        uses: 0,
         createdBy: null,
       },
       {
@@ -169,6 +171,8 @@ describe.skipIf(!hasTestDatabase)('members and invites (postgres)', () => {
         role: 'member',
         createdAt: first.createdAt,
         expiresAt: first.expiresAt,
+        maxUses: 1,
+        uses: 0,
         createdBy: { id: ada, name: 'ada' },
       },
     ]);
