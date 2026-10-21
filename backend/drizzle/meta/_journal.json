@@ -162,6 +162,13 @@
       "when": 1792403808466,
       "tag": "0022_team_workspace",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792540532013,
+      "tag": "0023_multi_use_invites",
+      "breakpoints": true
     }
   ]
 }

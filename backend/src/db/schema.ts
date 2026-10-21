@@ -508,10 +508,12 @@ export const passwordCredentials = pgTable('password_credentials', {
 });
 
 /**
- * invites holds the single-use links an admin hands out: `invite` lets a new
- * person join with `role`, `reset` lets the member `user_id` set a new
- * password. Only the sha-256 of the token is stored, so the table cannot be
- * used to sign in.
+ * invites holds the links an admin hands out: `invite` lets new people join
+ * with `role`, `reset` lets the member `user_id` set a new password. An invite
+ * works `max_uses` times (null: until it expires or is revoked) and only a
+ * member invite may work more than once; a reset link always works once.
+ * `used_at` is set when the last use is taken. Only the sha-256 of the token
+ * is stored, so the table cannot be used to sign in.
  */
 export const invites = pgTable(
   'invites',
@@ -527,10 +529,18 @@ export const invites = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     usedAt: timestamp('used_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    maxUses: integer('max_uses').default(1),
+    useCount: integer('use_count').notNull().default(0),
   },
   (t) => [
     check('invites_kind_check', sql`${t.kind} in ('invite', 'reset')`),
     check('invites_role_check', sql`${t.role} is null or ${t.role} in ('admin', 'member')`),
+    check('invites_max_uses_check', sql`${t.maxUses} is null or ${t.maxUses} >= 1`),
+    // a link that more than one person can use never makes an admin
+    check(
+      'invites_multi_use_check',
+      sql`coalesce(${t.maxUses}, 0) = 1 or (${t.kind} = 'invite' and ${t.role} = 'member')`,
+    ),
     // the pending list filters on kind and expiry
     index('invites_kind_expires_at_idx').on(t.kind, t.expiresAt),
     index('invites_user_id_idx').on(t.userId),
