@@ -18,26 +18,36 @@ For the full list of what each role allows, see [Roles and what each can do](/de
 
 ## Invite someone
 
-An invite is a link for one person. They choose their own name, email and password when they join.
+An invite is a link that lets new people join your Studio. Each person chooses their own name, email and password when they join. One link can be for one person or for a group.
 
 <Steps>
   <Step>On the **Members** page, click **Invite people**.</Step>
   <Step>Under **Role**, pick **Member** or **Admin**. **Member** is the default.</Step>
+  <Step>
+    Under **Who can join**, pick **One person**, **A number of people** or **Anyone with the link**.
+    For **A number of people**, enter a whole number from 2 to 1000 under **Number of people**.
+  </Step>
+  <Step>
+    Under **Link works for**, pick **1 day**, **7 days** or **30 days**. **7 days** is the default.
+  </Step>
   <Step>Click **Create link**. The dialog changes to **Invite link created**.</Step>
   <Step>
-    Click the copy button next to the link, send the link to the person, then click **Done**.
+    Click the copy button next to the link, send the link to the people you want to invite, then
+    click **Done**.
   </Step>
 </Steps>
 
-Each link works for 7 days and lets one person join. The dialog shows the exact date and time it stops working. The Studio shows the link only once: if you lose it, revoke the invite and create a new one.
+A link for more than one person joins everyone as a member. When you pick **Admin**, **Who can join** switches to **One person** and cannot be changed, because anyone can pass a link on.
 
-What the invited person sees is on [Join from an invite link](/studio/sign-in#join-from-an-invite-link).
+Under the link, the dialog says who can join with it and the exact date and time it stops working. The Studio shows the link only once: if you lose it, revoke the invite and create a new one.
+
+What an invited person sees is on [Join from an invite link](/studio/sign-in#join-from-an-invite-link).
 
 ## Pending invites
 
-The **Pending invites** section lists every invite that nobody has used yet and that still works. Its columns are **Role**, **Created by**, **Created** and **Expires** (the time left). A used invite leaves the list.
+The **Pending invites** section lists every invite that still lets someone join. Its columns are **Role**, **Joined**, **Created by**, **Created** and **Expires** (the time left). **Joined** counts the people who joined with the link: "3 of 10" for a link for 10 people, "4 (no limit)" for a link for anyone. An invite leaves the list when its last person joins, when it expires, or when you revoke it.
 
-To withdraw an invite, open the row menu, choose **Revoke**, then click **Revoke** in the **Revoke this invite?** dialog. The link stops working right away. You cannot undo this.
+To withdraw an invite, open the row menu, choose **Revoke**, then click **Revoke** in the **Revoke this invite?** dialog. The link stops working right away for anyone who has not joined yet. People who already joined stay members. You cannot undo this.
 
 ## The members table
 
@@ -85,7 +95,7 @@ When a member forgets their password, an admin creates a reset link for them. Wi
   </Step>
 </Steps>
 
-Like an invite, the Studio shows the link only once, and it works for 7 days and works once. When the person sets a new password with it, their other browsers are signed out. What they see is on [Set a new password from a reset link](/studio/sign-in#set-a-new-password-from-a-reset-link).
+The Studio shows a reset link only once. It works once, for 7 days. When the person sets a new password with it, their other browsers are signed out. What they see is on [Set a new password from a reset link](/studio/sign-in#set-a-new-password-from-a-reset-link).
 
 A reset link also works for someone who signs in with GitHub only: with it they choose an email and password, so they can sign in with a password as well.
 

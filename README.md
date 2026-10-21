@@ -53,10 +53,10 @@ npm run docs:dev
 
 ## Packages
 
-| Package                              | What it is                                                      |
-| ------------------------------------ | --------------------------------------------------------------- |
-| [`@sluby/sdk`](./packages/sdk)       | TypeScript client for the REST API, uploads and webhooks        |
-| [`@sluby/player`](./packages/player) | React player, with hls.js loaders for playing straight from Sia |
+| Package                                                                                   | What it is                                                      |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| [`@sluby/sdk`](./packages/sdk) ([npm](https://www.npmjs.com/package/@sluby/sdk))          | TypeScript client for the REST API, uploads and webhooks        |
+| [`@sluby/player`](./packages/player) ([npm](https://www.npmjs.com/package/@sluby/player)) | React player, with hls.js loaders for playing straight from Sia |
 
 ## Contributing
 

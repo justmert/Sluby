@@ -23,6 +23,7 @@ To resolve playback URLs from an asset id or to stream from Sia, also install [`
 
 | Fact              | Value                                                                                               |
 | ----------------- | --------------------------------------------------------------------------------------------------- |
+| Version           | This page describes `@sluby/player` 0.3.0                                                           |
 | Entry points      | `@sluby/player` (React) and `@sluby/player/hls` (no React)                                          |
 | Module formats    | ESM (`import`) and CommonJS (`require`) for both entries, each with type declarations               |
 | Dependencies      | `hls.js`                                                                                            |
@@ -337,12 +338,12 @@ The totals count the media segments of one load and leave out playlists.
 
 ### QualityLevel [#qualitylevel]
 
-| Field             | Type     | Value                                                                                                                                                             |
-| ----------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index`           | `number` | The hls.js level index, the value `setQuality` takes                                                                                                              |
-| `width`, `height` | `number` | Pixels                                                                                                                                                            |
-| `bitrate`         | `number` | The rendition's `BANDWIDTH` in the manifest, in bits per second                                                                                                   |
-| `name`            | `string` | From `SlubyPlayer` callbacks and `getQualities()`: the shorter side plus `p`, so a 720 × 1280 portrait rendition is `720p`. From `useVideo`: the height plus `p`. |
+| Field             | Type     | Value                                                                                                                                                                                                   |
+| ----------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index`           | `number` | The hls.js level index, the value `setQuality` takes                                                                                                                                                    |
+| `width`, `height` | `number` | Pixels                                                                                                                                                                                                  |
+| `bitrate`         | `number` | The rendition's `BANDWIDTH` in the manifest, in bits per second                                                                                                                                         |
+| `name`            | `string` | The shorter side plus `p`, so a 720 × 1280 portrait rendition is `720p`, the same as a 1280 × 720 landscape one. `SlubyPlayer` callbacks, `getQualities()` and `useVideo` name renditions the same way. |
 
 ### TextTrackSource [#texttracksource]
 

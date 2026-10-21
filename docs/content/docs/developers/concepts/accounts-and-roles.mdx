@@ -105,16 +105,24 @@ A fresh install has no admin. While sign-in is on and no admin who can sign in e
 
 ## Invites and reset links [#invites-and-reset-links]
 
-Admins hand out two kinds of single-use links. Both are rows in the `invites` table and share these rules:
+Admins hand out two kinds of links: invite links, which let new people join, and reset links, which let one member set a password. Both are rows in the `invites` table and share these rules:
 
 - The token is 32 random bytes in base64url (43 characters). The server stores only its SHA-256 hash, so the table alone is not enough to join or to take over an account.
 - The full URL appears once, in the response that creates it. No later response shows it again.
-- A link works for 7 days and works once. Using it locks its row for the transaction, so two browsers using the same link cannot both succeed.
-- A link that does not exist answers `404` with `This link does not exist. Ask an admin for a new one.` A used, expired or withdrawn link answers `410` with `This link was already used.`, `This link has expired.` or `This link was withdrawn.`, each followed by `Ask an admin for a new one.`
+- A reset link works once, for 7 days. An invite link works for 1, 7 or 30 days (7 by default) and for as many people as the admin chose (see [Invite links](#invite-links)).
+- Using a link locks its row for the transaction, so two browsers using its last place at the same moment cannot both succeed.
+- A link that does not exist answers `404` with `This link does not exist. Ask an admin for a new one.` A used-up, expired or withdrawn link answers `410` with `This link was already used.`, `This link has expired.` or `This link was withdrawn.`, each followed by `Ask an admin for a new one.`
 
 ### Invite links
 
-An admin creates an invite with a role (`POST /api/v1/invites`, [endpoint reference](/developers/reference/api/members/post-invites)). The link has the form `https://sluby.example.com/studio/join/<token>`. The new member joins with a name, email and password, or with GitHub. A GitHub account that already belongs to a member cannot join a second time, and the invite then stays unused. Admins can list pending invites and withdraw one before it is used.
+An admin creates an invite with a role (`POST /api/v1/invites`, [endpoint reference](/developers/reference/api/members/post-invites)). The link has the form `https://sluby.example.com/studio/join/<token>`. Each new member joins with a name, email and password, or with GitHub.
+
+- `max_uses` sets how many people can join with the link: 1 (the default), a number up to 1000, or `null` for anyone with the link until it expires or is revoked. The row counts joins in `use_count` and sets `used_at` when the last allowed person joins.
+- Only a member invite can let more than one person join, because anyone can pass a link on. An admin invite with `max_uses` set to `null` or to a number from 2 to 1000 answers `400` with `An admin invite lets one person join. Invite more people as members.`, and the database refuses such a row as well.
+- `expires_in_days` is 1, 7 or 30, and 7 when left out.
+- A GitHub account that already belongs to a member cannot join a second time, and that attempt does not count as a join.
+
+Admins list the invites that still let someone join, with `max_uses` and `uses` for each, and can withdraw any of them. Withdrawing stops new joins. People who already joined stay members.
 
 ### Reset links
 

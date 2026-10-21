@@ -61,7 +61,7 @@ The shipped nginx sends the Studio page with `Cache-Control: no-store`, so Back 
 
 - **Passwords**: the server stores only scrypt hashes. A sign-in with an unknown email still runs a full hash, so response time does not reveal which emails exist.
 - **The setup code**: the server derives it from `SESSION_SECRET` and, while sign-in is on and the install has no admin, writes it to its log at startup. Only someone who can read the server's logs or its secret can claim a fresh install.
-- **Invite and reset links**: each carries a random token, and the server stores only the token's SHA-256 hash, so the database alone cannot be used to join or take over an account. Each link works once and expires.
+- **Invite and reset links**: each carries a random token, and the server stores only the token's SHA-256 hash, so the database alone cannot be used to join or take over an account. A reset link works once. An invite link lets in as many people as the admin chose. Both expire.
 
 The parameters behind each of these are on [Accounts, roles and sessions](/developers/concepts/accounts-and-roles#sign-in-methods). Sign-in, setup and link attempts have their own per-address and per-email limits, listed on [API conventions](/developers/reference/api-conventions#rate-limits).
 

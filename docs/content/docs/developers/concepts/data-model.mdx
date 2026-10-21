@@ -112,7 +112,7 @@ One row per Studio sign-in. The signed session cookie names its row ([Sessions a
 
 ### invites
 
-Single-use links an admin hands out. `kind` is `invite` (a new person joins with `role`) or `reset` (the member `user_id` sets a new password). The table stores only the SHA-256 hash of the token, so nobody can sign in with what it holds. Each row has `expires_at`, `used_at` and `revoked_at`.
+Links an admin hands out. `kind` is `invite` (new people join with `role`) or `reset` (the member `user_id` sets a new password). The table stores only the SHA-256 hash of the token, so nobody can sign in with what it holds. Each row has `expires_at`, `used_at` and `revoked_at`, plus `max_uses` (how many people can join: 1 by default, `null` for no limit) and `use_count` (how many times the link was used). A check constraint allows a `max_uses` other than 1 only on a member invite, and `used_at` is set when the last allowed use happens ([Invites and reset links](/developers/concepts/accounts-and-roles#invites-and-reset-links)).
 
 ### api_keys
 

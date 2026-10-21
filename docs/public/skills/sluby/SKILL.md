@@ -31,8 +31,8 @@ Use this skill when code uploads videos to a Sluby server, reads or edits its li
 ## Install
 
 ```sh
-npm install @sluby/sdk          # server code: uploads, library, signed URLs, webhooks
-npm install @sluby/player       # React player (react and react-dom 18 or 19)
+npm install @sluby/sdk          # 0.2.1: server code, uploads, library, signed URLs, webhooks
+npm install @sluby/player       # 0.3.0: React player (react and react-dom 18 or 19)
 ```
 
 `@sluby/sdk` runs in browsers and on Node.js 20.16 or a later 20.x release, or Node.js 22.3 or later.

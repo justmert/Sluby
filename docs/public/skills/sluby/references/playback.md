@@ -191,7 +191,7 @@ export function SiaVideo({ id, viewer }: { id: string; viewer: SiaViewerConfig }
 
 With a viewer identity on the client, `siaDelivery="direct"` (the default) takes every playlist and segment from Sia. `"hybrid"` starts through the server and takes the rest from Sia once the buffer allows. `onDeliveryChange` reports `sia`, `hybrid` or `gateway`.
 
-`siaDelivery`, `hybridPolicy` and `onDeliveryStats` are in the `@sluby/player` source on the `main` branch of `justmert/Sluby`; the npm release 0.2.0 does not have them. With 0.2.0, leave `siaDelivery` out: a player with a viewer session takes every playlist and segment from Sia, and `onDeliveryChange` reports `sia` or `gateway`.
+`siaDelivery`, `hybridPolicy` and `onDeliveryStats` need `@sluby/player` 0.3.0 or later.
 
 ## SlubyPlayer props you use most
 
