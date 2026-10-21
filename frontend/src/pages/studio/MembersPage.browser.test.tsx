@@ -44,6 +44,8 @@ const invites: PendingInvite[] = [
     role: 'member',
     created_at: '2026-10-18T09:00:00.000Z',
     expires_at: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+    max_uses: 1,
+    uses: 0,
     created_by: { id: testSession.id, name: 'Mert Köklü' },
   },
 ];

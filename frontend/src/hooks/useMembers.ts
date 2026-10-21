@@ -19,6 +19,10 @@ export interface PendingInvite {
   role: Role;
   created_at: string;
   expires_at: string;
+  /** How many people may join with it; null until it expires or is revoked. */
+  max_uses: number | null;
+  /** How many people joined with it so far. */
+  uses: number;
   created_by: { id: string; name: string } | null;
 }
 
@@ -92,12 +96,24 @@ export function useCreateResetLink() {
   });
 }
 
+/** What a new invite allows: who joins, how many people, for how long. */
+export interface InviteOptions {
+  role: Role;
+  /** Null lets anyone with the link join until it expires; members only. */
+  maxUses: number | null;
+  expiresInDays: 1 | 7 | 30;
+}
+
 export function useCreateInvite() {
   const qc = useQueryClient();
   return useMutation({
     ...linkMutation,
-    mutationFn: (role: Role) =>
-      apiClient.post<IssuedLink & { id: string; role: Role }>('/invites', { role }),
+    mutationFn: ({ role, maxUses, expiresInDays }: InviteOptions) =>
+      apiClient.post<IssuedLink & { id: string; role: Role; max_uses: number | null }>('/invites', {
+        role,
+        max_uses: maxUses,
+        expires_in_days: expiresInDays,
+      }),
     // the listing has who made it and when, which the answer leaves out, so
     // the row comes from the server rather than being made up here
     onSettled: () => qc.invalidateQueries({ queryKey: INVITES_KEY }),

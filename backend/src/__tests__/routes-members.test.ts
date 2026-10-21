@@ -51,6 +51,7 @@ function memoryMembers() {
     createdAt: Date;
     expiresAt: Date;
     revokedAt: Date | null;
+    maxUses?: number | null;
   }> = [];
   const removed: string[] = [];
   let seq = 0;
@@ -116,6 +117,8 @@ function memoryMembers() {
           role: l.role ?? 'member',
           createdAt: l.createdAt,
           expiresAt: l.expiresAt,
+          maxUses: l.maxUses === undefined ? 1 : l.maxUses,
+          uses: 0,
           createdBy: l.createdBy ? { id: l.createdBy, name: members.get(l.createdBy)!.name } : null,
         })),
     revokeInvite: async (id) => {
@@ -301,6 +304,8 @@ describe('invites api', () => {
         /^https:\/\/video\.example\.com\/studio\/join\/[A-Za-z0-9_-]{43}$/,
       ),
       role: 'admin',
+      max_uses: 1,
+      uses: 0,
       expires_at: store.links[0].expiresAt.toISOString(),
     });
     expect(store.links[0].tokenHash).toBe(hashLinkToken(tokenOf(created.body.url)));
@@ -314,6 +319,8 @@ describe('invites api', () => {
           role: 'admin',
           created_at: store.links[0].createdAt.toISOString(),
           expires_at: store.links[0].expiresAt.toISOString(),
+          max_uses: 1,
+          uses: 0,
           created_by: { id: ADA, name: 'Ada' },
         },
       ],
@@ -326,6 +333,63 @@ describe('invites api', () => {
     });
     expect((await request(app()).delete('/api/v1/invites/invite-1')).status).toBe(404);
     expect((await request(app()).get('/api/v1/invites')).body.data).toEqual([]);
+  });
+
+  it('lasts a week for one person unless told otherwise', async () => {
+    const before = Date.now();
+    await request(app()).post('/api/v1/invites').send({ role: 'member' });
+    const link = store.links[0];
+    expect(link.maxUses).toBe(1);
+    const week = 7 * 24 * 3600 * 1000;
+    expect(link.expiresAt.getTime()).toBeGreaterThanOrEqual(before + week);
+    expect(link.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + week);
+  });
+
+  it('makes a member link for many people, or for anyone until it ends', async () => {
+    const ten = await request(app())
+      .post('/api/v1/invites')
+      .send({ role: 'member', max_uses: 10, expires_in_days: 30 });
+    expect(ten.status).toBe(201);
+    expect(ten.body).toMatchObject({ role: 'member', max_uses: 10, uses: 0 });
+    const days = (Date.parse(ten.body.expires_at) - Date.now()) / (24 * 3600 * 1000);
+    expect(days).toBeGreaterThan(29.9);
+    expect(days).toBeLessThanOrEqual(30);
+
+    const open = await request(app())
+      .post('/api/v1/invites')
+      .send({ role: 'member', max_uses: null, expires_in_days: 1 });
+    expect(open.status).toBe(201);
+    expect(open.body.max_uses).toBeNull();
+    expect(store.links[1].maxUses).toBeNull();
+
+    const list = await request(app()).get('/api/v1/invites');
+    expect(list.body.data.map((i: { max_uses: number | null }) => i.max_uses)).toEqual([10, null]);
+  });
+
+  it('lets an admin invite only one person', async () => {
+    for (const max_uses of [2, null]) {
+      const res = await request(app()).post('/api/v1/invites').send({ role: 'admin', max_uses });
+      expect(res.status).toBe(400);
+      expect(res.body.reason).toBe('admin_multi_use');
+    }
+    expect(store.links).toEqual([]);
+    const one = await request(app()).post('/api/v1/invites').send({ role: 'admin', max_uses: 1 });
+    expect(one.status).toBe(201);
+  });
+
+  it('refuses limits and lifetimes it does not offer', async () => {
+    for (const body of [
+      { role: 'member', max_uses: 0 },
+      { role: 'member', max_uses: 1001 },
+      { role: 'member', max_uses: 2.5 },
+      { role: 'member', max_uses: '10' },
+      { role: 'member', expires_in_days: 3 },
+      { role: 'member', uses: 5 },
+    ]) {
+      const res = await request(app()).post('/api/v1/invites').send(body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+    expect(store.links).toEqual([]);
   });
 
   it('needs a role', async () => {

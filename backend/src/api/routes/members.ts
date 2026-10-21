@@ -18,6 +18,7 @@ export interface MemberRouteDeps {
   createInvite: (data: {
     tokenHash: string;
     role: Role;
+    maxUses: number | null;
     createdBy: string | null;
     expiresAt: Date;
   }) => Promise<{ id: string; createdAt: Date; expiresAt: Date }>;
@@ -38,6 +39,31 @@ const roleSchema = z.enum(ROLES, { message: `role must be one of: ${ROLES.join('
 
 const roleBodySchema = z.object({ role: roleSchema }).strict();
 
+/** The most people one invite link can be limited to; null lifts the limit. */
+export const MAX_INVITE_USES = 1000;
+/** How long an invite link can work, in days. */
+export const INVITE_DAYS = [1, 7, 30] as const;
+const DAY_MS = 24 * 3600 * 1000;
+
+const inviteBodySchema = z
+  .object({
+    role: roleSchema,
+    max_uses: z
+      .number({ message: 'max_uses must be a whole number or null' })
+      .int({ message: 'max_uses must be a whole number or null' })
+      .min(1, { message: 'max_uses must be at least 1' })
+      .max(MAX_INVITE_USES, { message: `max_uses must be at most ${MAX_INVITE_USES}` })
+      .nullable()
+      .optional(),
+    expires_in_days: z
+      .union(
+        INVITE_DAYS.map((d) => z.literal(d)),
+        { message: `expires_in_days must be one of: ${INVITE_DAYS.join(', ')}` },
+      )
+      .optional(),
+  })
+  .strict();
+
 function formatMember(m: MemberRecord) {
   return {
     id: m.id,
@@ -56,6 +82,8 @@ function formatInvite(i: PendingInvite) {
     role: i.role,
     created_at: i.createdAt.toISOString(),
     expires_at: i.expiresAt.toISOString(),
+    max_uses: i.maxUses,
+    uses: i.uses,
     created_by: i.createdBy ? { id: i.createdBy.id, name: i.createdBy.name } : null,
   };
 }
@@ -148,8 +176,8 @@ export function createMemberRoutes(deps: MemberRouteDeps): Router {
 
   /**
    * GET /api/v1/invites
-   * Invites nobody used yet that still work, newest first. Their links are
-   * not shown again.
+   * Invites that still let someone join, newest first, with how many people
+   * joined with each. Their links are not shown again.
    */
   router.get('/invites', ...guard, async (_req: Request, res: Response) => {
     const pending = await deps.listPendingInvites();
@@ -158,22 +186,37 @@ export function createMemberRoutes(deps: MemberRouteDeps): Router {
 
   /**
    * POST /api/v1/invites
-   * A single-use invite link, valid for a week, for one new member with
-   * `role`. The url is only shown here.
+   * An invite link for new people with `role`: by default one person, for a
+   * week. `max_uses` lets up to that many join (null: until it expires or is
+   * revoked), only for members, since a forwarded link would otherwise hand
+   * out admin; `expires_in_days` is 1, 7 or 30. The url is only shown here.
    */
   router.post('/invites', ...guard, async (req: Request, res: Response) => {
-    const body = parseOrThrow(roleBodySchema, req.body ?? {});
+    const body = parseOrThrow(inviteBodySchema, req.body ?? {});
+    const maxUses = body.max_uses === undefined ? 1 : body.max_uses;
+    if (body.role === 'admin' && maxUses !== 1) {
+      throw new AppError(
+        400,
+        'An admin invite lets one person join. Invite more people as members.',
+        undefined,
+        { reason: 'admin_multi_use' },
+      );
+    }
+    const days = body.expires_in_days;
     const { token, tokenHash } = newLinkToken();
     const invite = await deps.createInvite({
       tokenHash,
       role: body.role,
+      maxUses,
       createdBy: req.apiKey!.userId,
-      expiresAt: new Date(Date.now() + LINK_TTL_MS),
+      expiresAt: new Date(Date.now() + (days === undefined ? LINK_TTL_MS : days * DAY_MS)),
     });
     res.status(201).json({
       id: invite.id,
       url: inviteUrl(token),
       role: body.role,
+      max_uses: maxUses,
+      uses: 0,
       expires_at: invite.expiresAt.toISOString(),
     });
   });

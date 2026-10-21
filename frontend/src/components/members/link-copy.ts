@@ -16,4 +16,22 @@ export const ROLE_DETAIL: Record<Role, string> = {
 };
 
 /** The line under the pending invites heading, on the page and its skeleton. */
-export const PENDING_INVITES_LEAD = 'Each link lets one person join and works for a week.';
+export const PENDING_INVITES_LEAD =
+  'Links show here until they are used up, expire or are revoked.';
+
+/** How long a new invite link can work. */
+export const INVITE_DAYS = [1, 7, 30] as const;
+export type InviteDays = (typeof INVITE_DAYS)[number];
+export const INVITE_DAYS_LABEL: Record<InviteDays, string> = {
+  1: '1 day',
+  7: '7 days',
+  30: '30 days',
+};
+
+/** The most people one invite link can be limited to; the server refuses more. */
+export const MAX_INVITE_USES = 1000;
+
+/** How many joined with an invite: "0 of 1", "3 of 10", "5 (no limit)". */
+export function inviteUses(uses: number, max: number | null): string {
+  return max === null ? `${uses} (no limit)` : `${uses} of ${max}`;
+}
