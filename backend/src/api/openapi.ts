@@ -1283,6 +1283,23 @@ export const openapiDocument = {
           password: { type: 'string', minLength: 1, maxLength: 1024 },
         },
       },
+      RenameRequest: {
+        type: 'object',
+        required: ['name'],
+        additionalProperties: false,
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 100, description: 'Trimmed.' },
+        },
+      },
+      EmailChangeRequest: {
+        type: 'object',
+        required: ['email', 'current_password'],
+        additionalProperties: false,
+        properties: {
+          email: { type: 'string', maxLength: 254, description: 'Trimmed and lowercased.' },
+          current_password: { type: 'string', minLength: 1, maxLength: 1024 },
+        },
+      },
       PasswordChangeRequest: {
         type: 'object',
         required: ['current_password', 'new_password'],
@@ -1785,6 +1802,101 @@ export const openapiDocument = {
         responses: {
           '200': jsonResponse('AuthMe', 'The signed-in account, or the local dev account.'),
           '401': ref('Unauthorized'),
+        },
+      },
+      patch: {
+        tags: ['Auth'],
+        summary: "Change the signed-in member's name.",
+        description: 'Studio sessions only. The name the members list and the Studio show.',
+        security: [{ cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/RenameRequest' } },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Renamed.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['name'],
+                  properties: { name: { type: 'string' } },
+                },
+              },
+            },
+          },
+          '400': ref('BadRequest'),
+          '401': ref('Unauthorized'),
+          '409': errorWith('Sign-in is disabled on this server.'),
+        },
+      },
+    },
+    '/api/v1/auth/email/change': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Change the email the signed-in member signs in with.',
+        description:
+          'Studio sessions only. Needs the current password; the password itself stays. ' +
+          'Counts against the same attempt limits as a password change.',
+        security: [{ cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/EmailChangeRequest' } },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Changed.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['email'],
+                  properties: { email: { type: 'string' } },
+                },
+              },
+            },
+          },
+          '400': ref('BadRequest'),
+          '401': ref('Unauthorized'),
+          '403': errorWith('The current password is wrong (`reason: bad_credentials`).'),
+          '409': errorWith(
+            'Another account signs in with that email (`email_taken`), the account has no ' +
+              'password (`no_password`), or sign-in is disabled on this server.',
+          ),
+          '429': attemptsLimited,
+        },
+      },
+    },
+    '/api/v1/auth/identities/{provider}': {
+      delete: {
+        tags: ['Auth'],
+        summary: 'Stop signing in with a provider.',
+        description:
+          'Studio sessions only. Takes a provider such as GitHub off the signed-in account. ' +
+          'Sessions that signed in through it end. An email and password is changed, not removed.',
+        security: [{ cookieAuth: [] }],
+        parameters: [
+          {
+            name: 'provider',
+            in: 'path' as const,
+            required: true,
+            schema: { type: 'string', enum: ['github'] },
+            description: 'The sign-in provider.',
+          },
+        ],
+        responses: {
+          '200': jsonResponse('Success', 'Removed.'),
+          '401': ref('Unauthorized'),
+          '404': errorWith('No such provider, or the account does not sign in with it.'),
+          '409': errorWith(
+            'This browser signed in with it (`current_sign_in`), it is the only way to sign in ' +
+              '(`last_sign_in`), or sign-in is disabled on this server.',
+          ),
         },
       },
     },
