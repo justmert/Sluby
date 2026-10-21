@@ -1693,9 +1693,9 @@ export class Landing extends Component<object, State> {
                   color: 'rgba(31,26,20,.7)',
                 }}
               >
-                With the Sluby player, viewers can stream straight from the hosts on Sia. Your
-                server steps in only when it is needed, and the Studio shows how much of each play
-                came from Sia.
+                Every video plays from Sia. Your server relays the first seconds so playback starts
+                fast, then the viewer's browser reads the rest straight from the Sia hosts. The
+                Studio shows how much of each play came direct.
               </p>
               <div
                 className={`rv d2 ${st.seenDirect}`}
@@ -1718,7 +1718,7 @@ export class Landing extends Component<object, State> {
                 >
                   in this example,
                   <br />
-                  came from Sia
+                  came straight from Sia
                 </span>
               </div>
             </div>
@@ -1843,7 +1843,7 @@ export class Landing extends Component<object, State> {
                         background: '#e8743b',
                       }}
                     ></span>
-                    Through your server
+                    From Sia via your server
                   </span>
                 </div>
               </div>
