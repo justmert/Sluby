@@ -25,6 +25,8 @@
     "typecheck": "tsc --noEmit -p backend/tsconfig.json && tsc --noEmit -p packages/sdk/tsconfig.json && tsc --noEmit -p packages/player/tsconfig.json && tsc --noEmit -p frontend/tsconfig.json",
     "docs:dev": "npm --prefix docs run dev",
     "docs:build": "npm --prefix docs run build",
+    "landing:dev": "npm --prefix landing run dev",
+    "landing:build": "npm --prefix landing run build",
     "check:packages": "npm run build:sdk && npm run build:player && node scripts/check-packages.mjs"
   },
   "engines": {
