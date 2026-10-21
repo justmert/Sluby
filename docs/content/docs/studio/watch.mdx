@@ -33,15 +33,15 @@ The qualities offered are the ones the server made for this video. They are also
 
 ## Where the video streams from
 
-A badge next to the **Quality** menu shows where the video's data comes from:
+A badge next to the **Quality** menu shows how the video reaches your browser. The video is always stored on Sia; the badge says whether your server relays it or your browser reads it from the Sia hosts itself.
 
-| Badge                   | Meaning                                                                                                                                           |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Sia and this server** | The video starts through your server and the rest streams straight from Sia to your browser. Shown before the first part of the video has loaded. |
-| **75% from Sia**        | The same mix, with the share of the data loaded so far that came straight from Sia. The number updates as the video plays.                        |
-| **Through this server** | Your server fetches the video from Sia and passes it to your browser.                                                                             |
+| Badge                                  | Meaning                                                                                                                                                                                                                                                                                         |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **From Sia, starting via this server** | The video starts through your server and the rest streams straight from Sia to your browser. Shown before the first part of the video has loaded.                                                                                                                                               |
+| **From Sia, 35% direct**               | The same mix, with the share of the data loaded so far that your browser read straight from Sia. The number updates as the video plays. The first seconds always come through your server: the Studio reads from Sia only once five seconds are buffered ahead and the Sia hosts have answered. |
+| **From Sia via this server**           | Your server reads the video from Sia and passes it to your browser.                                                                                                                                                                                                                             |
 
-The Studio streams from Sia in your browser when the server is set up for it ([Stream from Sia in the browser](/self-hosting/direct-playback)). Otherwise, and in browsers that play the video with their built-in player (such as Safari on some iPhones), the badge reads **Through this server**. For how the delivery modes work, see [playback and delivery](/developers/concepts/playback).
+The Studio streams from Sia in your browser when the server is set up for it ([Stream from Sia in the browser](/self-hosting/direct-playback)). Otherwise, and in browsers that play the video with their built-in player (such as Safari on some iPhones), the badge reads **From Sia via this server**. For how the delivery modes work, see [playback and delivery](/developers/concepts/playback).
 
 ## When a video does not play
 

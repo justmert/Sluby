@@ -85,25 +85,28 @@ describe('AssetPlayer', () => {
   it('names where the bytes come from in a pill on the video', () => {
     renderPage(<AssetPlayer assetId="a1" signed={false} />);
     fire(() => last.props!.onDeliveryChange!('sia'));
-    const pill = screen.getByText('Direct from Sia');
+    const pill = screen.getByText('From Sia, direct');
     expect(pill).toHaveClass('rounded-full');
     fire(() => last.props!.onDeliveryChange!('gateway'));
-    expect(screen.getByText('Through this server')).toBeInTheDocument();
+    expect(screen.getByText('From Sia via this server')).toBeInTheDocument();
   });
 
   it('plays hybrid and counts how much of the video came from Sia', () => {
     renderPage(<AssetPlayer assetId="a1" signed={false} />);
-    expect(last.props).toMatchObject({ siaDelivery: 'hybrid' });
+    expect(last.props).toMatchObject({
+      siaDelivery: 'hybrid',
+      hybridPolicy: { minBufferSec: 5, safetyMarginSec: 2 },
+    });
     fire(() => last.props!.onDeliveryChange!('hybrid'));
-    expect(screen.getByText('Sia and this server')).toBeInTheDocument();
+    expect(screen.getByText('From Sia, starting via this server')).toBeInTheDocument();
     const stats = { siaSegments: 3, gatewaySegments: 1, fallbacks: 0 };
     fire(() => last.props!.onDeliveryStats!({ ...stats, siaBytes: 0, gatewayBytes: 2_000 }));
-    expect(screen.getByText('0% from Sia')).toBeInTheDocument();
+    expect(screen.getByText('From Sia, 0% direct')).toBeInTheDocument();
     fire(() => last.props!.onDeliveryStats!({ ...stats, siaBytes: 6_000, gatewayBytes: 2_000 }));
-    expect(screen.getByText('75% from Sia')).toBeInTheDocument();
+    expect(screen.getByText('From Sia, 75% direct')).toBeInTheDocument();
     // a new load starts its count over
     fire(() => last.props!.onDeliveryChange!('hybrid'));
-    expect(screen.getByText('Sia and this server')).toBeInTheDocument();
+    expect(screen.getByText('From Sia, starting via this server')).toBeInTheDocument();
   });
 
   it('announces a playback error with the reader sentence for the api error behind it', () => {
