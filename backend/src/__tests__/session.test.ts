@@ -374,6 +374,20 @@ describe('resolveSession', () => {
     expect(reason).toBe('not_allowed');
   });
 
+  it('says not_allowed, not revoked, when removing the member ended the session', async () => {
+    const token = signSession(SID, UID, SECRET, 3600);
+    const ended = { userId: UID, expiresAt: row.expiresAt, revokedAt: new Date() };
+    const reason = (current: Account) =>
+      whySessionEnded(cookie(token), {
+        secret: SECRET,
+        findSession: async () => ended,
+        getAccount: async () => current,
+      });
+    expect(await reason(removed)).toBe('not_allowed');
+    // a member who was restored since gets the plain signed-out notice
+    expect(await reason(account)).toBe('revoked');
+  });
+
   it('records activity when the session was not seen in the last five minutes', async () => {
     const token = signSession(SID, UID, SECRET, 3600);
     const seen: string[] = [];
