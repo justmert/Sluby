@@ -9,7 +9,7 @@ import { errorText } from '@/lib/errors';
 const CONFIRM: Record<AccessTier, { title: string; body: string; action: string }> = {
   private: {
     title: 'Make this video private?',
-    body: 'Players without a signed URL stop working within a minute. Viewers who already have a link keep it until it expires.',
+    body: 'Links you already shared stop working within a minute. A player streaming straight from Sia can keep playing for up to six hours.',
     action: 'Make private',
   },
   public: {

@@ -29,7 +29,7 @@ describe('AccessControl', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Make this video private?' });
     expect(dialog).toHaveAccessibleDescription(
-      'Players without a signed URL stop working within a minute. Viewers who already have a link keep it until it expires.',
+      'Links you already shared stop working within a minute. A player streaming straight from Sia can keep playing for up to six hours.',
     );
     expect(onChange).not.toHaveBeenCalled();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Make private' }));

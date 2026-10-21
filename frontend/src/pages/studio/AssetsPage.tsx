@@ -951,7 +951,7 @@ export default function AssetsPage() {
         }}
         description={(a) =>
           a.tier === 'private'
-            ? 'Players without a signed URL stop working within a minute. Viewers who already have a link keep it until it expires.'
+            ? 'Links you already shared stop working within a minute. A player streaming straight from Sia can keep playing for up to six hours.'
             : a.assets.length === 1
               ? 'Anyone with the stream URL can play it.'
               : 'Anyone with the stream URL can play them.'
