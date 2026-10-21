@@ -20,6 +20,7 @@ export const MEMBER_COLUMNS: readonly ColumnFrame[] = [
 
 export const INVITE_COLUMNS: readonly ColumnFrame[] = [
   { id: 'role', header: 'Role', primary: true, className: 'whitespace-nowrap' },
+  { id: 'joined', header: 'Joined', className: 'whitespace-nowrap tabular-nums' },
   { id: 'created-by', header: 'Created by', className: 'whitespace-normal' },
   { id: 'created', header: 'Created', className: 'max-sm:hidden! whitespace-nowrap' },
   { id: 'expires', header: 'Expires', className: 'whitespace-nowrap' },
