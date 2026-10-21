@@ -13,11 +13,11 @@ Every rendition of a video is stored on Sia as one data file plus one HLS playli
 
 ## Delivery modes
 
-| Mode    | Where the bytes come from                                                         | When it applies                                                                                                                                                                                  |
-| ------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Gateway | Your Sluby server reads from Sia and streams to the player over HTTP              | Always available. The watch page, plain hls.js, Safari's native HLS, and any player without a Sia viewer session use it.                                                                         |
-| Direct  | The browser downloads every playlist and segment from Sia itself, with share URLs | `@sluby/player` with a Sia viewer session and `siaDelivery="direct"` (the default when a session exists)                                                                                         |
-| Hybrid  | Playlists and urgent segments from the gateway, the rest from Sia                 | `@sluby/player` with a Sia viewer session and `siaDelivery="hybrid"`. The Studio plays videos this way when it is built with a viewer identity, with `minBufferSec: 5` and `safetyMarginSec: 2`. |
+| Mode    | Where the bytes come from                                                         | When it applies                                                                                                                                                                                                               |
+| ------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gateway | Your Sluby server reads from Sia and streams to the player over HTTP              | Always available. Plain hls.js, Safari's native HLS, any player without a Sia viewer session, and the watch page on a server without a viewer identity use it.                                                                |
+| Direct  | The browser downloads every playlist and segment from Sia itself, with share URLs | `@sluby/player` with a Sia viewer session and `siaDelivery="direct"` (the default when a session exists)                                                                                                                      |
+| Hybrid  | Playlists and urgent segments from the gateway, the rest from Sia                 | `@sluby/player` with a Sia viewer session and `siaDelivery="hybrid"`. The Studio and the watch page play videos this way when the web image is built with a viewer identity, with `minBufferSec: 5` and `safetyMarginSec: 2`. |
 
 The player reports the mode it ends up using through `onDeliveryChange` with `sia`, `hybrid` or `gateway`. Props and callbacks are listed on the [player reference](/developers/reference/player); enabling a viewer identity for your server is on [Stream from Sia in the browser](/self-hosting/direct-playback).
 
@@ -195,7 +195,10 @@ A playback id gates only its entry points. The objects themselves follow the ass
 
 ## The watch page
 
-`GET /watch/{id}` is a public HTML page that plays one video, by asset id or playback id. You can send it as a link or embed it in an `<iframe>` on any site. It plays `/v1/stream/{id}/master.m3u8` through the gateway with hls.js served from your Sluby server (or the browser's own HLS where hls.js cannot run), so it loads nothing from a CDN.
+`GET /watch/{id}` is a public HTML page that plays one video, by asset id or playback id. You can send it as a link or embed it in an `<iframe>` on any site. It plays `/v1/stream/{id}/master.m3u8` and loads nothing from a CDN:
+
+- **With a viewer identity** in the web image, it plays the video [hybrid](#hybrid) with the same policy as the Studio, also inside an iframe. Its player, `/studio/watch-player.js`, comes from the web container and loads the Sia SDK's WebAssembly, so the page's Content Security Policy allows `'wasm-unsafe-eval'` and `https:` connections.
+- **Without one**, or where that player cannot run, it plays through the gateway with hls.js served from your Sluby server, or with the browser's own HLS where hls.js cannot run.
 
 - **Public video**: the page needs nothing, carries Open Graph tags (title, URL, and the poster when the video has one) for link previews, and is sent with `Cache-Control: no-cache`, so making the video private or deleting it takes effect on the next load.
 - **Private video or signed playback id**: the page needs the `expires` and `sig` of the video's signed master URL, as `/watch/{id}?expires=...&sig=...`. It passes them on to the stream and signs the poster with the same expiry. The page is sent with `Cache-Control: private, no-store` and `noindex`, and has no Open Graph tags.
