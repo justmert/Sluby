@@ -48,6 +48,20 @@ describe('useVideo', () => {
     expect(result.current.currentQuality?.name).toBe('1080p');
   });
 
+  it('names a portrait rendition by its short side, like the player', () => {
+    const video = document.createElement('video');
+    const hlsRef: { current: Hls | null } = { current: null };
+    const videoRef = { current: video };
+    const { result } = renderHook(() => useVideo(videoRef, hlsRef));
+    const { hls, emit } = fakeHls([{ width: 720, height: 1280, bitrate: 3_500_000 }]);
+    hlsRef.current = hls;
+    act(() => {
+      video.dispatchEvent(new Event('loadstart'));
+    });
+    act(() => emit('parsed'));
+    expect(result.current.qualities[0].name).toBe('720p');
+  });
+
   it('moves to a replacement instance after a retry', () => {
     const video = document.createElement('video');
     const first = fakeHls([{ width: 640, height: 360, bitrate: 800_000 }]);
