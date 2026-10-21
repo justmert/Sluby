@@ -720,7 +720,7 @@ export class Landing extends Component<object, State> {
               <a className="navlink" href={DOCS}>
                 Docs
               </a>
-              <a className="navlink" href="https://sluby.app">
+              <a className="navlink" href="https://app.sluby.app">
                 App
               </a>
               <a className="navlink" href={GITHUB}>
@@ -2968,7 +2968,7 @@ export class Landing extends Component<object, State> {
               <span style={{ fontSize: '14px', color: 'rgba(31,26,20,.45)', marginBottom: '8px' }}>
                 Project
               </span>
-              <a className="flink" href="https://sluby.app">
+              <a className="flink" href="https://app.sluby.app">
                 Sluby app
               </a>
               <a className="flink" href={GITHUB}>
