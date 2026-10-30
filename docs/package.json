@@ -12,13 +12,13 @@
     "skill:zip": "node scripts/build-skill-zip.mjs"
   },
   "dependencies": {
-    "fumadocs-core": "16.17.7",
-    "fumadocs-mdx": "15.4.8",
-    "fumadocs-openapi": "12.5.4",
+    "fumadocs-core": "16.17.8",
+    "fumadocs-mdx": "15.4.10",
+    "fumadocs-openapi": "12.5.5",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.17.7",
     "lucide-react": "^1.60.0",
     "mermaid": "^12.2.0",
-    "next": "16.4.2",
+    "next": "16.4.3",
     "next-themes": "^0.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -31,7 +31,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "next-validate-link": "^1.6.7",
-    "postcss": "^8.5.31",
+    "postcss": "^8.5.32",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
