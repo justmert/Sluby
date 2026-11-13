@@ -18,7 +18,7 @@ ARG SIA_STORAGE_NATIVE=
 
 # rust 1.99.0, pinned by digest so the same source always meets the same
 # toolchain
-FROM rust:1.99.0-trixie@sha256:6ff07edce8775d0f64be7aba9197229407301bddf2054d62c27b541a6238a181 AS sia-native-arm64
+FROM rust:1.99.1-trixie@sha256:8a4e90c7946b74626488b1446f712c0fe0ed1a596cbd3d871684bc9c5433ae07 AS sia-native-arm64
 ARG SIA_SDK_RS_COMMIT
 WORKDIR /src
 RUN git init -q . \
